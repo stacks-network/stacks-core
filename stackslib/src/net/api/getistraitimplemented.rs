@@ -158,10 +158,9 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    let epoch = clarity_tx.get_epoch();
                     clarity_tx.with_clarity_db_readonly(|db| {
                         let analysis = db
-                            .get_contract_analysis(&contract_identifier, &epoch)
+                            .get_contract_analysis(&contract_identifier, None)
                             .ok()
                             .flatten()?;
                         if analysis.implemented_traits.contains(&trait_id) {
@@ -170,7 +169,7 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
                             })
                         } else {
                             let trait_defining_contract = db
-                                .get_contract_analysis(&trait_id.contract_identifier, &StacksEpochId::latest())
+                                .get_contract_analysis(&trait_id.contract_identifier, None)
                                 .ok()
                                 .flatten()?;
                             let trait_definition =

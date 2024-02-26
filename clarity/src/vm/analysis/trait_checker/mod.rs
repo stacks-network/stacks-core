@@ -55,8 +55,7 @@ impl TraitChecker {
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = clarity_db
-                .get_contract_analysis(&trait_identifier.contract_identifier, &self.epoch)
-                .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
+                .get_contract_analysis(&trait_identifier.contract_identifier, Some(self.epoch))?
                 .ok_or(CheckErrors::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;

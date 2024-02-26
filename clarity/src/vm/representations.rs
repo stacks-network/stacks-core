@@ -17,14 +17,16 @@
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{BuildHasher, Hash};
 use std::io::{Read, Write};
-use std::ops::Deref;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 #[cfg(test)]
 use fake::Faker;
 use lazy_static::lazy_static;
 use regex::Regex;
-use speedy::{Readable, Writable};
+use speedy::{Endianness, Readable, Writable};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
 };

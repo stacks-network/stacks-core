@@ -377,14 +377,14 @@ fn check_contract_call(
                 if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(
                     contract_identifier,
                     func_name,
-                    &StacksEpochId::Epoch21,
-                ).map_err(|_| CheckErrors::Expects("Failed to get public function type".into()))? {
+                    Some(StacksEpochId::Epoch21),
+                )? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
                         contract_identifier,
                         func_name,
-                        &StacksEpochId::Epoch21,
+                        Some(StacksEpochId::Epoch21),
                     )?
                 {
                     Ok(function)
@@ -450,15 +450,15 @@ fn check_contract_call(
                                 checker.db.get_public_function_type(
                                     contract_identifier,
                                     func_name,
-                                    &StacksEpochId::Epoch21,
-                                ).map_err(|_| CheckErrors::Expects("Failed to get public function type".into()))?
+                                    Some(StacksEpochId::Epoch21),
+                                )?
                             {
                                 Ok(function)
                             } else if let Some(FunctionType::Fixed(function)) =
                                 checker.db.get_read_only_function_type(
                                     contract_identifier,
                                     func_name,
-                                    &StacksEpochId::Epoch21,
+                                    Some(StacksEpochId::Epoch21),
                                 )?
                             {
                                 Ok(function)

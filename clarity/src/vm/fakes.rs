@@ -15,7 +15,9 @@ pub mod raw {
 
     use fake::locales::EN;
     use fake::{Dummy, Fake, Faker};
+    use hashbrown::HashMap;
     use rand::Rng;
+    use speedy::{Endianness, Readable, Writable};
 
     use super::ENGLISH_WORDS;
     use crate::vm::representations::Span;

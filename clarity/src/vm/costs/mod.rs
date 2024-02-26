@@ -557,7 +557,7 @@ fn load_cost_functions(
         // make sure the contract is "cost contract eligible" via the
         //  arithmetic-checking analysis pass
         let (cost_func_ref, cost_func_type) = match clarity_db
-            .get_contract_analysis(&cost_contract, &clarity_epoch)
+            .get_contract_analysis(&cost_contract, None)
             .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         {
             Some(c) => {
@@ -641,7 +641,7 @@ fn load_cost_functions(
         } else {
             // referring to a user-defined function
             match clarity_db
-                .get_contract_analysis(&target_contract, &clarity_epoch)
+                .get_contract_analysis(&target_contract, None)
                 .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
             {
                 Some(c) => {

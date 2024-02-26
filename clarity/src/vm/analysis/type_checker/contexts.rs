@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::HashMap;
 use speedy::{Readable, Writable};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hashmap::StacksHashMap;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
@@ -26,14 +26,14 @@ use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEP
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[derive(Writable, Readable)]
 pub struct TypeMap {
-    map: HashMap<u64, TypeSignature>,
+    map: StacksHashMap<u64, TypeSignature>,
 }
 
 pub struct TypingContext<'a> {
     pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
-    pub variable_types: HashMap<ClarityName, TypeSignature>,
-    pub traits_references: HashMap<ClarityName, TraitIdentifier>,
+    pub variable_types: StacksHashMap<ClarityName, TypeSignature>,
+    pub traits_references: StacksHashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16,
 }
@@ -47,7 +47,7 @@ impl Default for TypeMap {
 impl TypeMap {
     pub fn new() -> TypeMap {
         TypeMap {
-            map: HashMap::new(),
+            map: StacksHashMap::new(),
         }
     }
 
@@ -73,8 +73,8 @@ impl<'a> TypingContext<'a> {
         TypingContext {
             epoch,
             clarity_version,
-            variable_types: HashMap::new(),
-            traits_references: HashMap::new(),
+            variable_types: StacksHashMap::new(),
+            traits_references: StacksHashMap::new(),
             depth: 0,
             parent: None,
         }
@@ -87,8 +87,8 @@ impl<'a> TypingContext<'a> {
             Ok(TypingContext {
                 epoch: self.epoch,
                 clarity_version: self.clarity_version,
-                variable_types: HashMap::new(),
-                traits_references: HashMap::new(),
+                variable_types: StacksHashMap::new(),
+                traits_references: StacksHashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1,
             })

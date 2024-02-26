@@ -264,14 +264,14 @@ impl FunctionType {
                     Value::Principal(PrincipalData::Contract(contract)),
                 ) => {
                     let contract_to_check = db
-                        .get_contract_analysis(contract, &StacksEpochId::Epoch2_05)
+                        .get_contract_analysis(contract, Some(StacksEpochId::Epoch2_05))
                         .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
                         .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
                     let trait_definition = db
                         .get_defined_trait(
                             &trait_id.contract_identifier,
                             &trait_id.name,
-                            &StacksEpochId::Epoch2_05,
+                            Some(StacksEpochId::Epoch2_05),
                         )
                         .map_err(|_| {
                             CheckErrors::NoSuchContract(trait_id.contract_identifier.to_string())
@@ -430,19 +430,6 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(())
     }
 
-    fn load_contract_analysis(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        epoch: &StacksEpochId
-    ) -> CheckResult<Option<ContractAnalysis>> {
-        let analysis = self
-            .db
-            .get_contract_analysis(contract_identifier, epoch)
-            .map_err(|e| CheckErrors::Expects(format!("Failed to load contract analysis: {}", e)))?;
-
-        Ok(analysis)
-    }
-
     // Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(
         &mut self,
@@ -455,15 +442,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::TraitReferenceType(trait_identifier),
             ) => {
-                let contract_to_check = self
-                    .load_contract_analysis(contract_identifier, &StacksEpochId::Epoch2_05)?
+                let contract_to_check = self.db
+                    .get_contract_analysis(contract_identifier, Some(StacksEpochId::Epoch2_05))?
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
 
-                let contract_defining_trait = self
-                    .load_contract_analysis(
+                let contract_defining_trait = self.db
+                    .get_contract_analysis(
                         &trait_identifier.contract_identifier,
-                        &StacksEpochId::Epoch2_05,
+                        Some(StacksEpochId::Epoch2_05),
                     )?
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
@@ -959,10 +946,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     name,
                     trait_identifier,
                 } => {
-                    let result = self.get_defined_trait(
+                    let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
-                        &StacksEpochId::Epoch2_05,
+                        Some(StacksEpochId::Epoch2_05),
                     )?;
                     match result {
                         Some(trait_sig) => {
@@ -993,24 +980,5 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             // not a define.
             Ok(None)
         }
-    }
-
-    pub fn get_defined_trait(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        trait_name: &str,
-        epoch: &StacksEpochId,
-    ) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
-        let analysis = self.load_contract_analysis(contract_identifier, epoch)?
-            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-
-        let result = analysis.get_defined_trait(trait_name).map(|trait_map| {
-            trait_map
-                .iter()
-                .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
-                .collect()
-        });
-
-        Ok(result)
     }
 }

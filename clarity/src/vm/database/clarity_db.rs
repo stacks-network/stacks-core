@@ -807,17 +807,6 @@ impl<'a> ClarityDatabase<'a> {
     //     Ok(())
     // }
 
-    pub fn insert_contract_analysis(&mut self, analysis: &ContractAnalysis) -> Result<()> {
-        Ok(with_clarity_cache(|cache| {
-            self.store.put_contract_analysis(&analysis);
-
-            cache.push_contract_analysis(
-                analysis.contract_identifier.clone(),
-                analysis.clone()
-            );
-        }))
-    }
-
     pub fn insert_contract2(&mut self, contract: Contract, src: &str) -> Result<()> {
         let ctx = contract.contract_context;
         
@@ -831,7 +820,7 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<String>> {
 
-        Ok(with_clarity_cache(|cache| cache.try_get_contract(contract_identifier)
+        Ok(with_clarity_cache(|cache| cache.try_get_contract(contract_identifier, None)
             .map(|x| x.source.clone())
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
@@ -839,7 +828,7 @@ impl<'a> ClarityDatabase<'a> {
                     GetContractResult::Pending(pending) => Some(pending.source),
                     GetContractResult::Stored(stored) => {
                         let src = stored.source.clone();
-                        cache.push_contract(contract_identifier.clone(), stored);
+                        cache.push_contract(contract_identifier.clone(), None, stored);
                         Some(src)
                     }
                     GetContractResult::NotFound => None,
@@ -852,15 +841,24 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        with_clarity_cache(|cache| cache.try_get_contract(contract_identifier)
-            .map(|x| x.contract.clone())
+        let epoch = self.get_clarity_epoch_version()
+            .expect("FATAL: failed to determine current clarity epoch version");
+
+        with_clarity_cache(|cache| cache
+            .try_get_contract(contract_identifier, Some(epoch))
+            .map(|x| {
+                let mut context = x.contract.clone();
+                context.canonicalize_types(&epoch);
+                context
+            })
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
                 match ctx {
                     GetContractResult::Pending(pending) => Some(pending.contract),
                     GetContractResult::Stored(stored) => {
-                        let context = stored.contract.clone();
-                        cache.push_contract(contract_identifier.clone(), stored);
+                        let mut context = stored.contract.clone();
+                        context.canonicalize_types(&epoch);
+                        cache.push_contract(contract_identifier.clone(), Some(epoch), stored);
                         Some(context)
                     }
                     GetContractResult::NotFound => None,
@@ -2286,22 +2284,38 @@ impl<'a> ClarityDatabase<'a> {
 
 // contract analysis
 impl<'a> ClarityDatabase<'a> {
+    pub fn insert_contract_analysis(&mut self, analysis: &ContractAnalysis) -> Result<()> {
+        Ok(with_clarity_cache(|cache| {
+            self.store.put_contract_analysis(&analysis);
+
+            cache.push_contract_analysis(
+                analysis.contract_identifier.clone(),
+                None,
+                analysis.clone()
+            );
+        }))
+    }
+
     pub fn get_contract_analysis(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-        epoch: &StacksEpochId
+        epoch: Option<StacksEpochId>
     ) -> Result<Option<ContractAnalysis>> {
-        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier))
+        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier, epoch))
             .map(|x| x.clone())
             .or_else(|| {
                 self.store.get_contract_analysis(contract_identifier).ok()?
-                    .map(|x| {
-                        let mut analysis = x.clone();
-                        analysis.canonicalize_types(epoch);
-                        with_clarity_cache(|cache|
-                            cache.push_contract_analysis(contract_identifier.clone(), analysis.clone())
-                        );
-                        analysis
+                    .map(|mut analysis| {
+                        if let Some(epoch) = epoch {
+                            //let mut analysis = analysis.clone();
+                            analysis.canonicalize_types(&epoch);
+                            with_clarity_cache(|cache|
+                                cache.push_contract_analysis(contract_identifier.clone(), Some(epoch), analysis.clone())
+                            );
+                            analysis
+                        } else {
+                            analysis
+                        }
                     })
             })
         )
@@ -2311,22 +2325,29 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
-        epoch: &StacksEpochId,
+        epoch: Option<StacksEpochId>,
     ) -> Result<Option<FunctionType>> {
         test_debug!("get_public_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
         let analysis = self
             .get_contract_analysis(contract_identifier, epoch)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
         Ok(analysis
             .get_public_function_type(function_name)
-            .map(|x| x.canonicalize(epoch)))
+            .map(|func|
+                if let Some(epoch) = epoch { 
+                    func.canonicalize(&epoch) 
+                } else { 
+                    func.clone()
+                }
+            ))
     }
 
     pub fn get_read_only_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
-        epoch: &StacksEpochId,
+        epoch: Option<StacksEpochId>,
     ) -> Result<Option<FunctionType>> {
         test_debug!("get_read_only_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
         let analysis = self
@@ -2335,14 +2356,20 @@ impl<'a> ClarityDatabase<'a> {
 
         Ok(analysis
             .get_read_only_function_type(function_name)
-            .map(|x| x.canonicalize(epoch)))
+            .map(|func| 
+                if let Some(epoch) = epoch { 
+                    func.canonicalize(&epoch) 
+                } else { 
+                    func .clone()
+                }
+            ))
     }
 
     pub fn get_defined_trait(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
-        epoch: &StacksEpochId,
+        epoch: Option<StacksEpochId>,
     ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>> {
         test_debug!("get_defined_trait: contract_identifier={:?}, trait_name={:?}, epoch={:?}", contract_identifier, trait_name, epoch);
         let analysis = self
@@ -2353,7 +2380,15 @@ impl<'a> ClarityDatabase<'a> {
             test_debug!("trait_map with trait name {}: {:?}", trait_name, trait_map);
             trait_map
                 .iter()
-                .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
+                .map(|(name, sig)| 
+                    (
+                        name.clone(), 
+                        if let Some(epoch) = epoch { 
+                            sig.canonicalize(&epoch) 
+                        } else { 
+                            sig.clone()
+                        }
+                    ))
                 .collect()
         });
         test_debug!("defined_trait: {:?}", defined_trait);
@@ -2367,7 +2402,7 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<ClarityVersion> {
         test_debug!("get_clarity_version: contract_identifier={:?}", contract_identifier);
         let contract = self
-            .get_contract_analysis(contract_identifier, &StacksEpochId::latest())?
+            .get_contract_analysis(contract_identifier, None)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.clarity_version)
     }

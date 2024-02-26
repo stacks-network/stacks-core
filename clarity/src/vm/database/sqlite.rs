@@ -50,7 +50,7 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    trace!("sqlite_put_data: {} -> {}", key, value);
+    //trace!("sqlite_put_data: {} -> {}", key, value);
     let params: [&dyn ToSql; 2] = [&key, &value];
     match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
@@ -65,7 +65,7 @@ fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
 }
 
 fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
-    trace!("sqlite_get_data: {}", key);
+    //trace!("sqlite_get_data: {}", key);
     let params: [&dyn ToSql; 1] = [&key];
     let res = match conn
         .query_row(
@@ -83,7 +83,7 @@ fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
     };
 
     //trace!(" -> {:?}", &res);
-    trace!("sqlite_get {}: {:?}", key, &res);
+    //trace!("sqlite_get {}: {:?}", key, &res);
     res
 }
 
@@ -108,8 +108,8 @@ impl SqliteConnection {
     ) -> Result<ContractSizeData> {
         test_debug!("get_contract_sizes: {} {} {}", issuer, name, bhh);
 
-        #[cfg(feature = "testing")]
-        Self::print_contracts(conn)?;
+        // #[cfg(feature = "testing")]
+        // Self::print_contracts(conn)?;
 
         let mut statement = conn.prepare_cached(
             "
@@ -162,8 +162,8 @@ impl SqliteConnection {
     ) -> Result<bool> {
         test_debug!("contract_exists: {} {} {}", issuer, name, bhh);
 
-        #[cfg(feature = "testing")]
-        Self::print_contracts(conn)?;
+        // #[cfg(feature = "testing")]
+        // Self::print_contracts(conn)?;
 
         let mut statement = conn.prepare_cached(
             "
@@ -200,8 +200,8 @@ impl SqliteConnection {
     ) -> Result<Option<u32>> {
         test_debug!("get_internal_contract_id: {} {} {}", issuer, name, bhh);
 
-        #[cfg(feature = "testing")]
-        Self::print_contracts(conn)?;
+        // #[cfg(feature = "testing")]
+        // Self::print_contracts(conn)?;
 
         let mut statement = conn.prepare_cached(
             "
@@ -336,8 +336,8 @@ impl SqliteConnection {
             bhh
         );
 
-        #[cfg(feature = "testing")]
-        Self::print_contracts(conn)?;
+        // #[cfg(feature = "testing")]
+        // Self::print_contracts(conn)?;
 
         let mut statement = conn.prepare_cached(
             "
@@ -392,8 +392,8 @@ impl SqliteConnection {
         contract_id: u32
     ) -> Result<Option<ContractAnalysisData>> {
         test_debug!("get_contract_analysis: {}", contract_id);
-        #[cfg(feature = "testing")]
-        Self::print_contract_analyses(conn)?;
+        // #[cfg(feature = "testing")]
+        // Self::print_contract_analyses(conn)?;
 
         let mut statement = conn
             .prepare_cached(

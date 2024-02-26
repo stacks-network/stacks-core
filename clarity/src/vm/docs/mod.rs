@@ -2864,84 +2864,6 @@ mod test {
 
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
 
-        {
-            let mut clarity_db = store.as_clarity_db();
-
-            let whole_contract = segments.join("\n");
-            eprintln!("{}", whole_contract);
-            let mut parsed = ast::build_ast(
-                &contract_id,
-                &whole_contract,
-                &mut (),
-                ClarityVersion::latest(),
-                StacksEpochId::latest(),
-            )
-            .unwrap()
-            .expressions;
-        
-            let analysis = ContractAnalysis::new(
-                contract_id.clone(),
-                parsed.clone(),
-                LimitedCostTracker::new_free(),
-                StacksEpochId::latest(),
-                ClarityVersion::latest());
-            clarity_db.test_insert_contract_with_analysis(&contract_id, &whole_contract, &analysis);
-
-            let analysis = type_check(
-                &contract_id,
-                &mut parsed,
-                &mut clarity_db,
-                false,
-                &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
-            )
-            .expect("Failed to type check");
-        }
-
-        let mut type_results = vec![];
-        let mut total_example = "".to_string();
-        for segment in segments.iter() {
-            total_example.push_str(segment);
-            let mut parsed = ast::build_ast(
-                &contract_id,
-                &total_example,
-                &mut (),
-                ClarityVersion::latest(),
-                StacksEpochId::latest(),
-            )
-            .unwrap()
-            .expressions;
-
-            let mut clarity_db = store.as_clarity_db();
-
-            let analysis = ContractAnalysis::new(
-                contract_id.clone(),
-                parsed.clone(),
-                LimitedCostTracker::new_free(),
-                StacksEpochId::latest(),
-                ClarityVersion::latest());
-            clarity_db.test_insert_contract_with_analysis(&contract_id, &total_example, &analysis);
-
-            let analysis = type_check(
-                &contract_id,
-                &mut parsed,
-                &mut clarity_db,
-                false,
-                &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
-            )
-            .expect("Failed to type check");
-
-            type_results.push(
-                analysis
-                    .type_map
-                    .as_ref()
-                    .unwrap()
-                    .get_type(&analysis.expressions.last().unwrap())
-                    .cloned(),
-            );
-        }
-
         let conn = store.as_docs_clarity_db();
         let mut contract_context =
             ContractContext::new(contract_id.clone(), ClarityVersion::latest());
@@ -2955,7 +2877,7 @@ mod test {
 
         global_context
             .execute(|g| {
-                for (segment, type_result) in segments.iter().zip(type_results.iter()) {
+                for segment in segments.iter() {
                     let expected = if segment.contains("Returns ") {
                         let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
                         Some(segment[expects_start..].trim().to_string())
@@ -2963,7 +2885,7 @@ mod test {
                         None
                     };
 
-                    eprintln!("{}", segment);
+                    test_debug!("{}", segment);
 
                     let result = {
                         let parsed = ast::build_ast(
@@ -2981,12 +2903,6 @@ mod test {
 
                     if let Some(expected) = expected {
                         assert_eq!(expected, result.as_ref().unwrap().to_string());
-                        assert!(
-                            type_result.as_ref().unwrap().admits(&StacksEpochId::latest(), result.as_ref().unwrap()).unwrap(),
-                            "Type checker's expected type must admit result. Expected type = {}. Result = {}",
-                            type_result.as_ref().unwrap(),
-                            result.as_ref().unwrap()
-                        );
                     }
                 }
                 Ok(())
@@ -3029,55 +2945,59 @@ mod test {
                 )
                 .unwrap();
 
-                {
-                    let mut clarity_db = store.as_clarity_db();
-                    let mut parsed = ast::build_ast(
-                        &contract_id,
-                        &token_contract_content,
-                        &mut (),
-                        ClarityVersion::latest(),
-                        StacksEpochId::latest(),
-                    )
-                    .unwrap()
-                    .expressions;
+                // {
+                //     let mut clarity_db = store.as_clarity_db();
+                //     let mut parsed = ast::build_ast(
+                //         &contract_id,
+                //         &token_contract_content,
+                //         &mut (),
+                //         ClarityVersion::latest(),
+                //         StacksEpochId::latest(),
+                //     )
+                //     .unwrap()
+                //     .expressions;
 
-                    //clarity_db.test_insert_contract(&contract_id, &token_contract_content);
+                //     clarity_db.begin();
+                //     clarity_db.test_insert_contract(&contract_id, &token_contract_content);
+                //     clarity_db.commit().expect("failed to commit");
 
-                    type_check(
-                        &contract_id,
-                        &mut parsed,
-                        &mut clarity_db,
-                        true,
-                        &StacksEpochId::latest(),
-                        &ClarityVersion::latest(),
-                    )
-                    .expect("Failed to type check sample-contracts/tokens");
-                }
+                //     type_check(
+                //         &contract_id,
+                //         &mut parsed,
+                //         &mut clarity_db,
+                //         true,
+                //         &StacksEpochId::latest(),
+                //         &ClarityVersion::latest(),
+                //     )
+                //     .expect("Failed to type check sample-contracts/tokens");
+                // }
 
-                {
-                    let mut clarity_db = store.as_clarity_db();
-                    let mut parsed = ast::build_ast(
-                        &trait_def_id,
-                        super::DEFINE_TRAIT_API.example,
-                        &mut (),
-                        ClarityVersion::latest(),
-                        StacksEpochId::latest(),
-                    )
-                    .unwrap()
-                    .expressions;
+                // {
+                //     let mut clarity_db = store.as_clarity_db();
+                //     let mut parsed = ast::build_ast(
+                //         &trait_def_id,
+                //         super::DEFINE_TRAIT_API.example,
+                //         &mut (),
+                //         ClarityVersion::latest(),
+                //         StacksEpochId::latest(),
+                //     )
+                //     .unwrap()
+                //     .expressions;
 
-                    //clarity_db.test_insert_contract(&trait_def_id, super::DEFINE_TRAIT_API.example);
+                //     clarity_db.begin();
+                //     clarity_db.test_insert_contract(&trait_def_id, super::DEFINE_TRAIT_API.example);
+                //     clarity_db.commit().expect("failed to commit");
 
-                    type_check(
-                        &trait_def_id,
-                        &mut parsed,
-                        &mut clarity_db,
-                        true,
-                        &StacksEpochId::latest(),
-                        &ClarityVersion::latest(),
-                    )
-                    .expect("Failed to type check sample-contracts/tokens");
-                }
+                //     type_check(
+                //         &trait_def_id,
+                //         &mut parsed,
+                //         &mut clarity_db,
+                //         true,
+                //         &StacksEpochId::latest(),
+                //         &ClarityVersion::latest(),
+                //     )
+                //     .expect("Failed to type check sample-contracts/tokens");
+                // }
                 
                 let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();

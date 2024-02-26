@@ -2313,8 +2313,10 @@ mod tests {
 
         let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         // should not be in the marf.
-        assert_eq!(conn.get_contract_hash(&contract_identifier).unwrap(), None);
-        let sql = conn.get_side_store();
+        assert_eq!(
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
+            CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
+        );        let sql = conn.get_side_store();
         // sqlite only have entries
         assert_eq!(
             0,
@@ -2466,9 +2468,8 @@ mod tests {
 
         // should not be in the marf.
         assert_eq!(
-            conn.get_contract_hash(&contract_identifier)
-                .expect("failed to get contract hash"),
-            None
+            conn.get_contract_hash(&contract_identifier).unwrap_err(),
+            CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
         );
 
         let sql = conn.get_side_store();

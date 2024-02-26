@@ -354,7 +354,7 @@ impl<'a> RollbackWrapper<'a> {
         })?;
 
         if let Some(next_up) = self.stack.last_mut() {
-            test_debug!("[{}] KV roll-up commit", self.id);
+            //test_debug!("[{}] KV roll-up commit", self.id);
             // bubble up to the next item in the stack
             // last_mut() must exist because of the if-statement
             for (key, value) in last_item.edits.drain(..) {

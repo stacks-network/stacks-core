@@ -53,6 +53,7 @@ pub mod clarity;
 pub mod fakes;
 
 use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 
 use serde_json;
 use stacks_common::types::StacksEpochId;

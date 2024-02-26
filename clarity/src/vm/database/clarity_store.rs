@@ -126,17 +126,9 @@ pub trait ClarityBackingStore {
 
             Ok(Some((bhh, deserialized.hash)))
         } else {
-            Ok(None)
+            Err(CheckErrors::NoSuchContract(contract.to_string()).into())
+            //Ok(None)
         }
-
-        /*
-
-        let (block_height, contract_hash) = contract_commitment?;
-
-        let bhh = self.get_block_at_height(block_height)
-            .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
-
-        Ok(Some((bhh, contract_hash)))*/
     }
 
     /// Retrieves the specified contract from the backing store. Returns
@@ -146,46 +138,48 @@ pub trait ClarityBackingStore {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<StoredContract>> {
         test_debug!("STORE get_contract for {contract_identifier}");
-        let contract_hash = self.get_contract_hash(contract_identifier)?;
+        let (bhh, contract_hash) = match self.get_contract_hash(contract_identifier) {
+            Ok(Some(x)) => x,
+            Ok(None) => return Ok(None),
+            Err(err) => match err {
+                crate::vm::Error::Unchecked(CheckErrors::NoSuchContract(_)) => return Ok(None),
+                _ => return Err(err.into()),
+            }
+        };
 
-        if let Some((bhh, contract_hash)) = contract_hash {
-            let contract = SqliteConnection::get_contract(
-                self.get_side_store(),
-                &contract_identifier.issuer.to_string(),
-                &contract_identifier.name.to_string(),
-                &bhh,
-            )?;
+        let contract = SqliteConnection::get_contract(
+            self.get_side_store(),
+            &contract_identifier.issuer.to_string(),
+            &contract_identifier.name.to_string(),
+            &bhh,
+        )?;
 
-            Ok(if let Some(data) = contract {
-                let context_decompressed =
-                    lz4_flex::block::decompress(&data.contract, data.contract_size as usize)?;
-                //let context = rmp_serde::decode::from_slice(&context_decompressed)?;
-                let context = ContractContext::read_from_buffer(&context_decompressed)
-                    .expect("failed to deserialize contract context");
+        Ok(if let Some(data) = contract {
+            let context_decompressed =
+                lz4_flex::block::decompress(&data.contract, data.contract_size as usize)?;
+            //let context = rmp_serde::decode::from_slice(&context_decompressed)?;
+            let context = ContractContext::read_from_buffer(&context_decompressed)
+                .expect("failed to deserialize contract context");
 
-                let src_decompressed =
-                    lz4_flex::block::decompress(&data.source, data.source_size as usize)?;
-                test_debug!("STORE contract found with id #{}", data.id);
+            let src_decompressed =
+                lz4_flex::block::decompress(&data.source, data.source_size as usize)?;
+            test_debug!("STORE contract found with id #{}", data.id);
 
-                Some(StoredContract {
-                    id: data.id,
-                    issuer: data.issuer,
-                    name: data.name,
-                    contract: context,
-                    source_size: src_decompressed.len() as u32,
-                    source: String::from_utf8(src_decompressed)?,
-                    data_size: data.data_size,
-                    block_hash: bhh,
-                    contract_hash,
-                })
-            } else {
-                test_debug!("STORE contract was not found");
-                None
+            Some(StoredContract {
+                id: data.id,
+                issuer: data.issuer,
+                name: data.name,
+                contract: context,
+                source_size: src_decompressed.len() as u32,
+                source: String::from_utf8(src_decompressed)?,
+                data_size: data.data_size,
+                block_hash: bhh,
+                contract_hash,
             })
         } else {
-            test_debug!("STORE contract was not found (failed to find bhh)");
-            Ok(None)
-        }
+            test_debug!("STORE contract was not found");
+            None
+        })
     }
 
     fn get_contract_size(
@@ -212,9 +206,13 @@ pub trait ClarityBackingStore {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
-        let (bhh, _) = match self.get_contract_hash(contract_identifier)? {
-            Some(x) => x,
-            None => return Ok(false),
+        let (bhh, _) = match self.get_contract_hash(contract_identifier) {
+            Ok(Some(x)) => x,
+            Ok(None) => return Ok(false),
+            Err(err) => match err {
+                crate::vm::Error::Unchecked(CheckErrors::NoSuchContract(_)) => return Ok(false),
+                _ => return Err(err.into()),
+            }
         };
 
         let result = SqliteConnection::contract_exists(

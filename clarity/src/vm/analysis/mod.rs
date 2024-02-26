@@ -163,9 +163,9 @@ pub fn run_analysis(
             let interface = build_contract_interface(&contract_analysis)?;
             contract_analysis.contract_interface = Some(interface);
         }
+        
         if save_contract {
-            db.insert_contract_analysis(&contract_analysis)
-                .map_err(|e| CheckErrors::Expects(format!("Failed to save contract analysis: {}", e)))?;
+            db.insert_contract_analysis(&contract_analysis)?;
         }
 
         Ok(())

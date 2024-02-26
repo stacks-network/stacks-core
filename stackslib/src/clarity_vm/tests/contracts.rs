@@ -420,6 +420,7 @@ fn trait_invocation_cross_epoch() {
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 1 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         publish_contract(conn, &trait_contract_id, trait_contract, clarity_version).unwrap();
         publish_contract(conn, &impl_contract_id, impl_contract, clarity_version).unwrap();
         publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
@@ -431,6 +432,7 @@ fn trait_invocation_cross_epoch() {
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 2 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         assert_eq!(clarity_version, ClarityVersion::Clarity2);
         publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version).unwrap();
     });
@@ -438,6 +440,8 @@ fn trait_invocation_cross_epoch() {
     info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 3 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
@@ -456,6 +460,8 @@ fn trait_invocation_cross_epoch() {
     // now in Stacks 2.2
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 4 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         conn.as_transaction(|clarity_db| {
             let error = clarity_db
                 .run_contract_call(
@@ -479,6 +485,8 @@ fn trait_invocation_cross_epoch() {
     info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 5 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         conn.as_transaction(|clarity_db| {
             let error = clarity_db
                 .run_contract_call(
@@ -503,6 +511,8 @@ fn trait_invocation_cross_epoch() {
     info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 6 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
@@ -520,6 +530,8 @@ fn trait_invocation_cross_epoch() {
     info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        test_debug!("test 7 => using clarity version {:?} @ epoch {}", clarity_version, epoch);
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(

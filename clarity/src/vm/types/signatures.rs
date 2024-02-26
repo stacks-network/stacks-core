@@ -573,7 +573,7 @@ impl TypeSignature {
         let x_type = TypeSignature::type_of(x)?;
         //test_debug!("admits: {:?} {:?}", self, x_type);
         let result = self.admits_type(epoch, &x_type)?;
-        test_debug!("admits: {:?} -> {:?} => {:?}", self, x_type, result);
+        //test_debug!("admits: {:?} -> {:?} => {:?}", self, x_type, result);
         Ok(result)
     }
 
@@ -593,7 +593,7 @@ impl TypeSignature {
     }
 
     pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool> {
-        test_debug!("admits_type_v2_0: {:?} {:?}", self, other);
+        //test_debug!("admits_type_v2_0: {:?} {:?}", self, other);
         match self {
             SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
                 if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
@@ -691,7 +691,7 @@ impl TypeSignature {
     }
 
     fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool> {
-        test_debug!("admits_type_v2_1: {:?} -> {:?}", self, other);
+        //test_debug!("admits_type_v2_1: {:?} -> {:?}", self, other);
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
@@ -699,7 +699,7 @@ impl TypeSignature {
                 return Ok(false);
             }
         };
-        test_debug!("admits_type_v2_1 (other, concretized): {other:?}");
+        //test_debug!("admits_type_v2_1 (other, concretized): {other:?}");
 
         match self {
             SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
@@ -838,7 +838,7 @@ impl TypeSignature {
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
     pub fn concretize(&self) -> Result<TypeSignature> {
-        test_debug!("concretize (self): {:?}", self);
+        //test_debug!("concretize (self): {:?}", self);
         match self {
             ListUnionType(types) => {
                 let mut is_trait = None;

@@ -20,13 +20,14 @@ use std::mem::replace;
 
 #[cfg(test)]
 use fake::{Faker, Dummy};
-use hashbrown::{HashMap, HashSet};
 use speedy::{Readable, Writable};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hashmap::{self, StacksHashMap};
+use stacks_common::util::hashset::{self, StacksHashSet};
 
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
@@ -95,10 +96,10 @@ during the execution of a transaction.
 */
 #[derive(Debug, Clone)]
 pub struct AssetMap {
-    stx_map: HashMap<PrincipalData, u128>,
-    burn_map: HashMap<PrincipalData, u128>,
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
-    asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
+    stx_map: StacksHashMap<PrincipalData, u128>,
+    burn_map: StacksHashMap<PrincipalData, u128>,
+    token_map: StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, u128>>,
+    asset_map: StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, Vec<Value>>>,
 }
 
 impl AssetMap {
@@ -213,18 +214,18 @@ pub struct GlobalContext<'a, 'hooks> {
 #[cfg_attr(test, derive(Dummy))]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub variables: HashMap<ClarityName, Value>,
-    pub functions: HashMap<ClarityName, DefinedFunction>,
-    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: HashSet<TraitIdentifier>,
+    pub variables: StacksHashMap<ClarityName, Value>,
+    pub functions: StacksHashMap<ClarityName, DefinedFunction>,
+    pub defined_traits: StacksHashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: StacksHashSet<TraitIdentifier>,
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
     //  used for ensuring that they never are defined twice.
-    pub persisted_names: HashSet<ClarityName>,
+    pub persisted_names: StacksHashSet<ClarityName>,
     // track metadata for contract defined storage
-    pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
-    pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
-    pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
-    pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
+    pub meta_data_map: StacksHashMap<ClarityName, DataMapMetadata>,
+    pub meta_data_var: StacksHashMap<ClarityName, DataVariableMetadata>,
+    pub meta_nft: StacksHashMap<ClarityName, NonFungibleTokenMetadata>,
+    pub meta_ft: StacksHashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
     /// track the clarity version of the contract
     clarity_version: ClarityVersion,
@@ -233,14 +234,14 @@ pub struct ContractContext {
 pub struct LocalContext<'a> {
     pub function_context: Option<&'a LocalContext<'a>>,
     pub parent: Option<&'a LocalContext<'a>>,
-    pub variables: HashMap<ClarityName, Value>,
-    pub callable_contracts: HashMap<ClarityName, CallableData>,
+    pub variables: StacksHashMap<ClarityName, Value>,
+    pub callable_contracts: StacksHashMap<ClarityName, CallableData>,
     depth: u16,
 }
 
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
-    set: HashSet<FunctionIdentifier>,
+    set: StacksHashSet<FunctionIdentifier>,
     apply_depth: usize,
 }
 
@@ -251,10 +252,10 @@ pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
-            stx_map: HashMap::new(),
-            burn_map: HashMap::new(),
-            token_map: HashMap::new(),
-            asset_map: HashMap::new(),
+            stx_map: StacksHashMap::new(),
+            burn_map: StacksHashMap::new(),
+            token_map: StacksHashMap::new(),
+            asset_map: StacksHashMap::new(),
         }
     }
 
@@ -314,7 +315,7 @@ impl AssetMap {
         let principal_map = self
             .asset_map
             .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+            .or_insert_with(|| StacksHashMap::new());
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
             map_entry.push(transfered);
@@ -334,7 +335,7 @@ impl AssetMap {
         let principal_map = self
             .token_map
             .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+            .or_insert_with(|| StacksHashMap::new());
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -370,7 +371,7 @@ impl AssetMap {
                 let landing_map = self
                     .asset_map
                     .entry(principal.clone())
-                    .or_insert_with(|| HashMap::new());
+                    .or_insert_with(|| StacksHashMap::new());
                 if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 } else {
@@ -391,17 +392,17 @@ impl AssetMap {
             let principal_map = self
                 .token_map
                 .entry(principal)
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             principal_map.insert(asset, amount);
         }
 
         Ok(())
     }
 
-    pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::new();
+    pub fn to_table(mut self) -> StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, AssetMapEntry>> {
+        let mut map = StacksHashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::new();
+            let mut output_map = StacksHashMap::new();
             for (asset, amount) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
@@ -411,7 +412,7 @@ impl AssetMap {
         for (principal, stx_amount) in self.stx_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             output_map.insert(
                 AssetIdentifier::STX(),
                 AssetMapEntry::STX(stx_amount as u128),
@@ -421,7 +422,7 @@ impl AssetMap {
         for (principal, stx_burned_amount) in self.burn_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount as u128),
@@ -431,7 +432,7 @@ impl AssetMap {
         for (principal, mut principal_map) in self.asset_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -1136,142 +1137,69 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
+        
+        finally_drop_memory!(self.global_context, contract_size; {
+            let contract = self
+                .global_context
+                .database
+                //.get_contract(contract_identifier)?;
+                .get_contract2(contract_identifier)?;
 
-        let result: Result<Value>;
-
-        let contract = self
-            .global_context
-            .database
-            .get_contract2(contract_identifier)?;
-        test_debug!("got contract: {contract:?}");
-        let func = contract
-            .contract_context
-            .lookup_function(tx_name)
-            .ok_or_else(|| CheckErrors::UndefinedFunction(tx_name.to_string()))?;
-        if !allow_private && !func.is_public() {
-            return Err(CheckErrors::NoSuchPublicFunction(
-                contract_identifier.to_string(),
-                tx_name.to_string(),
-            )
-            .into());
-        }
-        if read_only && !func.is_read_only() {
-            return Err(CheckErrors::PublicFunctionNotReadOnly(
-                contract_identifier.to_string(),
-                tx_name.to_string(),
-            )
-            .into());
-        }
-        let args: Result<Vec<Value>> = args
-            .iter()
-            .map(|arg| {
-                let value = arg.match_atom_value().ok_or_else(|| {
-                    InterpreterError::InterpreterError({
-                        let res = format!("Passed non-value expression to exec_tx on {}!", tx_name);
-                        res
-                    })
-                })?;
-                let expected_type = TypeSignature::type_of(value)?;
-                let (sanitized_value, _) =
-                    Value::sanitize_value(self.epoch(), &expected_type, value.clone())
-                        .ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
-                Ok(sanitized_value)
-            })
-            .collect();
-        let args = args?;
-        let func_identifier = func.get_identifier();
-        if self.call_stack.contains(&func_identifier) {
-            return Err(CheckErrors::CircularReference(<[_]>::into_vec(Box::new([
-                (func_identifier.to_string()),
-            ])))
-            .into());
-        }
-        self.call_stack.insert(&func_identifier, true);
-        let res =
-            self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
-        self.call_stack.remove(&func_identifier, true)?;
-        result = match res {
-            Ok(value) => {
-                if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-                    handler(
-                        &mut self.global_context,
-                        self.sender.as_ref(),
-                        self.sponsor.as_ref(),
-                        contract_identifier,
-                        tx_name,
-                        &args,
-                        &value,
-                    )?;
-                }
-                Ok(value)
+            let func = contract.contract_context.lookup_function(tx_name)
+                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            if !allow_private && !func.is_public() {
+                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+            } else if read_only && !func.is_read_only() {
+                return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
-            Err(e) => Err(e),
-        };
-        (self.global_context).drop_memory(contract_size)?;
-        result
 
-        // finally_drop_memory!(self.global_context, contract_size; {
-        //     let contract = self
-        //         .global_context
-        //         .database
-        //         //.get_contract(contract_identifier)?;
-        //         .get_contract2(contract_identifier)?;
+            let args: Result<Vec<Value>> = args.iter()
+                .map(|arg| {
+                    let value = arg.match_atom_value()
+                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                                  tx_name)))?;
+                    // sanitize contract-call inputs in epochs >= 2.4
+                    // testing todo: ensure sanitize_value() preserves trait callability!
+                    let expected_type = TypeSignature::type_of(value)?;
+                    let (sanitized_value, _) = Value::sanitize_value(
+                        self.epoch(),
+                        &expected_type,
+                        value.clone(),
+                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
 
-        //     let func = contract.contract_context.lookup_function(tx_name)
-        //         .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-        //     if !allow_private && !func.is_public() {
-        //         return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-        //     } else if read_only && !func.is_read_only() {
-        //         return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
-        //     }
+                    Ok(sanitized_value)
+                })
+                .collect();
 
-        //     let args: Result<Vec<Value>> = args.iter()
-        //         .map(|arg| {
-        //             let value = arg.match_atom_value()
-        //                 .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-        //                                                                           tx_name)))?;
-        //             // sanitize contract-call inputs in epochs >= 2.4
-        //             // testing todo: ensure sanitize_value() preserves trait callability!
-        //             let expected_type = TypeSignature::type_of(value)?;
-        //             let (sanitized_value, _) = Value::sanitize_value(
-        //                 self.epoch(),
-        //                 &expected_type,
-        //                 value.clone(),
-        //             ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+            let args = args?;
 
-        //             Ok(sanitized_value)
-        //         })
-        //         .collect();
+            let func_identifier = func.get_identifier();
+            if self.call_stack.contains(&func_identifier) {
+                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+            }
+            self.call_stack.insert(&func_identifier, true);
 
-        //     let args = args?;
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            self.call_stack.remove(&func_identifier, true)?;
 
-        //     let func_identifier = func.get_identifier();
-        //     if self.call_stack.contains(&func_identifier) {
-        //         return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
-        //     }
-        //     self.call_stack.insert(&func_identifier, true);
-
-        //     let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
-        //     self.call_stack.remove(&func_identifier, true)?;
-
-        //     match res {
-        //         Ok(value) => {
-        //             if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-        //                 handler(
-        //                     &mut self.global_context,
-        //                     self.sender.as_ref(),
-        //                     self.sponsor.as_ref(),
-        //                     contract_identifier,
-        //                     tx_name,
-        //                     &args,
-        //                     &value
-        //                 )?;
-        //             }
-        //             Ok(value)
-        //         },
-        //         Err(e) => Err(e)
-        //     }
-        // })
+            match res {
+                Ok(value) => {
+                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                        handler(
+                            &mut self.global_context,
+                            self.sender.as_ref(),
+                            self.sponsor.as_ref(),
+                            contract_identifier,
+                            tx_name,
+                            &args,
+                            &value
+                        )?;
+                    }
+                    Ok(value)
+                },
+                Err(e) => Err(e)
+            }
+        })
     }
 
     pub fn execute_function_as_transaction(
@@ -1880,16 +1808,16 @@ impl ContractContext {
     ) -> Self {
         Self {
             contract_identifier,
-            variables: HashMap::new(),
-            functions: HashMap::new(),
-            defined_traits: HashMap::new(),
-            implemented_traits: HashSet::new(),
-            persisted_names: HashSet::new(),
+            variables: StacksHashMap::new(),
+            functions: StacksHashMap::new(),
+            defined_traits: StacksHashMap::new(),
+            implemented_traits: StacksHashSet::new(),
+            persisted_names: StacksHashSet::new(),
             data_size: 0,
-            meta_data_map: HashMap::new(),
-            meta_data_var: HashMap::new(),
-            meta_nft: HashMap::new(),
-            meta_ft: HashMap::new(),
+            meta_data_map: StacksHashMap::new(),
+            meta_data_var: StacksHashMap::new(),
+            meta_nft: StacksHashMap::new(),
+            meta_ft: StacksHashMap::new(),
             clarity_version,
         }
     }
@@ -1946,8 +1874,8 @@ impl<'a> LocalContext<'a> {
         LocalContext {
             function_context: Option::None,
             parent: Option::None,
-            callable_contracts: HashMap::new(),
-            variables: HashMap::new(),
+            callable_contracts: StacksHashMap::new(),
+            variables: StacksHashMap::new(),
             depth: 0,
         }
     }
@@ -1970,8 +1898,8 @@ impl<'a> LocalContext<'a> {
             Ok(LocalContext {
                 function_context: Some(self.function_context()),
                 parent: Some(self),
-                callable_contracts: HashMap::new(),
-                variables: HashMap::new(),
+                callable_contracts: StacksHashMap::new(),
+                variables: StacksHashMap::new(),
                 depth: self.depth + 1,
             })
         }
@@ -2002,7 +1930,7 @@ impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
             stack: Vec::new(),
-            set: HashSet::new(),
+            set: StacksHashSet::new(),
             apply_depth: 0,
         }
     }

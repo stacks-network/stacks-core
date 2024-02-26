@@ -395,7 +395,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         .get_read_only_function_type(
                             contract_identifier,
                             function_name,
-                            &self.epoch,
+                            Some(self.epoch),
                         )?
                         .is_some(),
                     SymbolicExpressionType::Atom(_trait_reference) => {

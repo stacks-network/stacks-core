@@ -131,7 +131,7 @@ impl RPCRequestHandler for RPCGetContractAbiRequestHandler {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     let epoch = clarity_tx.get_epoch();
                     clarity_tx.with_clarity_db_readonly(|db| {
-                        db.get_contract_analysis(&contract_identifier, &epoch)
+                        db.get_contract_analysis(&contract_identifier, Some(epoch))
                             .ok()?
                             .map(|contract| contract.contract_interface)
                     })

@@ -26,6 +26,8 @@ pub mod retry;
 pub mod secp256k1;
 pub mod uint;
 pub mod vrf;
+pub mod hashmap;
+pub mod hashset;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};

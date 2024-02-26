@@ -192,18 +192,12 @@ impl DefinedFunction {
 
             // Clarity 1 behavior
             if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
-                test_debug!("execute_apply | epoch {:?}", env.epoch());
-                test_debug!(" > arg type_sig: {:?}", type_sig);
-                test_debug!(" > incoming value: {:?}", value);
-                test_debug!(" > type_sig matches: {}", matches!(type_sig, TypeSignature::TraitReferenceType(_)));
-                test_debug!(" > value matches: {}", matches!(value, Value::Principal(PrincipalData::Contract(_))));
                 match (type_sig, value) {
                     // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) => {
-                        test_debug!(" > arg is a trait reference type with contract principal value");
+                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -214,29 +208,12 @@ impl DefinedFunction {
                                 trait_identifier: Some(trait_identifier.clone()),
                             },
                         );
-                    },
-                    (
-                        TypeSignature::TraitReferenceType(_),
-                        Value::CallableContract(CallableData {
-                            contract_identifier,
-                            trait_identifier,
-                        })
-                    ) => {
-                        test_debug!(" > arg is a trait reference type with callable contract value");
-                        context.callable_contracts.insert(
-                            name.clone(),
-                            CallableData {
-                                contract_identifier: contract_identifier.clone(),
-                                trait_identifier: trait_identifier.clone(),
-                            },
-                        );
-                    },
+                    }
                     // Epoch >= 2.1 uses CallableType
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) => {
-                        test_debug!(" > arg is a callable trait type with contract principal value");
+                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -247,7 +224,7 @@ impl DefinedFunction {
                                 trait_identifier: Some(trait_identifier.clone()),
                             },
                         );
-                    },
+                    }
                     // Since this Clarity 1 contract may be called from a Clarity 2 contract,
                     // we need to handle Clarity 2 values as well. Clarity 2 contracts can only
                     // be executed in epoch 2.1, so we only need to handle `CallableType` here.
@@ -258,7 +235,6 @@ impl DefinedFunction {
                             trait_identifier,
                         }),
                     ) => {
-                        test_debug!(" > arg is a callable trait type with callable contract value");
                         context.callable_contracts.insert(
                             name.clone(),
                             CallableData {
@@ -269,13 +245,13 @@ impl DefinedFunction {
                     }
                     _ => {
                         if !type_sig.admits(env.epoch(), value)? {
-                            test_debug!("epoch {:?} | type_sig: {:?} does not admit value: {:?}", env.epoch(), type_sig, value);
                             return Err(CheckErrors::TypeValueError(
                                 type_sig.clone(),
                                 value.clone(),
                             )
                             .into());
-                        }
+                        } 
+
                         if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
                             return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                         }

@@ -2,6 +2,7 @@ use std::{cell::RefCell, collections::HashMap, num::NonZeroUsize};
 
 use lazy_static::lazy_static;
 use lru::LruCache;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::{
     analysis::ContractAnalysis, 
@@ -36,8 +37,8 @@ pub fn clear_clarity_cache() {
 
 pub struct ClarityCache {
     is_enabled: RefCell<bool>,
-    contract_cache: RefCell<LruCache<QualifiedContractIdentifier, StoredContract>>,
-    analysis_cache: RefCell<LruCache<QualifiedContractIdentifier, ContractAnalysis>>,
+    contract_cache: RefCell<LruCache<ContractKey, StoredContract>>,
+    analysis_cache: RefCell<LruCache<ContractKey, ContractAnalysis>>,
     contract_id_lookup_cache: RefCell<HashMap<QualifiedContractIdentifier, u32>>,
 }
 
@@ -54,20 +55,24 @@ impl ClarityCache {
         }
     }
 
-    pub fn try_get_contract(&self, id: &QualifiedContractIdentifier) -> Option<StoredContract> {
+    pub fn try_get_contract(&self, id: &QualifiedContractIdentifier, epoch: Option<StacksEpochId>) -> Option<StoredContract> {
         if self.is_enabled.borrow().eq(&false) {
             return None;
         }
 
-        self.contract_cache.borrow_mut().get(id).cloned()
+        self.contract_cache.borrow_mut().get(&ContractKey(id.clone(), epoch)).cloned()
     }
 
-    pub fn push_contract(&self, id: QualifiedContractIdentifier, contract: StoredContract) {
+    pub fn push_contract(&self, id: QualifiedContractIdentifier, epoch: Option<StacksEpochId>, contract: StoredContract) {
         if self.is_enabled.borrow().eq(&false) {
             return;
         }
 
-        self.contract_cache.borrow_mut().push(id, contract);
+        self.contract_id_lookup_cache.borrow_mut()
+            .insert(id.clone(), contract.id);
+
+        self.contract_cache.borrow_mut()
+            .push(ContractKey(id, epoch), contract);
     }
 
     pub fn has_contract(&self, id: &QualifiedContractIdentifier) -> bool {
@@ -75,23 +80,23 @@ impl ClarityCache {
             return false;
         }
 
-        self.contract_cache.borrow().contains(id)
+        self.contract_cache.borrow().contains(&ContractKey(id.clone(), None))
     }
 
-    pub fn try_get_contract_analysis(&self, id: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
+    pub fn try_get_contract_analysis(&self, id: &QualifiedContractIdentifier, epoch: Option<StacksEpochId>) -> Option<ContractAnalysis> {
         if self.is_enabled.borrow().eq(&false) {
             return None;
         }
 
-        self.analysis_cache.borrow_mut().get(id).cloned()
+        self.analysis_cache.borrow_mut().get(&ContractKey(id.clone(), epoch)).cloned()
     }
 
-    pub fn push_contract_analysis(&self, id: QualifiedContractIdentifier, analysis: ContractAnalysis) {
+    pub fn push_contract_analysis(&self, id: QualifiedContractIdentifier, epoch: Option<StacksEpochId>, analysis: ContractAnalysis) {
         if self.is_enabled.borrow().eq(&false) {
             return;
         }
 
-        self.analysis_cache.borrow_mut().push(id, analysis);
+        self.analysis_cache.borrow_mut().push(ContractKey(id, epoch), analysis);
     }
 
     pub fn try_get_contract_id(&self, id: &QualifiedContractIdentifier) -> Option<u32> {
@@ -99,7 +104,7 @@ impl ClarityCache {
             return None;
         }
 
-        self.contract_id_lookup_cache.borrow().get(id).cloned()
+        self.contract_id_lookup_cache.borrow().get(&id).cloned()
     }
 
     pub fn push_contract_id(&self, id: QualifiedContractIdentifier, contract_id: u32) {
@@ -107,7 +112,8 @@ impl ClarityCache {
             return;
         }
 
-        self.contract_id_lookup_cache.borrow_mut().insert(id, contract_id);
+        self.contract_id_lookup_cache.borrow_mut()
+            .insert(id, contract_id);
     }
 
     #[cfg(test)]
@@ -117,3 +123,6 @@ impl ClarityCache {
         self.contract_id_lookup_cache.borrow_mut().clear();
     }
 }
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct ContractKey(QualifiedContractIdentifier, Option<StacksEpochId>);
