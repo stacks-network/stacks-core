@@ -52,10 +52,10 @@ fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
-// this function is used to check the lookup map when committing at the "bottom" of the
-//   wrapper -- i.e., when committing to the underlying store. for the _unchecked_ implementation
-//   this is used to get the edit _value_ out of the lookupmap, for used in the subsequent `put_all`
-//   command.
+/// This function is used to check the lookup map when committing at the "bottom" 
+/// of the wrapper -- i.e., when committing to the underlying store. for the 
+/// _unchecked_ implementation this is used to get the edit _value_ out of the
+/// lookupmap, for used in the subsequent `put_all_data` command.
 #[cfg(not(rollback_value_check))]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
@@ -91,8 +91,8 @@ where
 {
     edits.push((key, value.clone()));
 }
-// this function is used to check the lookup map when committing at the "bottom" of the
-//   wrapper -- i.e., when committing to the underlying store.
+/// This function is used to check the lookup map when committing at the "bottom" 
+/// of the wrapper -- i.e., when committing to the underlying store.
 #[cfg(rollback_value_check)]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
@@ -111,54 +111,85 @@ where
     edits
 }
 
-/// Result structure for fetched values from the
-///  underlying store.
+/// Result structure for fetched values from the underlying store.
 #[derive(Debug)]
 pub struct ValueResult {
     pub value: Value,
     pub serialized_byte_len: u64,
 }
 
+/// The [RollbackContext] represents a single "frame" of the rollback stack and
+/// contains all of the modifications made during its lifetime. This structure
+/// is used by the [RollbackWrapper], which employs a stack of these contexts,
+/// to track and manage the changes made to both consensus-critical data (`edits`)
+/// as well as non-consensus data (`metadata_edits`, `pending_contracts`, and
+/// `contract_analyses`).
 #[derive(Debug, Default)]
 pub struct RollbackContext {
+    /// Edits to consensus-critical key-value data.
     edits: Vec<(String, RollbackValueCheck)>,
+    /// Edits to non-consensus-critical key-value data.
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
+    /// Edits to pending contract data. "Pending" in this context refers to
+    /// contracts which have been created but not yet committed to the underlying
+    /// store. This data is not consensus-critical as it is locally-generated
+    /// representations of Clarity contracts.
     pending_contracts: Vec<PendingContract>,
+    /// Edits to pending contract analysis data. "Pending" in this context refers
+    /// to contract analyses which have been created but not yet committed to the
+    /// underlying store. This data is not consensus-critical as it is locally-generated
+    /// representations of Clarity contract analyses.
     contract_analyses: Vec<ContractAnalysis>,
 }
 
 pub struct RollbackWrapper<'a> {
+    /// Unique id of this [RollbackWrapper] instance.
     id: u32,
-    // the underlying key-value storage.
+    /// Reference to the underlying Clarity backing store.
     store: &'a mut dyn ClarityBackingStore,
-    // lookup_map is a history of edits for a given key.
-    //   in order of least-recent to most-recent at the tail.
-    //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
+    /// Maintains a history of edits for a given key in order of least-recent to 
+    /// most-recent at the tail. This allows ~ O(1) lookups, and ~ O(1) commits & 
+    /// roll-backs (amortized by # of PUTs).
     lookup_map: HashMap<String, Vec<String>>,
+    /// Maintains a history of metadata-edits for a given key in order of least-recent
+    /// to most-recent at the tail. This allows ~ O(1) lookups, and ~ O(1) commits &
+    /// roll-backs (amortized by # of PUTs). This is used for non-consensus-critical
+    /// data.
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
-    // stack keeps track of the most recent rollback context, which tells us which
-    //   edits were performed by which context. at the moment, each context's edit history
-    //   is a separate Vec which must be drained into the parent on commits, meaning that
-    //   the amortized cost of committing a value isn't O(1), but actually O(k) where k is
-    //   stack depth.
-    //  TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
-    //   to indicate a given contexts "start depth".
+    /// Keeps track of the most recent [RollbackContext], which tells us which edits 
+    /// were performed by which context. At the moment, each context's edit history
+    /// is a separate [Vec] which must be drained into the parent on commits, meaning that
+    /// the amortized cost of committing a value isn't O(1), but actually O(k) where 
+    /// k is stack depth.
+    ///
+    /// TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
+    /// to indicate a given contexts "start depth".
     stack: Vec<RollbackContext>,
+    /// Indicates whether or not "get"-methods should query the uncommitted state
+    /// of this [RollbackWrapper] instance for data prior to searching the underlying
+    /// [ClarityBackingStore]. The default value of this field is `true`.
     query_pending_data: bool,
 }
 
-// This is used for preserving rollback data longer
-//   than a BackingStore pointer. This is useful to prevent
-//   a real mess of lifetime parameters in the database/context
-//   and eval code.
+/// Used for preserving rollback data longer than a [ClarityBackingStore] 
+/// pointer. This is useful to prevent excessive lifetime parameters in the 
+/// database/context and eval code.
+#[derive(Debug, Default)]
 pub struct RollbackWrapperPersistedLog {
+    /// Unique id of the [RollbackWrapper] instance.
     id: u32,
+    /// Copy of the `lookup_map` field from the source [RollbackWrapper] instance.
     lookup_map: HashMap<String, Vec<String>>,
+    /// Copy of the `metadata_lookup_map` field from the source [RollbackWrapper] 
+    /// instance.
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
+    /// Copy of the `stack` field from the source [RollbackWrapper] instance.
     stack: Vec<RollbackContext>,
 }
 
 impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog {
+    /// Allow for the conversion of a [RollbackWrapper] into a 
+    /// [RollbackWrapperPersistedLog] using `.from()`/`.into()` syntax.
     fn from(o: RollbackWrapper<'a>) -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
             id: o.id,
@@ -169,13 +200,11 @@ impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog {
     }
 }
 
-impl Default for RollbackWrapperPersistedLog {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RollbackWrapperPersistedLog {
+    /// Create a new, empty [RollbackWrapperPersistedLog] instance. Note that
+    /// in its default state, the instance will not have an ongoing stack frame
+    /// and will not be able to perform any operations until a new stack frame
+    /// ([RollbackContext])is created using the [Self::nest] method.
     pub fn new() -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
             id: thread_rng().gen_range(1000000..9999999),
@@ -185,11 +214,14 @@ impl RollbackWrapperPersistedLog {
         }
     }
 
+    /// Creates a new [RollbackContext] and pushes it onto the stack. This is
+    /// analogous to a "begin transaction" operation in a database.
     pub fn nest(&mut self) {
         self.stack.push(RollbackContext::default());
     }
 }
 
+/// TODO: Document this function
 fn rollback_lookup_map<T>(
     key: &T,
     value: &RollbackValueCheck,
@@ -218,19 +250,37 @@ where
 }
 
 impl<'a> RollbackWrapper<'a> {
+    /// Creates a new [RollbackWrapper] instance with the provided [ClarityBackingStore]
+    /// implementation. 
+    ///
+    /// The new instance will not have an ongoing stack frame and will
+    /// not be able to perform any (write) operations until a new stack frame 
+    /// ([RollbackContext]) is created using the [Self::nest] method.
+    ///
+    /// The instance, by default, will query the uncommitted state of the wrapper for
+    /// data prior to searching the underlying [ClarityBackingStore]. This can be
+    /// overridden by setting the `query_pending_data` field to `false`.
     pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
-        let mut wrapper = RollbackWrapper {
+        RollbackWrapper {
             id: thread_rng().gen_range(1000000..9999999),
             store,
             lookup_map: HashMap::new(),
             metadata_lookup_map: HashMap::new(),
             stack: Vec::new(),
             query_pending_data: true,
-        };
-        //wrapper.nest();
-        wrapper
+        }
     }
 
+    /// Restores a [RollbackWrapper] instance from a [RollbackWrapperPersistedLog]
+    /// using the provided [ClarityBackingStore] implementation. The stack and
+    /// any uncommitted data will be restored to the state it was in when the
+    /// [RollbackWrapperPersistedLog] was created.
+    ///
+    /// The instance, by default, will query the uncommitted state of the wrapper for
+    /// data prior to searching the underlying [ClarityBackingStore], irregardless
+    /// of whether or not `query_pending_data` was enabled on the original
+    /// [RollbackWrapper]. This can be overridden by setting the `query_pending_data` 
+    /// field to `false`.
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
         log: RollbackWrapperPersistedLog,
@@ -245,17 +295,22 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
+    /// TODO: Document this function
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         self.store.get_cc_special_cases_handler()
     }
 
+    /// Creates a new [RollbackContext] and pushes it onto the stack. This is
+    /// analogous to a "begin transaction" operation in a database.
     pub fn nest(&mut self) {
         self.stack.push(RollbackContext::default());
     }
 
-    // Rollback the child's edits.
-    //   this clears all edits from the child's edit queue,
-    //     and removes any of those edits from the lookup map.
+    /// Rolls-back the current [RollbackContext] and pops it off the stack. any
+    /// pending edits in the current "stack frame" will be discarded:
+    /// - All pending consensus-critical `edits`.
+    /// - All pending non-consensus-critical `metadata_edits`.
+    /// - All pending contracts and contract analyses.
     pub fn rollback(&mut self) -> Result<(), InterpreterError> {
         test_debug!(
             "[{}] KV rollback (from depth: {})",
@@ -296,10 +351,16 @@ impl<'a> RollbackWrapper<'a> {
         Ok(())
     }
 
+    /// Returns the current depth of the rollback stack, i.e. how many [RollbackContext]s
+    /// currently exist in the stack.
     pub fn depth(&self) -> usize {
         self.stack.len()
     }
 
+    /// Internal convenience method used to walk the rollback stack and find a 
+    /// [PendingContract] with the provided contract identifier. This method is
+    /// used when querying the uncommitted state of the wrapper for data prior
+    /// to searching the underlying [ClarityBackingStore].
     fn find_pending_contract(
         &self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -324,6 +385,10 @@ impl<'a> RollbackWrapper<'a> {
         None
     }
 
+    /// Internal convenience method used to walk the rollback stack and find a
+    /// [ContractAnalysis] with the provided contract identifier. This method is
+    /// used when querying the uncommitted state of the wrapper for data prior
+    /// to searching the underlying [ClarityBackingStore].
     fn find_pending_contract_analysis(
         &self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -348,6 +413,13 @@ impl<'a> RollbackWrapper<'a> {
         None
     }
 
+    /// Commits the current [RollbackContext] and pops it off the stack. This
+    /// method has two distinct behaviors depending on the current depth of the
+    /// rollback stack:
+    /// - If the stack is empty, this method will commit all pending edits to the
+    ///   underlying [ClarityBackingStore] and clear the rollback stack.
+    /// - If the stack is not empty, this method will bubble up all pending edits
+    ///   to the next [RollbackContext] in the stack.
     pub fn commit(&mut self) -> Result<(), InterpreterError> {
         let mut last_item = self.stack.pop().ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
@@ -453,6 +525,8 @@ impl<'a> RollbackWrapper<'a> {
     }
 }
 
+/// Internal convenience method used to push a new consensus-critical key-value
+/// pair onto the rollback stack.
 fn inner_put<T>(
     lookup_map: &mut HashMap<T, Vec<String>>,
     edits: &mut Vec<(T, RollbackValueCheck)>,
@@ -467,13 +541,25 @@ fn inner_put<T>(
 }
 
 impl<'a> RollbackWrapper<'a> {
+    /// Pushes a [ContractAnalysis] instance onto the uncommitted state of this
+    /// [RollbackWrapper] instance, in the current [RollbackContext]. 
+    ///
+    /// If a [ContractAnalysis] already exists for the provided [QualifiedContractIdentifier],
+    /// it will be replaced by the provided [ContractAnalysis] without warning.
+    ///
+    /// This function with panic if there is no active [RollbackContext]. To begin
+    /// a new nested context, the [Self::nest] function must be called.
+    /// 
+    /// To persist these changes, the [Self::commit] function must be called.
+    /// To roll-back these changes, the [Self::rollback] function must be called.
     pub fn put_contract_analysis(&mut self, analysis: &ContractAnalysis) {
         test_debug!("[{}] KV put contract analysis: {}",
             self.id,
             analysis.contract_identifier
         );
 
-        // TODO: Should probably throw a duplicate contract err here instead
+        // Iterate over the stack and remove any existing contract analysis 
+        // with the same identifier.
         for frame in self.stack.iter_mut() {
             frame
                 .contract_analyses
@@ -489,20 +575,24 @@ impl<'a> RollbackWrapper<'a> {
                 });
         }
 
+        // Retrieve the current context, panicking if there is none.
         let current = self
             .stack
             .last_mut()
+            // TODO: Improve error handling here.
             .expect("ERROR: Clarity VM attempted PUT ANALYSIS on non-nested context.");
 
+        // Push the provided contract analysis onto the current context.
         current.contract_analyses.push(analysis.clone());
     }
 
     /// Adds the provided contract to the uncommitted state of this [RollbackWrapper]
-    /// instance, in the current stack frame. If there is no current stack frame, this
-    /// function will panic.
+    /// instance, in the current [RollbackContext]. If there is no current context 
+    /// this function will panic.
     ///
-    /// To begin a new stack frame, the `nest` function must be called.
-    /// To persist these changes, the `commit` function must be called.
+    /// To begin a new stack frame, the [Self::nest] function must be called.
+    /// To persist these changes, the [Self::commit] function must be called.
+    /// To roll-back these changes, the [Self::rollback] function must be called.
     pub fn put_contract(
         &mut self,
         src: &str,
@@ -519,7 +609,8 @@ impl<'a> RollbackWrapper<'a> {
         );
         test_debug!("[{}] ... with k/v: {} / {}", self.id, key, value);
 
-        // TODO: Should probably throw a duplicate contract err here instead
+        // Iterate over the stack and remove any existing contract with the same
+        // identifier.
         for frame in self.stack.iter_mut() {
             frame
                 .pending_contracts
@@ -535,11 +626,14 @@ impl<'a> RollbackWrapper<'a> {
                 });
         }
 
+        // Retrieve the current context, panicking if there is none.
         let current = self
             .stack
             .last_mut()
+            // TODO: Improve error handling here.
             .expect("ERROR: Clarity VM attempted PUT CONTRACT on non-nested context.");
 
+        // Push the provided contract onto the current context.
         current.pending_contracts.push(PendingContract {
             source: src.into(),
             contract,
@@ -662,12 +756,14 @@ impl<'a> RollbackWrapper<'a> {
     /// To begin a new stack frame, the `nest` function must be called.
     /// To persist these changes, the `commit` function must be called.
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
+        // Retrieve the current context, panicking if there is none.
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
             )
         })?;
 
+        // Push the provided key and value onto the current context.
         Ok(inner_put(
             &mut self.lookup_map,
             &mut current.edits,
@@ -686,17 +782,17 @@ impl<'a> RollbackWrapper<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> InterpreterResult<StacksBlockId> {
-        // use and_then so that query_pending_data is only set once set_block_hash succeeds
-        //  this doesn't matter in practice, because a set_block_hash failure always aborts
-        //  the transaction with a runtime error (destroying its environment), but it's much
-        //  better practice to do this, especially if the abort behavior changes in the future.
+        // Use and_then so that query_pending_data is only set once set_block_hash succeeds
+        // this doesn't matter in practice, because a set_block_hash failure always aborts
+        // the transaction with a runtime error (destroying its environment), but it's much
+        // better practice to do this, especially if the abort behavior changes in the future.
         let block_id = self.store.set_block_hash(bhh)?;
         self.query_pending_data = query_pending_data;
         Ok(block_id)
     }
 
-    /// this function will only return commitment proofs for values _already_ materialized
-    ///  in the underlying store. otherwise it returns None.
+    /// This function will only return commitment proofs for values _already_ materialized
+    /// in the underlying [ClarityBackingStore], otherwise it returns [None].
     pub fn get_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
@@ -707,29 +803,36 @@ impl<'a> RollbackWrapper<'a> {
             .transpose()
     }
 
+    /// Retrieves a consensus-critical value with the provided key. If `query_pending_data`
+    /// is true on this [RollbackWrapper] instance, it will first check the uncommitted state
+    /// of this instance for the value. If it is not found, it will query the underlying store.
     pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
+        // Retrieve the current context, returning an error if there is none.
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
             )
         })?;
 
+        // If `query_pending_data` is true, check the uncommitted state of this instance for the value.
         if self.query_pending_data {
             if let Some(pending_value) = self.lookup_map.get(key).and_then(|x| x.last()) {
                 // if there's pending data and we're querying pending data, return here
                 return Some(T::deserialize(pending_value)).transpose();
             }
         }
-        // otherwise, lookup from store
+
+        // Otherwise, lookup from the underlying store.
         self.store
             .get_data(key)?
             .map(|x| T::deserialize(&x))
             .transpose()
     }
 
+    /// Attempts to deserialize a [Value] from a hex string.
     pub fn deserialize_value(
         value_hex: &str,
         expected: &TypeSignature,
@@ -746,27 +849,35 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     /// Get a Clarity value from the underlying Clarity KV store.
-    /// Returns Some if found, with the Clarity Value and the serialized byte length of the value.
+    /// Returns Some if found, with the Clarity Value and the serialized byte 
+    /// length of the value.
     pub fn get_value(
         &mut self,
         key: &str,
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Option<ValueResult>, SerializationError> {
+        // Retrieve the current context, returning an error if there is none.
         self.stack.last().ok_or_else(|| {
             SerializationError::DeserializationError(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
             )
         })?;
 
+        // If `query_pending_data` is true, check the uncommitted state of this instance for the value.
         if self.query_pending_data {
             if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
                 return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
+
+        // Otherwise, lookup from the underlying store.
         let stored_data = self.store.get_data(key).map_err(|_| {
             SerializationError::DeserializationError("ERROR: Clarity backing store failure".into())
         })?;
+
+        // If a value was found, deserialize it and return it, otherwise
+        // return `None`.
         match stored_data {
             Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
             None => Ok(None),
@@ -795,12 +906,16 @@ impl<'a> RollbackWrapper<'a> {
         self.put_data(&key, &value)
     }
 
+    /// Inserts a metadata key-value pair into the uncommitted state of this
+    /// [RollbackWrapper] instance, in the current [RollbackContext]. If there is no
+    /// current context, this function will return an error.
     pub fn insert_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
     ) -> Result<(), InterpreterError> {
+        // Retrieve the current context, returning an error if there is none.
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
@@ -817,13 +932,15 @@ impl<'a> RollbackWrapper<'a> {
         ))
     }
 
-    // Throws a NoSuchContract error if contract doesn't exist,
-    //   returns None if there is no such metadata field.
+    /// Retrieves a non-consensus-critical metadata value with the provided key.
+    /// Throws a NoSuchContract error if contract doesn't exist, returns [None] 
+    /// if there is no such metadata field.
     pub fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> InterpreterResult<Option<String>> {
+        // Retrieve the current context, returning an error if there is none.
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
@@ -833,6 +950,7 @@ impl<'a> RollbackWrapper<'a> {
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
         //  (&A, &B) into &(A, B).
         let metadata_key = (contract.clone(), key.to_string());
+
         let lookup_result = if self.query_pending_data {
             self.metadata_lookup_map
                 .get(&metadata_key)
@@ -847,8 +965,9 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    // Throws a NoSuchContract error if contract doesn't exist,
-    //   returns None if there is no such metadata field.
+    /// Retrieves a non-consensus-critical metadata value with the provided key
+    /// and at the specified Stacks block-height. Throws a NoSuchContract error
+    /// if contract doesn't exist, returns [None] if there is no such metadata field.
     pub fn get_metadata_manual(
         &mut self,
         at_height: u32,
@@ -878,6 +997,12 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
+    /// Checks for the existence of a consensus-critical key-value entry with the
+    /// provided key. If `query_pending_data` is true on this [RollbackWrapper]
+    /// instance, it will first check its uncommitted state for the value. If it
+    /// is not found, it will query the underlying store.
+    ///
+    /// Returns [true] if the key exists, [false] otherwise.
     pub fn has_data_entry(&mut self, key: &str) -> InterpreterResult<bool> {
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
@@ -891,6 +1016,12 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
+    /// Checks for the existence of a non-consensus-critical metadata entry with
+    /// the provided key. If `query_pending_data` is true on this [RollbackWrapper]
+    /// instance, it will first check its uncommitted state for the value. If it
+    /// is not found, it will query the underlying store.
+    ///
+    /// Returns [true] if the key exists, [false] otherwise.
     pub fn has_metadata_entry(
         &mut self,
         contract: &QualifiedContractIdentifier,
