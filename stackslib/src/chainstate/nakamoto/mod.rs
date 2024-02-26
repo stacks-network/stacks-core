@@ -2345,10 +2345,7 @@ impl NakamotoChainState {
             tenure_fees,
         )?;
         if let Some(block_reward) = block_reward {
-            StacksChainState::insert_miner_payment_schedule(
-                headers_tx.deref_mut(),
-                block_reward
-            )?;
+            StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),
