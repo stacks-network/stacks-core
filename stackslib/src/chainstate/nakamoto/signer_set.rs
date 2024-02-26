@@ -65,7 +65,6 @@ use crate::chainstate::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
     SIGNERS_UPDATE_STATE,
 };
-use crate::chainstate::stacks::db::blocks::StagingUserBurnSupport;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
     MinerPaymentTxFees, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState, StacksDBTx,
