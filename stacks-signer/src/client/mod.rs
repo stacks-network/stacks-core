@@ -207,15 +207,6 @@ pub(crate) mod tests {
         TcpListener::bind(config.node_host).unwrap()
     }
 
-    /// Create a mock server on the same port as the config and write a response to it
-    pub fn mock_server_from_config_and_write_response(
-        config: &GlobalConfig,
-        bytes: &[u8],
-    ) -> [u8; 1024] {
-        let mock_server = mock_server_from_config(config);
-        write_response(mock_server, bytes)
-    }
-
     /// Write a response to the mock server and return the request bytes
     pub fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
         debug!("Writing a response...");
