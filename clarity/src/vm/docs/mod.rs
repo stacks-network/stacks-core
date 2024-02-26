@@ -96,17 +96,19 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "block-height",
     snippet: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an uint",
+    description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
+Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
+In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
     example:
-        "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
+        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "burn-block-height",
     snippet: "burn-block-height",
     output_type: "uint",
-    description: "Returns the current block height of the underlying burn blockchain as a uint",
-    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
+    description: "Returns the current block height of the underlying burn blockchain.",
+    example: "(> burn-block-height u832000) ;; returns true if the current height of the underlying burn blockchain has passed 832,000 blocks.",
 };
 
 const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -118,6 +120,27 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const STACKS_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+    name: "stacks-block-height",
+    snippet: "stacks-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the Stacks blockchain.",
+    example:
+        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+    version: ClarityVersion::Clarity3,
+};
+
+const TENURE_HEIGHT_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "tenure-height",
+    snippet: "tenure-height",
+    output_type: "uint",
+    description: "Returns the number of tenures that have passed.
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+    example:
+        "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+    version: ClarityVersion::Clarity3,
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -245,7 +268,7 @@ const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "buff-to-uint-le ${1:buff}",
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.
 The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
 this function uses a little-endian encoding, the input behaves as if it is
 zero-padded on the _right_.
