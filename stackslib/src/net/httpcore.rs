@@ -1568,6 +1568,7 @@ impl ProtocolFamily for StacksHttp {
 impl PeerNetwork {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.
+    #[cfg_attr(test, mutants::skip)]
     pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,

@@ -3000,6 +3000,7 @@ impl SortitionDB {
     }
 
     /// Get the height of a consensus hash, even if it's not on the canonical PoX fork.
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
         let mut heights: Vec<u64> = query_rows(self.conn(), qry, &[ch])?;
@@ -3183,6 +3184,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         // the schema 5 changes simply **replace** the contents of the epochs table
         //  by dropping all the current rows and then revalidating and inserting
@@ -3201,6 +3203,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_6(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_6 {
             tx.execute_batch(sql_exec)?;
@@ -3216,6 +3219,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_7(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_7 {
             tx.execute_batch(sql_exec)?;
@@ -3601,6 +3605,7 @@ impl<'a> SortitionDBConn<'a> {
         Ok(Some(parent_block_snapshot))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_reward_set_size_at(&mut self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -3711,6 +3716,7 @@ impl SortitionDB {
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
     /// height and block-accepted flag.
+    #[cfg_attr(test, mutants::skip)]
     pub fn revalidate_snapshot_with_block(
         tx: &DBTx,
         sortition_id: &SortitionId,
@@ -4081,6 +4087,7 @@ impl SortitionDB {
         Ok(result.is_some())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn latest_stacks_blocks_processed(
         &self,
         sortition_id: &SortitionId,

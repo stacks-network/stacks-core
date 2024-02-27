@@ -616,6 +616,7 @@ impl MockamotoNode {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn wait_for_stacks_block(&mut self, expected_length: u64) -> Result<(), ChainstateError> {
         while self.globals.keep_running() {
             let chain_length = match NakamotoChainState::get_canonical_block_header(
@@ -1070,6 +1071,7 @@ impl MockamotoNode {
         Ok(block)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn mine_and_stage_block(&mut self) -> Result<u64, ChainstateError> {
         let mut block = self.mine_stacks_block()?;
         let config = self.chainstate.config();

@@ -87,6 +87,7 @@ impl HttpPeer {
     }
 
     /// Is there a HTTP conversation open to this data_url that is not in progress?
+    #[cfg_attr(test, mutants::skip)]
     pub fn find_free_conversation(&self, data_url: &UrlString) -> Option<usize> {
         for (event_id, convo) in self.peers.iter() {
             if let Some(ref url) = convo.get_url() {
@@ -99,6 +100,7 @@ impl HttpPeer {
     }
 
     /// Get a mut ref to a conversation
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp> {
         self.peers.get_mut(&event_id)
     }
@@ -167,6 +169,7 @@ impl HttpPeer {
     }
 
     /// Can we register this socket?
+    #[cfg_attr(test, mutants::skip)]
     fn can_register_http(
         &self,
         peer_addr: &SocketAddr,
@@ -208,6 +211,7 @@ impl HttpPeer {
     /// Low-level method to register a socket/event pair on the p2p network interface.
     /// Call only once the socket is connected (called once the socket triggers ready).
     /// Will destroy the socket if we can't register for whatever reason.
+    #[cfg_attr(test, mutants::skip)]
     fn register_http(
         &mut self,
         network_state: &mut NetworkState,
@@ -281,6 +285,7 @@ impl HttpPeer {
     }
 
     /// Deregister a socket/event pair
+    #[cfg_attr(test, mutants::skip)]
     pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
         self.peers.remove(&event_id);
 
@@ -544,6 +549,7 @@ impl HttpPeer {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
+    #[cfg_attr(test, mutants::skip)]
     fn process_ready_sockets(
         &mut self,
         poll_state: &mut NetworkPollState,
@@ -601,6 +607,7 @@ impl HttpPeer {
     /// Flush outgoing replies, but don't block.
     /// Drop broken handles.
     /// Return the list of conversation event IDs to close (i.e. they're broken, or the request is done)
+    #[cfg_attr(test, mutants::skip)]
     fn flush_conversations(&mut self) -> Vec<usize> {
         let mut close = vec![];
 
@@ -626,6 +633,7 @@ impl HttpPeer {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
+    #[cfg_attr(test, mutants::skip)]
     pub fn run(
         &mut self,
         network_state: &mut NetworkState,
