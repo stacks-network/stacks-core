@@ -191,6 +191,8 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set: &Option<RewardSet>,
+        _cycle_number: &Option<u64>,
     ) {
         assert!(
             false,
@@ -5291,7 +5293,15 @@ impl StacksChainState {
         user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
         do_not_advance: bool,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSet>,
+            Option<u64>,
+        ),
+        Error,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
@@ -5678,7 +5688,7 @@ impl StacksChainState {
                 signers_updated: false,
             };
 
-            return Ok((epoch_receipt, clarity_commit));
+            return Ok((epoch_receipt, clarity_commit, None, None));
         }
 
         let parent_block_header = parent_chain_tip
@@ -5715,13 +5725,21 @@ impl StacksChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set = None;
+        let mut cycle_of_prepare_phase = None;
         if let Some(signer_calculation) = signer_set_calc {
+            reward_set = Some(signer_calculation.reward_set.clone());
             let new_block_id = new_tip.index_block_hash();
             NakamotoChainState::write_reward_set(
                 chainstate_tx,
                 &new_block_id,
                 &signer_calculation.reward_set,
-            )?
+            )?;
+            let first_block_height = burn_dbconn.get_burn_start_height();
+            cycle_of_prepare_phase = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                parent_burn_block_height.into(),
+            );
         }
 
         set_last_block_transaction_count(
@@ -5744,7 +5762,12 @@ impl StacksChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((
+            epoch_receipt,
+            clarity_commit,
+            reward_set,
+            cycle_of_prepare_phase,
+        ))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -6076,80 +6099,81 @@ impl StacksChainState {
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
         let pox_constants = sort_tx.context.pox_constants.clone();
-        let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
-            &mut chainstate_tx,
-            clarity_instance,
-            sort_tx,
-            &pox_constants,
-            &parent_header_info,
-            &next_staging_block.consensus_hash,
-            &burn_header_hash,
-            burn_header_height,
-            burn_header_timestamp,
-            &block,
-            block_size,
-            &next_microblocks,
-            next_staging_block.commit_burn,
-            next_staging_block.sortition_burn,
-            &user_supports,
-            block_am.weight(),
-            false,
-        ) {
-            Ok(next_chain_tip_info) => next_chain_tip_info,
-            Err(e) => {
-                // something's wrong with this epoch -- either a microblock was invalid, or the
-                // anchored block was invalid.  Either way, the anchored block will _never be_
-                // valid, so we can drop it from the chunk store and orphan all of its descendants.
-                test_debug!(
-                    "Failed to append {}/{}",
-                    &next_staging_block.consensus_hash,
-                    &block.block_hash()
-                );
-                StacksChainState::set_block_processed(
-                    chainstate_tx.deref_mut(),
-                    None,
-                    &blocks_path,
-                    &next_staging_block.consensus_hash,
-                    &block.header.block_hash(),
-                    false,
-                )?;
-                StacksChainState::free_block_state(
-                    &blocks_path,
-                    &next_staging_block.consensus_hash,
-                    &block.header,
-                );
+        let (epoch_receipt, clarity_commit, reward_set, cycle_number) =
+            match StacksChainState::append_block(
+                &mut chainstate_tx,
+                clarity_instance,
+                sort_tx,
+                &pox_constants,
+                &parent_header_info,
+                &next_staging_block.consensus_hash,
+                &burn_header_hash,
+                burn_header_height,
+                burn_header_timestamp,
+                &block,
+                block_size,
+                &next_microblocks,
+                next_staging_block.commit_burn,
+                next_staging_block.sortition_burn,
+                &user_supports,
+                block_am.weight(),
+                false,
+            ) {
+                Ok(next_chain_tip_info) => next_chain_tip_info,
+                Err(e) => {
+                    // something's wrong with this epoch -- either a microblock was invalid, or the
+                    // anchored block was invalid.  Either way, the anchored block will _never be_
+                    // valid, so we can drop it from the chunk store and orphan all of its descendants.
+                    test_debug!(
+                        "Failed to append {}/{}",
+                        &next_staging_block.consensus_hash,
+                        &block.block_hash()
+                    );
+                    StacksChainState::set_block_processed(
+                        chainstate_tx.deref_mut(),
+                        None,
+                        &blocks_path,
+                        &next_staging_block.consensus_hash,
+                        &block.header.block_hash(),
+                        false,
+                    )?;
+                    StacksChainState::free_block_state(
+                        &blocks_path,
+                        &next_staging_block.consensus_hash,
+                        &block.header,
+                    );
 
-                match e {
-                    Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
-                        // specifically, an ancestor microblock was invalid.  Drop any descendant microblocks --
-                        // they're never going to be valid in _any_ fork, even if they have a clone
-                        // in a neighboring burnchain fork.
-                        error!(
+                    match e {
+                        Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
+                            // specifically, an ancestor microblock was invalid.  Drop any descendant microblocks --
+                            // they're never going to be valid in _any_ fork, even if they have a clone
+                            // in a neighboring burnchain fork.
+                            error!(
                             "Parent microblock stream from {}/{} is invalid at microblock {}: {}",
                             parent_header_info.consensus_hash,
                             parent_header_info.anchored_header.block_hash(),
                             header_hash,
                             msg
                         );
-                        StacksChainState::drop_staging_microblocks(
-                            chainstate_tx.deref_mut(),
-                            &parent_header_info.consensus_hash,
-                            &parent_header_info.anchored_header.block_hash(),
-                            header_hash,
-                        )?;
+                            StacksChainState::drop_staging_microblocks(
+                                chainstate_tx.deref_mut(),
+                                &parent_header_info.consensus_hash,
+                                &parent_header_info.anchored_header.block_hash(),
+                                header_hash,
+                            )?;
+                        }
+                        _ => {
+                            // block was invalid, but this means all the microblocks it confirmed are
+                            // still (potentially) valid.  However, they are not confirmed yet, so
+                            // leave them in the staging database.
+                        }
                     }
-                    _ => {
-                        // block was invalid, but this means all the microblocks it confirmed are
-                        // still (potentially) valid.  However, they are not confirmed yet, so
-                        // leave them in the staging database.
-                    }
+
+                    chainstate_tx.commit().map_err(Error::DBError)?;
+
+                    return Err(e);
                 }
-
-                chainstate_tx.commit().map_err(Error::DBError)?;
-
-                return Err(e);
-            }
-        };
+            };
 
         let receipt_anchored_header = epoch_receipt
             .header
@@ -6213,6 +6237,8 @@ impl StacksChainState {
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set,
+                &cycle_number,
             );
         }
 

@@ -177,6 +177,8 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set: &Option<RewardSet>,
+        cycle_number: &Option<u64>,
     );
 
     /// called whenever a burn block is about to be
@@ -363,9 +365,9 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
             }
         }
 
-        if let Some(dispatcher) = self.0 {
-            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
-        }
+        // if let Some(dispatcher) = self.0 {
+        //     dispatcher.announce_reward_set(&reward_set, block_id, cycle);
+        // }
 
         Ok(reward_set)
     }

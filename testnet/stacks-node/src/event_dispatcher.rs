@@ -589,6 +589,8 @@ impl BlockEventDispatcher for EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set: &Option<RewardSet>,
+        cycle_number: &Option<u64>,
     ) {
         self.process_chain_tip(
             block,
@@ -604,7 +606,18 @@ impl BlockEventDispatcher for EventDispatcher {
             anchored_consumed,
             mblock_confirmed_consumed,
             pox_constants,
-        )
+        );
+
+        if let Some(reward_set) = reward_set {
+            debug!(
+                "reward_set in announce_block: {:?}, parent_block_id: {:?}, cycle_number: {:?}",
+                reward_set, parent, cycle_number
+            );
+            if let Some(cycle_num) = cycle_number {
+                //
+                self.process_stacker_set(reward_set, parent, *cycle_num)
+            }
+        }
     }
 
     fn announce_burn_block(

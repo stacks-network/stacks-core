@@ -426,6 +426,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set: &Option<RewardSet>,
+        _cycle_number: &Option<u64>,
     ) {
         assert!(
             false,

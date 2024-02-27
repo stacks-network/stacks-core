@@ -1376,7 +1376,8 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit) = ok_opt.expect("FATAL: unreachable");
+        let (receipt, clarity_commit, reward_set, cycle_number) =
+            ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -1432,6 +1433,8 @@ impl NakamotoChainState {
                 &receipt.anchored_block_cost,
                 &receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set,
+                &cycle_number,
             );
         }
 
@@ -2660,7 +2663,15 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSet>,
+            Option<u64>,
+        ),
+        ChainstateError,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
@@ -2983,8 +2994,16 @@ impl NakamotoChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set = None;
+        let mut cycle_of_prepare_phase = None;
         if let Some(signer_calculation) = signer_set_calc {
-            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
+            reward_set = Some(signer_calculation.reward_set.clone());
+            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
+            let first_block_height = burn_dbconn.get_burn_start_height();
+            cycle_of_prepare_phase = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                chain_tip_burn_header_height.into(),
+            );
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
@@ -3026,7 +3045,12 @@ impl NakamotoChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((
+            epoch_receipt,
+            clarity_commit,
+            reward_set,
+            cycle_of_prepare_phase,
+        ))
     }
 
     /// Create a StackerDB config for the .miners contract.

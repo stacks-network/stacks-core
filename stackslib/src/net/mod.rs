@@ -1903,6 +1903,8 @@ pub mod test {
             _anchor_block_cost: &ExecutionCost,
             _confirmed_mblock_cost: &ExecutionCost,
             pox_constants: &PoxConstants,
+            reward_set: &Option<RewardSet>,
+            cycle_number: &Option<u64>,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
