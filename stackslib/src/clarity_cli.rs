@@ -1675,8 +1675,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             // the contract initialization (yet?).
                             let mut db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                             db.begin();
-                            db
-                                .insert_contract_analysis(&analysis)
+                            db.insert_contract_analysis(&analysis)
                                 .expect("Failed to insert contract analysis");
                             db.commit().expect("Failed to commit contract analysis");
 

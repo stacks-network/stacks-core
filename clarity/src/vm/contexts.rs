@@ -19,10 +19,10 @@ use std::fmt;
 use std::mem::replace;
 
 #[cfg(test)]
-use fake::{Faker, Dummy};
-use speedy::{Readable, Writable};
+use fake::{Dummy, Faker};
 use serde::Serialize;
 use serde_json::json;
+use speedy::{Readable, Writable};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
@@ -209,8 +209,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Readable, Writable)]
 #[cfg_attr(test, derive(Dummy))]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
@@ -399,7 +398,9 @@ impl AssetMap {
         Ok(())
     }
 
-    pub fn to_table(mut self) -> StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, AssetMapEntry>> {
+    pub fn to_table(
+        mut self,
+    ) -> StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = StacksHashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
             let mut output_map = StacksHashMap::new();
@@ -1004,7 +1005,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             .global_context
             .database
             //    .get_contract(contract_identifier)?;
-            .get_contract2(contract_identifier)?;
+            .get_contract(contract_identifier)?;
 
         let result = {
             let mut nested_env = Environment::new(
@@ -1126,24 +1127,22 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
         allow_private: bool,
     ) -> Result<Value> {
-        test_debug!("inner_execute_contract: {contract_identifier}");
         let contract_size: u64 = self
             .global_context
             .database
-            .get_contract_size2(contract_identifier)?
+            .get_contract_size(contract_identifier)?
             .into();
-        test_debug!("contract_size: {contract_size}");
 
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
-        
+
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self
                 .global_context
                 .database
                 //.get_contract(contract_identifier)?;
-                .get_contract2(contract_identifier)?;
+                .get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
@@ -1314,7 +1313,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             if self
                 .global_context
                 .database
-                .has_contract2(&contract_identifier)?
+                .has_contract(&contract_identifier)?
             {
                 return Err(
                     CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
@@ -1349,7 +1348,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 //    .insert_contract(&contract_identifier, contract.clone())?;
                 self.global_context
                     .database
-                    .insert_contract2(contract, contract_string)?;
+                    .insert_contract(contract, contract_string)?;
                 //self.global_context
                 //    .database
                 //    .set_contract_data_size(&contract_identifier, data_size)?;

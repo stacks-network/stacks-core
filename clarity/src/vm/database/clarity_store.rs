@@ -23,7 +23,8 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use super::structures::{
-    BlockData, ContractAnalysisData, ContractData, ContractId, ContractSizeData, PendingContract, StoredContract
+    BlockData, ContractAnalysisData, ContractData, ContractId, ContractSizeData, PendingContract,
+    StoredContract,
 };
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contexts::GlobalContext;
@@ -40,6 +41,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ContractContext, Value};
 
 /// TODO: Duplicate
+#[derive(Debug, Default)]
 pub struct NullBackingStore {}
 
 /// TODO: Document this type
@@ -72,8 +74,8 @@ pub type SpecialCaseHandler = &'static dyn Fn(
 /// transaction is successful.
 ///
 /// In a live node, the primary implementor of this trait is the [`WritableMarfStore`]
-/// in the `stackslib` chainstate index code. It implements 
-/// [`get_side_store`](ClarityBackingStore::get_side_store) to provide a reference 
+/// in the `stackslib` chainstate index code. It implements
+/// [`get_side_store`](ClarityBackingStore::get_side_store) to provide a reference
 /// to its database [`Connection`] for the Clarity VM to use via this trait.
 pub trait ClarityBackingStore {
     /// Accepts a list of key-value pairs and writes them to the backing store.
@@ -85,7 +87,7 @@ pub trait ClarityBackingStore {
 
     /// Attempts to fetch the value associated with the provided key from the
     /// consensus-critical backing store, as well as the byte representation
-    /// of the Merkle proof for that key-value pair. 
+    /// of the Merkle proof for that key-value pair.
     ///
     /// Returns [`None`] if the key is not found.
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
@@ -102,8 +104,8 @@ pub trait ClarityBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
     /// Returns the index block hash for the Stacks block at the given block height.
-    /// 
-    /// Returns [`None`] if `block_height` >= the "currently" under construction 
+    ///
+    /// Returns [`None`] if `block_height` >= the "currently" under construction
     /// Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
@@ -164,14 +166,13 @@ pub trait ClarityBackingStore {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<StoredContract>> {
-        test_debug!("STORE get_contract for {contract_identifier}");
         let (bhh, contract_hash) = match self.get_contract_hash(contract_identifier) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(err) => match err {
                 crate::vm::Error::Unchecked(CheckErrors::NoSuchContract(_)) => return Ok(None),
                 _ => return Err(err.into()),
-            }
+            },
         };
 
         let contract = SqliteConnection::get_contract(
@@ -190,7 +191,6 @@ pub trait ClarityBackingStore {
 
             let src_decompressed =
                 lz4_flex::block::decompress(&data.source, data.source_size as usize)?;
-            test_debug!("STORE contract found with id #{}", data.id);
 
             Some(StoredContract {
                 id: data.id,
@@ -204,7 +204,6 @@ pub trait ClarityBackingStore {
                 contract_hash,
             })
         } else {
-            test_debug!("STORE contract was not found");
             None
         })
     }
@@ -213,7 +212,6 @@ pub trait ClarityBackingStore {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u32> {
-        test_debug!("STORE get_contract_size for {contract_identifier}");
         let (bhh, _) = self
             .get_contract_hash(contract_identifier)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
@@ -239,7 +237,7 @@ pub trait ClarityBackingStore {
             Err(err) => match err {
                 crate::vm::Error::Unchecked(CheckErrors::NoSuchContract(_)) => return Ok(false),
                 _ => return Err(err.into()),
-            }
+            },
         };
 
         let result = SqliteConnection::contract_exists(
@@ -254,8 +252,6 @@ pub trait ClarityBackingStore {
 
     /// Inserts the provided contract data into the backing store.
     fn insert_contract(&mut self, data: &mut PendingContract) -> Result<ContractData> {
-        let contract_identifier = &data.contract.contract_identifier;
-        trace!("STORE insert_contract for {contract_identifier}");
         let chain_tip = self.get_open_chain_tip();
 
         // 'content-hash': src_hash
@@ -266,16 +262,13 @@ pub trait ClarityBackingStore {
         let src_len = src_bytes.len();
 
         // Compress the plain-text source code.
-        let mut src_compressed = Vec::<u8>::with_capacity(src_len);
-        lzzzz::lz4::compress_to_vec(
-            &src_bytes,
-            &mut src_compressed,
-            lzzzz::lz4::ACC_LEVEL_DEFAULT,
-        )?;
+        let src_compressed = lz4_flex::block::compress(&src_bytes);
 
         // Serialize and compress the contract AST.
         //let contract_serialized = rmp_serde::to_vec(&data.contract)?;
-        let contract_serialized = data.contract.write_to_vec()
+        let contract_serialized = data
+            .contract
+            .write_to_vec()
             .expect("failed to serialize contract context");
         let contract_serialized_len = contract_serialized.len() as u32;
 
@@ -318,107 +311,82 @@ pub trait ClarityBackingStore {
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 SqliteConnection::get_internal_contract_id(
-                        self.get_side_store(), 
-                        &contract_identifier.issuer.to_string(), 
-                        &contract_identifier.name.to_string(), 
+                        self.get_side_store(),
+                        &contract_identifier.issuer.to_string(),
+                        &contract_identifier.name.to_string(),
                         &bhh
                     )?
                     .ok_or(CheckErrors::Expects(
                         "Could not insert contract analysis because the internal contract id could not be resolved.".into())
                     )?
             }
-            ContractId::Id(id) => {
-                id
-            }
+            ContractId::Id(id) => id,
         };
 
-        let analysis_serialized = analysis.write_to_vec()
+        let analysis_serialized = analysis
+            .write_to_vec()
             .expect("failed to serialize contract context");
 
-        let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
-        lzzzz::lz4::compress_to_vec(
-            &analysis_serialized,
-            &mut analysis_compressed,
-            lzzzz::lz4::ACC_LEVEL_DEFAULT,
-        )?;
+        let analysis_compressed = lz4_flex::block::compress(&analysis_serialized);
 
         SqliteConnection::insert_contract_analysis(
             self.get_side_store(),
             contract_id,
             &analysis_compressed,
-            analysis_serialized.len()
+            analysis_serialized.len(),
         )
     }
 
     fn get_contract_id(&mut self, contract_id: ContractId) -> Result<Option<u32>> {
-        test_debug!("STORE get_contract_id for {contract_id:?}");
         match contract_id {
             ContractId::QualifiedContractIdentifier(contract_identifier) => {
-                test_debug!("STORE get_contract_id: resolving block height for {contract_identifier}");
                 match self.get_contract_hash(contract_identifier)? {
-                    None => {
-                        test_debug!("STORE get_contract_id: contract not found for {contract_identifier}");
-                        Ok(None)
-                    },
-                    Some((bhh, _)) => {
-                        test_debug!("STORE get_contract_id: resolved block height for {contract_identifier}: {bhh}");
-                        Ok(SqliteConnection::get_internal_contract_id(
-                            self.get_side_store(), 
-                            &contract_identifier.issuer.to_string(), 
-                            &contract_identifier.name.to_string(), 
-                            &bhh)?
-                            .map(|id| {
-                                test_debug!("STORE get_contract_id: resolved internal contract id for {contract_identifier}: {id}");
-                                with_clarity_cache(|cache| 
-                                    cache.push_contract_id(contract_identifier.clone(), id)
-                                );
-                                id
-                            })
-                        )
-                    }
+                    None => Ok(None),
+                    Some((bhh, _)) => Ok(SqliteConnection::get_internal_contract_id(
+                        self.get_side_store(),
+                        &contract_identifier.issuer.to_string(),
+                        &contract_identifier.name.to_string(),
+                        &bhh,
+                    )?
+                    .map(|id| {
+                        with_clarity_cache(|cache| {
+                            cache.push_contract_id(contract_identifier.clone(), id)
+                        });
+                        id
+                    })),
                 }
             }
-            ContractId::Id(id) => {
-                Ok(Some(id))
-            }
+            ContractId::Id(id) => Ok(Some(id)),
         }
-
     }
 
     fn get_contract_analysis(
         &mut self,
         contract_id: ContractId,
     ) -> Result<Option<ContractAnalysis>> {
-        test_debug!("STORE get_contract_analysis for {contract_id:?}");
-
         let contract_id = match self.get_contract_id(contract_id)? {
             Some(id) => id,
             None => return Ok(None),
         };
-    
-        test_debug!("STORE get_contract_analysis: fetching contract analysis for {contract_id}");
-        let analysis = SqliteConnection::get_contract_analysis(
-            self.get_side_store(),
-            contract_id
-        )?;
-        
+
+        let analysis = SqliteConnection::get_contract_analysis(self.get_side_store(), contract_id)?;
+
         if let Some(analysis) = analysis {
-            test_debug!("STORE get_contract_analysis: contract analysis found for {contract_id}; decompressing...");
-            let analysis_decompressed = lz4_flex::block::decompress(&analysis.analysis, (analysis.analysis_size + 1) as usize)
-                .expect("failed to decompress contract analysis");
-            test_debug!("STORE get_contract_analysis: decompression successful; deserializing...");
+            let analysis_decompressed = lz4_flex::block::decompress(
+                &analysis.analysis,
+                (analysis.analysis_size + 1) as usize,
+            )
+            .expect("failed to decompress contract analysis");
             //let analysis = rmp_serde::decode::from_slice(&analysis_decompressed)?;
             let analysis = ContractAnalysis::read_from_buffer(&analysis_decompressed)
                 .expect("failed to deserialize contract context");
-            test_debug!("STORE get_contract_analysis: deserialization successful; returning analysis");
+
             Ok(Some(analysis))
         } else {
-            test_debug!("STORE get_contract_analysis: contract analysis NOT found for {contract_id}");
             Ok(None)
         }
     }
 
-    #[deprecated]
     fn insert_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -435,7 +403,6 @@ pub trait ClarityBackingStore {
         )
     }
 
-    #[deprecated]
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -448,7 +415,6 @@ pub trait ClarityBackingStore {
         }
     }
 
-    #[deprecated]
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
@@ -485,8 +451,12 @@ pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String 
     format!("clarity-contract::{}", contract)
 }
 
-#[derive(Debug, PartialEq)]
-#[derive(Readable, Writable)]
+/// Represents a contract commitment, which is the hash of the contract's
+/// source code , plus the block height at which the contract was initialized.
+///
+/// This data is stored in the consensus-critical Clarity store with the key
+/// `clarity-contract::<contract_identifier>`.
+#[derive(Debug, PartialEq, Readable, Writable)]
 pub struct ContractCommitment {
     pub hash: Sha512Trunc256Sum,
     pub block_height: u32,
@@ -519,17 +489,7 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
     }
 }
 
-impl Default for NullBackingStore {
-    fn default() -> Self {
-        NullBackingStore::new()
-    }
-}
-
 impl NullBackingStore {
-    pub fn new() -> Self {
-        NullBackingStore {}
-    }
-
     pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }

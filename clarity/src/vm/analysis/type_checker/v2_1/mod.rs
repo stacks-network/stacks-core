@@ -429,7 +429,9 @@ impl FunctionType {
                     ) => {
                         let contract_to_check = db
                             .get_contract_analysis(contract, Some(StacksEpochId::Epoch21))
-                            .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
+                            .map_err(|_| {
+                                CheckErrors::Expects("Failed to load contract analysis".into())
+                            })?
                             .ok_or_else(|| {
                                 CheckErrors::NoSuchContract(contract.name.to_string())
                             })?;
@@ -1582,7 +1584,6 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     }
                 }
                 DefineFunctionsParsed::ImplTrait { trait_identifier } => {
-                    //test_debug!("Type checking impl trait: {:?}", expression);
                     self.contract_context
                         .add_implemented_trait(trait_identifier.clone())?;
                 }

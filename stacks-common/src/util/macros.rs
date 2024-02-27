@@ -144,8 +144,19 @@ macro_rules! define_versioned_named_enum {
 #[macro_export]
 macro_rules! guarded_string {
     ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
-        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        #[derive($crate::speedy::Readable, $crate::speedy::Writable)]
+        #[derive(
+            Debug,
+            Serialize,
+            Deserialize,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            $crate::speedy::Readable,
+            $crate::speedy::Writable,
+        )]
         pub struct $Name(String);
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;

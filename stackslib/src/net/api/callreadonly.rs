@@ -243,9 +243,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                         })?;
 
                     let clarity_version = clarity_tx
-                        .with_clarity_db_readonly(|db| {
-                            db.get_clarity_version(&contract_identifier)
-                        })
+                        .with_clarity_db_readonly(|db| db.get_clarity_version(&contract_identifier))
                         .map_err(|_| {
                             ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
                                 "{}",

@@ -128,8 +128,8 @@ fn test_names_tokens_contracts() {
     let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
-      db.test_insert_contract(&tokens_contract_id, FIRST_CLASS_TOKENS);
-      db.test_insert_contract(&names_contract_id, ASSET_NAMES);
+        db.test_insert_contract(&tokens_contract_id, FIRST_CLASS_TOKENS);
+        db.test_insert_contract(&names_contract_id, ASSET_NAMES);
         type_check(
             &tokens_contract_id,
             &mut tokens_contract,

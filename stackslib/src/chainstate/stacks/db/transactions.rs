@@ -966,7 +966,6 @@ impl StacksChainState {
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
-                test_debug!("token_transfer: {} {} {:?}", addr, amount, memo);
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1013,8 +1012,6 @@ impl StacksChainState {
                 // if on the other hand the contract being called has a runtime error, then the
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
-
-                test_debug!("contract_call: {contract_call}");
 
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
@@ -1147,7 +1144,6 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
-                test_debug!("smart_contract: {smart_contract:?}");
                 let epoch_id = clarity_tx.get_epoch();
                 let clarity_version = version_opt
                     .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
@@ -1163,13 +1159,11 @@ impl StacksChainState {
                 let contract_id =
                     QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
                 let contract_code_str = smart_contract.code_body.to_string();
-                
 
                 // can't be instantiated already -- if this fails, then the transaction is invalid
                 // (because this can be checked statically by the miner before mining the block).
                 let exists = clarity_tx.with_clarity_db(|db| {
-                    let has_contract = db.has_contract2(   &contract_id)
-                        .is_ok_and(|x| x == true);
+                    let has_contract = db.has_contract(&contract_id).is_ok_and(|x| x == true);
                     Ok(has_contract)
                 })?;
                 //if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
@@ -1388,7 +1382,6 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
-                test_debug!("poison_microblock: {mblock_header_1:?} {mblock_header_2:?}");
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1459,7 +1452,6 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
     ) -> Result<ClarityVersion, Error> {
-        test_debug!("Deduce Clarity version for transaction {}", tx.txid());
         let clarity_version = match &tx.payload {
             TransactionPayload::SmartContract(_, ref version_opt) => {
                 // did the caller want to run a particular version of Clarity?
@@ -1583,7 +1575,8 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::{types::*, ContractContext};
+    use clarity::vm::types::*;
+    use clarity::vm::ContractContext;
     use rand::Rng;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
@@ -10393,7 +10386,8 @@ pub mod test {
                 &"transitive".to_string(),
                 &transitive_trait.to_string(),
                 Some(ClarityVersion::Clarity2),
-            ).unwrap()
+            )
+            .unwrap(),
         );
 
         tx_transitive_trait_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10615,7 +10609,8 @@ pub mod test {
         .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             check_error,
-        ))) = err {   
+        ))) = err
+        {
         } else {
             panic!("Did not get unchecked interpreter error");
         }

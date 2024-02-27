@@ -23,8 +23,7 @@ use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[derive(Writable, Readable)]
+#[derive(Debug, PartialEq, Eq, Clone, Writable, Readable)]
 pub struct TypeMap {
     map: StacksHashMap<u64, TypeSignature>,
 }

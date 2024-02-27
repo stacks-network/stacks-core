@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 #[allow(clippy::result_large_err)]
@@ -34,6 +33,7 @@ use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
+use super::database::ClarityDatabase;
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
@@ -41,9 +41,7 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
-use super::database::ClarityDatabase;
-
-/// Used by CLI tools like the docs generator. Not used in production
+/// Used by CLI tools like the docs generator. Not used in production.
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
@@ -116,6 +114,13 @@ pub fn type_check(
     .map_err(|(e, _cost_tracker)| e)
 }
 
+/// Performs a full analysis of a contract, including type checking, trait
+/// checking, and private/read-only checking, optionally storing the result
+/// in the [`ClarityDatabase`].
+///
+/// Note that if `save_contract` is `true`, the [`Contract`] must already
+/// be present in the [`ClarityDatabase`], and if the contract makes use of
+/// any other contracts, those must also be present in the database.
 pub fn run_analysis(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &[SymbolicExpression],
@@ -163,7 +168,7 @@ pub fn run_analysis(
             let interface = build_contract_interface(&contract_analysis)?;
             contract_analysis.contract_interface = Some(interface);
         }
-        
+
         if save_contract {
             db.insert_contract_analysis(&contract_analysis)?;
         }

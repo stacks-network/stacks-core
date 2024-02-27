@@ -1,18 +1,18 @@
-use std::{cell::RefCell, collections::HashMap, num::NonZeroUsize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use lazy_static::lazy_static;
 use lru::LruCache;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::{
-    analysis::ContractAnalysis, 
-    database::structures::StoredContract, 
-    types::QualifiedContractIdentifier
-};
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::database::structures::StoredContract;
+use crate::vm::types::QualifiedContractIdentifier;
 
 // Initialize a thread-local static variable to store the cache
 thread_local!(
-    /// A thread-local cache for the Clarity VM. Since the VM is single-threaded, 
+    /// A thread-local cache for the Clarity VM. Since the VM is single-threaded,
     /// this is safe.
     static CLARITY_CACHE: RefCell<ClarityCache> = RefCell::new(ClarityCache::new());
 );
@@ -55,23 +55,37 @@ impl ClarityCache {
         }
     }
 
-    pub fn try_get_contract(&self, id: &QualifiedContractIdentifier, epoch: Option<StacksEpochId>) -> Option<StoredContract> {
+    pub fn try_get_contract(
+        &self,
+        id: &QualifiedContractIdentifier,
+        epoch: Option<StacksEpochId>,
+    ) -> Option<StoredContract> {
         if self.is_enabled.borrow().eq(&false) {
             return None;
         }
 
-        self.contract_cache.borrow_mut().get(&ContractKey(id.clone(), epoch)).cloned()
+        self.contract_cache
+            .borrow_mut()
+            .get(&ContractKey(id.clone(), epoch))
+            .cloned()
     }
 
-    pub fn push_contract(&self, id: QualifiedContractIdentifier, epoch: Option<StacksEpochId>, contract: StoredContract) {
+    pub fn push_contract(
+        &self,
+        id: QualifiedContractIdentifier,
+        epoch: Option<StacksEpochId>,
+        contract: StoredContract,
+    ) {
         if self.is_enabled.borrow().eq(&false) {
             return;
         }
 
-        self.contract_id_lookup_cache.borrow_mut()
+        self.contract_id_lookup_cache
+            .borrow_mut()
             .insert(id.clone(), contract.id);
 
-        self.contract_cache.borrow_mut()
+        self.contract_cache
+            .borrow_mut()
             .push(ContractKey(id, epoch), contract);
     }
 
@@ -80,23 +94,39 @@ impl ClarityCache {
             return false;
         }
 
-        self.contract_cache.borrow().contains(&ContractKey(id.clone(), None))
+        self.contract_cache
+            .borrow()
+            .contains(&ContractKey(id.clone(), None))
     }
 
-    pub fn try_get_contract_analysis(&self, id: &QualifiedContractIdentifier, epoch: Option<StacksEpochId>) -> Option<ContractAnalysis> {
+    pub fn try_get_contract_analysis(
+        &self,
+        id: &QualifiedContractIdentifier,
+        epoch: Option<StacksEpochId>,
+    ) -> Option<ContractAnalysis> {
         if self.is_enabled.borrow().eq(&false) {
             return None;
         }
 
-        self.analysis_cache.borrow_mut().get(&ContractKey(id.clone(), epoch)).cloned()
+        self.analysis_cache
+            .borrow_mut()
+            .get(&ContractKey(id.clone(), epoch))
+            .cloned()
     }
 
-    pub fn push_contract_analysis(&self, id: QualifiedContractIdentifier, epoch: Option<StacksEpochId>, analysis: ContractAnalysis) {
+    pub fn push_contract_analysis(
+        &self,
+        id: QualifiedContractIdentifier,
+        epoch: Option<StacksEpochId>,
+        analysis: ContractAnalysis,
+    ) {
         if self.is_enabled.borrow().eq(&false) {
             return;
         }
 
-        self.analysis_cache.borrow_mut().push(ContractKey(id, epoch), analysis);
+        self.analysis_cache
+            .borrow_mut()
+            .push(ContractKey(id, epoch), analysis);
     }
 
     pub fn try_get_contract_id(&self, id: &QualifiedContractIdentifier) -> Option<u32> {
@@ -112,7 +142,8 @@ impl ClarityCache {
             return;
         }
 
-        self.contract_id_lookup_cache.borrow_mut()
+        self.contract_id_lookup_cache
+            .borrow_mut()
             .insert(id, contract_id);
     }
 

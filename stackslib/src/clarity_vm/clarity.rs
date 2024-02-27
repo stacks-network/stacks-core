@@ -396,9 +396,7 @@ impl ClarityInstance {
                 )
                 .unwrap();
 
-            clarity_db
-                .save_analysis(&analysis)
-                .unwrap();
+            clarity_db.save_analysis(&analysis).unwrap();
         });
 
         conn.as_transaction(|clarity_db| {
@@ -1787,23 +1785,24 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
         //     })
         // })
     }
-    
+
     fn with_clarity_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R) {
-            using!(self.cost_track, "cost tracker", |cost_track| {
-                using!(self.log, "log", |log| {
-                    let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                    let mut db = ClarityDatabase::new_with_rollback_wrapper(
-                        rollback_wrapper, 
-                        &self.header_db, 
-                        &self.burn_state_db);
-                    let r = to_do(&mut db, cost_track);
-                    (db.destroy().into(), r)
-                })
+        F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R),
+    {
+        using!(self.cost_track, "cost tracker", |cost_track| {
+            using!(self.log, "log", |log| {
+                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                    rollback_wrapper,
+                    &self.header_db,
+                    &self.burn_state_db,
+                );
+                let r = to_do(&mut db, cost_track);
+                (db.destroy().into(), r)
             })
+        })
     }
-    
 }
 
 impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
@@ -2077,8 +2076,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             conn.commit_block();
@@ -2130,8 +2128,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(&ct_analysis)
-                    .unwrap();
+                tx.save_analysis(&ct_analysis).unwrap();
             }
 
             // okay, let's try it again -- should pass since the prior contract
@@ -2158,8 +2155,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(&ct_analysis)
-                    .unwrap();
+                tx.save_analysis(&ct_analysis).unwrap();
 
                 tx.commit().unwrap();
             }
@@ -2242,8 +2238,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             assert_eq!(
@@ -2302,8 +2297,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             conn.rollback_block();
@@ -2316,7 +2310,8 @@ mod tests {
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
             CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
-        );        let sql = conn.get_side_store();
+        );
+        let sql = conn.get_side_store();
         // sqlite only have entries
         assert_eq!(
             0,
@@ -2393,8 +2388,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             conn.commit_unconfirmed();
@@ -2411,7 +2405,7 @@ mod tests {
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
                     let src = tx
-                        .get_contract_src2(&contract_identifier)
+                        .get_contract_src(&contract_identifier)
                         .expect("failed to get contract src")
                         .expect("contract source was None");
                     assert_eq!(src, contract);
@@ -2433,7 +2427,7 @@ mod tests {
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
                     let src = tx
-                        .get_contract_src2(&contract_identifier)
+                        .get_contract_src(&contract_identifier)
                         .expect("failed to get contract src")
                         .expect("contract source was None");
                     assert_eq!(src, contract);
@@ -2454,7 +2448,7 @@ mod tests {
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
                     assert!(tx
-                        .get_contract_src2(&contract_identifier)
+                        .get_contract_src(&contract_identifier)
                         .expect("failed to get contract src")
                         .is_none());
                 });
@@ -2533,8 +2527,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             assert_eq!(
@@ -2909,8 +2902,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&ct_analysis)
-                    .unwrap();
+                conn.save_analysis(&ct_analysis).unwrap();
             });
 
             conn.commit_block();

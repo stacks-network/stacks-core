@@ -348,7 +348,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
     let err = db
         .execute(|db| {
             db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
-            
+
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
@@ -454,7 +454,6 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
                 &epoch,
                 &version,
             )?;
-            test_debug!("FINISHED FIRST TYPE CHECK: {:?}", first_result);
             let last_result = type_check(
                 &target_contract_id,
                 &mut target_contract,
@@ -463,7 +462,6 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
                 &epoch,
                 &version,
             );
-            test_debug!("FINISHED SECOND TYPE CHECK: {:?}", last_result);
             last_result
         })
         .unwrap_err();
@@ -572,7 +570,7 @@ fn test_nested_literal_implicitly_compliant(
         db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
         db.test_insert_contract(&nested_target_contract_id, nested_target_contract_src);
         db.test_insert_contract(&target_contract_id, target_contract_src);
-        
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -1000,7 +998,10 @@ fn test_dynamic_dispatch_including_nested_trait(
     let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
-        db.test_insert_contract(&contract_defining_nested_trait_id, contract_defining_nested_trait_src);
+        db.test_insert_contract(
+            &contract_defining_nested_trait_id,
+            contract_defining_nested_trait_src,
+        );
         db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
         db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
         db.test_insert_contract(&target_contract_id, target_contract_src);
@@ -1114,7 +1115,10 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
 
     let err = db
         .execute(|db| {
-            db.test_insert_contract(&contract_defining_nested_trait_id, contract_defining_nested_trait_src);
+            db.test_insert_contract(
+                &contract_defining_nested_trait_id,
+                contract_defining_nested_trait_src,
+            );
             db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
             db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
             db.test_insert_contract(&target_contract_id, target_contract_src);
@@ -1749,7 +1753,7 @@ fn test_return_trait_with_contract_of(
     db.execute(|db| {
         db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
         db.test_insert_contract(&target_contract_id, target_contract_src);
-        
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -1904,7 +1908,7 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
     match db.execute(|db| {
         db.test_insert_contract(&trait_contract_id, trait_contract_src);
         db.test_insert_contract(&impl_contract_id, impl_contract_src);
-        
+
         type_check(
             &impl_contract_id,
             &mut impl_contract,

@@ -1,9 +1,14 @@
 use rand::{Rng, RngCore};
 use randomizer::Randomizer;
-use stacks_common::types::{chainstate::StacksBlockId, StacksEpochId};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
 use super::structures::ContractData;
-use crate::vm::{analysis::ContractAnalysis, ast::build_ast, costs::LimitedCostTracker, types::QualifiedContractIdentifier, ClarityVersion, ContractContext};
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::ast::build_ast;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{ClarityVersion, ContractContext};
 
 mod db;
 mod kv;
@@ -45,8 +50,7 @@ fn random_string(len: usize) -> String {
 }
 
 fn random_contract_id() -> QualifiedContractIdentifier {
-    QualifiedContractIdentifier::local(&Randomizer::ALPHABETICAL(10).string().unwrap())
-        .unwrap()
+    QualifiedContractIdentifier::local(&Randomizer::ALPHABETICAL(10).string().unwrap()).unwrap()
 }
 
 fn assert_contract_eq(left: ContractData, right: ContractData) {
@@ -88,14 +92,15 @@ fn random_contract_data() -> (QualifiedContractIdentifier, ContractData) {
 
 fn random_contract_and_analysis() -> (ContractContext, ContractAnalysis) {
     let contract_id = random_contract_id();
-    
+
     let parsed = build_ast(
         &contract_id,
         CONTRACT_SRC,
         &mut (),
         ClarityVersion::latest(),
         StacksEpochId::latest(),
-    ).expect("failed to parse contract");
+    )
+    .expect("failed to parse contract");
 
     let contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::latest());
 
@@ -104,7 +109,8 @@ fn random_contract_and_analysis() -> (ContractContext, ContractAnalysis) {
         parsed.expressions.clone(),
         LimitedCostTracker::new_free(),
         StacksEpochId::latest(),
-        ClarityVersion::latest());
+        ClarityVersion::latest(),
+    );
 
     (contract_context, analysis)
 }

@@ -24,8 +24,7 @@ use clarity::vm::contexts::{
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::cache::disable_clarity_cache;
-use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
+use clarity::vm::database::{disable_clarity_cache, ClarityDatabase, MemoryBackingStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -441,7 +440,7 @@ fn epoch205_eq_input_size_testnet() {
 //  ones that do the same and concat.
 fn epoch205_concat(use_mainnet: bool) {
     disable_clarity_cache();
-    
+
     let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
         (define-public (execute)
                (begin (var-get db) (var-get db) (ok 1)))";
@@ -457,7 +456,12 @@ fn epoch205_concat(use_mainnet: bool) {
 
     let small_cost_epoch_200 =
         exec_cost(small_exec_with_concat, use_mainnet, StacksEpochId::Epoch20).runtime
-        - exec_cost(small_exec_without_concat, use_mainnet, StacksEpochId::Epoch20).runtime;
+            - exec_cost(
+                small_exec_without_concat,
+                use_mainnet,
+                StacksEpochId::Epoch20,
+            )
+            .runtime;
 
     let small_cost_epoch_205 = exec_cost(
         small_exec_with_concat,

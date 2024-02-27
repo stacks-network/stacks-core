@@ -172,8 +172,7 @@ impl StacksMessageCodec for ContractName {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -187,8 +186,7 @@ pub enum PreSymbolicExpressionType {
     Placeholder(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
     pub id: u64,
@@ -416,8 +414,7 @@ impl PreSymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -427,8 +424,7 @@ pub enum SymbolicExpressionType {
     TraitReference(ClarityName, TraitDefinition),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TraitDefinition {
     Defined(TraitIdentifier),
@@ -454,8 +450,7 @@ where
     Ok(last)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[derive(Readable, Writable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -663,8 +658,9 @@ impl fmt::Display for SymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Readable, Writable)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Readable, Writable,
+)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Span {
     pub start_line: u32,

@@ -16,22 +16,24 @@
 
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
-use exec_time::exec_time;
 use rand::{thread_rng, Rng};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    params, Connection, DatabaseName, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row, Savepoint, NO_PARAMS
+    params, Connection, DatabaseName, Error as SqliteError, ErrorCode as SqliteErrorCode,
+    OptionalExtension, Row, Savepoint, NO_PARAMS,
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::db_common::tx_busy_handler;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use super::structures::{ContractAnalysisData, ContractData, ContractSizeData, ClarityDeserializable};
+use super::structures::{
+    ClarityDeserializable, ContractAnalysisData, ContractData, ContractSizeData,
+};
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::BlockData;
@@ -106,8 +108,6 @@ impl SqliteConnection {
         name: &str,
         bhh: &StacksBlockId,
     ) -> Result<ContractSizeData> {
-        test_debug!("get_contract_sizes: {} {} {}", issuer, name, bhh);
-
         // #[cfg(feature = "testing")]
         // Self::print_contracts(conn)?;
 
@@ -141,14 +141,6 @@ impl SqliteConnection {
             },
         )?;
 
-        test_debug!(
-            "get_contract_sizes: {} {} {} -> {:?}",
-            issuer,
-            name,
-            bhh,
-            &result
-        );
-
         Ok(result)
     }
 
@@ -160,11 +152,6 @@ impl SqliteConnection {
         name: &str,
         bhh: &StacksBlockId,
     ) -> Result<bool> {
-        test_debug!("contract_exists: {} {} {}", issuer, name, bhh);
-
-        // #[cfg(feature = "testing")]
-        // Self::print_contracts(conn)?;
-
         let mut statement = conn.prepare_cached(
             "
             SELECT EXISTS(
@@ -198,11 +185,6 @@ impl SqliteConnection {
         name: &str,
         bhh: &StacksBlockId,
     ) -> Result<Option<u32>> {
-        test_debug!("get_internal_contract_id: {} {} {}", issuer, name, bhh);
-
-        // #[cfg(feature = "testing")]
-        // Self::print_contracts(conn)?;
-
         let mut statement = conn.prepare_cached(
             "
             SELECT 
@@ -216,15 +198,16 @@ impl SqliteConnection {
             ",
         )?;
 
-        let result = statement.query_row(
-            [
-                &issuer as &dyn ToSql,
-                &name as &dyn ToSql,
-                &bhh.0.to_vec() as &dyn ToSql,
-            ],
-            |row| Ok(row.get::<_, u32>(0)?),
-        )
-        .optional()?;
+        let result = statement
+            .query_row(
+                [
+                    &issuer as &dyn ToSql,
+                    &name as &dyn ToSql,
+                    &bhh.0.to_vec() as &dyn ToSql,
+                ],
+                |row| Ok(row.get::<_, u32>(0)?),
+            )
+            .optional()?;
 
         Ok(result)
     }
@@ -234,8 +217,6 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
         data: &mut ContractData,
     ) -> Result<()> {
-        test_debug!("insert_contract: {} {} {}", &data.issuer, &data.name, &bhh);
-
         let mut statement = conn.prepare_cached(
             "
             INSERT INTO contract (
@@ -282,9 +263,6 @@ impl SqliteConnection {
             }
         };
 
-        #[cfg(feature = "testing")]
-        Self::print_contracts(conn)?;
-
         data.id = contract_id as u32;
 
         Ok(())
@@ -294,9 +272,8 @@ impl SqliteConnection {
         conn: &Connection,
         contract_id: u32,
         data: &[u8],
-        size: usize
+        size: usize,
     ) -> Result<()> {
-        test_debug!("insert_contract_analysis: {}", contract_id);
         let mut statement = conn.prepare_cached(
             "
             INSERT INTO contract_analysis (
@@ -311,14 +288,7 @@ impl SqliteConnection {
             ",
         )?;
 
-        statement.insert([
-            &contract_id,
-            &data as &dyn ToSql,
-            &(size as u32),
-        ])?;
-
-        #[cfg(feature = "testing")]
-        Self::print_contract_analyses(conn)?;
+        statement.insert([&contract_id, &data as &dyn ToSql, &(size as u32)])?;
 
         Ok(())
     }
@@ -329,16 +299,6 @@ impl SqliteConnection {
         contract_name: &str,
         bhh: &StacksBlockId,
     ) -> Result<Option<ContractData>> {
-        test_debug!(
-            "get_contract: {} {} {}",
-            contract_issuer,
-            contract_name,
-            bhh
-        );
-
-        // #[cfg(feature = "testing")]
-        // Self::print_contracts(conn)?;
-
         let mut statement = conn.prepare_cached(
             "
                 SELECT 
@@ -389,12 +349,8 @@ impl SqliteConnection {
 
     pub fn get_contract_analysis(
         conn: &Connection,
-        contract_id: u32
+        contract_id: u32,
     ) -> Result<Option<ContractAnalysisData>> {
-        test_debug!("get_contract_analysis: {}", contract_id);
-        // #[cfg(feature = "testing")]
-        // Self::print_contract_analyses(conn)?;
-
         let mut statement = conn
             .prepare_cached(
                 "
@@ -411,8 +367,7 @@ impl SqliteConnection {
             .expect("Failed to prepare contract analysis select statement");
 
         let result = statement
-            .query_row(
-                [&contract_id], |row| {
+            .query_row([&contract_id], |row| {
                 Ok(ContractAnalysisData {
                     contract_id: row.get(0)?,
                     analysis: row.get(1)?,
@@ -424,68 +379,6 @@ impl SqliteConnection {
         Ok(result)
     }
 
-    fn print_contracts(conn: &Connection) -> Result<()> {
-        let mut statement = conn.prepare_cached(
-            "
-                SELECT 
-                    id, 
-                    issuer, 
-                    name, 
-                    hex(block_hash)
-                FROM 
-                    contract;
-                ",
-        )?;
-
-        test_debug!("// ENUMERATING CONTRACTS:");
-        let mut results = statement.query(NO_PARAMS)?;
-
-        while let Some(row) = results.next()? {
-            let id: u32 = row.get(0)?;
-            let issuer: String = row.get(1)?;
-            let name: String = row.get(2)?;
-            let block_hash: String = row.get(3)?;
-
-            test_debug!(
-                "// contract id: {}, issuer: {}, name: {}, block_hash {:?}",
-                id,
-                issuer,
-                name,
-                block_hash
-            );
-        }
-
-        Ok(())
-    }
-
-    fn print_contract_analyses(conn: &Connection) -> Result<()> {
-        let mut statement = conn.prepare_cached(
-            "
-                SELECT 
-                    contract_id, 
-                    analysis_size
-                FROM 
-                    contract_analysis;
-                ",
-        )?;
-
-        test_debug!("// ENUMERATING CONTRACT ANALYSES:");
-        let mut results = statement.query(NO_PARAMS)?;
-
-        while let Some(row) = results.next()? {
-            let contract_id: u32 = row.get(0)?;
-            let analysis_size: u32 = row.get(1)?;
-
-            test_debug!(
-                "// contract id: {}, analysis_size: {}",
-                contract_id,
-                analysis_size
-            );
-        }
-
-        Ok(())
-    }
-
     pub fn insert_metadata(
         conn: &Connection,
         bhh: &StacksBlockId,
@@ -495,8 +388,6 @@ impl SqliteConnection {
     ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [bhh, &key, &value];
-
-        test_debug!("insert_metadata: {} {} {}", &bhh, &key, &value.to_string());
 
         if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
@@ -523,7 +414,6 @@ impl SqliteConnection {
             return Ok(());
         }
 
-        test_debug!("commit_metadata_to: {} -> {}", from, to);
         let params = [to, from];
 
         let mut statement =
@@ -542,19 +432,12 @@ impl SqliteConnection {
         from: &StacksBlockId,
         to: &StacksBlockId,
     ) -> Result<()> {
-        test_debug!("commit_contract_to: {} -> {}", from, to);
-
-        // if from == to {
-        //     test_debug!("not updating contracts for same block: {} -> {}", from, to);
-        //     return Ok(());
-        // }
-
         match conn.execute(
             "UPDATE contract SET block_hash = ? WHERE block_hash = ?",
             &[to.0.to_vec(), from.0.to_vec()],
         ) {
             Ok(rows_updated) => {
-                test_debug!("updated {} contracts from {} to {}", rows_updated, from, to);
+                trace!("updated {} contracts from {} to {}", rows_updated, from, to);
             }
             Err(e) => {
                 error!("Failed to update {} to {}: {:?}", &from, &to, &e);
@@ -575,8 +458,6 @@ impl SqliteConnection {
     }
 
     pub fn delete_contracts_for_block(conn: &Connection, bhh: &StacksBlockId) -> Result<()> {
-        test_debug!("delete_contracts_for_block: {}", bhh);
-
         if let Err(e) = conn.execute(
             "DELETE FROM contract_analysis WHERE contract_id IN (SELECT id FROM contract WHERE block_hash = ?)",
             &[bhh.0.to_vec()],
@@ -627,18 +508,22 @@ impl SqliteConnection {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn contract_count(conn: &Connection) -> u32 {
-        let mut statement = conn.prepare_cached("SELECT COUNT(*) FROM contract")
+        let mut statement = conn
+            .prepare_cached("SELECT COUNT(*) FROM contract")
             .expect("Failed to prepare contract count statement");
-        let result = statement.query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
+        let result = statement
+            .query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
             .expect("Failed to query contract count");
         result
     }
 
     #[cfg(any(test, feature = "testing"))]
     pub fn analysis_count(conn: &Connection) -> u32 {
-        let mut statement = conn.prepare_cached("SELECT COUNT(*) FROM contract_analysis")
+        let mut statement = conn
+            .prepare_cached("SELECT COUNT(*) FROM contract_analysis")
             .expect("Failed to prepare contract analysis count statement");
-        let result = statement.query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
+        let result = statement
+            .query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
             .expect("Failed to query contract analysis count");
         result
     }
@@ -646,17 +531,18 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection, path_str: &str) -> Result<()> {
-
-        let version = conn.query_row("SELECT * FROM pragma_user_version;", NO_PARAMS, |row| {
-            let version: i64 = row.get(0)?;
-            Ok(version)
-        }).expect("failed to get user version");
+        let version = conn
+            .query_row("SELECT * FROM pragma_user_version;", NO_PARAMS, |row| {
+                let version: i64 = row.get(0)?;
+                Ok(version)
+            })
+            .expect("failed to get user version");
 
         if version > 0 {
-            test_debug!("initialize_conn: {} already initialized", path_str);
+            trace!("clarity sqlite database already initialized: {}", path_str);
             return Ok(());
         }
-        test_debug!("initialize_conn: {} initializing", path_str);
+        debug!("initializing clarity sqlite database: {}", path_str);
 
         conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
@@ -725,8 +611,8 @@ impl SqliteConnection {
     pub fn memory() -> Result<Connection> {
         let mut contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(
-            &mut contract_db, 
-            &format!(":memory:{}", thread_rng().gen_range(100000..999999))
+            &mut contract_db,
+            &format!(":memory:{}", thread_rng().gen_range(100000..999999)),
         )?;
 
         Ok(contract_db)
@@ -776,11 +662,13 @@ impl SqliteConnection {
     }
 
     pub fn check_migrate_contracts(conn: &Connection) -> Result<()> {
-        let contracts_in_metadata_table: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM metadata_table WHERE key LIKE '%::contract'", 
-            NO_PARAMS, 
-            |row| row.get(0)
-        ).map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        let contracts_in_metadata_table: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM metadata_table WHERE key LIKE '%::contract'",
+                NO_PARAMS,
+                |row| row.get(0),
+            )
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         if contracts_in_metadata_table == 0 {
             return Ok(());
@@ -799,8 +687,8 @@ impl SqliteConnection {
             let value: String = row.get(2)?;
 
             let split = key.split("::").collect::<Vec<&str>>();
-            let contract_data: Contract = Contract::deserialize(&value)
-                .expect("Failed to deserialize contract data");
+            let contract_data: Contract =
+                Contract::deserialize(&value).expect("Failed to deserialize contract data");
 
             let issuer = split[1].to_string();
             let name = split[2].to_string();
@@ -813,36 +701,54 @@ impl SqliteConnection {
                 contract: contract_data,
                 source: None,
                 analysis: None,
-                data_size: None
+                data_size: None,
             };
 
-            let source_str: String = conn.query_row(
-                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
-                &[&blockhash, &format!("{}::contract-src", &key_prefix)],
-                |row| row.get(0)
-            ).optional()?
-                .unwrap_or_else(|| panic!("Failed to get source for contract: {} {}", &issuer, &name));
+            let source_str: String = conn
+                .query_row(
+                    "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                    &[&blockhash, &format!("{}::contract-src", &key_prefix)],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or_else(|| {
+                    panic!("Failed to get source for contract: {} {}", &issuer, &name)
+                });
             contract_migration_dto.source = Some(source_str);
 
-            let data_size: u32 = conn.query_row(
-                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
-                &[&blockhash, &format!("{}::contract-data-size", &key_prefix)],
-                |row| row.get(0)
-            ).optional()?
-                .unwrap_or_else(|| panic!("Failed to get data size for contract: {} {}", &issuer, &name));
+            let data_size: u32 = conn
+                .query_row(
+                    "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                    &[&blockhash, &format!("{}::contract-data-size", &key_prefix)],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Failed to get data size for contract: {} {}",
+                        &issuer, &name
+                    )
+                });
             contract_migration_dto.data_size = Some(data_size);
 
-            let analysis = conn.query_row(
-                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
-                &[&blockhash, &format!("clr-meta::{}::{}::analysis", &issuer, &name)],
-                |row| {
-                    let analysis: String = row.get(0)?;
-                    let analysis = ContractAnalysis::deserialize(&analysis)
-                        .expect("msg: Failed to deserialize contract analysis");
-                    Ok(analysis)
-                }
-            ).optional()?
-                .unwrap_or_else(|| panic!("Failed to get analysis for contract: {} {}", &issuer, &name));
+            let analysis = conn
+                .query_row(
+                    "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                    &[
+                        &blockhash,
+                        &format!("clr-meta::{}::{}::analysis", &issuer, &name),
+                    ],
+                    |row| {
+                        let analysis: String = row.get(0)?;
+                        let analysis = ContractAnalysis::deserialize(&analysis)
+                            .expect("msg: Failed to deserialize contract analysis");
+                        Ok(analysis)
+                    },
+                )
+                .optional()?
+                .unwrap_or_else(|| {
+                    panic!("Failed to get analysis for contract: {} {}", &issuer, &name)
+                });
             contract_migration_dto.analysis = Some(analysis);
         }
 
@@ -857,5 +763,5 @@ struct ContractMigrationDto {
     contract: Contract,
     source: Option<String>,
     analysis: Option<ContractAnalysis>,
-    data_size: Option<u32>
+    data_size: Option<u32>,
 }

@@ -136,8 +136,7 @@ fn setup_tracked_cost_test(
                 |_, _| false,
             )
             .unwrap();
-            conn.save_analysis(&ct_analysis)
-                .unwrap();
+            conn.save_analysis(&ct_analysis).unwrap();
         });
 
         conn.commit_block();
@@ -169,8 +168,7 @@ fn setup_tracked_cost_test(
                 |_, _| false,
             )
             .unwrap();
-            conn.save_analysis(&ct_analysis)
-                .unwrap();
+            conn.save_analysis(&ct_analysis).unwrap();
         });
 
         conn.commit_block();

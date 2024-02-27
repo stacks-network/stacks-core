@@ -48,14 +48,15 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    self,
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
+    self, CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::{SerializationError, NONE_SERIALIZATION_LEN};
 use crate::vm::types::{
-    byte_len_of_serialization, FunctionSignature, FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE
+    byte_len_of_serialization, FunctionSignature, FunctionType, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use crate::vm::{ClarityVersion, ContractContext};
 
@@ -63,6 +64,10 @@ pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
+/// The `StoreType` enum represents the different types of data that can be
+/// stored in the Clarity VM's backing store. The variants are used to
+/// create keys for the backing store, and to determine how to deserialize
+/// the data when it is retrieved.
 #[repr(u8)]
 pub enum StoreType {
     DataMap = 0x00,
@@ -83,21 +88,21 @@ pub enum StoreType {
     PoxUnlockHeight = 0x15,
 }
 
-/// The [`ClarityDatabase`] struct represents the primary entry point for 
-/// modifications to the Clarity VM's state. It is a wrapper around the 
-/// [`RollbackWrapper`] type, which is used as a transaction manager for the 
+/// The `ClarityDatabase` struct represents the primary entry point for
+/// modifications to the Clarity VM's state. It is a wrapper around the
+/// [`RollbackWrapper`] type, which is used as a transaction manager for the
 /// underlying persistent data store.
 ///
 /// The [`RollbackWrapper`] manages a stack of "stack frames", one for each call
-/// to [`Self::begin`], which can be [`committed`](Self::commit) or 
+/// to [`Self::begin`], which can be [`committed`](Self::commit) or
 /// [`rolled back`](Self::roll_back). This allows for a nested structure of
-/// transactions, where the innermost transaction can be rolled back without 
+/// transactions, where the innermost transaction can be rolled back without
 /// affecting the outer transactions.
 ///
 /// Please note that operations on this struct _do not guarantee_ that the data
 /// will be persisted to disk. It is only guaranteed to be added to the backing
 /// [`RollbackWrapper`] instance's current context (i.e. stack frame) as a pending
-/// edit. To persist the metadata to disk, the caller must call [`Self::commit`] 
+/// edit. To persist the metadata to disk, the caller must call [`Self::commit`]
 /// until there are no remaining nested context's are exhausted, triggering it to
 /// be written to the backing store.
 pub struct ClarityDatabase<'a> {
@@ -106,9 +111,9 @@ pub struct ClarityDatabase<'a> {
     burn_state_db: &'a dyn BurnStateDB,
 }
 
-/// Represents a read-only view of a database that can be queried for block 
-/// information. This is typically going to be the main chainstate "index" 
-/// database, which is (as of this writing) located at `~/chainstate/vm/index.sqlite` 
+/// Represents a read-only view of a database that can be queried for block
+/// information. This is typically going to be the main chainstate "index"
+/// database, which is (as of this writing) located at `~/chainstate/vm/index.sqlite`
 /// in the node's directory structure.
 ///
 /// This trait is also mocked during testing, generally using an in-memory
@@ -134,7 +139,7 @@ pub trait HeadersDB {
 
 /// Represents a read-only view of a database that can be queried for burnchain
 /// and sortition information. This is typically going to be the "sortition"
-/// database, which is (as of this writing) located at 
+/// database, which is (as of this writing) located at
 /// `~/burnchain/sortition/marf.sqlite` in the node's directory structure.
 ///
 /// This trait is also mocked during testing, generally using an in-memory
@@ -176,10 +181,13 @@ pub trait BurnStateDB {
     ) -> Option<SortitionId>;
 
     /// The epoch is defined as by a start and end height. This returns
-    /// the epoch enclosing `height`.
+    /// the [`StacksEpoch`] active at the given Stacks block height.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
+
+    /// Returns the [`StacksEpoch`] which maps to the given [`StacksEpochId`].
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 
+    /// Returns the AST rules active at the given Stacks block height.
     fn get_ast_rules(&self, height: u32) -> ASTRules;
 
     /// Get the PoX payout addresses for a given burnchain block
@@ -314,7 +322,7 @@ pub struct NullBurnStateDB {
     epoch: StacksEpochId,
 }
 
-/// A global instance of the [`NullHeadersDB`] struct, which implements 
+/// A global instance of the [`NullHeadersDB`] struct, which implements
 /// the [`HeadersDB`] trait and can be used where a functional [`HeadersDB`]
 /// implementation is not required.
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
@@ -505,7 +513,7 @@ impl<'a> ClarityDatabase<'a> {
     /// rolled back, otherwise it will be committed.
     ///
     /// If the closure returns an [`Err`], the error will be converted into a
-    /// [`CheckErrors::Expects`] error and returned. If the closure returns 
+    /// [`CheckErrors::Expects`] error and returned. If the closure returns
     /// [`Ok`], the result of the closure will be returned.
     pub fn execute<F, T, E>(&mut self, f: F) -> std::result::Result<T, E>
     where
@@ -531,14 +539,14 @@ impl<'a> ClarityDatabase<'a> {
         Ok(result)
     }
 
-    /// Gets whether or not the backing [`RollbackWrapper`] instance's stack is 
+    /// Gets whether or not the backing [`RollbackWrapper`] instance's stack is
     /// empty. If the stack is empty, [`RollbackWrapper::nest`] must be called
     /// prior to any write operations.
     pub fn is_stack_empty(&self) -> bool {
         self.store.depth() == 0
     }
 
-    /// Create a new nested roll-back context in the backing [`RollbackWrapper`] 
+    /// Create a new nested roll-back context in the backing [`RollbackWrapper`]
     /// instance, i.e. a new "nested transaction", and enter that context.
     pub fn begin(&mut self) {
         self.store.nest();
@@ -548,7 +556,7 @@ impl<'a> ClarityDatabase<'a> {
     /// The behavior of this method depends on the current `depth` of the
     /// [`RollbackWrapper`]:
     /// - If the `depth` of the [`RollbackWrapper`] is > 1, this will bubble all
-    /// pending changes in the current context to its parent. 
+    /// pending changes in the current context to its parent.
     /// - If the `depth` is 1, this will commit the changes to the backing store.
     /// - If the stack is empty, this will return an error.
     pub fn commit(&mut self) -> Result<()> {
@@ -579,10 +587,12 @@ impl<'a> ClarityDatabase<'a> {
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
-    /// Used by tests to ensure that the contract -> contract hash key exists in 
+    /// Used by tests to ensure that the contract -> contract hash key exists in
     /// the marf even if the contract isn't published.
     #[cfg(test)]
-    #[deprecated(note = "Prefer the `test_insert_contract` and `test_insert_contract_with_analysis` methods instead.")]
+    #[deprecated(
+        note = "Prefer the `test_insert_contract` and `test_insert_contract_with_analysis` methods instead."
+    )]
     pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
         use stacks_common::util::hash::Sha512Trunc256Sum;
         self.store
@@ -591,27 +601,58 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     #[cfg(test)]
-    pub fn test_insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, src: &str) {
+    /// Used by tests to ensure that the contract -> contract hash key exists in
+    /// the consensus-critical store and that the contract exists in the
+    /// non-consensus-critical store, even if the contract hasn't been published.
+    ///
+    /// NOTE: This method _does not_ populate the stored [`ContractContext`] with
+    /// information required to execute the contract such as functions, variables,
+    /// maps, etc.. It only ensures that the contract data exists in its most
+    /// basic form.
+    pub fn test_insert_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        src: &str,
+    ) {
         let ctx = ContractContext::new(contract_identifier.clone(), ClarityVersion::Clarity2);
-        self.insert_contract2(Contract { contract_context: ctx }, src)
-            .expect("failed to insert contract");
+        self.insert_contract(
+            Contract {
+                contract_context: ctx,
+            },
+            src,
+        )
+        .expect("failed to insert contract");
     }
 
     #[cfg(test)]
-    pub fn test_insert_contract_with_analysis(&mut self, contract_identifier: &QualifiedContractIdentifier, src: &str, analysis: &ContractAnalysis) {
+    /// Used by tests to ensure that the contract -> contract hash key exists in
+    /// the consensus-critical store and that both the contract and its analysis
+    /// exist in the non-consensus-critical store, even if the contract hasn't
+    /// been published.
+    ///
+    /// NOTE: This method _does not_ populate the stored [`ContractContext`] with
+    /// information required to execute the contract such as functions, variables,
+    /// maps, etc.. It only ensures that the contract data exists in its most
+    /// basic form.
+    pub fn test_insert_contract_with_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        src: &str,
+        analysis: &ContractAnalysis,
+    ) {
         self.test_insert_contract(contract_identifier, src);
         self.insert_contract_analysis(analysis)
             .expect("failed to insert contract analysis");
     }
 
-    /// Adds the provided `value` to the backing [`RollbackWrapper`] at the 
+    /// Adds the provided `value` to the backing [`RollbackWrapper`] at the
     /// specified `key` as a pending edit. `value` will be serialized
     /// using its [`ClaritySerializable`] implementation.
     pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
         self.store.put_data(&key, &value.serialize())
     }
 
-    /// Like [`put_data`](Self::put_data), but returns the serialized byte size 
+    /// Like [`put_data`](Self::put_data), but returns the serialized byte size
     /// of the stored value.
     pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<u64> {
         let serialized = value.serialize();
@@ -634,6 +675,11 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    /// Attempts to add a [`Value`] to the backing store at the specified `key`.
+    /// The `value` will be sanitized if the provided `epoch` requires it, and
+    /// then serialized and stored in the backing store in hexidecimal form.
+    /// Upon success, this method will return the pre-sanitized, pre-encoded
+    /// byte length of the serialized value.
     pub fn put_value_with_size(
         &mut self,
         key: &str,
@@ -668,6 +714,13 @@ impl<'a> ClarityDatabase<'a> {
         Ok(pre_sanitized_size.unwrap_or(size))
     }
 
+    /// Attempts to retrieve a consensus-critical value for the provided `key`
+    /// from the backing store. If the key is found the value will be deserialized
+    /// into the [`Value`] type specified by `expected`. The original serialized
+    /// byte length of the value is also returned which can be used in cost-tracking.
+    ///
+    /// Returns an error if the value could not be deserialized into the
+    /// specified type. Returns [`None`] if the key is not found.
     pub fn get_value(
         &mut self,
         key: &str,
@@ -679,6 +732,14 @@ impl<'a> ClarityDatabase<'a> {
             .map_err(|e| InterpreterError::DBError(e.to_string()).into())
     }
 
+    /// Attempts to retrieve a consensus-critical value for the provided `key`
+    /// from the backing store along with its proof, and deserialize it into
+    /// the type `T` using `T`'s [`ClarityDeserializable`] implementation.
+    ///
+    /// Note that this method will only find values which have already been
+    /// committed to the backing store.
+    ///
+    /// Returns [`None`] if the key is not found.
     pub fn get_with_proof<T>(&mut self, key: &str) -> Result<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
@@ -687,10 +748,10 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Formats a KV-key which contains three dynamic parts:
-    /// - the contract identifier, 
-    /// - the data type, 
+    /// - the contract identifier,
+    /// - the data type,
     /// - and the 'key' name.
-    /// 
+    ///
     /// The resulting key will be in the format: _`vm::<contract-identifier>::<data-type>::<key>`_
     pub fn make_key_for_trip(
         contract_identifier: &QualifiedContractIdentifier,
@@ -723,10 +784,10 @@ impl<'a> ClarityDatabase<'a> {
     /// - the 'key' name,
     /// - and the 'key' value.
     ///
-    /// This key type is used for storing data that is indexed by a unique 
+    /// This key type is used for storing data that is indexed by a unique
     /// key-value pair.
     ///
-    /// The resulting key will be in the format: 
+    /// The resulting key will be in the format:
     /// _`vm::<contract-identifier>::<data-type>::<key>::<key-value>`_
     pub fn make_key_for_quad(
         contract_identifier: &QualifiedContractIdentifier,
@@ -841,9 +902,9 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Inserts a [`Contract`] into the backing [`RollbackWrapper`].
-    pub fn insert_contract2(&mut self, contract: Contract, src: &str) -> Result<()> {
+    pub fn insert_contract(&mut self, contract: Contract, src: &str) -> Result<()> {
         let ctx = contract.contract_context;
-        
+
         self.store.put_contract(src, ctx.clone())?;
 
         Ok(())
@@ -855,87 +916,89 @@ impl<'a> ClarityDatabase<'a> {
     ///
     /// This function will return [`None`] if no contract with the specified
     /// identifier could be found.
-    pub fn get_contract_src2(
+    pub fn get_contract_src(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<String>> {
-
-        Ok(with_clarity_cache(|cache| cache.try_get_contract(contract_identifier, None)
-            .map(|x| x.source.clone())
-            .or_else(|| {
-                let ctx = self.store.get_contract(contract_identifier).ok()?;
-                match ctx {
-                    GetContractResult::Pending(pending) => Some(pending.source),
-                    GetContractResult::Stored(stored) => {
-                        let src = stored.source.clone();
-                        cache.push_contract(contract_identifier.clone(), None, stored);
-                        Some(src)
+        Ok(with_clarity_cache(|cache| {
+            cache
+                .try_get_contract(contract_identifier, None)
+                .map(|x| x.source.clone())
+                .or_else(|| {
+                    let ctx = self.store.get_contract(contract_identifier).ok()?;
+                    match ctx {
+                        GetContractResult::Pending(pending) => Some(pending.source),
+                        GetContractResult::Stored(stored) => {
+                            let src = stored.source.clone();
+                            cache.push_contract(contract_identifier.clone(), None, stored);
+                            Some(src)
+                        }
+                        GetContractResult::NotFound => None,
                     }
-                    GetContractResult::NotFound => None,
-                }
-            })
-        ))
+                })
+        }))
     }
 
     /// Attempts to retrieve a [`Contract`] by its [`QualifiedContractIdentifier`].
     /// This method will first check the global in-memory cache (if enabled), and if
     /// not found it will then query the underlying [`RollbackWrapper`].
     ///
-    /// This method canonicalizes the contract's types based on the current 
+    /// This method canonicalizes the contract's types based on the current
     /// Clarity [`StacksEpochId`] prior to returning.
     ///
     /// If no contract is found, this method will return a [`CheckErrors::NoSuchContract`]
     /// error.
-    pub fn get_contract2(
+    pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        let epoch = self.get_clarity_epoch_version()
+        let epoch = self
+            .get_clarity_epoch_version()
             .expect("FATAL: failed to determine current clarity epoch version");
 
-        with_clarity_cache(|cache| cache
-            .try_get_contract(contract_identifier, Some(epoch))
-            .map(|x| {
-                let mut context = x.contract.clone();
-                context.canonicalize_types(&epoch);
-                context
-            })
-            .or_else(|| {
-                let ctx = self.store.get_contract(contract_identifier).ok()?;
-                match ctx {
-                    GetContractResult::Pending(pending) => {
-                        let mut context = pending.contract.clone();
-                        context.canonicalize_types(&epoch);
-                        Some(context)
-                    },
-                    GetContractResult::Stored(stored) => {
-                        let mut context = stored.contract.clone();
-                        context.canonicalize_types(&epoch);
-                        cache.push_contract(contract_identifier.clone(), Some(epoch), stored);
-                        Some(context)
+        with_clarity_cache(|cache| {
+            cache
+                .try_get_contract(contract_identifier, Some(epoch))
+                .map(|x| {
+                    let mut context = x.contract.clone();
+                    context.canonicalize_types(&epoch);
+                    context
+                })
+                .or_else(|| {
+                    let ctx = self.store.get_contract(contract_identifier).ok()?;
+                    match ctx {
+                        GetContractResult::Pending(pending) => {
+                            let mut context = pending.contract.clone();
+                            context.canonicalize_types(&epoch);
+                            Some(context)
+                        }
+                        GetContractResult::Stored(stored) => {
+                            let mut context = stored.contract.clone();
+                            context.canonicalize_types(&epoch);
+                            cache.push_contract(contract_identifier.clone(), Some(epoch), stored);
+                            Some(context)
+                        }
+                        GetContractResult::NotFound => None,
                     }
-                    GetContractResult::NotFound => None,
-                }
-            })
-            .ok_or(Error::Unchecked(CheckErrors::NoSuchContract(
-                contract_identifier.to_string(),
-            )))
-            .map(|ctx| Contract {
-                contract_context: ctx,
-            }))
+                })
+                .ok_or(Error::Unchecked(CheckErrors::NoSuchContract(
+                    contract_identifier.to_string(),
+                )))
+                .map(|ctx| Contract {
+                    contract_context: ctx,
+                })
+        })
     }
 
     /// Checks for a contract's existence based on its [QualifiedContractIdentifier].
     ///
-    /// This method first checks the global in-memory cache (if enabled), and if 
+    /// This method first checks the global in-memory cache (if enabled), and if
     /// not found it will then query the underlying [RollbackWrapper].
-    pub fn has_contract2(
+    pub fn has_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
-        let exists_in_cache = with_clarity_cache(|cache| 
-            cache.has_contract(contract_identifier)
-        );
+        let exists_in_cache = with_clarity_cache(|cache| cache.has_contract(contract_identifier));
 
         if !exists_in_cache {
             Ok(self.store.has_contract(contract_identifier)?)
@@ -946,13 +1009,13 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Attempts to retrieve a contract's size by its [QualifiedContractIdentifier]
     /// from the backing [RollbackWrapper].
-    /// 
+    ///
     /// The `contract size` is defined as its `source code size` in bytes + its
     /// `data size` in bytes.
     ///
     /// This method will return an error if no contract with the specified
     /// identifier could be found.
-    pub fn get_contract_size2(
+    pub fn get_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u32> {
@@ -980,14 +1043,14 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Sets the Clarity VM's current [StacksEpochId] in the consensus-critical
     /// data store.
-    /// 
-    /// This should only be called _after_ all of the epoch initializations 
+    ///
+    /// This should only be called _after_ all of the epoch initializations
     /// have been invoked.
     pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
-    /// Retrieves the _current_ (i.e. the cmost recently written value) total 
+    /// Retrieves the _current_ (i.e. the cmost recently written value) total
     /// liquid USTX from the consensus-critical data store.
     pub fn get_total_liquid_ustx(&mut self) -> Result<u128> {
         Ok(self
@@ -1006,7 +1069,7 @@ impl<'a> ClarityDatabase<'a> {
             .unwrap_or(0))
     }
 
-    /// Sets the _current_ total liquid USTX supply in the consensus-critical 
+    /// Sets the _current_ total liquid USTX supply in the consensus-critical
     /// data store at the current block.
     fn set_ustx_liquid_supply(&mut self, set_to: u128) -> Result<()> {
         self.put_value(
@@ -1149,10 +1212,10 @@ impl<'a> ClarityDatabase<'a> {
             })
     }
 
-    /// Attempts to retrieve the Stacks block header hash for a given Stacks 
-    /// block height. 
-    /// 
-    /// This method will return an error if no Stacks block at the specified height 
+    /// Attempts to retrieve the Stacks block header hash for a given Stacks
+    /// block height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
     /// could be found.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
@@ -1166,7 +1229,7 @@ impl<'a> ClarityDatabase<'a> {
     /// block height.
     ///
     /// This method will return an error if no Stacks block at the specified height
-    /// 
+    ///
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
@@ -2360,7 +2423,7 @@ impl<'a> ClarityDatabase<'a> {
             cache.push_contract_analysis(
                 analysis.contract_identifier.clone(),
                 None,
-                analysis.clone()
+                analysis.clone(),
             );
         }))
     }
@@ -2368,48 +2431,54 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_contract_analysis(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-        epoch: Option<StacksEpochId>
+        epoch: Option<StacksEpochId>,
     ) -> Result<Option<ContractAnalysis>> {
-        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier, epoch))
-            .map(|x| x.clone())
-            .or_else(|| {
-                self.store.get_contract_analysis(contract_identifier).ok()?
-                    .map(|mut analysis| {
-                        if let Some(epoch) = epoch {
-                            //let mut analysis = analysis.clone();
-                            analysis.canonicalize_types(&epoch);
-                            with_clarity_cache(|cache|
-                                cache.push_contract_analysis(contract_identifier.clone(), Some(epoch), analysis.clone())
-                            );
-                            analysis
-                        } else {
-                            analysis
-                        }
-                    })
-            })
+        Ok(
+            with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier, epoch))
+                .map(|x| x.clone())
+                .or_else(|| {
+                    self.store
+                        .get_contract_analysis(contract_identifier)
+                        .ok()?
+                        .map(|mut analysis| {
+                            if let Some(epoch) = epoch {
+                                //let mut analysis = analysis.clone();
+                                analysis.canonicalize_types(&epoch);
+                                with_clarity_cache(|cache| {
+                                    cache.push_contract_analysis(
+                                        contract_identifier.clone(),
+                                        Some(epoch),
+                                        analysis.clone(),
+                                    )
+                                });
+                                analysis
+                            } else {
+                                analysis
+                            }
+                        })
+                }),
         )
     }
-    
+
     pub fn get_public_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
         epoch: Option<StacksEpochId>,
     ) -> Result<Option<FunctionType>> {
-        test_debug!("get_public_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
         let analysis = self
             .get_contract_analysis(contract_identifier, epoch)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
         Ok(analysis
             .get_public_function_type(function_name)
-            .map(|func|
-                if let Some(epoch) = epoch { 
-                    func.canonicalize(&epoch) 
-                } else { 
+            .map(|func| {
+                if let Some(epoch) = epoch {
+                    func.canonicalize(&epoch)
+                } else {
                     func.clone()
                 }
-            ))
+            }))
     }
 
     pub fn get_read_only_function_type(
@@ -2418,20 +2487,19 @@ impl<'a> ClarityDatabase<'a> {
         function_name: &str,
         epoch: Option<StacksEpochId>,
     ) -> Result<Option<FunctionType>> {
-        test_debug!("get_read_only_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
         let analysis = self
             .get_contract_analysis(contract_identifier, epoch)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
         Ok(analysis
             .get_read_only_function_type(function_name)
-            .map(|func| 
-                if let Some(epoch) = epoch { 
-                    func.canonicalize(&epoch) 
-                } else { 
-                    func .clone()
+            .map(|func| {
+                if let Some(epoch) = epoch {
+                    func.canonicalize(&epoch)
+                } else {
+                    func.clone()
                 }
-            ))
+            }))
     }
 
     pub fn get_defined_trait(
@@ -2440,27 +2508,25 @@ impl<'a> ClarityDatabase<'a> {
         trait_name: &str,
         epoch: Option<StacksEpochId>,
     ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>> {
-        test_debug!("get_defined_trait: contract_identifier={:?}, trait_name={:?}, epoch={:?}", contract_identifier, trait_name, epoch);
         let analysis = self
             .get_contract_analysis(contract_identifier, epoch)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        test_debug!("got contract analysis: {:?}", analysis);
+
         let defined_trait = analysis.get_defined_trait(trait_name).map(|trait_map| {
-            test_debug!("trait_map with trait name {}: {:?}", trait_name, trait_map);
             trait_map
                 .iter()
-                .map(|(name, sig)| 
+                .map(|(name, sig)| {
                     (
-                        name.clone(), 
-                        if let Some(epoch) = epoch { 
-                            sig.canonicalize(&epoch) 
-                        } else { 
+                        name.clone(),
+                        if let Some(epoch) = epoch {
+                            sig.canonicalize(&epoch)
+                        } else {
                             sig.clone()
-                        }
-                    ))
+                        },
+                    )
+                })
                 .collect()
         });
-        test_debug!("defined_trait: {:?}", defined_trait);
 
         Ok(defined_trait)
     }
@@ -2469,7 +2535,6 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<ClarityVersion> {
-        test_debug!("get_clarity_version: contract_identifier={:?}", contract_identifier);
         let contract = self
             .get_contract_analysis(contract_identifier, None)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;

@@ -2654,7 +2654,6 @@ mod test {
     use crate::vm::ast::ASTRules;
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
-    use crate::vm::database::cache::clear_clarity_cache;
     use crate::vm::database::{
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
@@ -2885,8 +2884,6 @@ mod test {
                         None
                     };
 
-                    test_debug!("{}", segment);
-
                     let result = {
                         let parsed = ast::build_ast(
                             &contract_id,
@@ -2998,7 +2995,7 @@ mod test {
                 //     )
                 //     .expect("Failed to type check sample-contracts/tokens");
                 // }
-                
+
                 let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);

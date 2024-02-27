@@ -265,7 +265,9 @@ impl FunctionType {
                 ) => {
                     let contract_to_check = db
                         .get_contract_analysis(contract, Some(StacksEpochId::Epoch2_05))
-                        .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
+                        .map_err(|_| {
+                            CheckErrors::Expects("Failed to load contract analysis".into())
+                        })?
                         .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
                     let trait_definition = db
                         .get_defined_trait(
@@ -341,10 +343,7 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
-    fn new(
-        db: &'a mut ClarityDatabase<'b>,
-        cost_track: LimitedCostTracker,
-    ) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a mut ClarityDatabase<'b>, cost_track: LimitedCostTracker) -> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
@@ -442,12 +441,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::TraitReferenceType(trait_identifier),
             ) => {
-                let contract_to_check = self.db
+                let contract_to_check = self
+                    .db
                     .get_contract_analysis(contract_identifier, Some(StacksEpochId::Epoch2_05))?
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-
-                let contract_defining_trait = self.db
+                let contract_defining_trait = self
+                    .db
                     .get_contract_analysis(
                         &trait_identifier.contract_identifier,
                         Some(StacksEpochId::Epoch2_05),

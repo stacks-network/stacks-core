@@ -155,7 +155,7 @@ pub trait TransactionConnection: ClarityConnection {
     ///  * the generic term `R`,
     ///  * the asset changes during `to_do` in an [`AssetMap`],
     ///  * the Stacks events during the transaction,
-    ///  * and a `bool` value which is `true` if the `abort_call_back` caused 
+    ///  * and a `bool` value which is `true` if the `abort_call_back` caused
     ///    the changes to abort.
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
@@ -225,10 +225,7 @@ pub trait TransactionConnection: ClarityConnection {
     /// This will fail if the [`Contract`] has not already been inserted, and
     /// in general a failure here indicates a more serious problem with in
     /// the process for inserting contracts.
-    fn save_analysis(
-        &mut self,
-        contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
+    fn save_analysis(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
         self.with_clarity_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract_analysis(&contract_analysis);
@@ -251,7 +248,11 @@ pub trait TransactionConnection: ClarityConnection {
                 }
             }
         })
-        .map_err(|_| CheckError::new(CheckErrors::Expects("Failed to save contract analysis".into())))
+        .map_err(|_| {
+            CheckError::new(CheckErrors::Expects(
+                "Failed to save contract analysis".into(),
+            ))
+        })
     }
 
     /// Execute a STX transfer in the current block.
@@ -276,11 +277,11 @@ pub trait TransactionConnection: ClarityConnection {
 
     /// Execute a contract call in the current block.
     ///
-    /// If an error occurs while processing the transaction, its modifications 
+    /// If an error occurs while processing the transaction, its modifications
     /// will be rolled back.
     ///
     /// `abort_call_back` is called with an AssetMap and a ClarityDatabase reference,
-    ///  where if the callback returns true, all modifications from this transaction 
+    ///  where if the callback returns true, all modifications from this transaction
     ///will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     fn run_contract_call<F>(
@@ -325,12 +326,12 @@ pub trait TransactionConnection: ClarityConnection {
 
     /// Initialize a contract in the current block.
     ///
-    /// If an error occurs while processing the initialization, it's modifications 
-    /// will be rolled back. 
+    /// If an error occurs while processing the initialization, it's modifications
+    /// will be rolled back.
     ///
-    /// `abort_call_back` is called with an [AssetMap] and a [ClarityDatabase] 
-    /// reference and if the callback returns true, all modifications from this 
-    /// transaction will be rolled back. Otherwise, they will be committed 
+    /// `abort_call_back` is called with an [AssetMap] and a [ClarityDatabase]
+    /// reference and if the callback returns true, all modifications from this
+    /// transaction will be rolled back. Otherwise, they will be committed
     /// (though they may later be rolled back if the block itself is rolled back).
     fn initialize_smart_contract<F>(
         &mut self,

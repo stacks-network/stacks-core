@@ -34,8 +34,8 @@ use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
     MAX_MESSAGE_LEN,
 };
-use stacks_common::util::retry::BoundReader;
 use stacks_common::speedy;
+use stacks_common::util::retry::BoundReader;
 use url;
 
 lazy_static! {

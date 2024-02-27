@@ -16,8 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use speedy::{Readable, Writable};
 use hashbrown::HashMap;
+use speedy::{Readable, Writable};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
@@ -42,8 +42,7 @@ pub trait AnalysisPass {
     ) -> CheckResult<()>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[derive(Writable, Readable)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Writable, Readable)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -192,14 +191,11 @@ impl ContractAnalysis {
         &self,
         name: &str,
     ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
-        test_debug!("get_defined_trait: {}", name);
-        test_debug!("defined_traits: {:?}", self.defined_traits);
         self.defined_traits.get(name)
     }
 
     /// Canonicalize all types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        test_debug!("canonicalize_types in {:?} for epoch {epoch}", self.contract_identifier);
         for (_, function_type) in self.private_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
         }

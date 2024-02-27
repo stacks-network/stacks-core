@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub use cache::disable_clarity_cache;
 use hashbrown::HashMap;
 
 pub use self::clarity_db::{
@@ -28,9 +29,9 @@ pub use self::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
 
+mod cache;
 pub mod clarity_db;
 pub mod clarity_store;
-pub mod cache;
 mod key_value_wrapper;
 mod sqlite;
 mod structures;

@@ -136,8 +136,7 @@ impl_array_newtype!(Sha512Sum, u8, 64);
 impl_array_hexstring_fmt!(Sha512Sum);
 impl_byte_array_newtype!(Sha512Sum, u8, 64);
 
-#[derive(Serialize, Deserialize)]
-#[derive(Readable, Writable)]
+#[derive(Serialize, Deserialize, Readable, Writable)]
 pub struct Sha512Trunc256Sum(
     #[serde(
         serialize_with = "Hash32::json_serialize",

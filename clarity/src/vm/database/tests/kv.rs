@@ -1,9 +1,17 @@
 use fake::{Fake, Faker};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::{analysis::ContractAnalysis, ast::build_ast, contracts::Contract, costs::LimitedCostTracker, database::{structures::GetContractResult, ClarityBackingStore, MemoryBackingStore, RollbackWrapper, SqliteConnection}, types::QualifiedContractIdentifier, ClarityVersion, ContractContext};
-
 use super::{random_contract_and_analysis, random_contract_id, CONTRACT_SRC};
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::ast::build_ast;
+use crate::vm::contracts::Contract;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::structures::GetContractResult;
+use crate::vm::database::{
+    ClarityBackingStore, MemoryBackingStore, RollbackWrapper, SqliteConnection,
+};
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{ClarityVersion, ContractContext};
 
 /// Generic test which tests that both a contract and its analysis can be
 /// put into the [RollbackWrapper] and then retrieved. Validates that
@@ -41,7 +49,8 @@ fn can_get_analysis_nested_1() {
 
     kv.put_contract_analysis(&analysis);
 
-    let result = kv.get_contract_analysis(&contract_id)
+    let result = kv
+        .get_contract_analysis(&contract_id)
         .expect("failed to get contract analysis")
         .expect("contract analysis not found");
 }
@@ -67,7 +76,8 @@ fn can_get_nested_analyses() {
         contract_ids.push(contract_id);
 
         for id in &contract_ids {
-            let result = kv.get_contract_analysis(id)
+            let result = kv
+                .get_contract_analysis(id)
                 .expect("failed to get contract analysis")
                 .expect("contract analysis not found");
         }
@@ -89,7 +99,8 @@ fn can_get_contract_nested_1() {
     kv.put_contract(CONTRACT_SRC, contract_context.clone())
         .expect("failed to put contract");
 
-    let result = kv.get_contract(&contract_id)
+    let result = kv
+        .get_contract(&contract_id)
         .expect("failed to get contract");
 
     match result {
@@ -124,8 +135,7 @@ fn can_get_nested_contracts_multilevel() {
         contract_ids.push(contract_id);
 
         for id in &contract_ids {
-            let result = kv.get_contract(id)
-                .expect("failed to get contract");
+            let result = kv.get_contract(id).expect("failed to get contract");
 
             match result {
                 GetContractResult::NotFound => panic!("contract not found"),
@@ -154,14 +164,14 @@ fn contract_put_rollback() {
     kv.put_contract(CONTRACT_SRC, contract_context.clone())
         .expect("failed to put contract");
 
-    kv.rollback()
-        .expect("failed to roll-back");
+    kv.rollback().expect("failed to roll-back");
 
-    let result = kv.get_contract(&contract_id)
+    let result = kv
+        .get_contract(&contract_id)
         .expect("failed to get contract");
 
     match result {
-        GetContractResult::NotFound => {},
+        GetContractResult::NotFound => {}
         GetContractResult::Stored(_) => panic!("contract should not be stored"),
         GetContractResult::Pending(_) => panic!("contract should not be pending"),
     }
@@ -181,10 +191,10 @@ fn contract_put_commit() {
     kv.put_contract(CONTRACT_SRC, contract_context.clone())
         .expect("failed to put contract");
 
-    kv.commit()
-        .expect("failed to commit");
+    kv.commit().expect("failed to commit");
 
-    let result = kv.get_contract(&contract_id)
+    let result = kv
+        .get_contract(&contract_id)
         .expect("failed to get contract");
 
     match result {
@@ -192,7 +202,7 @@ fn contract_put_commit() {
         GetContractResult::Stored(c) => {
             assert_eq!(c.source, CONTRACT_SRC);
             assert_eq!(c.contract.contract_identifier, contract_id);
-        },
+        }
         GetContractResult::Pending(_) => panic!("contract should not be pending"),
     }
 }
@@ -213,10 +223,10 @@ fn analysis_put_commit() {
 
     kv.put_contract_analysis(&analysis);
 
-    kv.commit()
-        .expect("failed to commit");
+    kv.commit().expect("failed to commit");
 
-    let result = kv.get_contract_analysis(&contract_id)
+    let result = kv
+        .get_contract_analysis(&contract_id)
         .expect("failed to get contract analysis")
         .expect("contract analysis not found");
 }
@@ -241,8 +251,7 @@ fn contract_put_commit_nest_put_nest_put_rollback() {
     kv.put_contract(CONTRACT_SRC, contract_1_context.clone())
         .expect("failed to put contract");
 
-    kv.commit()
-        .expect("failed to commit");
+    kv.commit().expect("failed to commit");
     assert_eq!(kv.depth(), 0);
 
     kv.nest();
@@ -255,19 +264,21 @@ fn contract_put_commit_nest_put_nest_put_rollback() {
     kv.put_contract(CONTRACT_SRC, contract_3_context.clone())
         .expect("failed to put contract");
 
-    kv.rollback()
-        .expect("failed to rollback");
+    kv.rollback().expect("failed to rollback");
     assert_eq!(kv.depth(), 1);
 
-    let result_1 = kv.get_contract(&contract_1_id)
+    let result_1 = kv
+        .get_contract(&contract_1_id)
         .expect("failed to get contract");
     assert!(matches!(result_1, GetContractResult::Stored(_)));
 
-    let result_2 = kv.get_contract(&contract_2_id)
+    let result_2 = kv
+        .get_contract(&contract_2_id)
         .expect("failed to get contract");
     assert!(matches!(result_2, GetContractResult::Pending(_)));
 
-    let result_3 = kv.get_contract(&contract_3_id)
+    let result_3 = kv
+        .get_contract(&contract_3_id)
         .expect("failed to get contract");
     assert!(matches!(result_3, GetContractResult::NotFound));
 }
@@ -295,26 +306,28 @@ fn contract_put_nest_put_commit() {
     kv.put_contract(CONTRACT_SRC, contract_2_context.clone())
         .expect("failed to put contract");
 
-    kv.commit()
-        .expect("failed to commit");
+    kv.commit().expect("failed to commit");
     assert_eq!(kv.depth(), 1);
 
-    let result_1 = kv.get_contract(&contract_1_id)
+    let result_1 = kv
+        .get_contract(&contract_1_id)
         .expect("failed to get contract");
     assert!(matches!(result_1, GetContractResult::Pending(_)));
-    let result_2 = kv.get_contract(&contract_2_id)
+    let result_2 = kv
+        .get_contract(&contract_2_id)
         .expect("failed to get contract");
     assert!(matches!(result_2, GetContractResult::Pending(_)));
 
-    kv.commit()
-        .expect("failed to commit");
+    kv.commit().expect("failed to commit");
     assert_eq!(kv.depth(), 0);
 
-    let result_1 = kv.get_contract(&contract_1_id)
+    let result_1 = kv
+        .get_contract(&contract_1_id)
         .expect("failed to get contract");
     assert!(matches!(result_1, GetContractResult::Stored(_)));
 
-    let result_2 = kv.get_contract(&contract_2_id)
+    let result_2 = kv
+        .get_contract(&contract_2_id)
         .expect("failed to get contract");
     assert!(matches!(result_2, GetContractResult::Stored(_)));
 }

@@ -164,8 +164,7 @@ impl CostTracker for () {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
-#[derive(Writable, Readable)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Writable, Readable)]
 pub struct ClarityCostFunctionReference {
     pub contract_id: QualifiedContractIdentifier,
     pub function_name: String,
@@ -237,8 +236,7 @@ impl CostStateSummary {
     }
 }
 
-#[derive(Clone)]
-#[derive(Writable, Readable)]
+#[derive(Clone, Writable, Readable)]
 /// This struct holds all of the data required for non-free LimitedCostTracker instances
 pub struct TrackerData {
     cost_function_references: HashMap<ClarityCostFunction, ClarityCostFunctionReference>,
@@ -257,8 +255,7 @@ pub struct TrackerData {
     chain_id: u32,
 }
 
-#[derive(Clone)]
-#[derive(Writable, Readable)]
+#[derive(Clone, Writable, Readable)]
 pub enum LimitedCostTracker {
     Limited(TrackerData),
     Free,
@@ -822,19 +819,19 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context =
-                    match clarity_db.get_contract2(&cost_function_ref.contract_id) {
-                        Ok(contract) => contract.contract_context,
-                        Err(e) => {
-                            error!("Failed to load intended Clarity cost contract";
+                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
+                {
+                    Ok(contract) => contract.contract_context,
+                    Err(e) => {
+                        error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
-                            clarity_db
-                                .roll_back()
-                                .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                            return Err(CostErrors::CostContractLoadFailure);
-                        }
-                    };
+                        clarity_db
+                            .roll_back()
+                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                        return Err(CostErrors::CostContractLoadFailure);
+                    }
+                };
                 cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
             }
 
@@ -843,7 +840,7 @@ impl TrackerData {
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract2(&circuit_target.contract_id) {
+                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
@@ -965,7 +962,7 @@ fn compute_cost(
 ) -> Result<ExecutionCost> {
     let mainnet = cost_tracker.mainnet;
     let chain_id = cost_tracker.chain_id;
-    let mut null_store = NullBackingStore::new();
+    let mut null_store = NullBackingStore::default();
     let conn = null_store.as_clarity_db();
     let mut global_context = GlobalContext::new(
         mainnet,
@@ -1149,8 +1146,7 @@ impl CostTracker for &mut LimitedCostTracker {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Hash)]
-#[derive(Writable, Readable)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Hash, Writable, Readable)]
 pub struct ExecutionCost {
     pub write_length: u64,
     pub write_count: u64,
