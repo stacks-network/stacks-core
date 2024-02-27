@@ -15,6 +15,12 @@ on:
         type: string
         default: >-
           ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-glibc-armv7", "linux-musl-arm64", "linux-musl-armv7", "macos-x64", "macos-arm64", "windows-x64"]
+      cpu:
+        description: "Stringified JSON object listing of target CPU matrix (for x86_64 builds)"
+        required: false
+        type: string
+        default: >-
+          ["x86-64", "x86-64-v3"]
 
 ## change the display name to the tag being built
 run-name: ${{ inputs.tag }}
@@ -39,32 +45,20 @@ jobs:
       max-parallel: 10
       matrix:
         platform: ${{ fromJson(inputs.arch) }}
+        cpu: ${{ fromJson(inputs.cpu) }}
+    env:
+      TEST_TIMEOUT: 30
     steps:
-      ## Setup Docker for the builds
-      - name: Docker setup
-        uses: BowTiedDevOps/actions/docker@feat/retry-action
-
-      ## Build the binaries using defined dockerfiles
-      - name: Build Binary (${{ matrix.platform }})
-        id: build_binaries
-        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # 5.1.0
+      ## Call composite action
+      - name: Build Binary
+        if: |
+          !(
+            contains(matrix.platform, 'arm') && 
+            contains(matrix.cpu, 'v3')
+          )
+        id: build_binary
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: BowTiedDevOps/actions/stacks-core/create-source-binary@feat/update-release-dockerfiles
         with:
-          file: build-scripts/Dockerfile.${{ matrix.platform }}
-          outputs: type=local,dest=./release/${{ matrix.platform }}
-          build-args: |
-            STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
-            OS_ARCH=${{ matrix.platform }}
-            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-
-      ## Compress the binary artifact
-      - name: Compress artifact
-        id: compress_artifact
-        run: zip --junk-paths ${{ matrix.platform }} ./release/${{ matrix.platform }}/*
-
-      ## Upload the binary artifact to the github action (used in `github-release.yml` to create a release)
-      - name: Upload artifact
-        id: upload_artifact
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
-        with:
-          path: ${{ matrix.platform }}.zip
+          arch: ${{ matrix.platform }}
+          cpu: ${{ matrix.cpu }}

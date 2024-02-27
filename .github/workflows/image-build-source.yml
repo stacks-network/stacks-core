@@ -9,7 +9,7 @@ on:
 ## Define which docker arch to build for
 env:
   docker_platforms: linux/amd64
-  docker-org: blockstack
+  docker-org: albu02
 
 concurrency:
   group: docker-image-source-${{ github.head_ref || github.ref || github.run_id }}
@@ -43,7 +43,7 @@ jobs:
         with:
           images: |
             ${{env.docker-org}}/${{ github.event.repository.name }}
-            ${{env.docker-org}}/stacks-blockchain
+            ${{env.docker-org}}/stacks-core
           tags: |
             type=raw,value=${{ env.BRANCH_NAME }}
             type=ref,event=pr
