@@ -39,7 +39,7 @@ jobs:
     steps:
       - name: Cleanup
         id: cleanup
-        uses: stacks-network/actions/cleanup/workflows@main
+        uses: BowTiedDevOps/actions/cleanup/workflows@feat/retry-action
         with:
           token: ${{ secrets.GH_TOKEN }}
           cache-ttl: ${{ inputs.cache-ttl || env.CACHE_TTL}}

@@ -34,7 +34,7 @@ jobs:
       ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
-        uses: stacks-network/actions/stacks-core/testenv@main
+        uses: BowTiedDevOps/actions/stacks-core/testenv@feat/retry-action
         with:
           genesis: true
           btc-version: "25.0"
@@ -44,7 +44,7 @@ jobs:
       - name: Run Tests
         id: run_tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/run-tests@main
+        uses: BowTiedDevOps/actions/stacks-core/run-tests@feat/retry-action
         with:
           test-name: ${{ matrix.test-name }}
           threads: 1
@@ -53,7 +53,7 @@ jobs:
       ## Upload code coverage file
       - name: Code Coverage
         id: codecov
-        uses: stacks-network/actions/codecov@main
+        uses: BowTiedDevOps/actions/codecov@feat/retry-action
         with:
           test-name: large_genesis
           filename: ./lcov.info
@@ -84,7 +84,7 @@ jobs:
       ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
-        uses: stacks-network/actions/stacks-core/testenv@main
+        uses: BowTiedDevOps/actions/stacks-core/testenv@feat/retry-action
         with:
           btc-version: "25.0"
           
@@ -93,7 +93,7 @@ jobs:
       - name: Run Tests
         id: run_tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/run-tests/partition@main
+        uses: BowTiedDevOps/actions/stacks-core/run-tests/partition@feat/retry-action
         with:
           partition: ${{ matrix.partition }}
           total-partitions: 8
@@ -101,7 +101,7 @@ jobs:
       ## Create and upload code coverage file
       - name: Code Coverage
         id: codecov
-        uses: stacks-network/actions/codecov@main
+        uses: BowTiedDevOps/actions/codecov@feat/retry-action
         with:
           test-name: ${{ matrix.test-name }}
 
@@ -112,7 +112,7 @@ jobs:
     steps:
       - name: OpenAPI
         id: openapi
-        uses: stacks-network/actions/openapi@main
+        uses: BowTiedDevOps/actions/openapi@feat/retry-action
         with:
           input: ./docs/rpc/openapi.yaml
           output: ./open-api-docs.html
@@ -158,7 +158,7 @@ jobs:
       ## Upload code coverage file
       - name: Code Coverage
         id: codecov
-        uses: stacks-network/actions/codecov@main
+        uses: BowTiedDevOps/actions/codecov@feat/retry-action
         with:
           test-name: ${{ matrix.test-name }}
           upload-only: true
