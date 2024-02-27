@@ -326,7 +326,7 @@ fn publish_contract(
         let (ast, analysis) =
             tx.analyze_smart_contract(contract_id, version, contract, ASTRules::PrecheckSize)?;
         tx.initialize_smart_contract(contract_id, version, &ast, contract, None, |_, _| false)?;
-        tx.save_analysis(contract_id, &analysis)?;
+        tx.save_analysis(&analysis)?;
         Ok(())
     })
 }
@@ -629,7 +629,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&math_contract_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
@@ -653,7 +653,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&compute_contract_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
@@ -677,7 +677,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&impl_compute_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
@@ -701,7 +701,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&impl_math_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
@@ -725,7 +725,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&use_compute_20_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
     });
@@ -756,7 +756,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&use_compute_21_c1_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
@@ -780,7 +780,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
             clarity_db
-                .save_analysis(&use_compute_21_c2_id, &analysis)
+                .save_analysis(&analysis)
                 .expect("FATAL: failed to store contract analysis");
         });
     });

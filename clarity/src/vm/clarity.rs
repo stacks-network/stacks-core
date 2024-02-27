@@ -153,7 +153,7 @@ pub trait TransactionConnection: ClarityConnection {
     ///
     /// This returns the return value of `to_do`:
     ///  * the generic term `R`,
-    ///  * the asset changes during `to_do` in an [AssetMap],
+    ///  * the asset changes during `to_do` in an [`AssetMap`],
     ///  * the Stacks events during the transaction,
     ///  * and a `bool` value which is `true` if the `abort_call_back` caused 
     ///    the changes to abort.
@@ -169,14 +169,14 @@ pub trait TransactionConnection: ClarityConnection {
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>;
 
-    /// Execute `to_do` with access to the underlying [ClarityDatabase] and a
-    /// [LimitedCostTracker] instance, returning the result of `to_do`: `R`.
+    /// Execute `to_do` with access to the underlying [`ClarityDatabase`] and a
+    /// [`LimitedCostTracker`] instance, returning the result of `to_do`: `R`.
     fn with_clarity_db<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
     /// Analyze a provided smart contract, but do not write the resulting
-    /// [ContractAnalysis] to the Clarity non-consensus database.
+    /// [`ContractAnalysis`] to the Clarity non-consensus database.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
@@ -221,13 +221,12 @@ pub trait TransactionConnection: ClarityConnection {
         })
     }
 
-    /// Saves a [ContractAnalysis] to the Clarity non-consensus database.
-    /// This will fail if the [Contract] has not already been inserted, and
+    /// Saves a [`ContractAnalysis`] to the Clarity non-consensus database.
+    /// This will fail if the [`Contract`] has not already been inserted, and
     /// in general a failure here indicates a more serious problem with in
     /// the process for inserting contracts.
     fn save_analysis(
         &mut self,
-        identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
     ) -> Result<(), CheckError> {
         self.with_clarity_db(|db, cost_tracker| {

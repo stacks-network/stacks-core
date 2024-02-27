@@ -136,7 +136,7 @@ fn setup_tracked_cost_test(
                 |_, _| false,
             )
             .unwrap();
-            conn.save_analysis(&trait_contract_id, &ct_analysis)
+            conn.save_analysis(&ct_analysis)
                 .unwrap();
         });
 
@@ -169,7 +169,7 @@ fn setup_tracked_cost_test(
                 |_, _| false,
             )
             .unwrap();
-            conn.save_analysis(&other_contract_id, &ct_analysis)
+            conn.save_analysis(&ct_analysis)
                 .unwrap();
         });
 
@@ -245,7 +245,7 @@ fn test_tracked_costs(
                 |_, _| false,
             )
             .unwrap();
-            conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
+            conn.save_analysis(&ct_analysis).unwrap();
         });
 
         conn.commit_block().get_total()

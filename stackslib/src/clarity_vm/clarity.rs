@@ -397,7 +397,7 @@ impl ClarityInstance {
                 .unwrap();
 
             clarity_db
-                .save_analysis(&boot_code_id("cost-voting", use_mainnet), &analysis)
+                .save_analysis(&analysis)
                 .unwrap();
         });
 
@@ -2077,7 +2077,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 
@@ -2130,7 +2130,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(&contract_identifier, &ct_analysis)
+                tx.save_analysis(&ct_analysis)
                     .unwrap();
             }
 
@@ -2158,7 +2158,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(&contract_identifier, &ct_analysis)
+                tx.save_analysis(&ct_analysis)
                     .unwrap();
 
                 tx.commit().unwrap();
@@ -2242,7 +2242,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 
@@ -2302,7 +2302,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 
@@ -2393,7 +2393,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 
@@ -2533,7 +2533,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 
@@ -2909,7 +2909,7 @@ mod tests {
                     |_, _| false,
                 )
                 .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
+                conn.save_analysis(&ct_analysis)
                     .unwrap();
             });
 

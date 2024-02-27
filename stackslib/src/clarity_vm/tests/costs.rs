@@ -1101,7 +1101,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
+                tx.save_analysis(&analysis).unwrap();
             });
         }
 
@@ -1386,7 +1386,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
+                tx.save_analysis(&analysis).unwrap();
             });
         }
 

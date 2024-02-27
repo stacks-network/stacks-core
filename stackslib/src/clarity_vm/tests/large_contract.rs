@@ -1079,7 +1079,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         |_, _| false,
                     )
                     .unwrap();
-                    conn.save_analysis(&contract_identifier, &ct_analysis)
+                    conn.save_analysis(&ct_analysis)
                         .unwrap();
                 });
             } else {
