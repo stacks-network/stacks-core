@@ -30,7 +30,7 @@ jobs:
       ## Perform a lookup to check if the cache already exists
       - name: Cargo Cache
         id: cargo-cache
-        uses: stacks-network/actions/stacks-core/cache/cargo@main
+        uses: BowTiedDevOps/actions/stacks-core/cache/cargo@feat/retry-action
         with:
           action: save
 
@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: Bitcoin Cache
         id: bitcoin-cache
-        uses: stacks-network/actions/stacks-core/cache/bitcoin@main
+        uses: BowTiedDevOps/actions/stacks-core/cache/bitcoin@feat/retry-action
         with:
           action: save
           btc-version: "25.0"
@@ -55,6 +55,6 @@ jobs:
     steps:
       - name: Build Nexttest Cache
         id: nextest-cache
-        uses: stacks-network/actions/stacks-core/cache/build-cache@main
+        uses: BowTiedDevOps/actions/stacks-core/cache/build-cache@feat/retry-action
         with:
           genesis: true

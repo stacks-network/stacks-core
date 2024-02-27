@@ -70,7 +70,7 @@ jobs:
 
       - name: Setup Rust Toolchain
         id: setup_rust_toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@f3c84ee10bf5a86e7a5d607d487bf17d57670965 # v1.5.0
+        uses: actions-rust-lang/setup-rust-toolchain@b113a30d27a8e59c969077c0a0168cc13dab5ffc # v1.8.0
         with:
           components: rustfmt
           cache: false
