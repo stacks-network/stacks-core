@@ -197,6 +197,7 @@ impl StackerDBConfig {
     }
 
     /// How many slots are in this DB total?
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }

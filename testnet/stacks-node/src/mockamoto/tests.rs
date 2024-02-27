@@ -6,6 +6,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
@@ -26,6 +27,7 @@ fn observe_100_blocks() {
     );
     conf.node.rpc_bind = "127.0.0.1:19343".into();
     conf.node.p2p_bind = "127.0.0.1:19344".into();
+    conf.connection_options.public_ip_address = Some((PeerAddress::from_ipv4(127, 0, 0, 1), 20443));
     conf.node.mockamoto_time_ms = 10;
 
     let submitter_sk = StacksPrivateKey::from_seed(&[1]);
@@ -236,6 +238,9 @@ fn mempool_rpc_submit() {
 fn observe_set_aggregate_key() {
     let mut conf = Config::from_config_file(ConfigFile::mockamoto()).unwrap();
     conf.node.mockamoto_time_ms = 10;
+    conf.node.p2p_bind = "127.0.0.1:20443".into();
+    conf.node.rpc_bind = "127.0.0.1:20444".into();
+    conf.connection_options.public_ip_address = Some((PeerAddress::from_ipv4(127, 0, 0, 1), 20443));
 
     let submitter_sk = StacksPrivateKey::from_seed(&[1]);
     let submitter_addr = to_addr(&submitter_sk);
@@ -249,8 +254,7 @@ fn observe_set_aggregate_key() {
     });
 
     let mut mockamoto = MockamotoNode::new(&conf).unwrap();
-    // Get the aggregate public key of the original reward cycle to compare against
-    let orig_key = mockamoto.self_signer.aggregate_public_key;
+    let mut signer = mockamoto.self_signer.clone();
 
     let globals = mockamoto.globals.clone();
 
@@ -272,13 +276,16 @@ fn observe_set_aggregate_key() {
             mockamoto.sortdb.first_block_height,
             sortition_tip.block_height,
         )
-        .expect(
-            format!(
+        .unwrap_or_else(|| {
+            panic!(
                 "Failed to determine reward cycle of block height: {}",
                 sortition_tip.block_height
             )
-            .as_str(),
-        );
+        });
+
+    // Get the aggregate public key of the original reward cycle to compare against
+    let expected_cur_key = signer.generate_aggregate_key(reward_cycle);
+    let expected_next_key = signer.generate_aggregate_key(reward_cycle + 1);
 
     let node_thread = thread::Builder::new()
         .name("mockamoto-main".into())
@@ -342,8 +349,8 @@ fn observe_set_aggregate_key() {
     );
 
     // Did we set and retrieve the aggregate key correctly?
-    assert_eq!(orig_aggregate_key.unwrap(), orig_key);
-    assert_eq!(new_aggregate_key.unwrap(), orig_key);
+    assert_eq!(orig_aggregate_key.unwrap(), expected_cur_key);
+    assert_eq!(new_aggregate_key.unwrap(), expected_next_key);
 }
 
 #[test]

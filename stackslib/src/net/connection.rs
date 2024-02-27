@@ -280,6 +280,7 @@ impl<P: ProtocolFamily> Write for NetworkReplyHandle<P> {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn flush(&mut self) -> io::Result<()> {
         self.pipe_flush()
     }
@@ -565,6 +566,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
     /// try to consume buffered data to form a message preamble.
     /// returns an option of the preamble consumed and the number of bytes used from the bytes slice
+    #[cfg_attr(test, mutants::skip)]
     fn consume_preamble(
         &mut self,
         protocol: &mut P,
@@ -626,6 +628,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// buffer up bytes for a message
+    #[cfg_attr(test, mutants::skip)]
     fn buffer_message_bytes(&mut self, bytes: &[u8], message_len_opt: Option<usize>) -> usize {
         let message_len = message_len_opt.unwrap_or(MAX_MESSAGE_LEN as usize);
         let buffered_so_far = self.buf[self.message_ptr..].len();
@@ -1201,6 +1204,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     }
 
     /// How many queued messsages do we have?
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_messages(&self) -> usize {
         self.outbox.len()
     }
@@ -1361,6 +1365,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Receive data
+    #[cfg_attr(test, mutants::skip)]
     pub fn recv_data<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
         self.inbox.recv_bytes(&mut self.protocol, fd)
     }

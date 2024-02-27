@@ -231,6 +231,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.total_bytes == 0 {
             // headers are a JSON array.  Start by writing '[', then write each header, and

@@ -16,7 +16,7 @@
 
 use std::boxed::Box;
 use std::cmp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
@@ -220,7 +220,7 @@ pub struct NakamotoSignerEntry {
     #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
     pub signing_key: [u8; 33],
     pub stacked_amt: u128,
-    pub slots: u32,
+    pub weight: u32,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -619,7 +619,7 @@ impl StacksChainState {
                         env.execute_contract(
                             &contract_identifier,
                             function,
-                            &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                            &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
                             true,
                         )
                     },
@@ -708,15 +708,15 @@ impl StacksChainState {
         let mut signer_set: Vec<_> = signer_set
             .into_iter()
             .filter_map(|(signing_key, stacked_amt)| {
-                let slots = u32::try_from(stacked_amt / threshold)
+                let weight = u32::try_from(stacked_amt / threshold)
                     .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
-                if slots == 0 {
+                if weight == 0 {
                     return None;
                 }
                 Some(NakamotoSignerEntry {
                     signing_key,
                     stacked_amt,
-                    slots,
+                    weight,
                 })
             })
             .collect();
@@ -929,27 +929,26 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple_data
                 .get("pox-addr")
-                .expect(&format!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple_data
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
@@ -1011,37 +1010,34 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1110,37 +1106,34 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1207,10 +1200,12 @@ impl StacksChainState {
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()?
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple)?;
@@ -1291,16 +1286,21 @@ impl StacksChainState {
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
-                POX_4_NAME,
-                &format!("(get-aggregate-public-key u{})", reward_cycle),
+                SIGNERS_VOTING_NAME,
+                &format!("(get-approved-aggregate-key u{})", reward_cycle),
             )?
             .expect_optional()?;
+        debug!(
+            "Aggregate public key for reward cycle {} is {:?}",
+            reward_cycle, aggregate_public_key_opt
+        );
 
         let aggregate_public_key = match aggregate_public_key_opt {
             Some(value) => {
                 // A point should have 33 bytes exactly.
                 let data = value.expect_buff(33)?;
-                let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
+                let msg =
+                    "Pox-4 signers-voting get-approved-aggregate-key returned a corrupted value.";
                 let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
                 Some(Point::try_from(&compressed_data).expect(msg))
             }
@@ -1319,7 +1319,7 @@ pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
 #[cfg(test)]
-mod signers_tests;
+pub mod signers_tests;
 #[cfg(test)]
 pub mod signers_voting_tests;
 
@@ -1333,9 +1333,8 @@ pub mod test {
     use clarity::vm::contracts::Contract;
     use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::types::PrivateKey;
-    use stacks_common::util::hash::Sha256Sum;
-    use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_common::util::*;
 
     use super::*;
@@ -1903,33 +1902,37 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_aggregate_key(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        reward_cycle: u64,
-        aggregate_public_key: &Point,
-    ) -> StacksTransaction {
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            POX_4_NAME,
-            "set-aggregate-public-key",
-            vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
-        )
-        .unwrap();
-        make_tx(key, nonce, 0, payload)
-    }
-
     pub fn make_signers_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
         aggregate_public_key: &Point,
         round: u128,
+        cycle: u128,
     ) -> StacksTransaction {
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key_val =
+            Value::buff_from(aggregate_public_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key");
+        make_signers_vote_for_aggregate_public_key_value(
+            key,
+            nonce,
+            signer_index,
+            aggregate_public_key_val,
+            round,
+            cycle,
+        )
+    }
+
+    pub fn make_signers_vote_for_aggregate_public_key_value(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        signer_index: u128,
+        aggregate_public_key: Value,
+        round: u128,
+        cycle: u128,
+    ) -> StacksTransaction {
+        debug!("Vote for aggregate key in cycle {}, round {}", cycle, round);
+
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
@@ -1938,6 +1941,7 @@ pub mod test {
                 Value::UInt(signer_index),
                 aggregate_public_key,
                 Value::UInt(round),
+                Value::UInt(cycle),
             ],
         )
         .unwrap();

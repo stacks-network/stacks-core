@@ -29,7 +29,7 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::MINING_COMMITMENT_WINDOW;
@@ -42,7 +42,6 @@ pub struct BurnSamplePoint {
     pub range_start: Uint256,
     pub range_end: Uint256,
     pub candidate: LeaderBlockCommitOp,
-    pub user_burns: Vec<UserBurnSupportOp>,
 }
 
 #[derive(Debug, Clone)]
@@ -291,7 +290,6 @@ impl BurnSamplePoint {
                     range_start: Uint256::zero(), // To be filled in
                     range_end: Uint256::zero(),   // To be filled in
                     candidate,
-                    user_burns: vec![],
                 }
             })
             .collect();
@@ -331,7 +329,6 @@ impl BurnSamplePoint {
     pub fn make_distribution(
         all_block_candidates: Vec<LeaderBlockCommitOp>,
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
-        user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
         Self::make_min_median_distribution(vec![all_block_candidates], vec![], vec![true])
     }
@@ -390,12 +387,9 @@ impl BurnSamplePoint {
     pub fn get_total_burns(burn_dist: &[BurnSamplePoint]) -> Option<u64> {
         burn_dist
             .iter()
-            .fold(Some(0), |burns_so_far, sample_point| {
-                if let Some(burns_so_far) = burns_so_far {
-                    burns_so_far.checked_add(sample_point.burns.try_into().ok()?)
-                } else {
-                    None
-                }
+            .try_fold(0u64, |burns_so_far, sample_point| {
+                let n = u64::try_from(sample_point.burns).ok()?;
+                burns_so_far.checked_add(n)
             })
     }
 }
@@ -422,7 +416,7 @@ mod tests {
         MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
     };
     use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -433,39 +427,7 @@ mod tests {
     struct BurnDistFixture {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         block_commits: Vec<LeaderBlockCommitOp>,
-        user_burns: Vec<UserBurnSupportOp>,
         res: Vec<BurnSamplePoint>,
-    }
-
-    fn make_user_burn(
-        burn_fee: u64,
-        vrf_ident: u32,
-        block_id: u64,
-        txid_id: u64,
-        block_height: u64,
-    ) -> UserBurnSupportOp {
-        let mut block_header_hash = [0; 32];
-        block_header_hash[0..8].copy_from_slice(&block_id.to_be_bytes());
-        let mut txid = [3; 32];
-        txid[0..8].copy_from_slice(&txid_id.to_be_bytes());
-        let txid = Txid(txid);
-
-        UserBurnSupportOp {
-            address: StacksAddress {
-                version: 0,
-                bytes: Hash160([0; 20]),
-            },
-            consensus_hash: ConsensusHash([0; 20]),
-            public_key: VRFPublicKey::from_private(&VRFPrivateKey::new()),
-            key_block_ptr: vrf_ident,
-            key_vtxindex: 0,
-            block_header_hash_160: Hash160::from_sha256(&block_header_hash),
-            burn_fee,
-            txid,
-            vtxindex: 0,  // index in the block where this tx occurs
-            block_height, // block height at which this tx occurs
-            burn_header_hash: BurnchainHeaderHash([0; 32]), // hash of burnchain block with this tx
-        }
     }
 
     fn make_missed_commit(txid_id: u64, input_tx: u64) -> MissedBlockCommit {
@@ -568,14 +530,6 @@ mod tests {
                 make_block_commit(3, 12, 12, 12, Some(10), 6),
             ],
         ];
-        let user_burns = vec![
-            vec![make_user_burn(1, 1, 1, 1, 1), make_user_burn(1, 2, 2, 2, 1)],
-            vec![make_user_burn(1, 4, 4, 4, 2)],
-            vec![make_user_burn(1, 6, 6, 6, 3)],
-            vec![make_user_burn(1, 8, 8, 8, 4)],
-            vec![make_user_burn(1, 10, 10, 10, 5)],
-            vec![make_user_burn(1, 12, 12, 12, 6)],
-        ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
@@ -594,9 +548,6 @@ mod tests {
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
-
-        assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 0);
 
         // now correct the back pointers so that they point
         //   at the correct UTXO position *post-sunset*
@@ -629,9 +580,6 @@ mod tests {
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
-
-        assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 0);
     }
 
     #[test]
@@ -675,14 +623,6 @@ mod tests {
                 make_block_commit(3, 12, 12, 12, Some(10), 6),
             ],
         ];
-        let user_burns = vec![
-            vec![make_user_burn(1, 1, 1, 1, 1), make_user_burn(1, 2, 2, 2, 1)],
-            vec![make_user_burn(1, 4, 4, 4, 2)],
-            vec![make_user_burn(1, 6, 6, 6, 3)],
-            vec![make_user_burn(1, 8, 8, 8, 4)],
-            vec![make_user_burn(1, 10, 10, 10, 5)],
-            vec![make_user_burn(1, 12, 12, 12, 6)],
-        ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
@@ -700,9 +640,6 @@ mod tests {
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
-
-        assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 0);
 
         // test case 2:
         //    miner 1:  4 4 5 4 5 3
@@ -739,14 +676,6 @@ mod tests {
                 make_block_commit(1, 11, 11, 12, Some(10), 6),
             ],
         ];
-        let user_burns = vec![
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![make_user_burn(2, 11, 11, 1, 6)],
-        ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
             commits.clone(),
@@ -764,9 +693,6 @@ mod tests {
         // make sure that we're associating with the last commit in the window.
         assert_eq!(result[0].candidate.txid, commits[5][0].txid);
         assert_eq!(result[1].candidate.txid, commits[5][1].txid);
-
-        assert_eq!(result[0].user_burns.len(), 0);
-        assert_eq!(result[1].user_burns.len(), 0);
     }
 
     #[test]
@@ -903,198 +829,6 @@ mod tests {
             block_height: 121,
             burn_header_hash: BurnchainHeaderHash::from_hex(
                 "0000000000000000000000000000000000000000000000000000000000000012",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_noblock = UserBurnSupportOp {
-            address: StacksAddress::new(1, Hash160([1u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: 1,
-            key_vtxindex: 772,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 12,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_1 = UserBurnSupportOp {
-            address: StacksAddress::new(2, Hash160([2u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap(),
-            )
-            .unwrap(), // 22222....2222
-            key_block_ptr: 123,
-            key_vtxindex: 456,
-            burn_fee: 10000,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 13,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_1_2 = UserBurnSupportOp {
-            address: StacksAddress::new(3, Hash160([3u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap(),
-            )
-            .unwrap(), // 22222....2222
-            key_block_ptr: 123,
-            key_vtxindex: 456,
-            burn_fee: 30000,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 14,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_2 = UserBurnSupportOp {
-            address: StacksAddress::new(4, Hash160([4u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-            )
-            .unwrap(), // 22222....2223
-            key_block_ptr: 122,
-            key_vtxindex: 457,
-            burn_fee: 20000,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716d")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 15,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_2_2 = UserBurnSupportOp {
-            address: StacksAddress::new(5, Hash160([5u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-            )
-            .unwrap(), // 22222....2223
-            key_block_ptr: 122,
-            key_vtxindex: 457,
-            burn_fee: 40000,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 16,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
-            )
-            .unwrap(),
-        };
-
-        let user_burn_nokey = UserBurnSupportOp {
-            address: StacksAddress::new(6, Hash160([6u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("4444444444444444444444444444444444444444").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: 121,
-            key_vtxindex: 772,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716e")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: 17,
-            block_height: 124,
-            burn_header_hash: BurnchainHeaderHash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
         };
@@ -1255,26 +989,22 @@ mod tests {
             BurnDistFixture {
                 consumed_leader_keys: vec![],
                 block_commits: vec![],
-                user_burns: vec![],
                 res: vec![],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone()],
                 block_commits: vec![block_commit_1.clone()],
-                user_burns: vec![],
                 res: vec![BurnSamplePoint {
                     burns: block_commit_1.burn_fee.into(),
                     median_burn: block_commit_1.burn_fee.into(),
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
                     candidate: block_commit_1.clone(),
-                    user_burns: vec![],
                 }],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1288,7 +1018,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1302,14 +1031,12 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![user_burn_noblock.clone()],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1323,7 +1050,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1337,14 +1063,12 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![user_burn_nokey.clone()],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1358,7 +1082,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1372,18 +1095,12 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![
-                    user_burn_noblock.clone(),
-                    user_burn_1.clone(),
-                    user_burn_nokey.clone(),
-                ],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1397,7 +1114,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1411,19 +1127,12 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![
-                    user_burn_noblock.clone(),
-                    user_burn_1.clone(),
-                    user_burn_2.clone(),
-                    user_burn_nokey.clone(),
-                ],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1437,7 +1146,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1451,21 +1159,12 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
             BurnDistFixture {
                 consumed_leader_keys: vec![leader_key_1.clone(), leader_key_2.clone()],
                 block_commits: vec![block_commit_1.clone(), block_commit_2.clone()],
-                user_burns: vec![
-                    user_burn_noblock.clone(),
-                    user_burn_1.clone(),
-                    user_burn_1_2.clone(),
-                    user_burn_2.clone(),
-                    user_burn_2_2.clone(),
-                    user_burn_nokey.clone(),
-                ],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1479,7 +1178,6 @@ mod tests {
                             0x7fffffffffffffff,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1493,7 +1191,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
@@ -1508,14 +1205,6 @@ mod tests {
                     block_commit_2.clone(),
                     block_commit_3.clone(),
                 ],
-                user_burns: vec![
-                    user_burn_noblock.clone(),
-                    user_burn_1.clone(),
-                    user_burn_1_2.clone(),
-                    user_burn_2.clone(),
-                    user_burn_2_2.clone(),
-                    user_burn_nokey.clone(),
-                ],
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
@@ -1528,7 +1217,6 @@ mod tests {
                             0x41a3ed94d3cb0a84,
                         ]),
                         candidate: block_commit_1.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1546,7 +1234,6 @@ mod tests {
                             0x8347db29a7961508,
                         ]),
                         candidate: block_commit_2.clone(),
-                        user_burns: vec![],
                     },
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
@@ -1559,7 +1246,6 @@ mod tests {
                         ]),
                         range_end: Uint256::max(),
                         candidate: block_commit_3.clone(),
-                        user_burns: vec![],
                     },
                 ],
             },
@@ -1571,7 +1257,6 @@ mod tests {
             let dist = BurnSamplePoint::make_distribution(
                 f.block_commits.iter().cloned().collect(),
                 f.consumed_leader_keys.iter().cloned().collect(),
-                f.user_burns.iter().cloned().collect(),
             );
             assert_eq!(dist, f.res);
         }

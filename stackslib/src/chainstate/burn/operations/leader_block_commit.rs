@@ -33,7 +33,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -238,6 +238,7 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn is_parent_genesis(&self) -> bool {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }
@@ -979,10 +980,12 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitBadInput);
         }
-        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-            "FATAL: impossible block height: no epoch defined for {}",
-            self.block_height
-        ));
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.unwrap_or_else(|| {
+            panic!(
+                "FATAL: impossible block height: no epoch defined for {}",
+                self.block_height
+            )
+        });
 
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;

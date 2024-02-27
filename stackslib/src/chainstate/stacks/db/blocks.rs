@@ -110,15 +110,6 @@ pub struct StagingBlock {
     pub block_data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct StagingUserBurnSupport {
-    pub consensus_hash: ConsensusHash,
-    pub anchored_block_hash: BlockHeaderHash,
-    pub address: StacksAddress,
-    pub burn_amount: u64,
-    pub vtxindex: u32,
-}
-
 #[derive(Debug)]
 pub enum MemPoolRejection {
     SerializationFailure(codec_error),
@@ -427,25 +418,6 @@ impl FromRow<StagingBlock> for StagingBlock {
     }
 }
 
-impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
-    fn from_row<'a>(row: &'a Row) -> Result<StagingUserBurnSupport, db_error> {
-        let anchored_block_hash: BlockHeaderHash =
-            BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-        let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let address: StacksAddress = StacksAddress::from_column(row, "address")?;
-        let burn_amount = u64::from_column(row, "burn_amount")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
-
-        Ok(StagingUserBurnSupport {
-            anchored_block_hash,
-            consensus_hash,
-            address,
-            burn_amount,
-            vtxindex,
-        })
-    }
-}
-
 impl StagingMicroblock {
     #[cfg(test)]
     pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
@@ -714,7 +686,7 @@ impl StacksChainState {
                 .expect("FATAL: failed to create block directory");
 
         let sz = fs::metadata(&block_path)
-            .expect(&format!("FATAL: failed to stat '{}'", &block_path))
+            .unwrap_or_else(|_| panic!("FATAL: failed to stat '{}'", &block_path))
             .len();
 
         if sz > 0 {
@@ -730,18 +702,22 @@ impl StacksChainState {
                 .expect("FATAL: index block path did not have file name");
             invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
 
-            fs::copy(&block_path, &invalid_path).expect(&format!(
-                "FATAL: failed to copy '{}' to '{}'",
-                &block_path,
-                &invalid_path.to_string_lossy(),
-            ));
+            fs::copy(&block_path, &invalid_path).unwrap_or_else(|_| {
+                panic!(
+                    "FATAL: failed to copy '{}' to '{}'",
+                    &block_path,
+                    &invalid_path.to_string_lossy()
+                )
+            });
 
             // already freed?
             let sz = fs::metadata(&invalid_path)
-                .expect(&format!(
-                    "FATAL: failed to stat '{}'",
-                    &invalid_path.to_string_lossy()
-                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: failed to stat '{}'",
+                        &invalid_path.to_string_lossy()
+                    )
+                })
                 .len();
 
             if sz > 0 {
@@ -751,10 +727,9 @@ impl StacksChainState {
                     .write(true)
                     .truncate(true)
                     .open(&block_path)
-                    .expect(&format!(
-                        "FATAL: Failed to mark block path '{}' as free",
-                        &block_path
-                    ));
+                    .unwrap_or_else(|_| {
+                        panic!("FATAL: Failed to mark block path '{}' as free", &block_path)
+                    });
             }
         }
     }
@@ -1082,19 +1057,6 @@ impl StacksChainState {
         }
     }
 
-    /// Load up the list of users who burned for an unprocessed block.
-    fn load_staging_block_user_supports(
-        block_conn: &DBConn,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> Result<Vec<StagingUserBurnSupport>, Error> {
-        let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND consensus_hash = ?2".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
-        let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, args)
-            .map_err(Error::DBError)?;
-        Ok(rows)
-    }
-
     /// Load up a queued block's queued pubkey hash
     fn load_staging_block_pubkey_hash(
         block_conn: &DBConn,
@@ -1228,13 +1190,15 @@ impl StacksChainState {
         loop {
             let microblock =
                 match StacksChainState::load_staging_microblock_bytes(blocks_conn, &mblock_hash)? {
-                    Some(mblock_data) => StacksMicroblock::consensus_deserialize(
-                        &mut &mblock_data[..],
-                    )
-                    .expect(&format!(
-                        "CORRUPTION: failed to parse microblock data for {}/{}-{}",
-                        parent_consensus_hash, parent_anchored_block_hash, &mblock_hash,
-                    )),
+                    Some(mblock_data) => {
+                        StacksMicroblock::consensus_deserialize(&mut &mblock_data[..])
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "CORRUPTION: failed to parse microblock data for {}/{}-{}",
+                                    parent_consensus_hash, parent_anchored_block_hash, &mblock_hash
+                                )
+                            })
+                    }
                     None => {
                         test_debug!(
                             "No such microblock (processed={}): {}/{}-{} ({})",
@@ -1400,10 +1364,12 @@ impl StacksChainState {
                 blocks_conn,
                 &staging_microblocks[i].microblock_hash,
             )?
-            .expect(&format!(
-                "BUG: have record for {}-{} but no data",
-                &parent_index_block_hash, &staging_microblocks[i].microblock_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: have record for {}-{} but no data",
+                    &parent_index_block_hash, &staging_microblocks[i].microblock_hash
+                )
+            });
 
             let mblock = match StacksMicroblock::consensus_deserialize(&mut &mblock_data[..]) {
                 Ok(mb) => mb,
@@ -1752,34 +1718,6 @@ impl StacksChainState {
 
         tx.execute(&block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
-    }
-
-    /// Store users who burned in support of a block
-    fn store_staging_block_user_burn_supports<'a>(
-        tx: &mut DBTx<'a>,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        burn_supports: &[UserBurnSupportOp],
-    ) -> Result<(), Error> {
-        for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < u64::try_from(i64::MAX).expect("unreachable"));
-        }
-
-        for burn_support in burn_supports.iter() {
-            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, consensus_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[
-                &consensus_hash,
-                &block_hash,
-                &burn_support.address.to_string(),
-                &u64_to_sql(burn_support.burn_fee)?,
-                &burn_support.vtxindex,
-            ];
-
-            tx.execute(&sql, args)
-                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
 
         Ok(())
     }
@@ -2410,7 +2348,7 @@ impl StacksChainState {
                 StacksChainState::free_block(blocks_path, consensus_hash, anchored_block_hash);
             }
             Err(_) => {
-                StacksChainState::atomic_file_write(&block_path, &vec![])?;
+                StacksChainState::atomic_file_write(&block_path, &[])?;
             }
         }
 
@@ -3488,9 +3426,6 @@ impl StacksChainState {
             return Ok(false);
         }
 
-        // find all user burns that supported this block
-        let user_burns = sort_handle.get_winning_user_burns_by_block()?;
-
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
             &block_tx,
@@ -3543,14 +3478,6 @@ impl StacksChainState {
             commit_burn,
             sortition_burn,
             download_time,
-        )?;
-
-        // store users who burned for this block so they'll get rewarded if we process it
-        StacksChainState::store_staging_block_user_burn_supports(
-            &mut block_tx,
-            consensus_hash,
-            &block.block_hash(),
-            &user_burns,
         )?;
 
         block_tx.commit()?;
@@ -5281,7 +5208,6 @@ impl StacksChainState {
         microblocks: &Vec<StacksMicroblock>, // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
         do_not_advance: bool,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
@@ -5690,7 +5616,6 @@ impl StacksChainState {
             chain_tip_burn_header_timestamp,
             microblock_tail_opt,
             &scheduled_miner_reward,
-            user_burns,
             miner_payouts_opt,
             &block_execution_cost,
             block_size,
@@ -6040,13 +5965,6 @@ impl StacksChainState {
             last_microblock_seq
         );
 
-        // find users that burned in support of this block, so we can calculate the miner reward
-        let user_supports = StacksChainState::load_staging_block_user_supports(
-            chainstate_tx.deref().deref(),
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )?;
-
         test_debug!(
             "About to load affirmation map for {}/{}",
             &next_staging_block.consensus_hash,
@@ -6084,7 +6002,6 @@ impl StacksChainState {
             &next_microblocks,
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
-            &user_supports,
             block_am.weight(),
             false,
         ) {

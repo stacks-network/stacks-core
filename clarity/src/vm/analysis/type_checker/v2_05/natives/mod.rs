@@ -320,10 +320,10 @@ fn check_special_equals(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut arg_types = checker.type_check_all(args, context)?;
+    let arg_types = checker.type_check_all(args, context)?;
 
     let mut arg_type = arg_types[0].clone();
-    for x_type in arg_types.drain(..) {
+    for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
             .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;

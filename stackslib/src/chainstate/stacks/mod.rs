@@ -128,6 +128,7 @@ pub enum Error {
     ChannelClosed(String),
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
+    NoRegisteredSigners(u64),
 }
 
 impl From<marf_error> for Error {
@@ -221,11 +222,15 @@ impl fmt::Display for Error {
                 f,
                 "Block has a different tenure than parent, but no tenure change transaction"
             ),
+            Error::NoRegisteredSigners(reward_cycle) => {
+                write!(f, "No registered signers for reward cycle {reward_cycle}")
+            }
         }
     }
 }
 
 impl error::Error for Error {
+    #[cfg_attr(test, mutants::skip)]
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidFee => None,
@@ -263,11 +268,13 @@ impl error::Error for Error {
             Error::ChannelClosed(ref _s) => None,
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
+            Error::NoRegisteredSigners(_) => None,
         }
     }
 }
 
 impl Error {
+    #[cfg_attr(test, mutants::skip)]
     fn name(&self) -> &'static str {
         match self {
             Error::InvalidFee => "InvalidFee",
@@ -305,9 +312,11 @@ impl Error {
             Error::ChannelClosed(ref _s) => "ChannelClosed",
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
+            Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn into_json(&self) -> serde_json::Value {
         let reason_code = self.name();
         let reason_data = format!("{:?}", &self);

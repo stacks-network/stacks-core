@@ -657,7 +657,6 @@ pub mod tests {
                     0x41a3ed94d3cb0a84,
                 ]),
                 candidate: block_commit_1.clone(),
-                user_burns: vec![],
             },
             BurnSamplePoint {
                 burns: block_commit_2.burn_fee.into(),
@@ -675,7 +674,6 @@ pub mod tests {
                     0x8347db29a7961508,
                 ]),
                 candidate: block_commit_2.clone(),
-                user_burns: vec![],
             },
             BurnSamplePoint {
                 burns: (block_commit_3.burn_fee).into(),
@@ -688,7 +686,6 @@ pub mod tests {
                 ]),
                 range_end: Uint256::max(),
                 candidate: block_commit_3.clone(),
-                user_burns: vec![],
             },
         ];
 
@@ -1032,7 +1029,7 @@ EOF
         ] {
             let spend = *spend_dist
                 .get(miner)
-                .expect(&format!("no spend for {}", &miner));
+                .unwrap_or_else(|| panic!("no spend for {}", &miner));
             match miner.as_str() {
                 "miner-1" => {
                     assert_eq!(spend, 2);
@@ -1065,7 +1062,7 @@ EOF
         ] {
             let prob = *win_probs
                 .get(miner)
-                .expect(&format!("no probability for {}", &miner));
+                .unwrap_or_else(|| panic!("no probability for {}", &miner));
             match miner.as_str() {
                 "miner-1" => {
                     assert!((prob - (2.0 / 25.0)).abs() < 0.00001);
