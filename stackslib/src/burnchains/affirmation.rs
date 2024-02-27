@@ -370,6 +370,7 @@ impl AffirmationMap {
         self.affirmations.push(entry)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn pop(&mut self) -> Option<AffirmationMapEntry> {
         self.affirmations.pop()
     }

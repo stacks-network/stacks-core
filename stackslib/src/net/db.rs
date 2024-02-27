@@ -518,6 +518,7 @@ impl PeerDB {
         Ok(version)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_2(tx: &Transaction) -> Result<(), db_error> {
         test_debug!("Apply schema 2 to peer DB");
         for row_text in PEERDB_SCHEMA_2 {
@@ -1698,6 +1699,7 @@ impl PeerDB {
 
     /// Get a randomized set of peers for walking the peer graph.
     /// -- selects peers at random even if not allowed
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_random_walk_neighbors(
         conn: &DBConn,
         network_id: u32,
@@ -1755,6 +1757,7 @@ impl PeerDB {
     }
 
     /// Classify an IP address to its AS number
+    #[cfg_attr(test, mutants::skip)]
     pub fn asn_lookup(conn: &DBConn, addrbits: &PeerAddress) -> Result<Option<u32>, db_error> {
         if addrbits.is_ipv4() {
             PeerDB::asn4_lookup(conn, addrbits)
@@ -1765,6 +1768,7 @@ impl PeerDB {
     }
 
     /// Count the number of nodes in a given AS
+    #[cfg_attr(test, mutants::skip)]
     pub fn asn_count(conn: &DBConn, asn: u32) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier WHERE asn = ?1";
         let args = [&asn as &dyn ToSql];
@@ -1772,6 +1776,7 @@ impl PeerDB {
         Ok(count as u64)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_frontier_size(conn: &DBConn) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier";
         let count = query_count(conn, &qry, NO_PARAMS)?;

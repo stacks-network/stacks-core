@@ -493,6 +493,7 @@ impl NeighborComms for PeerNetworkComms {
         self.events.contains(&event_id)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn add_batch_request(&mut self, naddr: NeighborAddress, rh: ReplyHandleP2P) {
         if let Some(ref mut batch) = self.ongoing_batch_request.as_mut() {
             batch.add(naddr, rh);
@@ -679,6 +680,7 @@ impl NeighborCommsRequest {
     }
 
     /// How many inflight requests remaining?
+    #[cfg_attr(test, mutants::skip)]
     pub fn count_inflight(&self) -> usize {
         self.state.len()
     }

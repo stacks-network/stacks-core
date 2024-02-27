@@ -1690,9 +1690,6 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         last_microblock_seq
     );
 
-    // user supports were never activated
-    let user_supports = vec![];
-
     let block_am = StacksChainState::find_stacks_tip_affirmation_map(
         &burnchain_blocks_db,
         sort_tx.tx(),
@@ -1718,7 +1715,6 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         &next_microblocks,
         next_staging_block.commit_burn,
         next_staging_block.sortition_burn,
-        &user_supports,
         block_am.weight(),
         true,
     ) {

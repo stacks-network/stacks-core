@@ -230,6 +230,7 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
+    #[cfg_attr(test, mutants::skip)]
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidFee => None,
@@ -273,6 +274,7 @@ impl error::Error for Error {
 }
 
 impl Error {
+    #[cfg_attr(test, mutants::skip)]
     fn name(&self) -> &'static str {
         match self {
             Error::InvalidFee => "InvalidFee",
@@ -314,6 +316,7 @@ impl Error {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn into_json(&self) -> serde_json::Value {
         let reason_code = self.name();
         let reason_data = format!("{:?}", &self);

@@ -1672,7 +1672,6 @@ pub mod test {
             match self {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
@@ -2741,9 +2740,6 @@ pub mod test {
             for op in blockstack_ops.iter_mut() {
                 match op {
                     BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
                         data.consensus_hash = (*ch).clone();
                     }
                     _ => {}

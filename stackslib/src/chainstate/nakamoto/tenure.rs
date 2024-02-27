@@ -103,7 +103,6 @@ use crate::chainstate::nakamoto::{
     NakamotoChainState,
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::StagingUserBurnSupport;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
     MinerPaymentTxFees, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState, StacksDBTx,
