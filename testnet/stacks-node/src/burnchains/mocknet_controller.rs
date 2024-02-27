@@ -10,7 +10,7 @@ use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{
@@ -218,21 +218,6 @@ impl BurnchainController for MocknetController {
                         } else {
                             BURN_BLOCK_MINED_AT_MODULUS - 1
                         } as u8,
-                        burn_header_hash: next_block_header.block_hash,
-                    })
-                }
-                BlockstackOperationType::UserBurnSupport(payload) => {
-                    BlockstackOperationType::UserBurnSupport(UserBurnSupportOp {
-                        address: payload.address,
-                        consensus_hash: payload.consensus_hash,
-                        public_key: payload.public_key,
-                        key_block_ptr: payload.key_block_ptr,
-                        key_vtxindex: payload.key_vtxindex,
-                        block_header_hash_160: payload.block_header_hash_160,
-                        burn_fee: payload.burn_fee,
-                        txid: payload.txid,
-                        vtxindex: payload.vtxindex,
-                        block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                     })
                 }
