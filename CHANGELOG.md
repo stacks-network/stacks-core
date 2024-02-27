@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
   - `stack-stx`, `stack-extend`, and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
   - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
+  - Signer key authorizations can be added via `set-signer-key-authorization` to omit the need for `signer-key` signatures
 
 ### Modified
 
@@ -43,23 +44,24 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New RPC endpoint at /v2/block_proposal for miner to validate proposed block.
   Only accessible on local loopback interface
 
-In addition, this introduces a set of improvements to the Stacks miner behavior.  In
+In addition, this introduces a set of improvements to the Stacks miner behavior. In
 particular:
-* The VRF public key can be re-used across node restarts.
-* Settings that affect mining are hot-reloaded from the config file.  They take
+
+- The VRF public key can be re-used across node restarts.
+- Settings that affect mining are hot-reloaded from the config file. They take
   effect once the file is updated; there is no longer a need to restart the
-node.
-* The act of changing the miner settings in the config file automatically
+  node.
+- The act of changing the miner settings in the config file automatically
   triggers a subsequent block-build attempt, allowing the operator to force the
-miner to re-try building blocks.
-* This adds a new tip-selection algorithm that minimizes block orphans within a
+  miner to re-try building blocks.
+- This adds a new tip-selection algorithm that minimizes block orphans within a
   configurable window of time.
-* When configured, the node will automatically stop mining if it is not achieving a
+- When configured, the node will automatically stop mining if it is not achieving a
   targeted win rate over a configurable window of blocks.
-* When configured, the node will selectively mine transactions from only certain
+- When configured, the node will selectively mine transactions from only certain
   addresses, or only of certain types (STX-transfers, contract-publishes,
-contract-calls).
-* When configured, the node will optionally only RBF block-commits if it can
+  contract-calls).
+- When configured, the node will optionally only RBF block-commits if it can
   produce a block with strictly more transactions.
 
 ### Changed

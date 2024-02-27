@@ -221,7 +221,7 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         }
     }
 
-    let result: Vec<u8> = result.drain(..).rev().collect();
+    let result: Vec<u8> = result.into_iter().rev().collect();
     String::from_utf8(result).unwrap()
 }
 
@@ -381,7 +381,7 @@ mod test {
     fn old_c32_validation() {
         for n in 0..5000 {
             // random version
-            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+            let random_version: u8 = rand::thread_rng().gen_range(0..31);
 
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();

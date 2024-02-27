@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::DerefMut;
+use std::fs;
+use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -25,7 +27,7 @@ use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -40,11 +42,11 @@ use stacks_common::types::chainstate::{
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use wsts::curve::point::Point;
 
 use self::signer_set::SignerCalculation;
@@ -78,6 +80,7 @@ use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
+use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
@@ -92,18 +95,23 @@ use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
-    FromRow,
+    query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
+    DBConn, Error as DBError, FromRow,
 };
 use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod miner;
-pub mod tenure;
-
 pub mod signer_set;
+pub mod staging_blocks;
+pub mod tenure;
+pub mod test_signers;
 #[cfg(test)]
 pub mod tests;
+
+pub use self::staging_blocks::{
+    NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
+};
 
 pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
 
@@ -128,42 +136,6 @@ lazy_static! {
     pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
 
     pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_1: Vec<String> = vec![
-    r#"
-      -- Table for staging nakamoto blocks
-      -- TODO: this goes into its own DB at some point
-      CREATE TABLE nakamoto_staging_blocks (
-                     -- SHA512/256 hash of this block
-                     block_hash TEXT NOT NULL,
-                     -- the consensus hash of the burnchain block that selected this block's miner's block-commit
-                     consensus_hash TEXT NOT NULL,
-                     -- the parent index_block_hash
-                     parent_block_id TEXT NOT NULL,
-
-                     -- has the burnchain block with this block's `consensus_hash` been processed?
-                     burn_attachable INT NOT NULL,
-                     -- has the parent Stacks block been processed?
-                     stacks_attachable INT NOT NULL,
-                     -- set to 1 if this block can never be attached
-                     orphaned INT NOT NULL,
-                     -- has this block been processed?
-                     processed INT NOT NULL,
-
-                     height INT NOT NULL,
-
-                     -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
-                     index_block_hash TEXT NOT NULL,
-                     -- how long the block was in-flight
-                     download_time INT NOT NULL,
-                     -- when this block was stored
-                     arrival_time INT NOT NULL,
-                     -- when this block was processed
-                     processed_time INT NOT NULL,
-
-                     -- block data
-                     data BLOB NOT NULL,
-                    
-                     PRIMARY KEY(block_hash,consensus_hash)
-    );"#.into(),
     r#"
     -- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
     --   during block processing.
@@ -281,10 +253,7 @@ pub struct MaturedMinerRewards {
 impl MaturedMinerRewards {
     /// Get the list of miner rewards this struct represents
     pub fn consolidate(&self) -> Vec<MinerReward> {
-        let mut ret = vec![];
-        ret.push(self.recipient.clone());
-        ret.push(self.parent_reward.clone());
-        ret
+        vec![self.recipient.clone(), self.parent_reward.clone()]
     }
 }
 
@@ -369,6 +338,33 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             signer_signature,
             miner_signature,
             signer_bitvec,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A vote across the signer set for a block
+pub struct NakamotoBlockVote {
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    pub rejected: bool,
+}
+
+impl StacksMessageCodec for NakamotoBlockVote {
+    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_signature_hash)?;
+        if self.rejected {
+            write_next(fd, &1u8)?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_signature_hash = read_next(fd)?;
+        let rejected_byte: Option<u8> = read_next(fd).ok();
+        let rejected = rejected_byte.is_some();
+        Ok(Self {
+            signer_signature_hash,
+            rejected,
         })
     }
 }
@@ -1176,144 +1172,81 @@ impl NakamotoBlock {
     }
 }
 
-impl StacksChainState {
-    /// Begin a transaction against the staging blocks DB.
-    /// Note that this DB is (or will eventually be) in a separate database from the headers.
-    pub fn staging_db_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<rusqlite::Transaction<'a>, ChainstateError> {
-        // TODO: this should be against a separate DB!
-        self.db_tx_begin()
-    }
-}
-
 impl NakamotoChainState {
-    /// Notify the staging database that a given stacks block has been processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    ///  block itself as processed.
-    pub fn set_block_processed(
-        staging_db_tx: &rusqlite::Transaction,
-        block: &StacksBlockId,
-    ) -> Result<(), ChainstateError> {
-        let update_dependents = "UPDATE nakamoto_staging_blocks SET stacks_attachable = 1
-                                 WHERE parent_block_id = ?";
-        staging_db_tx.execute(&update_dependents, &[&block])?;
+    /// Infallibly set a block as processed.
+    /// Does not return until it succeeds.
+    fn infallible_set_block_processed(
+        stacks_chain_state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) {
+        loop {
+            let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
+                warn!("Failed to begin staging DB tx: {:?}", &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        let clear_staged_block =
-            "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2
-                                  WHERE index_block_hash = ?1";
-        staging_db_tx.execute(
-            &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
-        )?;
+            let Ok(_) = staging_block_tx.set_block_processed(block_id).map_err(|e| {
+                warn!("Failed to mark {} as processed: {:?}", block_id, &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        Ok(())
+            let Ok(_) = staging_block_tx.commit().map_err(|e| {
+                warn!(
+                    "Failed to commit staging block tx for {}: {:?}",
+                    block_id, &e
+                );
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
+
+            break;
+        }
     }
 
-    /// Modify the staging database that a given stacks block can never be processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    ///  block itself as orphaned.
-    pub fn set_block_orphaned(
-        staging_db_tx: &rusqlite::Transaction,
-        block: &StacksBlockId,
-    ) -> Result<(), ChainstateError> {
-        let update_dependents =
-            "UPDATE nakamoto_staging_blocks SET stacks_attachable = 0, orphaned = 1
-                                 WHERE parent_block_id = ?";
-        staging_db_tx.execute(&update_dependents, &[&block])?;
+    /// Infallibly set a block as orphaned.
+    /// Does not return until it succeeds.
+    fn infallible_set_block_orphaned(
+        stacks_chain_state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) {
+        loop {
+            let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
+                warn!("Failed to begin staging DB tx: {:?}", &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        let clear_staged_block =
-            "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2, orphaned = 1
-                                  WHERE index_block_hash = ?1";
-        staging_db_tx.execute(
-            &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
-        )?;
+            let Ok(_) = staging_block_tx.set_block_orphaned(&block_id).map_err(|e| {
+                warn!("Failed to mark {} as orphaned: {:?}", &block_id, &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        Ok(())
-    }
+            let Ok(_) = staging_block_tx.commit().map_err(|e| {
+                warn!(
+                    "Failed to commit staging block tx for {}: {:?}",
+                    &block_id, &e
+                );
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-    /// Notify the staging database that a given burn block has been processed.
-    /// This is required for staged blocks to be eligible for processing.
-    pub fn set_burn_block_processed(
-        staging_db_tx: &rusqlite::Transaction,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<(), ChainstateError> {
-        let update_dependents = "UPDATE nakamoto_staging_blocks SET burn_attachable = 1
-                                 WHERE consensus_hash = ?";
-        staging_db_tx.execute(&update_dependents, &[consensus_hash])?;
-
-        Ok(())
-    }
-
-    /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
-    /// Returns (the block, the size of the block)
-    pub fn next_ready_nakamoto_block(
-        staging_db_conn: &Connection,
-    ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
-        let query = "SELECT data FROM nakamoto_staging_blocks
-                     WHERE burn_attachable = 1
-                       AND stacks_attachable = 1
-                       AND orphaned = 0
-                       AND processed = 0
-                     ORDER BY height ASC";
-        staging_db_conn
-            .query_row_and_then(query, NO_PARAMS, |row| {
-                let data: Vec<u8> = row.get("data")?;
-                let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
-                Ok(Some((
-                    block,
-                    u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),
-                )))
-            })
-            .or_else(|e| {
-                if let ChainstateError::DBError(DBError::SqliteError(
-                    rusqlite::Error::QueryReturnedNoRows,
-                )) = e
-                {
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            })
-    }
-
-    /// Extract and parse a nakamoto block from the DB, and verify its integrity.
-    pub fn load_nakamoto_block(
-        staging_db_conn: &Connection,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
-        let query = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        staging_db_conn
-            .query_row_and_then(
-                query,
-                rusqlite::params![consensus_hash, block_hash],
-                |row| {
-                    let data: Vec<u8> = row.get("data")?;
-                    let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())
-                        .map_err(|_| DBError::ParseError)?;
-                    if &block.header.block_hash() != block_hash {
-                        error!(
-                            "Staging DB corruption: expected {}, got {}",
-                            &block_hash,
-                            &block.header.block_hash()
-                        );
-                        return Err(DBError::Corruption.into());
-                    }
-                    Ok(Some(block))
-                },
-            )
-            .or_else(|e| {
-                if let ChainstateError::DBError(DBError::SqliteError(
-                    rusqlite::Error::QueryReturnedNoRows,
-                )) = e
-                {
-                    Ok(None)
-                } else {
-                    Err(e.into())
-                }
-            })
+            break;
+        }
     }
 
     /// Process the next ready block.
@@ -1327,9 +1260,9 @@ impl NakamotoChainState {
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
-        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
+        let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
-            Self::next_ready_nakamoto_block(&chainstate_tx.tx)?
+            nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db(), sort_tx)?
         else {
             // no more blocks
             return Ok(None);
@@ -1342,17 +1275,21 @@ impl NakamotoChainState {
             sort_tx,
             &next_ready_block.header.consensus_hash,
         )?
-        .expect(&format!(
-            "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash()
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
+                &next_ready_block.header.consensus_hash,
+                &next_ready_block.header.block_hash()
+            )
+        });
 
         debug!("Process staging Nakamoto block";
                "consensus_hash" => %next_ready_block.header.consensus_hash,
                "block_hash" => %next_ready_block.header.block_hash(),
                "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
         );
+
+        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
 
         // find parent header
         let Some(parent_header_info) =
@@ -1373,13 +1310,16 @@ impl NakamotoChainState {
             &parent_header_info.anchored_header.block_hash(),
         );
         if parent_block_id != next_ready_block.header.parent_block_id {
+            drop(chainstate_tx);
+
             let msg = "Discontinuous Nakamoto Stacks block";
             warn!("{}", &msg;
                   "child parent_block_id" => %next_ready_block.header.parent_block_id,
                   "expected parent_block_id" => %parent_block_id
             );
-            let _ = Self::set_block_orphaned(&chainstate_tx.tx, &block_id);
-            chainstate_tx.commit()?;
+            let staging_block_tx = stacks_chain_state.staging_db_tx_begin()?;
+            staging_block_tx.set_block_orphaned(&block_id)?;
+            staging_block_tx.commit()?;
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
 
@@ -1410,7 +1350,17 @@ impl NakamotoChainState {
 
         // attach the block to the chain state and calculate the next chain tip.
         let pox_constants = sort_tx.context.pox_constants.clone();
-        let (receipt, clarity_commit) = match NakamotoChainState::append_block(
+
+        // NOTE: because block status is updated in a separate transaction, we need `chainstate_tx`
+        // and `clarity_instance` to go out of scope before we can issue the it (since we need a
+        // mutable reference to `stacks_chain_state` to start it).  This means ensuring that, in the
+        // `Ok(..)` case, the `clarity_commit` gets dropped beforehand.  In order to do this, we first
+        // run `::append_block()` here, and capture both the Ok(..) and Err(..) results as
+        // Option<..>'s.  Then, if we errored, we can explicitly drop the `Ok(..)` option (even
+        // though it will always be None), which gets the borrow-checker to believe that it's safe
+        // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
+        // simply commit the block before beginning the second transaction to mark it processed.
+        let (ok_opt, err_opt) = match NakamotoChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -1427,19 +1377,33 @@ impl NakamotoChainState {
             commit_burn,
             sortition_burn,
         ) {
-            Ok(next_chain_tip_info) => next_chain_tip_info,
-            Err(e) => {
-                test_debug!(
-                    "Failed to append {}/{}: {:?}",
-                    &next_ready_block.header.consensus_hash,
-                    &next_ready_block.header.block_hash(),
-                    &e
-                );
-                let _ = Self::set_block_orphaned(&chainstate_tx.tx, &block_id);
-                chainstate_tx.commit()?;
-                return Err(e);
-            }
+            Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
+            Err(e) => (None, Some(e)),
         };
+
+        if let Some(e) = err_opt {
+            // force rollback
+            drop(ok_opt);
+            drop(chainstate_tx);
+
+            warn!(
+                "Failed to append {}/{}: {:?}",
+                &next_ready_block.header.consensus_hash,
+                &next_ready_block.header.block_hash(),
+                &e
+            );
+
+            // as a separate transaction, mark this block as processed and orphaned.
+            // This is done separately so that the staging blocks DB, which receives writes
+            // from the network to store blocks, will be available for writes while a block is
+            // being processed. Therefore, it's *very important* that block-processing happens
+            // within the same, single thread.  Also, it's *very important* that this update
+            // succeeds, since *we have already processed* the block.
+            Self::infallible_set_block_orphaned(stacks_chain_state, &block_id);
+            return Err(e);
+        };
+
+        let (receipt, clarity_commit) = ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -1456,6 +1420,23 @@ impl NakamotoChainState {
             &next_ready_block.header.block_hash(),
             next_ready_block.header.chain_length,
         )?;
+
+        // this will panic if the Clarity commit fails.
+        clarity_commit.commit();
+        chainstate_tx.commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
+
+        // as a separate transaction, mark this block as processed.
+        // This is done separately so that the staging blocks DB, which receives writes
+        // from the network to store blocks, will be available for writes while a block is
+        // being processed. Therefore, it's *very important* that block-processing happens
+        // within the same, single thread.  Also, it's *very important* that this update
+        // succeeds, since *we have already processed* the block.
+        Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -1480,15 +1461,6 @@ impl NakamotoChainState {
                 &pox_constants,
             );
         }
-
-        // this will panic if the Clarity commit fails.
-        clarity_commit.commit();
-        chainstate_tx.commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
 
         Ok(Some(receipt))
     }
@@ -1644,10 +1616,9 @@ impl NakamotoChainState {
 
     /// Insert a Nakamoto block into the staging blocks DB
     pub(crate) fn store_block(
-        staging_db_tx: &rusqlite::Transaction,
+        staging_db_tx: &NakamotoStagingBlocksTx,
         block: NakamotoBlock,
         burn_attachable: bool,
-        stacks_attachable: bool,
     ) -> Result<(), ChainstateError> {
         let block_id = block.block_id();
         staging_db_tx.execute(
@@ -1656,7 +1627,6 @@ impl NakamotoChainState {
                      consensus_hash,
                      parent_block_id,
                      burn_attachable,
-                     stacks_attachable,
                      orphaned,
                      processed,
 
@@ -1666,13 +1636,12 @@ impl NakamotoChainState {
                      arrival_time,
                      processed_time,
                      data
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 &block.header.block_hash(),
                 &block.header.consensus_hash,
                 &block.header.parent_block_id,
                 if burn_attachable { 1 } else { 0 },
-                if stacks_attachable { 1 } else { 0 },
                 0,
                 0,
                 u64_to_sql(block.header.chain_length)?,
@@ -1683,6 +1652,9 @@ impl NakamotoChainState {
                 block.serialize_to_vec(),
             ],
         )?;
+        if burn_attachable {
+            staging_db_tx.set_burn_block_processed(&block.header.consensus_hash)?;
+        }
         Ok(())
     }
 
@@ -1698,13 +1670,13 @@ impl NakamotoChainState {
         config: &ChainstateConfig,
         block: NakamotoBlock,
         db_handle: &mut SortitionHandleConn,
-        // TODO: need a separate connection for the headers
-        staging_db_tx: &rusqlite::Transaction,
+        staging_db_tx: &NakamotoStagingBlocksTx,
+        headers_conn: &Connection,
         aggregate_public_key: &Point,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
         // do nothing if we already have this block
-        if let Some(_) = Self::get_block_header(staging_db_tx, &block.header.block_id())? {
+        if let Some(_) = Self::get_block_header(headers_conn, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
             return Ok(false);
         }
@@ -1727,7 +1699,7 @@ impl NakamotoChainState {
             ChainstateError::InvalidStacksBlock("Not a well-formed tenure-extend block".into())
         })?;
 
-        let Ok(expected_burn) = Self::get_expected_burns(db_handle, staging_db_tx, &block) else {
+        let Ok(expected_burn) = Self::get_expected_burns(db_handle, headers_conn, &block) else {
             warn!("Unacceptable Nakamoto block: unable to find its paired sortition";
                   "block_id" => %block.block_id(),
             );
@@ -1757,46 +1729,25 @@ impl NakamotoChainState {
             &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
-            let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
-            warn!("{}", msg);
+            let msg = format!(
+                "Received block, but the signer signature does not match the active stacking cycle"
+            );
+            warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
 
         // if the burnchain block of this Stacks block's tenure has been processed, then it
         // is ready to be processed from the perspective of the burnchain
-        let burn_attachable = db_handle.processed_block(&block.header.consensus_hash)?;
-
-        // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
-        let stacks_attachable =
-            // block is the first-ever mined (test only)
-            block.is_first_mined()
-            // block attaches to a processed nakamoto block
-            || staging_db_tx.query_row(
-                "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ? AND processed = 1 AND orphaned = 0",
-                rusqlite::params![&block.header.parent_block_id],
-                |_row| Ok(())
-            ).optional()?.is_some()
-            // block attaches to a Stacks epoch 2.x block, and there are no nakamoto blocks at all
-            || (
-                staging_db_tx.query_row(
-                    "SELECT 1 FROM block_headers WHERE index_block_hash = ?",
-                    rusqlite::params![&block.header.parent_block_id],
-                    |_row| Ok(())
-                ).optional()?.is_some()
-                && staging_db_tx.query_row(
-                    "SELECT 1 FROM nakamoto_block_headers LIMIT 1",
-                    rusqlite::NO_PARAMS,
-                    |_row| Ok(())
-                ).optional()?.is_none()
-               );
+        let burn_attachable =
+            SortitionDB::has_block_snapshot_consensus(&db_handle, &block.header.consensus_hash)?;
 
         let _block_id = block.block_id();
-        Self::store_block(staging_db_tx, block, burn_attachable, stacks_attachable)?;
+        Self::store_block(staging_db_tx, block, burn_attachable)?;
         test_debug!("Stored Nakamoto block {}", &_block_id);
         Ok(true)
     }
 
-    /// Get the aggregate public key for the given block from the pox-4 contract
+    /// Get the aggregate public key for the given block from the signers-voting contract
     fn load_aggregate_public_key<SH: SortitionHandle>(
         sortdb: &SortitionDB,
         sort_handle: &SH,
@@ -1818,25 +1769,21 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg));
         };
 
-        debug!("get-aggregate-public-key {} {}", at_block_id, rc);
+        debug!(
+            "get-approved-aggregate-key at block {}, cycle {}",
+            at_block_id, rc
+        );
         match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
             Some(key) => Ok(key),
             None => {
-                // if this is the first block in its reward cycle, it'll contain the effects of
-                // setting the aggregate public key for `rc`, but there will currently be no key
-                // for `rc`.  So, check `rc - 1`
-                chainstate
-                    .get_aggregate_public_key_pox_4(sortdb, at_block_id, rc.saturating_sub(1))?
-                    .ok_or_else(|| {
-                        warn!(
-                            "Failed to get aggregate public key";
-                            "block_id" => %at_block_id,
-                            "reward_cycle" => rc,
-                        );
-                        ChainstateError::InvalidStacksBlock(
-                            "Failed to get aggregate public key".into(),
-                        )
-                    })
+                warn!(
+                    "Failed to get aggregate public key";
+                    "block_id" => %at_block_id,
+                    "reward_cycle" => rc,
+                );
+                Err(ChainstateError::InvalidStacksBlock(
+                    "Failed to get aggregate public key".into(),
+                ))
             }
         }
     }
@@ -1952,6 +1899,19 @@ impl NakamotoChainState {
         Ok(None)
     }
 
+    /// Load an epoch2 header
+    pub fn get_block_header_epoch2(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+
+        Ok(result)
+    }
+
     /// Load block header (either Epoch-2 rules or Nakamoto) by `index_block_hash`
     pub fn get_block_header(
         chainstate_conn: &Connection,
@@ -1965,12 +1925,37 @@ impl NakamotoChainState {
             return Ok(result);
         }
 
-        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
-            "FATAL: multiple rows for the same block hash".to_string()
-        })?;
+        Self::get_block_header_epoch2(chainstate_conn, index_block_hash)
+    }
 
-        Ok(result)
+    /// Does a block header exist?
+    /// Works for both Nakamoto and epoch2 blocks, as long as check_epoch2 is true
+    pub fn has_block_header(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+        check_epoch2: bool,
+    ) -> Result<bool, ChainstateError> {
+        let sql = "SELECT 1 FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result: Option<i64> =
+            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+                "FATAL: multiple rows for the same block hash".to_string()
+            })?;
+        if result.is_some() {
+            return Ok(true);
+        }
+
+        if !check_epoch2 {
+            return Ok(false);
+        }
+
+        // check epoch 2
+        let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1";
+        let result: Option<i64> =
+            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+                "FATAL: multiple rows for the same block hash".to_string()
+            })?;
+
+        Ok(result.is_some())
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
@@ -2086,17 +2071,40 @@ impl NakamotoChainState {
     /// Returns None if there's no such block
     /// Returns Err on DBError
     pub fn get_nakamoto_block_status(
-        staging_blocks_conn: &Connection,
+        staging_blocks_conn: NakamotoStagingBlocksConnRef,
+        headers_conn: &Connection,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<(bool, bool)>, ChainstateError> {
         let sql = "SELECT processed, orphaned FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[consensus_hash, block_hash];
-        Ok(query_row_panic(staging_blocks_conn, sql, args, || {
+        let Some((processed, orphaned)) = query_row_panic(&staging_blocks_conn, sql, args, || {
             "FATAL: multiple rows for the same consensus hash and block hash".to_string()
         })
         .map_err(ChainstateError::DBError)?
-        .map(|(processed, orphaned): (u32, u32)| (processed != 0, orphaned != 0)))
+        .map(|(processed, orphaned): (u32, u32)| (processed != 0, orphaned != 0)) else {
+            // not present
+            return Ok(None);
+        };
+
+        if processed || orphaned {
+            return Ok(Some((processed, orphaned)));
+        }
+
+        // this can report a false negative since we set the `processed` and `orphaned` flags in a
+        // separate transaction after processing a block, so handle that here
+        // look for the block
+        if Self::has_block_header(
+            headers_conn,
+            &StacksBlockId::new(consensus_hash, block_hash),
+            false,
+        )? {
+            // was processed, but the staging DB has not yet been updated.
+            return Ok(Some((true, false)));
+        } else {
+            // not processed yet, so return whatever was in the staging DB
+            return Ok(Some((processed, orphaned)));
+        }
     }
 
     /// Get the VRF proof for a Nakamoto block, if it exists.
@@ -2602,15 +2610,6 @@ impl NakamotoChainState {
             );
         }
 
-        if !clarity_tx.config.mainnet {
-            Self::set_aggregate_public_key(
-                &mut clarity_tx,
-                first_block_height,
-                pox_constants,
-                burn_header_height.into(),
-            );
-        }
-
         // Handle signer stackerdb updates
         let signer_set_calc;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
@@ -2675,104 +2674,9 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
-    /// Set the aggregate public key for verifying stacker signatures.
-    /// TODO: rely on signer voting instead
-    /// DO NOT USE IN MAINNET
-    pub(crate) fn set_aggregate_public_key(
-        clarity_tx: &mut ClarityTx,
-        first_block_height: u64,
-        pox_constants: &PoxConstants,
-        burn_header_height: u64,
-    ) {
-        let mainnet = clarity_tx.config.mainnet;
-        let chain_id = clarity_tx.config.chain_id;
-        assert!(!mainnet);
-
-        let my_reward_cycle = pox_constants
-            .block_height_to_reward_cycle(
-                first_block_height,
-                burn_header_height
-                    .try_into()
-                    .expect("Burn block height exceeded u32"),
-            )
-            .expect("FATAL: block height occurs before first block height");
-
-        let parent_reward_cycle = my_reward_cycle.saturating_sub(1);
-        debug!(
-            "Try setting aggregate public key in reward cycle {}, parent {}",
-            my_reward_cycle, parent_reward_cycle
-        );
-
-        // execute `set-aggregate-public-key` using `clarity-tx`
-        let Some(aggregate_public_key) = clarity_tx
-            .connection()
-            .with_readonly_clarity_env(
-                mainnet,
-                chain_id,
-                ClarityVersion::Clarity2,
-                StacksAddress::burn_address(mainnet).into(),
-                None,
-                LimitedCostTracker::Free,
-                |vm_env| {
-                    vm_env.execute_contract_allow_private(
-                        &boot_code_id(POX_4_NAME, mainnet),
-                        "get-aggregate-public-key",
-                        &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
-                            parent_reward_cycle,
-                        )))],
-                        true,
-                    )
-                },
-            )
-            .ok()
-            .map(|agg_key_value| {
-                let agg_key_opt = agg_key_value
-                    .expect_optional()
-                    .expect("FATAL: not an optional")
-                    .map(|agg_key_buff| {
-                        Value::buff_from(agg_key_buff.expect_buff(33).expect("FATAL: not a buff"))
-                            .expect("failed to reconstruct buffer")
-                    });
-                agg_key_opt
-            })
-            .flatten()
-        else {
-            panic!(
-                "No aggregate public key in parent cycle {}",
-                parent_reward_cycle
-            );
-        };
-
-        clarity_tx.connection().as_transaction(|tx| {
-            tx.with_abort_callback(
-                |vm_env| {
-                    vm_env.execute_in_env(
-                        StacksAddress::burn_address(mainnet).into(),
-                        None,
-                        None,
-                        |vm_env| {
-                            vm_env.execute_contract_allow_private(
-                                &boot_code_id(POX_4_NAME, mainnet),
-                                "set-aggregate-public-key",
-                                &vec![
-                                    SymbolicExpression::atom_value(Value::UInt(u128::from(
-                                        my_reward_cycle,
-                                    ))),
-                                    SymbolicExpression::atom_value(aggregate_public_key),
-                                ],
-                                false,
-                            )
-                        },
-                    )
-                },
-                |_, _| false,
-            )
-            .expect("FATAL: failed to set aggregate public key")
-        });
-    }
-
     /// Append a Nakamoto Stacks block to the Stacks chain state.
-    pub fn append_block<'a>(
+    /// NOTE: This does _not_ set the block as processed!  The caller must do this.
+    fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
@@ -3150,8 +3054,6 @@ impl NakamotoChainState {
             epoch_transition: applied_epoch_transition,
             signers_updated,
         };
-
-        NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
     }

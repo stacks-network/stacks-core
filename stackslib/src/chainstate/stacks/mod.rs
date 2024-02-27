@@ -128,6 +128,7 @@ pub enum Error {
     ChannelClosed(String),
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
+    NoRegisteredSigners(u64),
 }
 
 impl From<marf_error> for Error {
@@ -221,6 +222,9 @@ impl fmt::Display for Error {
                 f,
                 "Block has a different tenure than parent, but no tenure change transaction"
             ),
+            Error::NoRegisteredSigners(reward_cycle) => {
+                write!(f, "No registered signers for reward cycle {reward_cycle}")
+            }
         }
     }
 }
@@ -264,6 +268,7 @@ impl error::Error for Error {
             Error::ChannelClosed(ref _s) => None,
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
+            Error::NoRegisteredSigners(_) => None,
         }
     }
 }
@@ -307,6 +312,7 @@ impl Error {
             Error::ChannelClosed(ref _s) => "ChannelClosed",
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
+            Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
         }
     }
 

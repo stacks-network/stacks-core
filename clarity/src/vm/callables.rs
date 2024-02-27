@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
@@ -134,13 +134,13 @@ impl fmt::Display for FunctionIdentifier {
 
 impl DefinedFunction {
     pub fn new(
-        mut arguments: Vec<(ClarityName, TypeSignature)>,
+        arguments: Vec<(ClarityName, TypeSignature)>,
         body: SymbolicExpression,
         define_type: DefineType,
         name: &ClarityName,
         context_name: &str,
     ) -> DefinedFunction {
-        let (argument_names, types) = arguments.drain(..).unzip();
+        let (argument_names, types) = arguments.into_iter().unzip();
 
         DefinedFunction {
             identifier: FunctionIdentifier::new_user_function(name, context_name),
@@ -175,14 +175,14 @@ impl DefinedFunction {
             ))?
         }
 
-        let mut arg_iterator: Vec<_> = self
+        let arg_iterator: Vec<_> = self
             .arguments
             .iter()
             .zip(self.arg_types.iter())
             .zip(args.iter())
             .collect();
 
-        for arg in arg_iterator.drain(..) {
+        for arg in arg_iterator.into_iter() {
             let ((name, type_sig), value) = arg;
 
             // Clarity 1 behavior
@@ -537,7 +537,7 @@ mod test {
             trait_identifier: None,
         });
         let contract2 = Value::CallableContract(CallableData {
-            contract_identifier: contract_identifier2.clone(),
+            contract_identifier: contract_identifier2,
             trait_identifier: None,
         });
         let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
@@ -599,7 +599,7 @@ mod test {
         // {a: principal} -> {a: <trait>}
         let a_name = ClarityName::from("a");
         let tuple_ty = TypeSignature::TupleType(
-            TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty.clone())]).unwrap(),
+            TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
         let contract_tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
@@ -648,7 +648,7 @@ mod test {
         }
 
         // (list (response principal uint)) -> (list (response <trait> uint))
-        let list_res_ty = TypeSignature::list_of(response_ok_ty.clone(), 4).unwrap();
+        let list_res_ty = TypeSignature::list_of(response_ok_ty, 4).unwrap();
         let list_res_contract = Value::list_from(vec![
             Value::okay(contract.clone()).unwrap(),
             Value::okay(contract2.clone()).unwrap(),
@@ -678,12 +678,12 @@ mod test {
         }
 
         // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
-        let list_res_ty = TypeSignature::list_of(response_err_ty.clone(), 4).unwrap();
+        let list_res_ty = TypeSignature::list_of(response_err_ty, 4).unwrap();
         let opt_list_res_ty = TypeSignature::new_option(list_res_ty).unwrap();
         let list_res_contract = Value::list_from(vec![
             Value::error(contract.clone()).unwrap(),
             Value::error(contract2.clone()).unwrap(),
-            Value::error(contract2.clone()).unwrap(),
+            Value::error(contract2).unwrap(),
         ])
         .unwrap();
         let opt_list_res_contract = Value::some(list_res_contract).unwrap();
@@ -696,9 +696,9 @@ mod test {
         }
 
         // (optional (optional principal)) -> (optional (optional <trait>))
-        let optional_optional_ty = TypeSignature::new_option(optional_ty.clone()).unwrap();
-        let optional_contract = Value::some(contract.clone()).unwrap();
-        let optional_optional_contract = Value::some(optional_contract.clone()).unwrap();
+        let optional_optional_ty = TypeSignature::new_option(optional_ty).unwrap();
+        let optional_contract = Value::some(contract).unwrap();
+        let optional_optional_contract = Value::some(optional_contract).unwrap();
         let cast_optional =
             clarity2_implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
 
@@ -741,7 +741,7 @@ mod test {
         f.canonicalize_types(&StacksEpochId::Epoch21);
         assert_eq!(
             f.arg_types[0],
-            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
     }
 }

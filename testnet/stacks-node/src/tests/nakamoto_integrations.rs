@@ -27,9 +27,10 @@ use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::MINERS_NAME;
+use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_VOTING_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -39,6 +40,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
+use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
@@ -53,13 +55,11 @@ use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::{to_hex, Sha512Sum};
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::mockamoto::signer::SelfSigner;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
@@ -189,13 +189,10 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     let mining_key = Secp256k1PrivateKey::from_seed(&[1]);
     conf.miner.mining_key = Some(mining_key);
-    conf.miner.self_signing_key = Some(SelfSigner::from_seed(7));
+    conf.miner.self_signing_key = Some(TestSigners::default());
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
-    conf.node
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -204,6 +201,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
+    conf.node.add_signers_stackerdbs(false);
+    conf.node.add_miner_stackerdb(false);
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
@@ -414,13 +413,58 @@ pub fn boot_to_epoch_3(
             &[
                 clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
-                clarity::vm::Value::UInt(205),
+                clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(12),
-                clarity::vm::Value::buff_from(signature).unwrap(),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
         );
         submit_tx(&http_origin, &stacking_tx);
+    }
+
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    // Run until the prepare phase
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        prepare_phase_start,
+        &naka_conf,
+    );
+
+    // If we are self-signing, then we need to vote on the aggregate public key
+    if let Some(mut signers) = naka_conf.self_signing() {
+        // Get the aggregate key
+        let aggregate_key = signers.generate_aggregate_key(reward_cycle + 1);
+        let aggregate_public_key =
+            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key");
+
+        // Vote on the aggregate public key
+        for (i, signer_sk) in signer_sks.iter().enumerate() {
+            let voting_tx = tests::make_contract_call(
+                &signer_sk,
+                0,
+                300,
+                &StacksAddress::burn_address(false),
+                SIGNERS_VOTING_NAME,
+                "vote-for-aggregate-public-key",
+                &[
+                    clarity::vm::Value::UInt(i as u128),
+                    aggregate_public_key.clone(),
+                    clarity::vm::Value::UInt(0),
+                    clarity::vm::Value::UInt(reward_cycle as u128 + 1),
+                ],
+            );
+            submit_tx(&http_origin, &voting_tx);
+        }
     }
 
     run_until_burnchain_height(
@@ -431,6 +475,206 @@ pub fn boot_to_epoch_3(
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+}
+
+fn is_key_set_for_cycle(
+    reward_cycle: u64,
+    is_mainnet: bool,
+    http_origin: &str,
+) -> Result<bool, String> {
+    let client = reqwest::blocking::Client::new();
+    let boot_address = StacksAddress::burn_address(is_mainnet);
+    let path = format!("http://{http_origin}/v2/contracts/call-read/{boot_address}/signers-voting/get-approved-aggregate-key");
+    let body = CallReadOnlyRequestBody {
+        sender: boot_address.to_string(),
+        sponsor: None,
+        arguments: vec![clarity::vm::Value::UInt(reward_cycle as u128)
+            .serialize_to_hex()
+            .map_err(|_| "Failed to serialize reward cycle")?],
+    };
+    let res = client
+        .post(&path)
+        .json(&body)
+        .send()
+        .map_err(|_| "Failed to send request")?
+        .json::<serde_json::Value>()
+        .map_err(|_| "Failed to extract json Value")?;
+    let result_value = clarity::vm::Value::try_deserialize_hex_untyped(
+        &res.get("result")
+            .ok_or("No result in response")?
+            .as_str()
+            .ok_or("Result is not a string")?[2..],
+    )
+    .map_err(|_| "Failed to deserialize Clarity value")?;
+
+    result_value
+        .expect_optional()
+        .map(|v| v.is_some())
+        .map_err(|_| "Response is not optional".to_string())
+}
+
+fn signer_vote_if_needed(
+    btc_regtest_controller: &BitcoinRegtestController,
+    naka_conf: &Config,
+    signer_sks: &[StacksPrivateKey], // TODO: Is there some way to get this from the TestSigners?
+) {
+    if let Some(mut signers) = naka_conf.self_signing() {
+        // When we reach the next prepare phase, submit new voting transactions
+        let block_height = btc_regtest_controller.get_headers_height();
+        let reward_cycle = btc_regtest_controller
+            .get_burnchain()
+            .block_height_to_reward_cycle(block_height)
+            .unwrap();
+        let prepare_phase_start = btc_regtest_controller
+            .get_burnchain()
+            .pox_constants
+            .prepare_phase_start(
+                btc_regtest_controller.get_burnchain().first_block_height,
+                reward_cycle,
+            );
+
+        if block_height >= prepare_phase_start {
+            // If the key is already set, do nothing.
+            if is_key_set_for_cycle(
+                reward_cycle + 1,
+                naka_conf.is_mainnet(),
+                &naka_conf.node.rpc_bind,
+            )
+            .unwrap_or(false)
+            {
+                return;
+            }
+
+            // If we are self-signing, then we need to vote on the aggregate public key
+            let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+            // Get the aggregate key
+            let aggregate_key = signers.generate_aggregate_key(reward_cycle + 1);
+            let aggregate_public_key =
+                clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
+                    .expect("Failed to serialize aggregate public key");
+
+            for (i, signer_sk) in signer_sks.iter().enumerate() {
+                let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
+
+                // Vote on the aggregate public key
+                let voting_tx = tests::make_contract_call(
+                    &signer_sk,
+                    signer_nonce,
+                    300,
+                    &StacksAddress::burn_address(false),
+                    SIGNERS_VOTING_NAME,
+                    "vote-for-aggregate-public-key",
+                    &[
+                        clarity::vm::Value::UInt(i as u128),
+                        aggregate_public_key.clone(),
+                        clarity::vm::Value::UInt(0),
+                        clarity::vm::Value::UInt(reward_cycle as u128 + 1),
+                    ],
+                );
+                submit_tx(&http_origin, &voting_tx);
+            }
+        }
+    }
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_3_reward_set(
+    naka_conf: &Config,
+    blocks_processed: &RunLoopCounter,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    assert_eq!(stacker_sks.len(), signer_sks.len());
+
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_3_start_height = epoch_3.start_height;
+    assert!(
+        epoch_3_start_height > 0,
+        "Epoch 3.0 start height must be greater than 0"
+    );
+    let epoch_3_reward_cycle_boundary =
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
+    let epoch_3_reward_set_calculation_boundary =
+        epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // +2 to ensure we are at the second block of the prepare phase
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    // first mined stacks block
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+
+    // stack enough to activate pox-4
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let lock_period = 12;
+    debug!("Test Cycle Info";
+     "prepare_phase_len" => {prepare_phase_len},
+     "reward_cycle_len" => {reward_cycle_len},
+     "block_height" => {block_height},
+     "reward_cycle" => {reward_cycle},
+     "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
+     "epoch_3_reward_set_calculation" => {epoch_3_reward_set_calculation},
+     "epoch_3_start_height" => {epoch_3_start_height},
+    );
+    for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(&stacker_sk).bytes,
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            &signer_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            lock_period,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let signer_pk = StacksPublicKey::from_private(signer_sk);
+        let stacking_tx = tests::make_contract_call(
+            &stacker_sk,
+            0,
+            1000,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(block_height as u128),
+                clarity::vm::Value::UInt(lock_period),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            ],
+        );
+        submit_tx(&http_origin, &stacking_tx);
+    }
+
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        epoch_3_reward_set_calculation,
+        &naka_conf,
+    );
+
+    info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
 #[test]
@@ -455,12 +699,17 @@ fn simple_neon_integration() {
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
-    let sender_signer_sk = Secp256k1PrivateKey::new();
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
+    );
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -557,6 +806,8 @@ fn simple_neon_integration() {
             &commits_submitted,
         )
         .unwrap();
+
+        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
     }
 
     // Submit a TX
@@ -592,6 +843,8 @@ fn simple_neon_integration() {
             &commits_submitted,
         )
         .unwrap();
+
+        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -667,7 +920,8 @@ fn mine_multiple_per_tenure_integration() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
-    let sender_signer_key = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -678,6 +932,10 @@ fn mine_multiple_per_tenure_integration() {
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -716,7 +974,7 @@ fn mine_multiple_per_tenure_integration() {
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
-        &[sender_signer_key],
+        &[sender_signer_sk],
         &mut btc_regtest_controller,
     );
 
@@ -864,6 +1122,12 @@ fn correct_burn_outs() {
     }
 
     let stacker_accounts = accounts[0..3].to_vec();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -917,6 +1181,7 @@ fn correct_burn_outs() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let stacker_accounts_copy = stacker_accounts.clone();
     let _stacker_thread = thread::Builder::new()
         .name("stacker".into())
         .spawn(move || loop {
@@ -940,7 +1205,7 @@ fn correct_burn_outs() {
                 );
                 continue;
             }
-            let Some(account) = stacker_accounts.iter().find_map(|(sk, addr)| {
+            let Some(account) = stacker_accounts_copy.iter().find_map(|(sk, addr)| {
                 let account = get_account(&http_origin, &addr);
                 if account.locked == 0 {
                     Some((sk, addr, account))
@@ -957,17 +1222,12 @@ fn correct_burn_outs() {
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
-            // create a new SK, mixing in the nonce, because signing keys cannot (currently)
-            //  be reused.
-            let mut seed_inputs = account.0.to_bytes();
-            seed_inputs.extend_from_slice(&account.2.nonce.to_be_bytes());
-            let new_sk = StacksPrivateKey::from_seed(Sha512Sum::from_data(&seed_inputs).as_bytes());
-            let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
+            let pk_bytes = StacksPublicKey::from_private(&sender_signer_sk).to_bytes_compressed();
 
             let reward_cycle = pox_info.current_cycle.id;
             let signature = make_pox_4_signer_key_signature(
                 &pox_addr,
-                &new_sk,
+                &sender_signer_sk,
                 reward_cycle.into(),
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
@@ -988,7 +1248,8 @@ fn correct_burn_outs() {
                     pox_addr_tuple,
                     clarity::vm::Value::UInt(pox_info.current_burnchain_block_height.into()),
                     clarity::vm::Value::UInt(1),
-                    clarity::vm::Value::buff_from(signature).unwrap(),
+                    clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                        .unwrap(),
                     clarity::vm::Value::buff_from(pk_bytes).unwrap(),
                 ],
             );
@@ -997,6 +1258,29 @@ fn correct_burn_outs() {
             thread::sleep(Duration::from_secs(10));
         })
         .unwrap();
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    // Run until the prepare phase
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        prepare_phase_start,
+        &naka_conf,
+    );
+
+    signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
 
     run_until_burnchain_height(
         &mut btc_regtest_controller,
@@ -1066,6 +1350,8 @@ fn correct_burn_outs() {
             tip_sn.block_height > prior_tip,
             "The new burnchain tip must have been processed"
         );
+
+        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
     }
 
     coord_channel
@@ -1096,7 +1382,7 @@ fn correct_burn_outs() {
         assert_eq!(reward_set.rewarded_addresses.len(), 1);
         assert_eq!(signers.len(), 1);
         // the signer should have 1 "slot", because they stacked the minimum stacking amount
-        assert_eq!(signers[0].slots, 1);
+        assert_eq!(signers[0].weight, 1);
     }
 
     run_loop_thread.join().unwrap();
@@ -1116,6 +1402,12 @@ fn block_proposal_api_endpoint() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -1149,7 +1441,7 @@ fn block_proposal_api_endpoint() {
         &conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPrivateKey::default()],
+        &[sender_signer_sk],
         &mut btc_regtest_controller,
     );
 
@@ -1238,7 +1530,13 @@ fn block_proposal_api_endpoint() {
             .header
             .sign_miner(&privk)
             .expect("Miner failed to sign");
-        signer.sign_nakamoto_block(&mut p.block);
+        let burn_height = burnchain
+            .get_highest_burnchain_block()
+            .unwrap()
+            .unwrap()
+            .block_height;
+        let cycle = burnchain.block_height_to_reward_cycle(burn_height).unwrap();
+        signer.sign_nakamoto_block(&mut p.block, cycle);
         p
     };
 
@@ -1461,6 +1759,13 @@ fn miner_writes_proposed_block_to_stackerdb() {
     );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
@@ -1492,7 +1797,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPrivateKey::default()],
+        &[sender_signer_sk],
         &mut btc_regtest_controller,
     );
 

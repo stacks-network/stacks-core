@@ -569,7 +569,9 @@ impl BitcoinIndexer {
                         test_debug!("Copy interval {} to {}", interval, &reorg_headers_path);
                         let work_score = canonical_spv_client
                             .find_interval_work(interval)?
-                            .expect(&format!("FATAL: no work score for interval {}", interval));
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no work score for interval {}", interval)
+                            });
                         reorg_spv_client.store_interval_work(interval, work_score)?;
                     }
                 }

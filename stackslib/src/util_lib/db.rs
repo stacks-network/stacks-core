@@ -158,7 +158,7 @@ pub trait FromColumn<T> {
 
 impl FromRow<u64> for u64 {
     fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
-        let x: i64 = row.get_unwrap(0);
+        let x: i64 = row.get(0)?;
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -168,21 +168,28 @@ impl FromRow<u64> for u64 {
 
 impl FromRow<u32> for u32 {
     fn from_row<'a>(row: &'a Row) -> Result<u32, Error> {
-        let x: u32 = row.get_unwrap(0);
+        let x: u32 = row.get(0)?;
         Ok(x)
     }
 }
 
 impl FromRow<String> for String {
     fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
-        let x: String = row.get_unwrap(0);
+        let x: String = row.get(0)?;
+        Ok(x)
+    }
+}
+
+impl FromRow<Vec<u8>> for Vec<u8> {
+    fn from_row<'a>(row: &'a Row) -> Result<Vec<u8>, Error> {
+        let x: Vec<u8> = row.get(0)?;
         Ok(x)
     }
 }
 
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
-        let x: i64 = row.get_unwrap(column_name);
+        let x: i64 = row.get(column_name)?;
         if x < 0 {
             return Err(Error::ParseError);
         }
@@ -192,7 +199,7 @@ impl FromColumn<u64> for u64 {
 
 impl FromRow<StacksAddress> for StacksAddress {
     fn from_row<'a>(row: &'a Row) -> Result<StacksAddress, Error> {
-        let addr_str: String = row.get_unwrap(0);
+        let addr_str: String = row.get(0)?;
         let addr = StacksAddress::from_string(&addr_str).ok_or(Error::ParseError)?;
         Ok(addr)
     }
@@ -200,7 +207,7 @@ impl FromRow<StacksAddress> for StacksAddress {
 
 impl FromColumn<Option<u64>> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
-        let x: Option<i64> = row.get_unwrap(column_name);
+        let x: Option<i64> = row.get(column_name)?;
         match x {
             Some(x) => {
                 if x < 0 {
@@ -215,14 +222,14 @@ impl FromColumn<Option<u64>> for u64 {
 
 impl FromRow<i64> for i64 {
     fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
-        let x: i64 = row.get_unwrap(0);
+        let x: i64 = row.get(0)?;
         Ok(x)
     }
 }
 
 impl FromColumn<i64> for i64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
-        let x: i64 = row.get_unwrap(column_name);
+        let x: i64 = row.get(column_name)?;
         Ok(x)
     }
 }
@@ -232,14 +239,14 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
         row: &'a Row,
         column_name: &str,
     ) -> Result<QualifiedContractIdentifier, Error> {
-        let value: String = row.get_unwrap(column_name);
+        let value: String = row.get(column_name)?;
         QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
 
 impl FromRow<bool> for bool {
     fn from_row<'a>(row: &'a Row) -> Result<bool, Error> {
-        let x: bool = row.get_unwrap(0);
+        let x: bool = row.get(0)?;
         Ok(x)
     }
 }
@@ -247,7 +254,7 @@ impl FromRow<bool> for bool {
 /// Make public keys loadable from a sqlite database
 impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, Error> {
-        let pubkey_hex: String = row.get_unwrap(column_name);
+        let pubkey_hex: String = row.get(column_name)?;
         let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(pubkey)
     }
@@ -256,7 +263,7 @@ impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
 /// Make private keys loadable from a sqlite database
 impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, Error> {
-        let privkey_hex: String = row.get_unwrap(column_name);
+        let privkey_hex: String = row.get(column_name)?;
         let privkey =
             Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(privkey)
@@ -289,7 +296,7 @@ macro_rules! impl_byte_array_from_column_only {
                 row: &rusqlite::Row,
                 column_name: &str,
             ) -> Result<Self, crate::util_lib::db::Error> {
-                Ok(row.get_unwrap::<_, Self>(column_name))
+                Ok(row.get::<_, Self>(column_name)?)
             }
         }
     };
@@ -318,7 +325,7 @@ macro_rules! impl_byte_array_from_column {
                 row: &rusqlite::Row,
                 column_name: &str,
             ) -> Result<Self, crate::util_lib::db::Error> {
-                Ok(row.get_unwrap::<_, Self>(column_name))
+                Ok(row.get::<_, Self>(column_name)?)
             }
         }
 
@@ -499,7 +506,7 @@ where
         if row_data.len() > 0 {
             return Err(Error::Overflow);
         }
-        let i: i64 = row.get_unwrap(0);
+        let i: i64 = row.get(0)?;
         row_data.push(i);
     }
 
@@ -759,8 +766,8 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         .map_err(Error::SqliteError)?;
     let mut value = None;
 
-    while let Some(row) = rows.next().expect("FATAL: Failed to read row from Sqlite") {
-        let value_str: String = row.get_unwrap(0);
+    while let Some(row) = rows.next()? {
+        let value_str: String = row.get(0)?;
         if value.is_some() {
             // should be impossible
             panic!(
@@ -783,7 +790,7 @@ fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
     match index.get(header_hash, key) {
         Ok(Some(marf_value)) => {
             let value = load_indexed(index.sqlite_conn(), &marf_value)?
-                .expect(&format!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
             Ok(Some(value))
         }
         Ok(None) => Ok(None),

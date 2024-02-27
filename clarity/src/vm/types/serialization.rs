@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
+use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
@@ -728,7 +728,7 @@ impl Value {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(
-                                    expected_type.unwrap().clone(),
+                                    expected_type.unwrap(),
                                 ));
                             }
                             (Some(list_type), Some(list_type.get_list_item_type()))
@@ -781,7 +781,7 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
+                                        expected_type.unwrap(),
                                     ));
                                 }
                             } else {
@@ -789,7 +789,7 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
+                                        expected_type.unwrap(),
                                     ));
                                 }
                             }
@@ -1488,7 +1488,7 @@ pub mod tests {
         );
         // parent list longer than expected
         test_bad_expectation(
-            list_list_int.clone(),
+            list_list_int,
             TypeSignature::from_string("(list 0 (list 2 uint))", version, epoch),
         );
 

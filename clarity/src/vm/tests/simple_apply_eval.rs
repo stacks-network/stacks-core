@@ -431,7 +431,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = principal.clone() {
+    if let PrincipalData::Standard(data) = principal {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -506,7 +506,7 @@ fn test_principal_of_fix() {
 
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(
-        Value::Principal(mainnet_principal.clone()),
+        Value::Principal(mainnet_principal),
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity2,
@@ -548,7 +548,7 @@ fn test_principal_of_fix() {
 
     // Clarity1, testnet, should have a testnet principal.
     assert_eq!(
-        Value::Principal(testnet_principal.clone()),
+        Value::Principal(testnet_principal),
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity1,

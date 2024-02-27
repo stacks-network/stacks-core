@@ -980,10 +980,12 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitBadInput);
         }
-        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-            "FATAL: impossible block height: no epoch defined for {}",
-            self.block_height
-        ));
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.unwrap_or_else(|| {
+            panic!(
+                "FATAL: impossible block height: no epoch defined for {}",
+                self.block_height
+            )
+        });
 
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;

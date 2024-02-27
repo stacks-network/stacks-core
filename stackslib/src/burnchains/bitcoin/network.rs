@@ -187,7 +187,7 @@ impl BitcoinIndexer {
                         }
                         Err(btc_error::ConnectionBroken) => {
                             // need to try again
-                            backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
+                            backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                         }
                         Err(e) => {
                             // propagate other network error
@@ -204,7 +204,7 @@ impl BitcoinIndexer {
                         "Failed to connect to peer {}:{}: {}",
                         &self.config.peer_host, self.config.peer_port, err_msg
                     );
-                    backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
+                    backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 }
             }
 
