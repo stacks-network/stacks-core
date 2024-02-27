@@ -15,17 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::BorrowMut;
+use std::collections::HashMap;
 use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::Value;
+use rand::{thread_rng, RngCore};
 use rusqlite::Connection;
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks_common::consts::{
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
     StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
@@ -37,6 +42,8 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
+use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::{BurnchainSigner, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
@@ -52,13 +59,16 @@ use crate::chainstate::coordinator::tests::{
 };
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle, FIRST_STACKS_BLOCK_ID,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::boot::{
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
     ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
@@ -67,13 +77,15 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
     TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
+    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
+use crate::util_lib::strings::StacksString;
 
 /// Get an address's account
 pub fn get_account(
@@ -2067,4 +2079,745 @@ fn test_make_miners_stackerdb_config() {
 
     assert_eq!(miner_hashbytes[8].1, miner_hash160s[8]);
     assert_eq!(miner_hashbytes[9].1, miner_hash160s[8]);
+}
+
+#[test]
+fn parse_vote_for_aggregate_public_key_valid() {
+    let signer_private_key = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u64();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let valid_function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+    let valid_tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr,
+            contract_name,
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args,
+        }),
+    };
+    let (res_signer_index, res_point, res_round, res_reward_cycle) =
+        NakamotoSigners::parse_vote_for_aggregate_public_key(&valid_tx).unwrap();
+    assert_eq!(res_signer_index, signer_index);
+    assert_eq!(res_point, point);
+    assert_eq!(res_round, round);
+    assert_eq!(res_reward_cycle, reward_cycle);
+}
+
+#[test]
+fn parse_vote_for_aggregate_public_key_invalid() {
+    let signer_private_key = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr: StacksAddress = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u32();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let valid_function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+
+    let mut invalid_contract_address = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::p2pkh(
+                false,
+                &StacksPublicKey::from_private(&signer_private_key),
+            ),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_contract_address.set_origin_nonce(1);
+
+    let mut invalid_contract_name = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: "bad-signers-contract-name".into(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_contract_name.set_origin_nonce(1);
+
+    let mut invalid_signers_vote_function = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: "some-other-function".into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_signers_vote_function.set_origin_nonce(1);
+
+    let mut invalid_function_arg_signer_index = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                point_arg.clone(),
+                point_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_signer_index.set_origin_nonce(1);
+
+    let mut invalid_function_arg_key = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                signer_index_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_key.set_origin_nonce(1);
+
+    let mut invalid_function_arg_round = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                point_arg.clone(),
+                point_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_round.set_origin_nonce(1);
+
+    let mut invalid_function_arg_reward_cycle = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                point_arg.clone(),
+                round_arg.clone(),
+                point_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_reward_cycle.set_origin_nonce(1);
+
+    let mut account_nonces = std::collections::HashMap::new();
+    account_nonces.insert(invalid_contract_name.origin_address(), 1);
+    for (i, tx) in vec![
+        invalid_contract_address,
+        invalid_contract_name,
+        invalid_signers_vote_function,
+        invalid_function_arg_signer_index,
+        invalid_function_arg_key,
+        invalid_function_arg_round,
+        invalid_function_arg_reward_cycle,
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert!(
+            NakamotoSigners::parse_vote_for_aggregate_public_key(&tx).is_none(),
+            "{}",
+            format!("parsed the {i}th transaction: {tx:?}")
+        );
+    }
+}
+
+#[test]
+fn valid_vote_transaction() {
+    let signer_private_key = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u32();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let valid_function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+    let mut valid_tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr,
+            contract_name: contract_name,
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args,
+        }),
+    };
+    valid_tx.set_origin_nonce(1);
+    let mut account_nonces = std::collections::HashMap::new();
+    account_nonces.insert(valid_tx.origin_address(), 1);
+    assert!(NakamotoSigners::valid_vote_transaction(
+        &account_nonces,
+        &valid_tx,
+        mainnet
+    ));
+}
+
+#[test]
+fn valid_vote_transaction_malformed_transactions() {
+    let signer_private_key = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr: StacksAddress = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u32();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let valid_function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+    // Create a invalid transaction that is not a contract call
+    let mut invalid_not_contract_call = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::SmartContract(
+            TransactionSmartContract {
+                name: "test-contract".into(),
+                code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+            },
+            None,
+        ),
+    };
+    invalid_not_contract_call.set_origin_nonce(1);
+
+    let mut invalid_contract_address = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::p2pkh(
+                mainnet,
+                &StacksPublicKey::from_private(&signer_private_key),
+            ),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_contract_address.set_origin_nonce(1);
+
+    let mut invalid_contract_name = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: "bad-signers-contract-name".into(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_contract_name.set_origin_nonce(1);
+
+    let mut invalid_network = StacksTransaction {
+        version: TransactionVersion::Mainnet,
+        chain_id: CHAIN_ID_MAINNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_network.set_origin_nonce(1);
+
+    let mut invalid_signers_vote_function = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: "some-other-function".into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_signers_vote_function.set_origin_nonce(1);
+
+    let mut invalid_function_arg_signer_index = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                point_arg.clone(),
+                point_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_signer_index.set_origin_nonce(1);
+
+    let mut invalid_function_arg_key = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                signer_index_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_key.set_origin_nonce(1);
+
+    let mut invalid_function_arg_round = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                point_arg.clone(),
+                point_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_round.set_origin_nonce(1);
+
+    let mut invalid_function_arg_reward_cycle = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: vec![
+                signer_index_arg.clone(),
+                point_arg.clone(),
+                round_arg.clone(),
+                point_arg.clone(),
+            ],
+        }),
+    };
+    invalid_function_arg_reward_cycle.set_origin_nonce(1);
+
+    let mut invalid_nonce = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: valid_function_args.clone(),
+        }),
+    };
+    invalid_nonce.set_origin_nonce(0); // old nonce
+
+    let mut account_nonces = std::collections::HashMap::new();
+    account_nonces.insert(invalid_not_contract_call.origin_address(), 1);
+    for tx in vec![
+        invalid_not_contract_call,
+        invalid_contract_address,
+        invalid_contract_name,
+        invalid_signers_vote_function,
+        invalid_function_arg_signer_index,
+        invalid_function_arg_key,
+        invalid_function_arg_round,
+        invalid_function_arg_reward_cycle,
+        invalid_nonce,
+        invalid_network,
+    ] {
+        assert!(!NakamotoSigners::valid_vote_transaction(
+            &account_nonces,
+            &tx,
+            mainnet
+        ));
+    }
+}
+
+#[test]
+fn filter_one_transaction_per_signer_multiple_addresses() {
+    let signer_private_key_1 = StacksPrivateKey::new();
+    let signer_private_key_2 = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr: StacksAddress = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u32();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+
+    let mut valid_tx_1_address_1 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_1).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_1_address_1.set_origin_nonce(1);
+
+    let mut valid_tx_2_address_1 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_1).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_2_address_1.set_origin_nonce(2);
+
+    let mut valid_tx_3_address_1 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_1).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_3_address_1.set_origin_nonce(3);
+
+    let mut valid_tx_1_address_2 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_2).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_1_address_2.set_origin_nonce(1);
+
+    let mut valid_tx_2_address_2 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_2).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr,
+            contract_name,
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args,
+        }),
+    };
+    valid_tx_2_address_2.set_origin_nonce(2);
+    let mut filtered_transactions = HashMap::new();
+    let mut account_nonces = std::collections::HashMap::new();
+    account_nonces.insert(valid_tx_1_address_1.origin_address(), 1);
+    account_nonces.insert(valid_tx_1_address_2.origin_address(), 1);
+    NakamotoSigners::update_filtered_transactions(
+        &mut filtered_transactions,
+        &account_nonces,
+        false,
+        vec![
+            valid_tx_1_address_1.clone(),
+            valid_tx_3_address_1,
+            valid_tx_1_address_2.clone(),
+            valid_tx_2_address_2,
+            valid_tx_2_address_1,
+        ],
+    );
+    let txs: Vec<_> = filtered_transactions.into_values().collect();
+    assert_eq!(txs.len(), 2);
+    assert!(txs.contains(&valid_tx_1_address_1));
+    assert!(txs.contains(&valid_tx_1_address_2));
+}
+
+#[test]
+fn filter_one_transaction_per_signer_duplicate_nonces() {
+    let signer_private_key = StacksPrivateKey::new();
+    let mainnet = false;
+    let chainid = CHAIN_ID_TESTNET;
+    let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+    let contract_addr: StacksAddress = vote_contract_id.issuer.into();
+    let contract_name = vote_contract_id.name.clone();
+
+    let signer_index = thread_rng().next_u32();
+    let signer_index_arg = Value::UInt(signer_index as u128);
+
+    let point = Point::from(Scalar::random(&mut thread_rng()));
+    let point_arg =
+        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let round = thread_rng().next_u64();
+    let round_arg = Value::UInt(round as u128);
+
+    let reward_cycle = thread_rng().next_u64();
+    let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+
+    let function_args = vec![
+        signer_index_arg.clone(),
+        point_arg.clone(),
+        round_arg.clone(),
+        reward_cycle_arg.clone(),
+    ];
+
+    let mut valid_tx_1 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_1.set_origin_nonce(0);
+
+    let mut valid_tx_2 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name: contract_name.clone(),
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args: function_args.clone(),
+        }),
+    };
+    valid_tx_2.set_origin_nonce(0);
+
+    let mut valid_tx_3 = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_addr,
+            contract_name,
+            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_args,
+        }),
+    };
+    valid_tx_3.set_origin_nonce(0);
+
+    let mut account_nonces = std::collections::HashMap::new();
+    account_nonces.insert(valid_tx_1.origin_address(), 0);
+    let mut txs = vec![valid_tx_2, valid_tx_1, valid_tx_3];
+    let mut filtered_transactions = HashMap::new();
+    NakamotoSigners::update_filtered_transactions(
+        &mut filtered_transactions,
+        &account_nonces,
+        false,
+        txs.clone(),
+    );
+    let filtered_txs: Vec<_> = filtered_transactions.into_values().collect();
+    txs.sort_by(|a, b| a.txid().cmp(&b.txid()));
+    assert_eq!(filtered_txs.len(), 1);
+    assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
 }
