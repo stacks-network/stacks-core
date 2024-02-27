@@ -49,7 +49,7 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
+use stacks::chainstate::stacks::boot::{SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME};
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -934,7 +934,7 @@ impl MockamotoNode {
         let vote_payload = TransactionPayload::new_contract_call(
             boot_code_addr(false),
             SIGNERS_VOTING_NAME,
-            "vote-for-aggregate-public-key",
+            SIGNERS_VOTING_FUNCTION_NAME,
             vec![
                 ClarityValue::UInt(0),
                 aggregate_public_key_val,
