@@ -2678,9 +2678,9 @@ fn test_set_signer_key_auth() {
     signer_nonce += 1;
     // Test that confirmed reward cycle is at least current reward cycle
     let invalid_tx_cycle: StacksTransaction = make_pox_4_set_signer_key_auth(
-        &pox_addr, 
-        &signer_key, 
-        1, 
+        &pox_addr,
+        &signer_key,
+        1,
         &Pox4SignatureTopic::StackStx,
         1,
         false,
@@ -2700,8 +2700,15 @@ fn test_set_signer_key_auth() {
         None,
     );
 
-    let latest_block =
-        peer.tenure_with_txs(&[invalid_enable_tx, invalid_tx_period, invalid_tx_cycle, disable_auth_tx], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(
+        &[
+            invalid_enable_tx,
+            invalid_tx_period,
+            invalid_tx_cycle,
+            disable_auth_tx,
+        ],
+        &mut coinbase_nonce,
+    );
 
     let alice_txs = get_last_block_sender_transactions(&observer, alice_addr);
     let invalid_enable_tx_result = alice_txs
@@ -2714,23 +2721,31 @@ fn test_set_signer_key_auth() {
 
     let signer_txs = get_last_block_sender_transactions(&observer, signer_addr);
 
-    let invalid_tx_period_result = signer_txs.clone()
+    let invalid_tx_period_result = signer_txs
+        .clone()
         .get(signer_invalid_period_nonce as usize)
         .unwrap()
         .result
         .clone();
 
     // Check for invalid lock period err
-    assert_eq!(invalid_tx_period_result, Value::error(Value::Int(2)).unwrap());
+    assert_eq!(
+        invalid_tx_period_result,
+        Value::error(Value::Int(2)).unwrap()
+    );
 
-    let invalid_tx_cycle_result = signer_txs.clone()
+    let invalid_tx_cycle_result = signer_txs
+        .clone()
         .get(signer_invalid_cycle_nonce as usize)
         .unwrap()
         .result
         .clone();
 
     // Check for invalid cycle err
-    assert_eq!(invalid_tx_cycle_result, Value::error(Value::Int(37)).unwrap());
+    assert_eq!(
+        invalid_tx_cycle_result,
+        Value::error(Value::Int(37)).unwrap()
+    );
 
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
