@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run Run mutants on diffs
+      - name: Run mutants on diffs
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           package: 'stacks-signer'
