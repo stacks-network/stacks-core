@@ -22,7 +22,9 @@ use clarity::vm::Value;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks_common::consts::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
+};
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -34,6 +36,7 @@ use wsts::curve::point::Point;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;

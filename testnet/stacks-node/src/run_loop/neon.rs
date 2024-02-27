@@ -490,7 +490,7 @@ impl RunLoop {
             }) as Box<dyn FnOnce(&mut ClarityTx)>;
             Some(callback)
         } else {
-            warn!("Self-signing is not supported yet");
+            debug!("Neon node booting with no aggregate public key. Must have signers available to sign blocks.");
             None
         };
 

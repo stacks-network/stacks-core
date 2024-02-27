@@ -405,6 +405,7 @@ impl NakamotoBlockBuilder {
         tenure_info: NakamotoTenureInfo,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        signer_transactions: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -437,13 +438,16 @@ impl NakamotoBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        let initial_txs: Vec<_> = [
+        let mut initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
             tenure_info.coinbase_tx.clone(),
         ]
         .into_iter()
         .filter_map(|x| x)
         .collect();
+        initial_txs.extend(signer_transactions);
+
+        // TODO: update this mempool check to prioritize signer vote transactions over other transactions
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,
