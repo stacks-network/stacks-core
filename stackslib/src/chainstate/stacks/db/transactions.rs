@@ -1163,10 +1163,17 @@ impl StacksChainState {
                 let contract_id =
                     QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
                 let contract_code_str = smart_contract.code_body.to_string();
+                
 
                 // can't be instantiated already -- if this fails, then the transaction is invalid
                 // (because this can be checked statically by the miner before mining the block).
-                if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
+                let exists = clarity_tx.with_clarity_db(|db| {
+                    let has_contract = db.has_contract2(   &contract_id)
+                        .is_ok_and(|x| x == true);
+                    Ok(has_contract)
+                })?;
+                //if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
+                if exists {
                     let msg = format!("Duplicate contract '{}'", &contract_id);
                     warn!("{}", &msg);
 
