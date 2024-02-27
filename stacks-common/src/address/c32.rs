@@ -180,7 +180,8 @@ const C32_CHARACTERS_MAP: [Option<u8>; 128] = [
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    // c32-encoded size is 160%  that of ASCII
+    // ASCII characters are 8-bits and c32-encoding encodes 5-bits per
+    // character, so the c32-encoded size should be ceil((ascii size) * 8 / 5)
     let size = input_bytes.len().saturating_mul(8).div_ceil(5);
     let mut result = Vec::with_capacity(size);
     let mut carry = 0;
@@ -249,7 +250,9 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         return Err(Error::InvalidCrockford32);
     }
 
-    // ASCII size is 62.5%  that of c32-encoded
+    // c32-encoding encodes 5 bits into each character, while ASCII encodes
+    // 8-bits into each character. So, the ASCII-encoded size should be
+    // ceil((c32 size) * 5 / 8)
     let size = iter_c32_digits.len().saturating_mul(5).div_ceil(8);
     let mut result = Vec::with_capacity(size);
     let mut carry: u16 = 0;

@@ -451,12 +451,10 @@ where
 
     /// Get a non-leaf hash
     pub fn get_node_hash(left: &H, right: &H) -> H {
-        let left_bits = left.bits();
-        let right_bits = right.bits();
-        let mut buf = Vec::with_capacity(left_bits.len() + right_bits.len());
-        buf.extend_from_slice(left_bits);
-        buf.extend_from_slice(right_bits);
-        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf[..])
+        let iter = left.bits().iter();
+        let iter = iter.chain(right.bits().iter());
+        let buf = iter.copied().collect::<Vec<_>>();
+        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf)
     }
 
     /// Find a given hash in a merkle tree row
