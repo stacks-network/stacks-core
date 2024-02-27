@@ -599,7 +599,6 @@ impl EventDispatcher {
         Vec<HashSet<usize>>,
         Vec<(bool, Txid, &'a StacksTransactionEvent)>,
     ) {
-        // run tests
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
