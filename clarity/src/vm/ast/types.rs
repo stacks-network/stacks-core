@@ -95,6 +95,10 @@ impl PreExpressionsDrain {
             index: 0,
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
 }
 
 impl Iterator for PreExpressionsDrain {

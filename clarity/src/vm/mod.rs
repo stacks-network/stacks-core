@@ -257,7 +257,7 @@ pub fn apply(
         resp
     } else {
         let mut used_memory = 0;
-        let mut evaluated_args = vec![];
+        let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
             let arg_value = match eval(arg_x, env, context) {

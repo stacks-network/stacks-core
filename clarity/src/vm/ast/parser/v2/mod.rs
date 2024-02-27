@@ -894,12 +894,14 @@ impl<'a> Parser<'a> {
                             Some(expr)
                         }
                         Token::Utf8String(s) => {
-                            let mut data: Vec<Vec<u8>> = Vec::new();
-                            for ch in s.chars() {
-                                let mut bytes = vec![0; ch.len_utf8()];
-                                ch.encode_utf8(&mut bytes);
-                                data.push(bytes);
-                            }
+                            let data: Vec<Vec<u8>> = s
+                                .chars()
+                                .map(|ch| {
+                                    let mut bytes = vec![0; ch.len_utf8()];
+                                    ch.encode_utf8(&mut bytes);
+                                    bytes
+                                })
+                                .collect();
                             let val =
                                 Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
                                     data,

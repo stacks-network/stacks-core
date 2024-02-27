@@ -91,14 +91,14 @@ impl DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let mut deps_props = vec![];
-            for i in deps.iter() {
-                let exp = &contract_ast.pre_expressions[*i];
-                if let Some(def) = self.find_expression_definition(exp) {
-                    deps_props.push(def);
-                }
-            }
-            let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
+            let functions_names = deps
+                .into_iter()
+                .filter_map(|i| {
+                    let exp = &contract_ast.pre_expressions[i];
+                    self.find_expression_definition(exp)
+                })
+                .map(|i| i.0.to_string())
+                .collect::<Vec<_>>();
 
             let error = ParseError::new(ParseErrors::CircularReference(functions_names));
             return Err(error);

@@ -187,14 +187,11 @@ pub fn check_special_tuple_cons(
     context: &TypingContext,
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
+    let len = args.len();
 
-    let mut tuple_type_data = Vec::new();
+    runtime_cost(ClarityCostFunction::AnalysisCheckTupleCons, checker, len)?;
 
-    runtime_cost(
-        ClarityCostFunction::AnalysisCheckTupleCons,
-        checker,
-        args.len(),
-    )?;
+    let mut tuple_type_data = Vec::with_capacity(len);
 
     handle_binding_list(args, |var_name, var_sexp| {
         checker.type_check(var_sexp, context).and_then(|var_type| {

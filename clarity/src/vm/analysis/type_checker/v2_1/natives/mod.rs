@@ -195,7 +195,7 @@ pub fn check_special_tuple_cons(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut tuple_type_data = Vec::new();
+    let mut tuple_type_data = Vec::with_capacity(args.len());
 
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleCons,
