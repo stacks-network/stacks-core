@@ -331,48 +331,43 @@ impl BlockMinerThread {
             })
             .collect();
 
-        // There may be more than signer messages, but odds are there is only one transacton per signer
-        let mut transactions_to_include = Vec::with_capacity(signer_messages.len());
+        if signer_messages.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Get all nonces for the signers from clarity DB to use to validate transactions
+        let account_nonces = chainstate
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &self.parent_tenure_id, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    addresses
+                        .iter()
+                        .map(|address| {
+                            (
+                                address.clone(),
+                                clarity_db
+                                    .get_account_nonce(&address.clone().into())
+                                    .unwrap_or(0),
+                            )
+                        })
+                        .collect::<HashMap<StacksAddress, u64>>()
+                })
+            })
+            .unwrap_or_default();
+        let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
             match signer_message {
                 SignerMessage::Transactions(transactions) => {
-                    for transaction in transactions {
-                        let address = transaction.origin_address();
-                        let nonce = transaction.get_origin_nonce();
-                        if !addresses.contains(&address) {
-                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
-                            continue;
-                        }
-
-                        let cur_nonce = chainstate
-                            .with_read_only_clarity_tx(
-                                &sortdb.index_conn(),
-                                &self.parent_tenure_id,
-                                |clarity_tx| {
-                                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                        clarity_db.get_account_nonce(&address.into()).unwrap_or(0)
-                                    })
-                                },
-                            )
-                            .unwrap_or(0);
-
-                        if cur_nonce > nonce {
-                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
-                            continue;
-                        }
-                        debug!("Miner: including signer transaction.";
-                            "nonce" => {nonce},
-                            "origin_address" => %address,
-                            "txid" => %transaction.txid()
-                        );
-                        // TODO : filter out transactions that are not valid votes. Do not include transactions with invalid/duplicate nonces for the same address.
-                        transactions_to_include.push(transaction);
-                    }
+                    NakamotoSigners::update_filtered_transactions(
+                        &mut filtered_transactions,
+                        &account_nonces,
+                        self.config.is_mainnet(),
+                        transactions,
+                    )
                 }
                 _ => {} // Any other message is ignored
             }
         }
-        Ok(transactions_to_include)
+        Ok(filtered_transactions.into_values().collect())
     }
 
     fn wait_for_signer_signature(

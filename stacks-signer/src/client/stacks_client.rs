@@ -17,7 +17,9 @@ use std::net::SocketAddr;
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME, SIGNERS_VOTING_NAME};
+use blockstack_lib::chainstate::stacks::boot::{
+    RewardSet, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -46,9 +48,6 @@ use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::{GlobalConfig, RegisteredSignersInfo};
-
-/// The name of the function for casting a DKG result to signer vote contract
-pub const VOTE_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -502,10 +501,10 @@ impl StacksClient {
         tx_fee: Option<u64>,
         nonce: u64,
     ) -> Result<StacksTransaction, ClientError> {
-        debug!("Building {VOTE_FUNCTION_NAME} transaction...");
+        debug!("Building {SIGNERS_VOTING_FUNCTION_NAME} transaction...");
         let contract_address = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
+        let function_name = ClarityName::from(SIGNERS_VOTING_FUNCTION_NAME);
         let function_args = vec![
             ClarityValue::UInt(signer_index as u128),
             ClarityValue::buff_from(point.compress().data.to_vec())?,
