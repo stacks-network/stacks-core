@@ -1038,7 +1038,7 @@ impl Value {
             .chars()
             .map(|char| {
                 let mut encoded_char = vec![0u8; char.len_utf8()];
-                char.encode_utf8(&mut encoded_char[..]);
+                char.encode_utf8(&mut encoded_char);
                 encoded_char
             })
             .collect::<Vec<_>>();

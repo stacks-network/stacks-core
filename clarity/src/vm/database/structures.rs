@@ -169,8 +169,7 @@ type Result<T> = std::result::Result<T, Error>;
 impl ClaritySerializable for STXBalance {
     #[allow(clippy::expect_used)]
     fn serialize(&self) -> String {
-        let size = std::mem::size_of::<Self>();
-        let mut buffer = Vec::with_capacity(size);
+        let mut buffer = Vec::new();
         match self {
             STXBalance::Unlocked { amount } => {
                 buffer
