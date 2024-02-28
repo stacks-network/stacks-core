@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::mpsc::{

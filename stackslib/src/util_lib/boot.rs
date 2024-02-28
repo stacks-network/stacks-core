@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use clarity::vm::database::STXBalance;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;

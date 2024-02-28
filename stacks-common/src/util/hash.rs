@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
-use std::convert::TryInto;
 use std::fmt::Write;
 use std::{fmt, mem};
 

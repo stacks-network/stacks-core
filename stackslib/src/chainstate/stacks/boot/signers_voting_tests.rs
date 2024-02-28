@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::clarity::ClarityConnection;

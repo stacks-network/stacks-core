@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::iter::FromIterator;
 
 use hashbrown::{HashMap, HashSet};
 use stacks_common::consts::CHAIN_ID_TESTNET;

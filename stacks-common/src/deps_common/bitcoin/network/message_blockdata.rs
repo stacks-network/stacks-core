@@ -135,7 +135,6 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Inventory {
 
 #[cfg(test)]
 mod tests {
-    use std::default::Default;
 
     use super::{GetBlocksMessage, GetHeadersMessage};
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
