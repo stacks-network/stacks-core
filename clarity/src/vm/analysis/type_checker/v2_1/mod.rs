@@ -459,7 +459,7 @@ impl FunctionType {
                 }
             }
         } else {
-            let mut arg_types = Vec::new();
+            let mut arg_types = Vec::with_capacity(func_args.len());
             for arg in func_args {
                 arg_types.push(self.principal_to_callable_type(arg, 1, clarity_version)?);
             }
@@ -1028,7 +1028,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> CheckResult<Vec<TypeSignature>> {
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
             result.push(self.type_check(arg, context)?)

@@ -313,7 +313,7 @@ impl Transaction {
             // sha256d of the concatenation of the nSequences
             let mut raw_vec = vec![];
             for inp in self.input.iter() {
-                raw_vec.append(&mut inp.sequence.to_le_bytes().to_vec());
+                raw_vec.extend_from_slice(&inp.sequence.to_le_bytes());
             }
             Sha256dHash::from_data(&raw_vec)
         }
@@ -323,26 +323,27 @@ impl Transaction {
     /// does not work for codeseparator
     fn segwit_script_pubkey_bytes(&self, script: &Script) -> Vec<u8> {
         // bizarrely, if this is a p2wpkh, we have to convert it into a p2pkh
-        let script_bytes = script.clone().into_bytes();
+        let script_bytes = script.as_bytes();
         if script_bytes.len() == 22 && script_bytes[0..2] == [0x00, 0x14] {
             // p2wpkh --> length-prefixed p2pkh
-            let mut converted_script_bytes = vec![];
-            converted_script_bytes.append(&mut vec![0x19, 0x76, 0xa9, 0x14]);
-            converted_script_bytes.append(&mut script_bytes[2..22].to_vec());
-            converted_script_bytes.append(&mut vec![0x88, 0xac]);
+            let mut converted_script_bytes = Vec::with_capacity(26);
+            converted_script_bytes.extend_from_slice(&[0x19, 0x76, 0xa9, 0x14]);
+            converted_script_bytes.extend_from_slice(&script_bytes[2..22]);
+            converted_script_bytes.extend_from_slice(&[0x88, 0xac]);
             converted_script_bytes
         } else {
             // p2wsh or p2tr
             // codeseparator is not supported
             // prefix the script bytes with a varint length
-            let mut length_script = vec![];
-            let mut script_bytes = script.clone().into_bytes();
-            let script_len = VarInt(script_bytes.len() as u64);
+            let script_bytes_len = script_bytes.len();
+            let script_len = VarInt(script_bytes_len as u64);
+            let mut length_script =
+                Vec::with_capacity(script_len.encoded_length() as usize + script_bytes_len);
 
             let mut script_len_bytes =
                 serialize(&script_len).expect("FATAL: failed to encode varint");
             length_script.append(&mut script_len_bytes);
-            length_script.append(&mut script_bytes);
+            length_script.extend_from_slice(&script_bytes);
             length_script
         }
     }
@@ -353,28 +354,31 @@ impl Transaction {
             // hash of all output amounts and scriptpubkeys
             let mut raw_vec = vec![];
             for outp in self.output.iter() {
-                raw_vec.append(&mut outp.value.to_le_bytes().to_vec());
+                raw_vec.extend_from_slice(&outp.value.to_le_bytes());
 
-                let mut script_bytes = outp.script_pubkey.clone().into_bytes();
+                let script_bytes = outp.script_pubkey.as_bytes();
                 let script_len = VarInt(script_bytes.len() as u64);
 
                 let mut script_len_bytes =
                     serialize(&script_len).expect("FATAL: failed to encode varint");
                 raw_vec.append(&mut script_len_bytes);
-                raw_vec.append(&mut script_bytes);
+                raw_vec.extend_from_slice(&script_bytes);
             }
             Sha256dHash::from_data(&raw_vec)
         } else if sighash_type == SigHashType::Single && input_index < self.output.len() {
             // hash of just the output indexed by the input index
-            let mut raw_vec = vec![];
 
-            let mut script_bytes = self.output[input_index].script_pubkey.clone().into_bytes();
-            let script_len = VarInt(script_bytes.len() as u64);
+            let script_bytes = self.output[input_index].script_pubkey.as_bytes();
+            let script_bytes_len = script_bytes.len();
+            let script_len = VarInt(script_bytes_len as u64);
+
+            let mut raw_vec =
+                Vec::with_capacity(script_len.encoded_length() as usize + script_bytes_len);
 
             let mut script_len_bytes =
                 serialize(&script_len).expect("FATAL: failed to encode varint");
             raw_vec.append(&mut script_len_bytes);
-            raw_vec.append(&mut script_bytes);
+            raw_vec.extend_from_slice(script_bytes);
             Sha256dHash::from_data(&raw_vec)
         } else {
             Sha256dHash([0u8; 32])
@@ -406,15 +410,15 @@ impl Transaction {
             SigHashType::from_u32(sighash_u32).split_anyonecanpay_flag();
 
         // nVersion
-        raw_vec.append(&mut self.version.to_le_bytes().to_vec());
+        raw_vec.extend_from_slice(&self.version.to_le_bytes());
 
         // hashPrevouts
         let prevouts_hash = self.segwit_prevouts_hash(anyone_can_pay);
-        raw_vec.append(&mut prevouts_hash.as_bytes().to_vec());
+        raw_vec.extend_from_slice(prevouts_hash.as_bytes());
 
         // hashSequence
         let hash_sequence = self.segwit_sequence_hash(sighash, anyone_can_pay);
-        raw_vec.append(&mut hash_sequence.as_bytes().to_vec());
+        raw_vec.extend_from_slice(hash_sequence.as_bytes());
 
         // outpoint in question
         let mut outpoint_to_sign = serialize(&self.input[input_index].previous_output)
@@ -426,20 +430,20 @@ impl Transaction {
         raw_vec.append(&mut script_code);
 
         // value sent
-        raw_vec.append(&mut amount.to_le_bytes().to_vec());
+        raw_vec.extend_from_slice(&amount.to_le_bytes());
 
         // input sequence
-        raw_vec.append(&mut self.input[input_index].sequence.to_le_bytes().to_vec());
+        raw_vec.extend_from_slice(&self.input[input_index].sequence.to_le_bytes());
 
         // hashed outputs
         let outputs_hash = self.segwit_outputs_hash(input_index, sighash);
-        raw_vec.append(&mut outputs_hash.as_bytes().to_vec());
+        raw_vec.extend_from_slice(outputs_hash.as_bytes());
 
         // locktime
-        raw_vec.append(&mut self.lock_time.to_le_bytes().to_vec());
+        raw_vec.extend_from_slice(&self.lock_time.to_le_bytes());
 
         // sighash
-        raw_vec.append(&mut sighash_u32.to_le_bytes().to_vec());
+        raw_vec.extend_from_slice(&sighash_u32.to_le_bytes());
 
         Sha256dHash::from_data(&raw_vec)
     }
