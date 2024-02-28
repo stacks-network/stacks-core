@@ -18,7 +18,6 @@ pub mod contexts;
 pub mod natives;
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 
 use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;

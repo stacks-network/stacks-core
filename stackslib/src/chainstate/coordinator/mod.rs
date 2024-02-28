@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;

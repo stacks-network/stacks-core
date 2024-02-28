@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};

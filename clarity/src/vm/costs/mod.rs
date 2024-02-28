@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
 use hashbrown::HashMap;

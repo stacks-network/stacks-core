@@ -1,6 +1,5 @@
 pub mod lexer;
 
-use std::convert::TryFrom;
 use std::num::ParseIntError;
 
 use stacks_common::util::hash::hex_bytes;

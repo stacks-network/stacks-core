@@ -1,5 +1,3 @@
-use std::iter::FromIterator;
-
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
 use hashbrown::{HashMap, HashSet};
 

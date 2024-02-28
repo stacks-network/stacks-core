@@ -140,8 +140,6 @@
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
-use std::default::Default;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};

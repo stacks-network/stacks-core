@@ -19,8 +19,6 @@
 //! single transaction
 //!
 
-use std::default::Default;
-
 use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
 use crate::deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
 use crate::deps_common::bitcoin::blockdata::{opcodes, script};
@@ -139,7 +137,6 @@ pub fn genesis_block(network: Network) -> Block {
 
 #[cfg(test)]
 mod test {
-    use std::default::Default;
 
     use crate::deps_common::bitcoin::blockdata::constants::{
         bitcoin_genesis_tx, genesis_block, COIN_VALUE, MAX_SEQUENCE,
