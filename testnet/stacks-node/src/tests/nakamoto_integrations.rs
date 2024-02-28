@@ -483,11 +483,12 @@ pub fn boot_to_epoch_3(
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
-fn is_key_set_for_cycle(
+/// Use the read-only API to get the aggregate key for a given reward cycle
+pub fn get_key_for_cycle(
     reward_cycle: u64,
     is_mainnet: bool,
     http_origin: &str,
-) -> Result<bool, String> {
+) -> Result<Option<Vec<u8>>, String> {
     let client = reqwest::blocking::Client::new();
     let boot_address = StacksAddress::burn_address(is_mainnet);
     let path = format!("http://{http_origin}/v2/contracts/call-read/{boot_address}/signers-voting/get-approved-aggregate-key");
@@ -513,10 +514,29 @@ fn is_key_set_for_cycle(
     )
     .map_err(|_| "Failed to deserialize Clarity value")?;
 
-    result_value
+    let buff_opt = result_value
         .expect_optional()
-        .map(|v| v.is_some())
-        .map_err(|_| "Response is not optional".to_string())
+        .expect("Expected optional type");
+
+    match buff_opt {
+        Some(buff_val) => {
+            let buff = buff_val
+                .expect_buff(33)
+                .map_err(|_| "Failed to get buffer value")?;
+            Ok(Some(buff))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Use the read-only to check if the aggregate key is set for a given reward cycle
+pub fn is_key_set_for_cycle(
+    reward_cycle: u64,
+    is_mainnet: bool,
+    http_origin: &str,
+) -> Result<bool, String> {
+    let key = get_key_for_cycle(reward_cycle, is_mainnet, &http_origin)?;
+    Ok(key.is_some())
 }
 
 fn signer_vote_if_needed(
@@ -1980,7 +2000,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     info!("Submitted vote for aggregate key op at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the balaces should be unchanged
+    // the second block should process the vote, after which the vote should be set
     for _i in 0..2 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
@@ -2020,6 +2040,13 @@ fn vote_for_aggregate_key_burn_op() {
         vote_for_aggregate_key_found,
         "Expected vote for aggregate key op"
     );
+
+    // Check that the correct key was set
+    let saved_key = get_key_for_cycle(reward_cycle, false, &naka_conf.node.rpc_bind)
+        .expect("Expected to be able to check key is set after voting")
+        .expect("Expected aggregate key to be set");
+
+    assert_eq!(saved_key, aggregate_key.as_bytes().to_vec());
 
     coord_channel
         .lock()

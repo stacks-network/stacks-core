@@ -85,6 +85,7 @@ use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
+use crate::tests::nakamoto_integrations::get_key_for_cycle;
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -2245,8 +2246,6 @@ fn vote_for_aggregate_key_burn_op_test() {
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.clone().into();
 
-    let recipient_sk = StacksPrivateKey::new();
-    let recipient_addr = to_addr(&recipient_sk);
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
@@ -2260,16 +2259,11 @@ fn vote_for_aggregate_key_burn_op_test() {
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
         amount: first_bal,
-    });
-    conf.initial_balances.push(InitialBalance {
-        address: recipient_addr.clone().into(),
-        amount: second_bal,
     });
 
     // update epoch info so that Epoch 2.1 takes effect
@@ -2395,7 +2389,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let pox_addr = PoxAddress::Standard(spender_stx_addr, Some(AddressHashMode::SerializeP2PKH));
 
-    let mut block_height = channel.get_sortitions_processed();
+    let mut block_height = btc_regtest_controller.get_headers_height();
 
     let reward_cycle = burnchain_config
         .block_height_to_reward_cycle(block_height)
@@ -2460,7 +2454,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     // Wait a few blocks to be registered
     for _i in 0..5 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        block_height = channel.get_sortitions_processed();
+        block_height = btc_regtest_controller.get_headers_height();
     }
 
     let reward_cycle = burnchain_config
@@ -2546,6 +2540,13 @@ fn vote_for_aggregate_key_burn_op_test() {
         vote_for_aggregate_key_found,
         "Expected vote for aggregate key op"
     );
+
+    // Check that the correct key was set
+    let saved_key = get_key_for_cycle(reward_cycle, false, &conf.node.rpc_bind)
+        .expect("Expected to be able to check key is set after voting")
+        .expect("Expected aggregate key to be set");
+
+    assert_eq!(saved_key, aggregate_key.as_bytes().to_vec());
 
     test_observer::clear();
     channel.stop_chains_coordinator();
