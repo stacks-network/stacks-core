@@ -463,7 +463,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 
     pub fn rollback_unconfirmed(self) -> InterpreterResult<()> {
-        trace!("Drop unconfirmed MARF trie {}", &self.chain_tip);
+        debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
         SqliteConnection::delete_contracts_for_block(self.marf.sqlite_tx(), &self.chain_tip)?;
         self.marf.drop_unconfirmed();
@@ -471,7 +471,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 
     pub fn commit_to(self, final_bhh: &StacksBlockId) -> InterpreterResult<()> {
-        trace!("commit_to({})", final_bhh);
+        debug!("commit_to({})", final_bhh);
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
         SqliteConnection::commit_contracts_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
 
@@ -677,7 +677,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {
-            test_debug!("MarfedKV put '{}' = '{}'", &key, &value);
+            trace!("MarfedKV put '{}' = '{}'", &key, &value);
             let marf_value = MARFValue::from_value(&value);
             SqliteConnection::put_data(self.get_side_store(), &marf_value.to_hex(), &value)?;
             keys.push(key);
