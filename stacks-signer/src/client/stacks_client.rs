@@ -340,26 +340,40 @@ impl StacksClient {
         };
         let mut signer_public_keys = HashMap::with_capacity(reward_set_signers.len());
         for (i, entry) in reward_set_signers.iter().enumerate() {
+            // TODO: track these signer ids as non participating if any of the conversions fail
             let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice()).map_err(|e| {
-                ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
-                    ))
-                })?;
-            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
-                .map_err(|e| {
-                    ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to Point: {e}"
-                    ))
-                })?;
-            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
-                    ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
-                    ))
-                })?;
+            let ecdsa_public_key = match ecdsa::PublicKey::try_from(entry.signing_key.as_slice()) {
+                Ok(ecdsa_public_key) => ecdsa_public_key,
+                Err(e) => {
+                    warn!(
+                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
+                    );
+                    continue;
+                }
+            };
+            let signer_public_key = match Point::try_from(&Compressed::from(
+                ecdsa_public_key.to_bytes(),
+            )) {
+                Ok(signer_public_key) => signer_public_key,
+                Err(e) => {
+                    warn!(
+                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
+                    );
+                    continue;
+                }
+            };
+            let stacks_public_key = match StacksPublicKey::from_slice(entry.signing_key.as_slice())
+            {
+                Ok(stacks_public_key) => stacks_public_key,
+                Err(e) => {
+                    warn!(
+                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
+                    );
+                    continue;
+                }
+            };
 
             let stacks_address = StacksAddress::p2pkh(self.mainnet, &stacks_public_key);
-
             signer_ids.insert(stacks_address, signer_id);
             signer_public_keys.insert(signer_id, signer_public_key);
             let weight_start = weight_end;
