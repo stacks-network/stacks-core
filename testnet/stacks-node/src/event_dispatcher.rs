@@ -17,7 +17,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::RewardSet;
+use stacks::chainstate::stacks::boot::{RewardSet, RewardSetData};
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -388,6 +388,7 @@ impl EventObserver {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -408,7 +409,7 @@ impl EventObserver {
         }
 
         // Wrap events
-        json!({
+        let mut payload = json!({
             "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
@@ -431,7 +432,20 @@ impl EventObserver {
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
-        })
+        });
+
+        if let Some(reward_set_data) = reward_set_data {
+            payload.as_object_mut().unwrap().insert(
+                "reward_set".to_string(),
+                serde_json::to_value(&reward_set_data.reward_set).unwrap_or_default(),
+            );
+            payload.as_object_mut().unwrap().insert(
+                "cycle_number".to_string(),
+                serde_json::to_value(reward_set_data.cycle_number).unwrap_or_default(),
+            );
+        }
+
+        payload
     }
 }
 
@@ -589,8 +603,7 @@ impl BlockEventDispatcher for EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
-        reward_set: &Option<RewardSet>,
-        cycle_number: &Option<u64>,
+        reward_set_data: &Option<RewardSetData>,
     ) {
         self.process_chain_tip(
             block,
@@ -606,18 +619,8 @@ impl BlockEventDispatcher for EventDispatcher {
             anchored_consumed,
             mblock_confirmed_consumed,
             pox_constants,
+            reward_set_data,
         );
-
-        if let Some(reward_set) = reward_set {
-            debug!(
-                "reward_set in announce_block: {:?}, parent_block_id: {:?}, cycle_number: {:?}",
-                reward_set, parent, cycle_number
-            );
-            if let Some(cycle_num) = cycle_number {
-                //
-                self.process_stacker_set(reward_set, parent, *cycle_num)
-            }
-        }
     }
 
     fn announce_burn_block(
@@ -807,6 +810,7 @@ impl EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -856,6 +860,7 @@ impl EventDispatcher {
                         anchored_consumed,
                         mblock_confirmed_consumed,
                         pox_constants,
+                        reward_set_data,
                     );
 
                 // Send payload
@@ -1266,6 +1271,7 @@ mod test {
             &anchored_consumed,
             &mblock_confirmed_consumed,
             &pox_constants,
+            &None,
         );
         assert_eq!(
             payload

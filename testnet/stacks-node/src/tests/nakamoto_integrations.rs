@@ -1199,6 +1199,8 @@ fn correct_burn_outs() {
         .block_height_to_reward_cycle(epoch_3.start_height)
         .unwrap();
 
+    info!("first_epoch_3_cycle: {:?}", first_epoch_3_cycle);
+
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle);
     assert!(stacker_response.stacker_set.signers.is_some());
@@ -1262,29 +1264,66 @@ fn correct_burn_outs() {
         .stop_chains_coordinator();
     run_loop_stopper.store(false, Ordering::SeqCst);
 
-    let stacker_sets = test_observer::get_stacker_sets();
-    info!("Stacker sets announced {:#?}", stacker_sets);
-    let mut sorted_stacker_sets = stacker_sets.clone();
-    sorted_stacker_sets.sort_by_key(|(_block_id, cycle_num, _reward_set)| *cycle_num);
-    assert_eq!(
-        sorted_stacker_sets, stacker_sets,
-        "Stacker set should be sorted by cycle number already"
+    let new_blocks_with_reward_set: Vec<serde_json::Value> = test_observer::get_blocks()
+        .into_iter()
+        .filter(|block| block.get("reward_set").is_some() && block.get("cycle_number").is_some())
+        .collect();
+    info!(
+        "Announced blocks that include reward sets: {:#?}",
+        new_blocks_with_reward_set
     );
 
-    for (_, cycle_number, reward_set) in stacker_sets.iter() {
-        if *cycle_number < first_epoch_3_cycle {
-            assert!(reward_set.signers.is_none());
-            // nothing else to check for < first_epoch_3_cycle
+    assert_eq!(
+        new_blocks_with_reward_set.len(),
+        5,
+        "There should be exactly 5 blocks including reward cycles"
+    );
+
+    let cycle_numbers: Vec<u64> = new_blocks_with_reward_set
+        .iter()
+        .filter_map(|block| block.get("cycle_number").and_then(|cn| cn.as_u64()))
+        .collect();
+
+    let expected_cycles: Vec<u64> = (21..=25).collect();
+    assert_eq!(
+        cycle_numbers, expected_cycles,
+        "Cycle numbers should be 21 to 25 inclusive"
+    );
+
+    let mut sorted_new_blocks = new_blocks_with_reward_set.clone();
+    sorted_new_blocks.sort_by_key(|block| block["cycle_number"].as_u64().unwrap());
+    assert_eq!(
+        sorted_new_blocks, new_blocks_with_reward_set,
+        "Blocks should be sorted by cycle number already"
+    );
+
+    for block in new_blocks_with_reward_set.iter() {
+        let cycle_number = block["cycle_number"].as_u64().unwrap();
+        let reward_set = block["reward_set"].as_object().unwrap();
+
+        if cycle_number < first_epoch_3_cycle {
+            assert!(
+                reward_set.get("signers").is_none()
+                    || reward_set["signers"].as_array().unwrap().is_empty(),
+                "Signers should not be set before the first epoch 3 cycle"
+            );
             continue;
         }
-        let Some(signers) = reward_set.signers.clone() else {
-            panic!("Signers should be set in any epoch-3 cycles. First epoch-3 cycle: {first_epoch_3_cycle}. Checked cycle number: {cycle_number}");
-        };
-        // there should be 1 stacker signer, and 1 reward address
-        assert_eq!(reward_set.rewarded_addresses.len(), 1);
-        assert_eq!(signers.len(), 1);
+
+        // For cycles in or after first_epoch_3_cycle, ensure signers are present
+        let signers = reward_set["signers"].as_array().unwrap();
+        assert!(!signers.is_empty(), "Signers should be set in any epoch-3 cycles. First epoch-3 cycle: {first_epoch_3_cycle}. Checked cycle number: {cycle_number}");
+
+        assert_eq!(
+            reward_set["rewarded_addresses"].as_array().unwrap().len(),
+            1,
+            "There should be exactly 1 rewarded address"
+        );
+        assert_eq!(signers.len(), 1, "There should be exactly 1 signer");
+
         // the signer should have 1 "slot", because they stacked the minimum stacking amount
-        assert_eq!(signers[0].weight, 1);
+        let signer_weight = signers[0]["weight"].as_u64().unwrap();
+        assert_eq!(signer_weight, 1, "The signer should have a weight of 1, indicating they stacked the minimum stacking amount");
     }
 
     run_loop_thread.join().unwrap();

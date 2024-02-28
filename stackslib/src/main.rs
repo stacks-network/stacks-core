@@ -1722,7 +1722,7 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         block_am.weight(),
         true,
     ) {
-        Ok((_receipt, _, _, _)) => {
+        Ok((_receipt, _, _)) => {
             info!("Block processed successfully! block = {index_block_hash}");
         }
         Err(e) => {

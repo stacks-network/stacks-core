@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
-use super::stacks::boot::RewardSet;
+use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -177,8 +177,7 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
-        reward_set: &Option<RewardSet>,
-        cycle_number: &Option<u64>,
+        reward_set_data: &Option<RewardSetData>,
     );
 
     /// called whenever a burn block is about to be
