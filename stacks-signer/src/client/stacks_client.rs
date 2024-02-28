@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    RewardSet, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
@@ -34,20 +34,17 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
-use hashbrown::{HashMap, HashSet};
 use serde_json::json;
-use slog::{slog_debug, slog_warn};
+use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::debug;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::StacksEpochId;
-use stacks_common::{debug, warn};
-use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
-use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
-use crate::config::{GlobalConfig, RegisteredSignersInfo};
+use crate::config::GlobalConfig;
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -296,8 +293,11 @@ impl StacksClient {
         Ok(round)
     }
 
-    /// Get the reward set from the stacks node for the given reward cycle
-    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
+    /// Get the reward set signers from the stacks node for the given reward cycle
+    pub fn get_reward_set_signers(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
         let send_request = || {
             self.stacks_node_client
@@ -310,118 +310,7 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         let stackers_response = response.json::<GetStackersResponse>()?;
-        Ok(stackers_response.stacker_set)
-    }
-
-    /// Get the registered signers for a specific reward cycle
-    /// Returns None if no signers are registered or its not Nakamoto cycle
-    pub fn get_registered_signers_info(
-        &self,
-        reward_cycle: u64,
-    ) -> Result<Option<RegisteredSignersInfo>, ClientError> {
-        debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let reward_set = self.get_reward_set(reward_cycle)?;
-        let Some(reward_set_signers) = reward_set.signers else {
-            warn!("No reward set signers found for reward cycle {reward_cycle}.");
-            return Ok(None);
-        };
-        if reward_set_signers.is_empty() {
-            warn!("No registered signers found for reward cycle {reward_cycle}.");
-            return Ok(None);
-        }
-        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
-        let mut weight_end = 1;
-        let mut coordinator_key_ids = HashMap::with_capacity(4000);
-        let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut signer_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut public_keys = PublicKeys {
-            signers: HashMap::with_capacity(reward_set_signers.len()),
-            key_ids: HashMap::with_capacity(4000),
-        };
-        let mut signer_public_keys = HashMap::with_capacity(reward_set_signers.len());
-        for (i, entry) in reward_set_signers.iter().enumerate() {
-            // TODO: track these signer ids as non participating if any of the conversions fail
-            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_public_key = match ecdsa::PublicKey::try_from(entry.signing_key.as_slice()) {
-                Ok(ecdsa_public_key) => ecdsa_public_key,
-                Err(e) => {
-                    warn!(
-                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
-                    );
-                    continue;
-                }
-            };
-            let signer_public_key = match Point::try_from(&Compressed::from(
-                ecdsa_public_key.to_bytes(),
-            )) {
-                Ok(signer_public_key) => signer_public_key,
-                Err(e) => {
-                    warn!(
-                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
-                    );
-                    continue;
-                }
-            };
-            let stacks_public_key = match StacksPublicKey::from_slice(entry.signing_key.as_slice())
-            {
-                Ok(stacks_public_key) => stacks_public_key,
-                Err(e) => {
-                    warn!(
-                        "Signer {signer_id} has a corrupted signing key ({:?}): {e}. Removing from signing set.", entry.signing_key
-                    );
-                    continue;
-                }
-            };
-
-            let stacks_address = StacksAddress::p2pkh(self.mainnet, &stacks_public_key);
-            signer_ids.insert(stacks_address, signer_id);
-            signer_public_keys.insert(signer_id, signer_public_key);
-            let weight_start = weight_end;
-            weight_end = weight_start + entry.weight;
-            for key_id in weight_start..weight_end {
-                public_keys.key_ids.insert(key_id, ecdsa_public_key);
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
-                coordinator_key_ids
-                    .entry(signer_id)
-                    .or_insert(HashSet::with_capacity(entry.weight as usize))
-                    .insert(key_id);
-                signer_key_ids
-                    .entry(signer_id)
-                    .or_insert(Vec::with_capacity(entry.weight as usize))
-                    .push(key_id);
-            }
-        }
-
-        let signer_set =
-            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
-        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
-        // Get the signer writers from the stacker-db to find the signer slot id
-        let signer_slots_weights = self
-            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)
-            .unwrap();
-        let mut signer_slot_ids = HashMap::with_capacity(signer_slots_weights.len());
-        for (index, (address, _)) in signer_slots_weights.into_iter().enumerate() {
-            signer_slot_ids.insert(
-                address,
-                u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
-            );
-        }
-
-        for address in signer_ids.keys() {
-            if !signer_slot_ids.contains_key(address) {
-                debug!("Signer {address} does not have a slot id in the stackerdb");
-                return Ok(None);
-            }
-        }
-
-        Ok(Some(RegisteredSignersInfo {
-            public_keys,
-            signer_key_ids,
-            signer_ids,
-            signer_slot_ids,
-            signer_public_keys,
-            coordinator_key_ids,
-        }))
+        Ok(stackers_response.stacker_set.signers)
     }
 
     /// Retreive the current pox data from the stacks node
@@ -701,7 +590,9 @@ mod tests {
 
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
-    use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
+    use blockstack_lib::chainstate::stacks::boot::{
+        NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
+    };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use rand::thread_rng;
     use rand_core::RngCore;
@@ -1246,9 +1137,9 @@ mod tests {
         let stackers_response_json = serde_json::to_string(&stackers_response)
             .expect("Failed to serialize get stacker response");
         let response = format!("HTTP/1.1 200 OK\n\n{stackers_response_json}");
-        let h = spawn(move || mock.client.get_reward_set(0));
+        let h = spawn(move || mock.client.get_reward_set_signers(0));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), stacker_set);
+        assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
     }
 
     #[test]
