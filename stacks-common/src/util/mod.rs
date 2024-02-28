@@ -58,6 +58,8 @@ pub enum HexError {
     BadLength(usize),
     /// Non-hex character in string
     BadCharacter(char),
+    /// Overflow
+    Overflow,
 }
 
 impl fmt::Display for HexError {
@@ -65,6 +67,7 @@ impl fmt::Display for HexError {
         match *self {
             HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
             HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
+            HexError::Overflow => write!(f, "Overflow while decoding hex string"),
         }
     }
 }
@@ -77,6 +80,7 @@ impl error::Error for HexError {
         match *self {
             HexError::BadLength(_) => "hex string non-64 length",
             HexError::BadCharacter(_) => "bad hex character",
+            HexError::Overflow => "overflow while decoding hex"
         }
     }
 }

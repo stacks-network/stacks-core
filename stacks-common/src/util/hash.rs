@@ -19,6 +19,7 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::{fmt, mem};
 
+use faster_hex::{hex_decode, hex_string};
 use ripemd::Ripemd160;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
@@ -588,26 +589,17 @@ where
     }
 }
 
-// borrowed from Andrew Poelstra's rust-bitcoin library
-/// Convert a hexadecimal-encoded string to its corresponding bytes
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
-    let mut v = vec![];
-    let mut iter = s.chars().pair();
-    // Do the parsing
-    iter.by_ref()
-        .try_fold((), |_, (f, s)| match (f.to_digit(16), s.to_digit(16)) {
-            (None, _) => Err(HexError::BadCharacter(f)),
-            (_, None) => Err(HexError::BadCharacter(s)),
-            (Some(f), Some(s)) => {
-                v.push((f * 0x10 + s) as u8);
-                Ok(())
-            }
-        })?;
-    // Check that there was no remainder
-    match iter.remainder() {
-        Some(_) => Err(HexError::BadLength(s.len())),
-        None => Ok(v),
+    let mut bytes = vec![0u8; s.len() / 2];
+    match hex_decode(s.as_bytes(), &mut bytes) {
+        Ok(()) => {},
+        Err(e) => match e {
+            faster_hex::Error::InvalidChar => return Err(HexError::BadCharacter(' ')),
+            faster_hex::Error::InvalidLength(length) => return Err(HexError::BadLength(length)),
+            faster_hex::Error::Overflow => return Err(HexError::Overflow),
+        },
     }
+    Ok(bytes)
 }
 
 /// Convert a binary-encoded string to its corresponding bytes
@@ -635,11 +627,7 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
 
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
-    let mut r = String::with_capacity(s.len() * 2);
-    for b in s.iter() {
-        write!(r, "{:02x}", b).unwrap();
-    }
-    r
+    hex_string(s)
 }
 
 /// Convert a slice of u8 into a binary string
