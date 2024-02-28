@@ -839,8 +839,8 @@ impl Signer {
                 OperationResult::SignTaproot(_) => {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
-                OperationResult::Dkg(point) => {
-                    self.process_dkg(stacks_client, point);
+                OperationResult::Dkg(dkg_public_key) => {
+                    self.process_dkg(stacks_client, dkg_public_key);
                 }
                 OperationResult::SignError(e) => {
                     warn!("Signer #{}: Received a Sign error: {e:?}", self.signer_id);
@@ -855,7 +855,7 @@ impl Signer {
     }
 
     /// Process a dkg result by broadcasting a vote to the stacks node
-    fn process_dkg(&mut self, stacks_client: &StacksClient, point: &Point) {
+    fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
         let epoch = retry_with_exponential_backoff(|| {
             stacks_client
                 .get_node_epoch()
@@ -895,7 +895,7 @@ impl Signer {
         match stacks_client.build_vote_for_aggregate_public_key(
             self.stackerdb.get_signer_slot_id(),
             self.coordinator.current_dkg_id,
-            *point,
+            *dkg_public_key,
             self.reward_cycle,
             tx_fee,
             next_nonce,
@@ -908,14 +908,14 @@ impl Signer {
                     new_transaction,
                 ) {
                     warn!(
-                        "Signer #{}: Failed to broadcast DKG vote ({point:?}): {e:?}",
+                        "Signer #{}: Failed to broadcast DKG public key vote ({dkg_public_key:?}): {e:?}",
                         self.signer_id
                     );
                 }
             }
             Err(e) => {
                 warn!(
-                    "Signer #{}: Failed to build DKG vote ({point:?}) transaction: {e:?}.",
+                    "Signer #{}: Failed to build DKG public key vote ({dkg_public_key:?}) transaction: {e:?}.",
                     self.signer_id
                 );
             }
@@ -1137,15 +1137,15 @@ impl Signer {
             }).unwrap_or_default();
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
-                let (_index, point, round, reward_cycle) =
+                let (_index, dkg_public_key, round, reward_cycle) =
                     NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).expect(&format!("BUG: Signer #{}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}", self.signer_id));
-                if Some(point) == self.coordinator.aggregate_public_key
+                if Some(dkg_public_key) == self.coordinator.aggregate_public_key
                     && round == self.coordinator.current_dkg_id
                     && reward_cycle == self.reward_cycle
                 {
                     debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.signer_id;
                         "txid" => %transaction.txid(),
-                        "point" => %point,
+                        "dkg_public_key" => %dkg_public_key,
                         "round" => round
                     );
                     return Ok(());
