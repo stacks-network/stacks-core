@@ -531,7 +531,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "9";
+pub const SORTITION_DB_VERSION: &'static str = "8";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -761,9 +761,8 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
-];
-
-const SORTITION_DB_SCHEMA_9: &'static [&'static str] = &[r#"
+    r#"
+    -- table definition for `vote-for-aggregate-key` burn op
     CREATE TABLE vote_for_aggregate_key (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -778,7 +777,8 @@ const SORTITION_DB_SCHEMA_9: &'static [&'static str] = &[r#"
         signer_key TEXT NOT NULL,
 
         PRIMARY KEY(txid,burn_header_Hash)
-    );"#];
+    );"#,
+];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -2996,7 +2996,6 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8(&db_tx)?;
-        SortitionDB::apply_schema_9(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -3228,7 +3227,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -3238,7 +3236,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch21 => {
                 version == "3"
@@ -3247,7 +3244,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch22 => {
                 version == "3"
@@ -3265,7 +3261,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch24 => {
                 version == "3"
@@ -3284,7 +3279,6 @@ impl SortitionDB {
                     || version == "7"
                     // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch30 => {
                 version == "3"
@@ -3293,7 +3287,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
         }
     }
@@ -3423,18 +3416,6 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_9(tx: &DBTx) -> Result<(), db_error> {
-        for sql_exec in SORTITION_DB_SCHEMA_9 {
-            tx.execute_batch(sql_exec)?;
-        }
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["9"],
-        )?;
-        Ok(())
-    }
-
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3488,10 +3469,6 @@ impl SortitionDB {
                     } else if version == "7" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_8(&tx.deref())?;
-                        tx.commit()?;
-                    } else if version == "8" {
-                        let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_9(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
