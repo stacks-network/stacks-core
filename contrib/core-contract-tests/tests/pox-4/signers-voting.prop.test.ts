@@ -1,6 +1,6 @@
 import fc from "fast-check";
-import { expect, it } from "vitest";
-import { Cl } from "@stacks/transactions";
+import { assert, expect, it } from "vitest";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 
 it("should return correct reward-cycle-to-burn-height", () => {
   fc.assert(
@@ -15,14 +15,12 @@ it("should return correct reward-cycle-to-burn-height", () => {
           [],
           account,
         );
+        assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
+        assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "first-burnchain-block-height"];
+          pox_4_info.value.data["first-burnchain-block-height"];
         const reward_cycle_length =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "reward-cycle-length"];
+          pox_4_info.value.data["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
@@ -33,6 +31,8 @@ it("should return correct reward-cycle-to-burn-height", () => {
         );
 
         // Assert
+        assert(isClarityType(reward_cycle_length, ClarityType.UInt));
+        assert(isClarityType(first_burnchain_block_height, ClarityType.UInt));
         const expected = (reward_cycle * Number(reward_cycle_length.value)) +
           Number(first_burnchain_block_height.value);
         expect(actual).toBeUint(expected);
@@ -55,14 +55,12 @@ it("should return correct burn-height-to-reward-cycle", () => {
           [],
           account,
         );
+        assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
+        assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "first-burnchain-block-height"];
+          pox_4_info.value.data["first-burnchain-block-height"];
         const reward_cycle_length =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "reward-cycle-length"];
+          pox_4_info.value.data["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
@@ -73,6 +71,8 @@ it("should return correct burn-height-to-reward-cycle", () => {
         );
 
         // Assert
+        assert(isClarityType(first_burnchain_block_height, ClarityType.UInt));
+        assert(isClarityType(reward_cycle_length, ClarityType.UInt));
         const expected = Math.floor(
           (height - Number(first_burnchain_block_height.value)) /
             Number(reward_cycle_length.value),
@@ -97,18 +97,14 @@ it("should return correct is-in-prepare-phase", () => {
           [],
           account,
         );
+        assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
+        assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "first-burnchain-block-height"];
+          pox_4_info.value.data["first-burnchain-block-height"];
         const prepare_cycle_length =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "prepare-cycle-length"];
+          pox_4_info.value.data["prepare-cycle-length"];
         const reward_cycle_length =
-          // @ts-ignore
-          pox_4_info.value.data[
-            "reward-cycle-length"];
+          pox_4_info.value.data["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
@@ -119,6 +115,9 @@ it("should return correct is-in-prepare-phase", () => {
         );
 
         // Assert
+        assert(isClarityType(first_burnchain_block_height, ClarityType.UInt));
+        assert(isClarityType(prepare_cycle_length, ClarityType.UInt));
+        assert(isClarityType(reward_cycle_length, ClarityType.UInt));
         const expected = ((height - Number(first_burnchain_block_height.value) +
           Number(prepare_cycle_length.value)) %
           Number(reward_cycle_length.value)) <
