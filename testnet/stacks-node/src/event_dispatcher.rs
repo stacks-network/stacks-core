@@ -116,15 +116,13 @@ impl EventObserver {
         };
 
         let url = {
-            let joined_components = match path.starts_with("/") {
+            let joined_components = match path.starts_with('/') {
                 true => format!("{}{}", &self.endpoint, path),
                 false => format!("{}/{}", &self.endpoint, path),
             };
             let url = format!("http://{}", joined_components);
-            Url::parse(&url).expect(&format!(
-                "Event dispatcher: unable to parse {} as a URL",
-                url
-            ))
+            Url::parse(&url)
+                .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", url))
         };
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);

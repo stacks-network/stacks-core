@@ -114,6 +114,7 @@ impl HttpResponseContents {
     /// Write data for this to a pipe writer, which buffers it up.
     /// Return Ok(Some(..)) if there is mroe data to send.
     /// Once all data is sent, return Ok(None)
+    #[cfg_attr(test, mutants::skip)]
     pub fn pipe_out(&mut self, fd: &mut PipeWrite) -> Result<u64, Error> {
         match self {
             HttpResponseContents::Stream(ref mut inner_stream) => {

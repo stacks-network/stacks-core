@@ -790,7 +790,7 @@ fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
     match index.get(header_hash, key) {
         Ok(Some(marf_value)) => {
             let value = load_indexed(index.sqlite_conn(), &marf_value)?
-                .expect(&format!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
             Ok(Some(value))
         }
         Ok(None) => Ok(None),

@@ -40,6 +40,7 @@ pub trait HttpChunkGenerator: Send {
     /// Returns Ok(num-bytes > 0) if there are more chunks (i.e. the caller should call this again)
     /// Returns Ok(0) if there are no more chunks (i.e. the caller should not call this again)
     /// Returns Err(..) on irrecoverable I/O error
+    #[cfg_attr(test, mutants::skip)]
     fn stream_to(
         &mut self,
         encoder_state: &mut HttpChunkedTransferWriterState,

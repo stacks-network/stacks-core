@@ -701,12 +701,10 @@ impl TrieNode16 {
     /// Promote a Node4 to a Node16
     pub fn from_node4(node4: &TrieNode4) -> TrieNode16 {
         let mut ptrs = [TriePtr::default(); 16];
-        for i in 0..4 {
-            ptrs[i] = node4.ptrs[i].clone();
-        }
+        ptrs[..4].copy_from_slice(&node4.ptrs[..4]);
         TrieNode16 {
             path: node4.path.clone(),
-            ptrs: ptrs,
+            ptrs,
         }
     }
 }
@@ -1166,7 +1164,7 @@ impl TrieNode for TrieLeaf {
     }
 
     fn empty() -> TrieLeaf {
-        TrieLeaf::new(&vec![], &[0u8; 40].to_vec())
+        TrieLeaf::new(&[], &[0u8; 40].to_vec())
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {

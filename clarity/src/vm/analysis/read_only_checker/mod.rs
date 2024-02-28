@@ -168,7 +168,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         body: &SymbolicExpression,
     ) -> CheckResult<(ClarityName, bool)> {
         let function_name = signature
-            .get(0)
+            .first()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;

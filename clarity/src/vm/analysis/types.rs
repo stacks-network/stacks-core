@@ -367,7 +367,7 @@ mod test {
         {
             assert_eq!(
                 fixed.args[1].signature,
-                TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
             );
         } else {
             panic!("Expected fixed function type");

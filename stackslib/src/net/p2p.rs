@@ -543,10 +543,12 @@ impl PeerNetwork {
     /// Get the current epoch
     pub fn get_current_epoch(&self) -> StacksEpoch {
         let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
-            .expect(&format!(
-                "BUG: block {} is not in a known epoch",
-                &self.chain_view.burn_block_height
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: block {} is not in a known epoch",
+                    &self.chain_view.burn_block_height
+                )
+            });
         let epoch = self
             .epochs
             .get(epoch_index)
@@ -572,6 +574,7 @@ impl PeerNetwork {
     }
 
     /// start serving.
+    #[cfg_attr(test, mutants::skip)]
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
         let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
@@ -2455,6 +2458,7 @@ impl PeerNetwork {
     }
 
     /// Do a mempool sync. Return any transactions we might receive.
+    #[cfg_attr(test, mutants::skip)]
     fn do_network_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -2505,6 +2509,7 @@ impl PeerNetwork {
     /// Begin the process of learning this peer's public IP address.
     /// Return Ok(finished with this step)
     /// Return Err(..) on failure
+    #[cfg_attr(test, mutants::skip)]
     fn begin_learn_public_ip(&mut self) -> Result<bool, net_error> {
         if self.peers.len() == 0 {
             return Err(net_error::NoSuchNeighbor);
@@ -3441,6 +3446,7 @@ impl PeerNetwork {
     /// Returns Ok(Some(..)) if we're not done, and can proceed
     /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
     /// or SendQuery if we got the IP address and can just issue the query.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_pick_outbound_peer(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3500,6 +3506,7 @@ impl PeerNetwork {
     /// Returns Ok(Some(..)) if we're not done, and can proceed
     /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
     /// or SendQuery if we got the IP address and can just issue the query.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_begin_resolve_data_url(
         &self,
         url_str: UrlString,
@@ -3556,6 +3563,7 @@ impl PeerNetwork {
     /// Returns Ok(true, ..) if we're done syncing the mempool.
     /// Returns Ok(false, ..) if there's more to do
     /// Returns the socket addr if we ever succeed in resolving it.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_resolve_data_url(
         &mut self,
         url_str: &UrlString,
@@ -3603,6 +3611,7 @@ impl PeerNetwork {
     /// Returns Ok((true, ..)) if we're done mempool syncing
     /// Returns Ok((false, ..)) if there's more to do
     /// Returns the event ID on success
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_send_query(
         &mut self,
         url: &UrlString,
@@ -3628,6 +3637,7 @@ impl PeerNetwork {
     /// Return Ok(true, ..) if we're done with the mempool sync.
     /// Return Ok(false, ..) if we have more work to do.
     /// Returns the page ID of the next request to make, and the list of transactions we got
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_recv_response(
         &mut self,
         event_id: usize,
@@ -3679,6 +3689,7 @@ impl PeerNetwork {
     /// Do a mempool sync
     /// Return true if we're done and can advance to the next state.
     /// Returns the transactions as well if the sync ran to completion.
+    #[cfg_attr(test, mutants::skip)]
     fn do_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3949,14 +3960,14 @@ impl PeerNetwork {
                     self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
                 }
                 PeerNetworkWorkState::BlockDownload => {
-                    info!(
+                    debug!(
                         "{:?}: Block download for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );
                     self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
                 }
                 PeerNetworkWorkState::AntiEntropy => {
-                    info!(
+                    debug!(
                         "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );
@@ -5516,6 +5527,7 @@ impl PeerNetwork {
     /// Store a single transaction
     /// Return true if stored; false if it was a dup or if it's temporarily blacklisted.
     /// Has to be done here, since only the p2p network has the unconfirmed state.
+    #[cfg_attr(test, mutants::skip)]
     fn store_transaction(
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
@@ -5565,6 +5577,7 @@ impl PeerNetwork {
 
     /// Store all inbound transactions, and return the ones that we actually stored so they can be
     /// relayed.
+    #[cfg_attr(test, mutants::skip)]
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
         chainstate: &mut StacksChainState,

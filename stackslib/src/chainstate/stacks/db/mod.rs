@@ -790,14 +790,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );"#,
     r#"
-    -- users who burned in support of a block
-    CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
-                                           consensus_hash TEXT NOT NULL,
-                                           address TEXT NOT NULL,
-                                           burn_amount INT NOT NULL,
-                                           vtxindex INT NOT NULL
-    );"#,
-    r#"
     CREATE TABLE transactions(
         id INTEGER PRIMARY KEY,
         txid TEXT NOT NULL,
@@ -890,7 +882,6 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_hashes ON staging_blocks(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
-    "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
@@ -1034,11 +1025,7 @@ impl StacksChainState {
     }
 
     pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
-        let config = query_row::<DBConfig, _>(
-            conn,
-            &"SELECT * FROM db_config LIMIT 1".to_string(),
-            NO_PARAMS,
-        )?;
+        let config = query_row::<DBConfig, _>(conn, "SELECT * FROM db_config LIMIT 1", NO_PARAMS)?;
         Ok(config.expect("BUG: no db_config installed"))
     }
 
@@ -1415,7 +1402,7 @@ impl StacksChainState {
                                         Value::UInt(entry.no_vowel_discount.into());
                                     let buckets: Vec<_> = entry
                                         .buckets
-                                        .split(";")
+                                        .split(';')
                                         .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
                                         .collect();
                                     assert_eq!(buckets.len(), 16);
@@ -1467,7 +1454,7 @@ impl StacksChainState {
                             let initial_names = get_names();
                             for entry in initial_names {
                                 let components: Vec<_> =
-                                    entry.fully_qualified_name.split(".").collect();
+                                    entry.fully_qualified_name.split('.').collect();
                                 assert_eq!(components.len(), 2);
 
                                 let namespace = {
@@ -1631,7 +1618,7 @@ impl StacksChainState {
                     MAINNET_2_0_GENESIS_ROOT_HASH,
                     "Incorrect root hash for genesis block computed. expected={} computed={}",
                     MAINNET_2_0_GENESIS_ROOT_HASH,
-                    genesis_root_hash.to_string()
+                    genesis_root_hash
                 )
             }
         }
@@ -2538,7 +2525,6 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
@@ -2603,11 +2589,7 @@ impl StacksChainState {
             anchor_block_cost,
             affirmation_weight,
         )?;
-        StacksChainState::insert_miner_payment_schedule(
-            headers_tx.deref_mut(),
-            block_reward,
-            user_burns,
-        )?;
+        StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),
             &index_block_hash,
