@@ -2504,7 +2504,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     info!("Submitted vote for aggregate key op at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the balaces should be unchanged
+    // the second block should process the vote, after which the vote should be processed
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
