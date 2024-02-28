@@ -25,6 +25,7 @@
 //!
 
 use std::default::Default;
+use std::mem::size_of;
 use std::{error, fmt};
 
 use serde;
@@ -201,8 +202,8 @@ fn build_scriptint(n: i64) -> Vec<u8> {
 
     let neg = n < 0;
 
-    let mut abs = if neg { -n } else { n } as usize;
-    let mut v = vec![];
+    let mut abs = n.abs() as usize;
+    let mut v = Vec::with_capacity(size_of::<usize>() + 1);
     while abs > 0xFF {
         v.push((abs & 0xFF) as u8);
         abs >>= 8;
