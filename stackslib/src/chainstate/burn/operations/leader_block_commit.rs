@@ -33,7 +33,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -238,6 +238,7 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn is_parent_genesis(&self) -> bool {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }

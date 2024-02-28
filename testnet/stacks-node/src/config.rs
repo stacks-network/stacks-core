@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -550,6 +549,7 @@ impl Config {
     }
 
     /// Apply any test settings to this burnchain config struct
+    #[cfg_attr(test, mutants::skip)]
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
         if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {
             return;
@@ -969,26 +969,11 @@ impl Config {
             node.require_affirmed_anchor_blocks = false;
         }
 
-        let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        if (node.stacker || node.miner)
-            && burnchain.mode == "nakamoto-neon"
-            && !node.stacker_dbs.contains(&miners_contract_id)
-        {
-            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
-            node.stacker_dbs.push(miners_contract_id);
+        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
+            node.add_miner_stackerdb(is_mainnet);
         }
         if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
-            for signer_set in 0..2 {
-                for message_id in 0..SIGNER_SLOTS_PER_USER {
-                    let contract_id = NakamotoSigners::make_signers_db_contract_id(
-                        signer_set, message_id, is_mainnet,
-                    );
-                    if !node.stacker_dbs.contains(&contract_id) {
-                        debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
-                        node.stacker_dbs.push(contract_id);
-                    }
-                }
-            }
+            node.add_signers_stackerdbs(is_mainnet);
         }
 
         let miner = match config_file.miner {
@@ -1884,6 +1869,27 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
+    pub fn add_signers_stackerdbs(&mut self, is_mainnet: bool) {
+        for signer_set in 0..2 {
+            for message_id in 0..SIGNER_SLOTS_PER_USER {
+                let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
+                let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
+                if !self.stacker_dbs.contains(&contract_id) {
+                    debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
+                    self.stacker_dbs.push(contract_id);
+                }
+            }
+        }
+    }
+
+    pub fn add_miner_stackerdb(&mut self, is_mainnet: bool) {
+        let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
+        if !self.stacker_dbs.contains(&miners_contract_id) {
+            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
+            self.stacker_dbs.push(miners_contract_id);
+        }
+    }
+
     fn default_neighbor(
         addr: SocketAddr,
         pubk: Secp256k1PublicKey,
@@ -2053,7 +2059,7 @@ impl Default for MinerConfig {
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
-            wait_on_signers: Duration::from_millis(10_000),
+            wait_on_signers: Duration::from_secs(200),
         }
     }
 }

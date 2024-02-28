@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::fmt;
 use std::io::Write;
 
@@ -64,7 +63,6 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
-    UserBurnSupport = '_' as u8,
     StackStx = 'x' as u8,
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
@@ -200,7 +198,6 @@ impl Opcodes {
         match self {
             Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
             Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
-            Opcodes::UserBurnSupport => Self::HTTP_BURN_SUPPORT,
             Opcodes::StackStx => Self::HTTP_STACK_STX,
             Opcodes::PreStx => Self::HTTP_PRE_STX,
             Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
@@ -213,7 +210,6 @@ impl Opcodes {
         let opcode = match input {
             Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
             Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
-            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
             Self::HTTP_STACK_STX => Opcodes::StackStx,
             Self::HTTP_PRE_STX => Opcodes::PreStx,
             Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,

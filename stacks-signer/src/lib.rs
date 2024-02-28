@@ -26,7 +26,9 @@ pub mod cli;
 pub mod client;
 /// The configuration module for the signer
 pub mod config;
+/// The coordinator selector for the signer
+pub mod coordinator;
 /// The primary runloop for the signer
 pub mod runloop;
-/// Util functions
-pub mod utils;
+/// The signer module for processing events
+pub mod signer;

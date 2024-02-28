@@ -22,6 +22,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{mem, thread};
 
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
@@ -95,8 +96,8 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let contract_id = boot_code_id(SIGNERS_NAME, false);
-    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
+    let ev = SignerEventReceiver::new(false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 5;
@@ -160,7 +161,7 @@ fn test_simple_signer() {
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
             let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(vec![signer_message])
+            SignerEvent::SignerMessages(0, vec![signer_message])
         })
         .collect();
 
@@ -170,10 +171,7 @@ fn test_simple_signer() {
 
 #[test]
 fn test_status_endpoint() {
-    let contract_id =
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
-            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
-    let ev = SignerEventReceiver::new(vec![contract_id], false);
+    let ev = SignerEventReceiver::new(false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 1;

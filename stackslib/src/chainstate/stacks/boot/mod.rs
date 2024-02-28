@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::boxed::Box;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -1326,7 +1324,6 @@ pub mod signers_voting_tests;
 #[cfg(test)]
 pub mod test {
     use std::collections::{HashMap, HashSet};
-    use std::convert::From;
     use std::fs;
 
     use clarity::boot_util::boot_code_addr;

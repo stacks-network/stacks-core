@@ -17,8 +17,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::clone::Clone;
-use std::cmp::{Eq, Ord, Ordering, PartialEq};
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions

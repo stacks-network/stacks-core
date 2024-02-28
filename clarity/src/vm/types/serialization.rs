@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
@@ -1249,7 +1247,7 @@ impl Value {
                 if l.len().ok()? > lt.get_max_len() {
                     return None;
                 }
-                let mut sanitized_items = vec![];
+                let mut sanitized_items = Vec::with_capacity(l.data.len());
                 let mut did_sanitize_children = false;
                 for item in l.data.into_iter() {
                     let (sanitized_item, did_sanitize) =
@@ -1266,11 +1264,12 @@ impl Value {
                     TypeSignature::TupleType(tt) => tt,
                     _ => return None,
                 };
-                let mut sanitized_tuple_entries = vec![];
+                let type_map = tt.get_type_map();
+                let mut sanitized_tuple_entries = Vec::with_capacity(type_map.len());
                 let original_tuple_len = tuple_data.len();
                 let mut tuple_data_map = tuple_data.data_map;
                 let mut did_sanitize_children = false;
-                for (key, expect_key_type) in tt.get_type_map().iter() {
+                for (key, expect_key_type) in type_map.iter() {
                     let field_data = tuple_data_map.remove(key)?;
                     let (sanitized_field, did_sanitize) =
                         Self::sanitize_value(epoch, expect_key_type, field_data)?;

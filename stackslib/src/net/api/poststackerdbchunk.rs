@@ -129,6 +129,7 @@ impl StackerDBErrorCodes {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn reason(&self) -> &'static str {
         match self {
             Self::DataAlreadyExists => "Data for this slot and version already exist",

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,16 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::vm::types::QualifiedContractIdentifier;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -31,14 +28,14 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
-use wsts::curve::ecdsa;
+use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
 
-/// List of key_ids for each signer_id
-pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
-
 const EVENT_TIMEOUT_MS: u64 = 5000;
+// Default transaction fee in microstacks (if unspecificed in the config file)
+// TODO: Use the fee estimation endpoint to get the default fee.
+const TX_FEE_USTX: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -71,12 +68,11 @@ pub enum Network {
 
 impl std::fmt::Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let network = match self {
-            Self::Mainnet => "mainnet",
-            Self::Testnet => "testnet",
-            Self::Mocknet => "mocknet",
-        };
-        write!(f, "{}", network)
+        match self {
+            Self::Mainnet => write!(f, "mainnet"),
+            Self::Testnet => write!(f, "testnet"),
+            Self::Mocknet => write!(f, "mocknet"),
+        }
     }
 }
 
@@ -114,15 +110,66 @@ impl Network {
     }
 }
 
+/// The registered signer information for a specific reward cycle
+#[derive(Debug, Clone)]
+pub struct RegisteredSignersInfo {
+    /// The signer to key ids mapping for the coordinator
+    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
+    /// The signer to key ids mapping for the signers
+    pub signer_key_ids: HashMap<u32, Vec<u32>>,
+    /// The signer ids to wsts pubilc keys mapping
+    pub signer_public_keys: HashMap<u32, Point>,
+    /// The signer addresses mapped to their signer ids
+    pub signer_ids: HashMap<StacksAddress, u32>,
+    /// The signer slot id for a signer address registered in stackerdb
+    /// This corresponds to their unique index when voting in a reward cycle
+    pub signer_slot_ids: HashMap<StacksAddress, u32>,
+    /// The public keys for the reward cycle
+    pub public_keys: PublicKeys,
+}
+
+/// The Configuration info needed for an individual signer per reward cycle
+#[derive(Debug, Clone)]
+pub struct SignerConfig {
+    /// The reward cycle of the configuration
+    pub reward_cycle: u64,
+    /// The signer ID assigned to this signer
+    pub signer_id: u32,
+    /// The index into the signers list of this signer's key (may be different from signer_id)
+    pub signer_slot_id: u32,
+    /// This signer's key ids
+    pub key_ids: Vec<u32>,
+    /// The registered signers for this reward cycle
+    pub registered_signers: RegisteredSignersInfo,
+    /// The Scalar representation of the private key for signer communication
+    pub ecdsa_private_key: Scalar,
+    /// The private key for this signer
+    pub stacks_private_key: StacksPrivateKey,
+    /// The node host for this signer
+    pub node_host: SocketAddr,
+    /// Whether this signer is running on mainnet or not
+    pub mainnet: bool,
+    /// timeout to gather DkgPublicShares messages
+    pub dkg_public_timeout: Option<Duration>,
+    /// timeout to gather DkgPrivateShares messages
+    pub dkg_private_timeout: Option<Duration>,
+    /// timeout to gather DkgEnd messages
+    pub dkg_end_timeout: Option<Duration>,
+    /// timeout to gather nonces
+    pub nonce_timeout: Option<Duration>,
+    /// timeout to gather signature shares
+    pub sign_timeout: Option<Duration>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee_ustx: u64,
+}
+
 /// The parsed configuration for the signer
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct GlobalConfig {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
-    /// smart contract that controls the target signers' stackerdb
-    pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// The Scalar representation of the private key for signer communication
     pub ecdsa_private_key: Scalar,
     /// The signer's Stacks private key
@@ -131,14 +178,6 @@ pub struct Config {
     pub stacks_address: StacksAddress,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    /// The signer ID and key ids mapped to a public key
-    pub signer_ids_public_keys: PublicKeys,
-    /// The signer IDs mapped to their Key IDs
-    pub signer_key_ids: SignerKeyIds,
-    /// This signer's ID
-    pub signer_id: u32,
-    /// All signer IDs participating in the current reward cycle
-    pub signer_ids: Vec<u32>,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
     /// timeout to gather DkgPublicShares messages
@@ -151,13 +190,8 @@ pub struct Config {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
-}
-
-/// Internal struct for loading up the config file signer data
-#[derive(Clone, Deserialize, Default, Debug)]
-struct RawSigners {
-    pub public_key: String,
-    pub key_ids: Vec<u32>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee_ustx: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -167,19 +201,11 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to event receiver
     pub endpoint: String,
-    /// Signers' Stacker db contract identifier
-    pub stackerdb_contract_id: Option<String>,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
     pub stacks_private_key: String,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    // TODO: Optionally retrieve the signers from the pox contract
-    // See: https://github.com/stacks-network/stacks-blockchain/issues/3912
-    /// The signers, IDs, and their private keys
-    pub signers: Vec<RawSigners>,
-    /// The signer ID
-    pub signer_id: u32,
     /// The time to wait (in millisecs) for a response from the stacker-db instance
     pub event_timeout_ms: Option<u64>,
     /// timeout in (millisecs) to gather DkgPublicShares messages
@@ -192,13 +218,15 @@ struct RawConfigFile {
     pub nonce_timeout_ms: Option<u64>,
     /// timeout in (millisecs) to gather signature shares
     pub sign_timeout_ms: Option<u64>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee_ustx: Option<u64>,
 }
 
 impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         let config: RawConfigFile =
-            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{:?}", &e)))?;
+            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
         Ok(config)
     }
     /// load the config from a file and parse it
@@ -213,12 +241,12 @@ impl TryFrom<&PathBuf> for RawConfigFile {
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
         RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
-            ConfigError::InvalidConfig(format!("failed to read config file: {:?}", &e))
+            ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
         })?)
     }
 }
 
-impl TryFrom<RawConfigFile> for Config {
+impl TryFrom<RawConfigFile> for GlobalConfig {
     type Error = ConfigError;
 
     /// Attempt to decode the raw config file's primitive types into our types.
@@ -246,13 +274,6 @@ impl TryFrom<RawConfigFile> for Config {
                 raw_data.endpoint.clone(),
             ))?;
 
-        let stackerdb_contract_id = match raw_data.stackerdb_contract_id {
-            Some(id) => QualifiedContractIdentifier::parse(&id).map_err(|_| {
-                ConfigError::BadField("stackerdb_contract_id".to_string(), id.clone())
-            })?,
-            None => boot_code_id("signers", raw_data.network == Network::Mainnet),
-        };
-
         let stacks_private_key =
             StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
                 ConfigError::BadField(
@@ -276,29 +297,6 @@ impl TryFrom<RawConfigFile> for Config {
             &vec![stacks_public_key],
         )
         .ok_or(ConfigError::UnsupportedAddressVersion)?;
-        let mut signer_ids = vec![];
-        let mut public_keys = PublicKeys::default();
-        let mut signer_key_ids = SignerKeyIds::default();
-        for (i, s) in raw_data.signers.iter().enumerate() {
-            let signer_public_key =
-                ecdsa::PublicKey::try_from(s.public_key.as_str()).map_err(|_| {
-                    ConfigError::BadField("signers.public_key".to_string(), s.public_key.clone())
-                })?;
-            for key_id in &s.key_ids {
-                //We do not allow a key id of 0.
-                if *key_id == 0 {
-                    return Err(ConfigError::BadField(
-                        "signers.key_ids".to_string(),
-                        key_id.to_string(),
-                    ));
-                }
-                public_keys.key_ids.insert(*key_id, signer_public_key);
-            }
-            let signer_id = u32::try_from(i).unwrap();
-            public_keys.signers.insert(signer_id, signer_public_key);
-            signer_key_ids.insert(signer_id, s.key_ids.clone());
-            signer_ids.push(signer_id);
-        }
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
         let dkg_end_timeout = raw_data.dkg_end_timeout_ms.map(Duration::from_millis);
@@ -309,26 +307,22 @@ impl TryFrom<RawConfigFile> for Config {
         Ok(Self {
             node_host,
             endpoint,
-            stackerdb_contract_id,
-            ecdsa_private_key,
             stacks_private_key,
+            ecdsa_private_key,
             stacks_address,
             network: raw_data.network,
-            signer_ids_public_keys: public_keys,
-            signer_id: raw_data.signer_id,
-            signer_ids,
-            signer_key_ids,
             event_timeout,
             dkg_end_timeout,
             dkg_public_timeout,
             dkg_private_timeout,
             nonce_timeout,
             sign_timeout,
+            tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
         })
     }
 }
 
-impl TryFrom<&PathBuf> for Config {
+impl TryFrom<&PathBuf> for GlobalConfig {
     type Error = ConfigError;
     fn try_from(path: &PathBuf) -> Result<Self, ConfigError> {
         let config_file = RawConfigFile::try_from(path)?;
@@ -336,57 +330,53 @@ impl TryFrom<&PathBuf> for Config {
     }
 }
 
-impl Config {
+impl GlobalConfig {
     /// load the config from a string and parse it
-    #[allow(dead_code)]
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         RawConfigFile::load_from_str(data)?.try_into()
     }
 
     /// load the config from a file and parse it
-    #[allow(dead_code)]
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         Self::try_from(&PathBuf::from(path))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use blockstack_lib::util_lib::boot::boot_code_id;
+/// Helper function for building a signer config for each provided signer private key
+pub fn build_signer_config_tomls(
+    stacks_private_keys: &[StacksPrivateKey],
+    node_host: &str,
+    timeout: Option<Duration>,
+    network: &Network,
+) -> Vec<String> {
+    let mut signer_config_tomls = vec![];
 
-    use super::{Config, Network, RawConfigFile};
+    let mut port = 30000;
+    for stacks_private_key in stacks_private_keys {
+        let endpoint = format!("localhost:{}", port);
+        port += 1;
+        let stacks_private_key = stacks_private_key.to_hex();
+        let mut signer_config_toml = format!(
+            r#"
+stacks_private_key = "{stacks_private_key}"
+node_host = "{node_host}"
+endpoint = "{endpoint}"
+network = "{network}"
+"#
+        );
 
-    fn create_raw_config(overrides: impl FnOnce(&mut RawConfigFile)) -> RawConfigFile {
-        let mut config = RawConfigFile {
-            node_host: "127.0.0.1:20443".to_string(),
-            endpoint: "127.0.0.1:30000".to_string(),
-            stackerdb_contract_id: None,
-            stacks_private_key:
-                "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4eb1b36f01".to_string(),
-            network: Network::Testnet,
-            signers: vec![],
-            signer_id: 0,
-            event_timeout_ms: None,
-            dkg_end_timeout_ms: None,
-            dkg_public_timeout_ms: None,
-            dkg_private_timeout_ms: None,
-            nonce_timeout_ms: None,
-            sign_timeout_ms: None,
-        };
-        overrides(&mut config);
-        config
+        if let Some(timeout) = timeout {
+            let event_timeout_ms = timeout.as_millis();
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+event_timeout = {event_timeout_ms}   
+"#
+            )
+        }
+
+        signer_config_tomls.push(signer_config_toml);
     }
 
-    #[test]
-    fn test_config_default_signerdb() {
-        let testnet_config = create_raw_config(|_| {});
-
-        let config = Config::try_from(testnet_config).expect("Failed to parse config");
-        assert_eq!(config.stackerdb_contract_id, boot_code_id("signers", false));
-
-        let mainnet_config = create_raw_config(|c| c.network = Network::Mainnet);
-
-        let config = Config::try_from(mainnet_config).expect("Failed to parse config");
-        assert_eq!(config.stackerdb_contract_id, boot_code_id("signers", true));
-    }
+    signer_config_tomls
 }

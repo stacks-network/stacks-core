@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
@@ -74,9 +72,10 @@ pub fn check_special_map(
         args.len(),
     )?;
 
-    let mut func_args = vec![];
+    let iter = args[1..].iter();
+    let mut func_args = Vec::with_capacity(iter.len());
     let mut min_args = u32::MAX;
-    for arg in args[1..].iter() {
+    for arg in iter {
         let argument_type = checker.type_check(arg, context)?;
         let entry_type = match argument_type {
             TypeSignature::SequenceType(sequence) => {

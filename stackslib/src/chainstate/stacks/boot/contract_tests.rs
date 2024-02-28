@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;

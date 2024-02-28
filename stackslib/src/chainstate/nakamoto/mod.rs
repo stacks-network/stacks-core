@@ -60,7 +60,6 @@ use super::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
-use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
@@ -340,6 +339,33 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             signer_signature,
             miner_signature,
             signer_bitvec,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A vote across the signer set for a block
+pub struct NakamotoBlockVote {
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    pub rejected: bool,
+}
+
+impl StacksMessageCodec for NakamotoBlockVote {
+    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_signature_hash)?;
+        if self.rejected {
+            write_next(fd, &1u8)?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_signature_hash = read_next(fd)?;
+        let rejected_byte: Option<u8> = read_next(fd).ok();
+        let rejected = rejected_byte.is_some();
+        Ok(Self {
+            signer_signature_hash,
+            rejected,
         })
     }
 }
@@ -1704,7 +1730,9 @@ impl NakamotoChainState {
             &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
-            let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
+            let msg = format!(
+                "Received block, but the signer signature does not match the active stacking cycle"
+            );
             warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
@@ -2320,11 +2348,7 @@ impl NakamotoChainState {
             tenure_fees,
         )?;
         if let Some(block_reward) = block_reward {
-            StacksChainState::insert_miner_payment_schedule(
-                headers_tx.deref_mut(),
-                block_reward,
-                &[],
-            )?;
+            StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),

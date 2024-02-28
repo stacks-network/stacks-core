@@ -16,7 +16,6 @@
 
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
@@ -147,6 +146,7 @@ impl PeerBlocksInv {
     }
 
     /// Does this remote neighbor have certainty about the ith PoX anchor block?
+    #[cfg_attr(test, mutants::skip)]
     pub fn has_ith_anchor_block(&self, reward_cycle: u64) -> bool {
         if self.num_reward_cycles <= reward_cycle {
             return false;
@@ -282,6 +282,7 @@ impl PeerBlocksInv {
 
     /// Invalidate PoX inventories as a result of learning a new reward cycle's status
     /// Returns how many bits were dropped
+    #[cfg_attr(test, mutants::skip)]
     pub fn truncate_pox_inventory(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
         let highest_agreed_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
@@ -385,6 +386,7 @@ impl PeerBlocksInv {
     }
 
     /// Clear a block bit
+    #[cfg_attr(test, mutants::skip)]
     pub fn clear_block_bit(&mut self, block_height: u64) {
         self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00], true);
     }
@@ -580,6 +582,7 @@ impl NeighborBlockStats {
         );
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn reset_block_scan(&mut self, block_reward_cycle: u64) {
         self.block_reward_cycle = block_reward_cycle;
         self.request = None;
