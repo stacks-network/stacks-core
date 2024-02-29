@@ -109,7 +109,7 @@
 	(let ((actual (map check-pox-lock-period-iter (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13))))
 		(asserts! (is-eq
 			actual
-			(list true true true true true true true true true true true true true false))
+			(list false true true true true true true true true true true true true false))
 			(err {err: "Expected only lock periods 1 to 12 to be valid", actual: actual})
 		)
 		(ok true)
