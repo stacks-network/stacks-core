@@ -24,7 +24,6 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cargo build --features monitoring_prom,slog_json --release --workspace --target ${TARGET} --bin stacks-node --bin stacks-inspect --bin clarity-cli --bin blockstack-cli \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
-
+# --bin stacks-node --bin stacks-inspect --bin clarity-cli --bin blockstack-cli 
 FROM scratch AS export-stage
 COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
-
