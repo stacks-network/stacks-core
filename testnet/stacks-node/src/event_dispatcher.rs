@@ -17,7 +17,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::{RewardSet, RewardSetData};
+use stacks::chainstate::stacks::boot::RewardSetData;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -72,7 +72,6 @@ pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
-pub const PATH_POX_ANCHOR: &str = "new_pox_set";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -463,7 +462,6 @@ pub struct EventDispatcher {
     mined_microblocks_observers_lookup: HashSet<u16>,
     stackerdb_observers_lookup: HashSet<u16>,
     block_proposal_observers_lookup: HashSet<u16>,
-    pox_stacker_set_observers_lookup: HashSet<u16>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -656,7 +654,6 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
-            pox_stacker_set_observers_lookup: HashSet::new(),
         }
     }
 
@@ -940,30 +937,6 @@ impl EventDispatcher {
             .collect()
     }
 
-    fn process_stacker_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        let interested_observers =
-            self.filter_observers(&self.pox_stacker_set_observers_lookup, false);
-
-        if interested_observers.is_empty() {
-            return;
-        }
-
-        let payload = json!({
-            "stacker_set": reward_set,
-            "block_id": block_id,
-            "cycle_number": cycle_number
-        });
-
-        for observer in interested_observers.iter() {
-            observer.send_payload(&payload, PATH_POX_ANCHOR);
-        }
-    }
-
     pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
@@ -1207,9 +1180,6 @@ impl EventDispatcher {
                 }
                 EventKeyType::BlockProposal => {
                     self.block_proposal_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::StackerSet => {
-                    self.pox_stacker_set_observers_lookup.insert(observer_index);
                 }
             }
         }

@@ -1035,7 +1035,7 @@ fn correct_burn_outs() {
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::StackerSet],
+        events_keys: vec![EventKeyType::AnyEvent],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
