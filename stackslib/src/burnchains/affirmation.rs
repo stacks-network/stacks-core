@@ -232,7 +232,6 @@
 ///
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::Write;
 use std::sync::mpsc::SyncSender;
@@ -370,6 +369,7 @@ impl AffirmationMap {
         self.affirmations.push(entry)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn pop(&mut self) -> Option<AffirmationMapEntry> {
         self.affirmations.pop()
     }

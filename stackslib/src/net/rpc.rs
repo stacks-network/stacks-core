@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
@@ -512,6 +511,7 @@ impl ConversationHttp {
     }
 
     /// When was this converation conencted?
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_connection_time(&self) -> u64 {
         self.connection_time
     }
@@ -597,6 +597,7 @@ impl ConversationHttp {
     }
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
+    #[cfg_attr(test, mutants::skip)]
     pub fn clear_timeouts(&mut self) -> () {
         self.connection.drain_timeouts();
     }
@@ -625,6 +626,7 @@ impl ConversationHttp {
     }
 
     /// Write data out of our HTTP connection.  Write as much as we can
+    #[cfg_attr(test, mutants::skip)]
     pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {
