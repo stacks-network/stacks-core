@@ -9,12 +9,6 @@ on:
         description: "Tag name of this release (x.y.z)"
         required: true
         type: string
-      arch:
-        description: "Stringified JSON object listing of platform matrix"
-        required: false
-        type: string
-        default: >-
-          ["linux-glibc-arm64", "linux-glibc-armv7", "linux-musl-arm64", "linux-musl-armv7"]
 
 ## change the display name to the tag being built
 run-name: ${{ inputs.tag }}
@@ -30,7 +24,7 @@ jobs:
   ##  - workflow is building default branch (master)
   artifact:
     if: |
-      inputs.tag != '' && 
+      inputs.tag != '' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     name: Build Binaries
     runs-on: ubuntu-latest
@@ -38,33 +32,79 @@ jobs:
       ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
       max-parallel: 10
       matrix:
-        platform: ${{ fromJson(inputs.arch) }}
+        arch:
+          - linux-musl
+          - linux-glibc
+          - macos
+          - windows
+        cpu:
+          - arm64
+          - armv7
+          - x86-64
+          - x86-64-v3
+        exclude:
+          - arch: windows # excludes windows-arm64
+            cpu: arm64
+          - arch: windows # excludes windows-armv7
+            cpu: armv7
+          - arch: macos # excludes macos-armv7
+            cpu: armv7
+
     steps:
       ## Setup Docker for the builds
       - name: Docker setup
+        id: docker_setup
         uses: stacks-network/actions/docker@main
 
+      - name: Set Local env vars
+        id: set_envars
+        run: |
+          case ${{ matrix.cpu }} in
+              x86-64)
+                  TARGET_CPU="${{ matrix.cpu }}"
+                  DOCKERFILE_CPU="x64"
+                  ARCHIVE_NAME="x64"
+                  ;;
+              x86-64-v3)
+                  TARGET_CPU="${{ matrix.cpu }}"
+                  DOCKERFILE_CPU="x64"
+                  ARCHIVE_NAME="x64-v3"
+                  ;;
+              *)
+                  TARGET_CPU=""
+                  DOCKERFILE_CPU="${{ matrix.cpu }}"
+                  ARCHIVE_NAME="${{ matrix.cpu }}"
+                  ;;
+          esac
+          echo "DOCKERFILE=Dockerfile.${{ matrix.arch }}-${DOCKERFILE_CPU}" >> "$GITHUB_ENV"
+          echo "ZIPFILE=${{ matrix.arch }}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
+          echo "TARGET_CPU=${TARGET_CPU}" >> "$GITHUB_ENV"
+          echo "DOCKERFILE: ${DOCKERFILE}"
+          echo "ZIPFILE: ${ZIPFILE}"
+          echo "TARGET_CPU: ${TARGET_CPU}"
+
       ## Build the binaries using defined dockerfiles
-      - name: Build Binary (${{ matrix.platform }})
+      - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         id: build_binaries
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # 5.0.0
         with:
-          file: build-scripts/Dockerfile.${{ matrix.platform }}
-          outputs: type=local,dest=./release/${{ matrix.platform }}
+          file: build-scripts/${{ env.DOCKERFILE }}
+          outputs: type=local,dest=./release/${{ matrix.arch }}
           build-args: |
             STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
-            OS_ARCH=${{ matrix.platform }}
+            OS_ARCH=${{ matrix.arch }}
+            TARGET_CPU=${{ env.TARGET_CPU }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
 
       ## Compress the binary artifact
       - name: Compress artifact
         id: compress_artifact
-        run: zip --junk-paths ${{ matrix.platform }} ./release/${{ matrix.platform }}/*
+        run: zip --junk-paths ${{ env.ZIPFILE }} ./release/${{ matrix.arch }}/*
 
       ## Upload the binary artifact to the github action (used in `github-release.yml` to create a release)
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
         with:
-          path: ${{ matrix.platform }}.zip
+          path: ${{ env.ZIPFILE }}.zip

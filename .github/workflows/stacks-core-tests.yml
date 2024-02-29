@@ -166,7 +166,6 @@ jobs:
 
   # Core contract tests on Clarinet v1
   # Check for false positives/negatives
-  # https://github.com/stacks-network/stacks-blockchain/pull/4031#pullrequestreview-1713341208
   core-contracts-clarinet-test-clarinet-v1:
     name: Core Contracts Test Clarinet V1
     runs-on: ubuntu-latest
