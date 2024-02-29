@@ -117,6 +117,9 @@
 ;;    (6) (reward-cycle-to-burn-height (+ lock-period first-reward-cycle)) == (get unlock-height (stx-account stacker))
 ;;  These invariants only hold while `cur-reward-cycle < (+ lock-period first-reward-cycle)`
 ;;
+(define-map protocols principal (list 10000 uint))
+(define-map protocol-positions {protocol: principal, position-id: uint} {status: (string-ascii 32), collateral: uint})
+
 (define-map stacking-state
     { stacker: principal }
     {
