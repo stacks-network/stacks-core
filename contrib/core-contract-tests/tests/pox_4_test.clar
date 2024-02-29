@@ -1,17 +1,25 @@
 (define-public (test-burn-height-to-reward-cycle)
 	(begin 
 		(asserts! (is-eq u2 (contract-call? .pox-4 burn-height-to-reward-cycle u2100)) (err "Burn height 2100 should have been reward cycle 2"))
-		(ok true)))
+		(asserts! (is-eq u3 (contract-call? .pox-4 burn-height-to-reward-cycle u3150)) (err "Burn height 3150 should have been reward cycle 2"))
+		(ok true)
+	)
+)
 
 (define-public (test-reward-cycle-to-burn-height)
 	(begin 
 		(asserts! (is-eq u10500 (contract-call? .pox-4 reward-cycle-to-burn-height u10)) (err "Cycle 10 height should have been at burn height 10500"))
-		(ok true)))
+		(asserts! (is-eq u18900 (contract-call? .pox-4 reward-cycle-to-burn-height u18)) (err "Cycle 18 height should have been at burn height 18900"))
+		(ok true)
+	)
+)
 
 (define-public (test-get-stacker-info-none)
 	(begin 
 		(asserts! (is-none (contract-call? .pox-4 get-stacker-info tx-sender)) (err "By default, tx-sender should not have stacker info"))
-		(ok true)))
+		(ok true)
+	)
+)
 
 
 (define-private (check-pox-addr-version-iter (input (buff 1)))
@@ -93,22 +101,27 @@
 	)
 )
 
-(define-public (test-invalid-lock-height-too-low)
-	(let
-		((actual (contract-call? .pox-4 check-pox-lock-period u0)))
-		(asserts! (not actual) (err u111))
-		(ok true)))
+(define-private (check-pox-lock-period-iter (period uint))
+	(contract-call? .pox-4 check-pox-lock-period period)
+)
 
-(define-public (test-invalid-lock-height-too-high)
-	(let
-		((actual (contract-call? .pox-4 check-pox-lock-period u13)))
-		(asserts! (not actual) (err u111))
-		(ok true)))
+(define-public (test-check-pox-lock-period)
+	(let ((actual (map check-pox-lock-period-iter (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13))))
+		(asserts! (is-eq
+			actual
+			(list true true true true true true true true true true true true true false))
+			(err {err: "Expected only lock periods 1 to 12 to be valid", actual: actual})
+		)
+		(ok true)
+	)
+)
 
 (define-public (test-get-total-ustx-stacked)
 	(begin 
-		(asserts! (is-eq (contract-call? .pox-4 get-total-ustx-stacked u1) u0) (err u111))
-		(ok true)))
+		(asserts! (is-eq (contract-call? .pox-4 get-total-ustx-stacked u1) u0) (err "Total ustx stacked should be 0"))
+		(ok true)
+	)
+)
 
 
 (define-private (repeat-iter (a (buff 1)) (repeat {i: (buff 1), o: (buff 33)}))
