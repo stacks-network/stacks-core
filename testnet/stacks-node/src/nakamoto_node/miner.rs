@@ -391,7 +391,8 @@ impl BlockMinerThread {
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let weights: u64 = signer_weights.values().sum();
-        let rejection_threshold = weights / 10 * 7;
+        // Always add +0.9 to force any remainder to round up to the next integer
+        let rejection_threshold = (weights * 7 + 9) / 10;
         let mut rejections = HashSet::new();
         let mut rejections_weight: u64 = 0;
         let now = Instant::now();
