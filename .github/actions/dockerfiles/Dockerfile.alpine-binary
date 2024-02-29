@@ -10,13 +10,12 @@ ARG TARGETVARIANT
 ARG REPO=stacks-network/stacks-core
 
 RUN case ${TARGETARCH} in \
-    "amd64")  BIN_ARCH=linux-musl-x64  ;; \
+    "amd64")  BIN_ARCH=linux-musl-x64-v3  ;; \
     "arm64")  BIN_ARCH=linux-musl-arm64  ;; \
     "arm")  BIN_ARCH=linux-musl-armv7  ;; \
     "*") exit 1 ;; \
     esac \
-    && echo "wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
-    && wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
+    && wget -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
     && unzip ${BIN_ARCH}.zip -d /out
 
 FROM --platform=${TARGETPLATFORM} alpine
