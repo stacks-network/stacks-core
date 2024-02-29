@@ -77,7 +77,7 @@ jobs:
 
       - name: Rustfmt
         id: rustfmt
-        uses: actions-rust-lang/rustfmt@2d1d4e9f72379428552fa1def0b898733fb8472d # v1.1.0
+        uses: BowTiedDevOps/actions/rustfmt@feat/rustfmt-alias
 
   ######################################################################################
   ## Create a tagged github release
