@@ -46,6 +46,16 @@ use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, Stac
 use crate::config::SignerConfig;
 use crate::coordinator::CoordinatorSelector;
 
+/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
+pub struct SignerSlotID(pub u32);
+
+impl std::fmt::Display for SignerSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Additional Info about a proposed block
 pub struct BlockInfo {
     /// The block we are considering
@@ -129,11 +139,11 @@ pub struct Signer {
     /// The signer id
     pub signer_id: u32,
     /// The signer slot ids for the signers in the reward cycle
-    pub signer_slot_ids: Vec<u32>,
+    pub signer_slot_ids: Vec<SignerSlotID>,
     /// The addresses of other signers
     pub signer_addresses: Vec<StacksAddress>,
     /// The signer slot ids for the signers in the NEXT reward cycle
-    pub next_signer_slot_ids: Vec<u32>,
+    pub next_signer_slot_ids: Vec<SignerSlotID>,
     /// The addresses of the signers for the NEXT reward cycle
     pub next_signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
@@ -881,7 +891,7 @@ impl Signer {
             .map(|tx| tx.get_origin_nonce().wrapping_add(1))
             .unwrap_or(*account_nonce);
         match stacks_client.build_vote_for_aggregate_public_key(
-            self.stackerdb.get_signer_slot_id(),
+            self.stackerdb.get_signer_slot_id().0,
             self.coordinator.current_dkg_id,
             *dkg_public_key,
             self.reward_cycle,

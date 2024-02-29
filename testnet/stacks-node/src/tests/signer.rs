@@ -42,7 +42,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::Command as SignerCommand;
+use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::common::Signature;
@@ -531,7 +531,7 @@ impl SignerTest {
             .unwrap()
     }
 
-    fn get_signer_index(&self, reward_cycle: u64) -> u32 {
+    fn get_signer_index(&self, reward_cycle: u64) -> SignerSlotID {
         let valid_signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
@@ -541,7 +541,9 @@ impl SignerTest {
             .expect("FATAL: failed to get signer slots from stackerdb")
             .iter()
             .position(|(address, _)| address == self.stacks_client.get_signer_address())
-            .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            })
             .expect("FATAL: signer not registered")
     }
 

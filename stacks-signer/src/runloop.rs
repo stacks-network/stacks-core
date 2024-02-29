@@ -32,7 +32,7 @@ use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, State as SignerState};
+use crate::signer::{Command as SignerCommand, Signer, SignerSlotID, State as SignerState};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -159,7 +159,7 @@ impl RunLoop {
         &self,
         stacks_client: &StacksClient,
         reward_cycle: u64,
-    ) -> Result<HashMap<StacksAddress, u32>, ClientError> {
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
         let signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id =
@@ -171,7 +171,9 @@ impl RunLoop {
         for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
             signer_slot_ids.insert(
                 address,
-                u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                SignerSlotID(
+                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                ),
             );
         }
         Ok(signer_slot_ids)
@@ -413,15 +415,11 @@ mod tests {
 
         let parsed_entries = RunLoop::parse_nakamoto_signer_entries(&signer_entries, false);
         assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
-        let mut signer_ids = parsed_entries
-            .signer_ids
-            .into_values()
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
         signer_ids.sort();
         assert_eq!(
             signer_ids,
-            (0..nmb_signers as u32).into_iter().collect::<Vec<_>>()
+            (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
         );
     }
 }
