@@ -126,6 +126,10 @@ pub struct ParsedSignerEntries {
     /// The signer ids mapped to a hash set of key ids
     /// The wsts coordinator uses a hash set for each signer since it needs to do lots of lookups
     pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
+    /// The number of invalid key ids
+    pub num_invalid_key_ids: u32,
+    /// The number of invalid signers
+    pub num_invalid_signers: u32,
 }
 
 /// The Configuration info needed for an individual signer per reward cycle

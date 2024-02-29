@@ -161,9 +161,11 @@ impl From<SignerConfig> for Signer {
         let stackerdb = StackerDB::from(&signer_config);
 
         let num_signers = u32::try_from(signer_config.signer_entries.public_keys.signers.len())
-            .expect("FATAL: Too many registered signers to fit in a u32");
+            .expect("FATAL: Too many registered signers to fit in a u32")
+            .saturating_add(signer_config.signer_entries.num_invalid_signers);
         let num_keys = u32::try_from(signer_config.signer_entries.public_keys.key_ids.len())
-            .expect("FATAL: Too many key ids to fit in a u32");
+            .expect("FATAL: Too many key ids to fit in a u32")
+            .saturating_add(signer_config.signer_entries.num_invalid_key_ids);
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
 

@@ -82,6 +82,16 @@ impl From<GlobalConfig> for RunLoop {
 }
 
 impl RunLoop {
+    /// Parse a signing key slice into the ecdsa public key, point signing key, and stacks public key
+    pub fn parse_signing_key(
+        signing_key: &[u8],
+    ) -> Option<(ecdsa::PublicKey, Point, StacksPublicKey)> {
+        let ecdsa_public_key = ecdsa::PublicKey::try_from(signing_key).ok()?;
+        let signing_public_key =
+            Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes())).ok()?;
+        let stacks_public_key = StacksPublicKey::from_slice(signing_key).ok()?;
+        Some((ecdsa_public_key, signing_public_key, stacks_public_key))
+    }
     /// Parse Nakamoto signer entries into relevant signer information
     pub fn parse_nakamoto_signer_entries(
         signers: &[NakamotoSignerEntry],
@@ -96,24 +106,31 @@ impl RunLoop {
             key_ids: HashMap::with_capacity(4000),
         };
         let mut signer_public_keys = HashMap::with_capacity(signers.len());
+        let mut num_invalid_key_ids: u32 = 0;
+        let mut num_invalid_signers: u32 = 0;
         for (i, entry) in signers.iter().enumerate() {
             // TODO: track these signer ids as non participating if any of the conversions fail
             let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice())
-                .expect("FATAL: corrupted signing key");
-            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
-                .expect("FATAL: corrupted signing key");
-            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
-                .expect("FATAL: Corrupted signing key");
-
-            let stacks_address = StacksAddress::p2pkh(is_mainnet, &stacks_public_key);
-            signer_ids.insert(stacks_address, signer_id);
-            signer_public_keys.insert(signer_id, signer_public_key);
+            let parsed_keys = Self::parse_signing_key(entry.signing_key.as_slice());
+            if let Some((_, signer_public_key, stacks_public_key)) = parsed_keys {
+                let stacks_address = StacksAddress::p2pkh(is_mainnet, &stacks_public_key);
+                signer_ids.insert(stacks_address, signer_id);
+                signer_public_keys.insert(signer_id, signer_public_key);
+            } else {
+                num_invalid_signers += 1;
+                warn!(
+                    "Invalid signing key registered for signer {signer_id}. Ignoring its key ids."
+                );
+            }
             let weight_start = weight_end;
             weight_end = weight_start + entry.weight;
             for key_id in weight_start..weight_end {
-                public_keys.key_ids.insert(key_id, ecdsa_public_key);
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
+                if let Some((ecdsa_public_key, _, _)) = parsed_keys {
+                    public_keys.key_ids.insert(key_id, ecdsa_public_key);
+                    public_keys.signers.insert(signer_id, ecdsa_public_key);
+                } else {
+                    num_invalid_key_ids += 1;
+                }
                 coordinator_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::with_capacity(entry.weight as usize))
@@ -130,6 +147,8 @@ impl RunLoop {
             signer_key_ids,
             signer_public_keys,
             coordinator_key_ids,
+            num_invalid_signers,
+            num_invalid_key_ids,
         }
     }
 
@@ -390,36 +409,40 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
-    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-
-    use super::RunLoop;
+    use crate::client::tests::generate_parsed_entries;
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
-        let nmb_signers = 10;
-        let weight = 10;
-        let mut signer_entries = Vec::with_capacity(nmb_signers);
-        for _ in 0..nmb_signers {
-            let key = StacksPublicKey::from_private(&StacksPrivateKey::new()).to_bytes_compressed();
-            let mut signing_key = [0u8; 33];
-            signing_key.copy_from_slice(&key);
-            signer_entries.push(NakamotoSignerEntry {
-                signing_key,
-                stacked_amt: 0,
-                weight,
-            });
-        }
+        let total_num_signers: u32 = 10;
+        let num_invalid_signers = 2;
+        let num_valid_signers = total_num_signers.saturating_sub(num_invalid_signers);
+        let num_keys_per_signer = 3;
 
-        let parsed_entries = RunLoop::parse_nakamoto_signer_entries(&signer_entries, false);
-        assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
+        let parsed_entries = generate_parsed_entries(
+            None,
+            total_num_signers,
+            num_invalid_signers,
+            num_keys_per_signer,
+        );
+        assert_eq!(parsed_entries.signer_ids.len() as u32, num_valid_signers);
         let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
         signer_ids.sort();
+        assert_eq!(signer_ids, (0..num_valid_signers).collect::<Vec<_>>());
         assert_eq!(
-            signer_ids,
-            (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
+            parsed_entries.public_keys.key_ids.len() as u32,
+            num_valid_signers * num_keys_per_signer
         );
+        assert_eq!(
+            parsed_entries.public_keys.signers.len() as u32,
+            num_valid_signers
+        );
+        assert_eq!(
+            parsed_entries.num_invalid_key_ids,
+            num_keys_per_signer * num_invalid_signers
+        );
+        assert_eq!(parsed_entries.num_invalid_signers, num_invalid_signers);
     }
 }

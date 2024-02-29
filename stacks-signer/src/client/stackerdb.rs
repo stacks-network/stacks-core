@@ -279,7 +279,7 @@ mod tests {
     #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let signer_config = generate_signer_config(&config, 5, 20);
+        let signer_config = generate_signer_config(&config, 5, 0, 4);
         let mut stackerdb = StackerDB::from(&signer_config);
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
@@ -323,7 +323,7 @@ mod tests {
     #[serial]
     fn send_signer_message_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let signer_config = generate_signer_config(&config, 5, 20);
+        let signer_config = generate_signer_config(&config, 5, 0, 4);
         let mut stackerdb = StackerDB::from(&signer_config);
 
         let sk = StacksPrivateKey::new();

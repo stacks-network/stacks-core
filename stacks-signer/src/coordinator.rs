@@ -173,7 +173,7 @@ mod tests {
     fn calculate_coordinator_different_consensus_hashes_produces_unique_results() {
         let number_of_tests = 5;
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let public_keys = generate_signer_config(&config, 10, 4000)
+        let public_keys = generate_signer_config(&config, 10, 0, 4000)
             .signer_entries
             .public_keys;
         let mut results = Vec::new();
@@ -196,7 +196,7 @@ mod tests {
         count: usize,
     ) -> Vec<Vec<u32>> {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let public_keys = generate_signer_config(&config, 10, 4000)
+        let public_keys = generate_signer_config(&config, 10, 0, 4000)
             .signer_entries
             .public_keys;
         let mut results = Vec::new();
