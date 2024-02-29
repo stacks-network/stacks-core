@@ -154,6 +154,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -456,7 +457,7 @@ pub(crate) mod tests {
                     &StacksPublicKey::from_slice(ecdsa_public_key.to_bytes().as_slice())
                         .expect("Failed to create stacks public key"),
                 );
-                signer_slot_ids.push(signer_id); // Note in a real world situation, these would not always match
+                signer_slot_ids.push(SignerSlotID(signer_id));
                 signer_ids.insert(address, signer_id);
 
                 continue;
@@ -483,14 +484,14 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
-            signer_slot_ids.push(signer_id); // Note in a real world situation, these would not always match
+            signer_slot_ids.push(SignerSlotID(signer_id));
             signer_ids.insert(address, signer_id);
             start_key_id = end_key_id;
         }
         SignerConfig {
             reward_cycle,
             signer_id: 0,
-            signer_slot_id: 0,
+            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
             signer_entries: ParsedSignerEntries {
                 public_keys,

@@ -32,6 +32,8 @@ use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
 
+use crate::signer::SignerSlotID;
+
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee in microstacks (if unspecificed in the config file)
 // TODO: Use the fee estimation endpoint to get the default fee.
@@ -134,13 +136,13 @@ pub struct SignerConfig {
     /// The signer ID assigned to this signer to be used in DKG and Sign rounds
     pub signer_id: u32,
     /// The signer stackerdb slot id (may be different from signer_id)
-    pub signer_slot_id: u32,
+    pub signer_slot_id: SignerSlotID,
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
     pub signer_entries: ParsedSignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
-    pub signer_slot_ids: Vec<u32>,
+    pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication
     pub ecdsa_private_key: Scalar,
     /// The private key for this signer
