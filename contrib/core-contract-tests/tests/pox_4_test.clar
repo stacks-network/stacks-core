@@ -81,10 +81,10 @@
 			(err "Only length 20 should be valid for version 0x04")
 		)
 		(asserts! (is-eq (map check-pox-addr-hashbytes-iter test-lengths (buff-repeat 0x05 (len test-lengths))) length-32-valid)
-			(err "Only length 20 should be valid for version 0x05")
+			(err "Only length 32 should be valid for version 0x05")
 		)
 		(asserts! (is-eq (map check-pox-addr-hashbytes-iter test-lengths (buff-repeat 0x06 (len test-lengths))) length-32-valid)
-			(err "Only length 20 should be valid for version 0x06")
+			(err "Only length 32 should be valid for version 0x06")
 		)
 		(asserts! (is-eq (map check-pox-addr-hashbytes-iter test-lengths (buff-repeat 0x07 (len test-lengths))) length-all-invalid)
 			(err "No length should be valid for version 0x07")
@@ -107,7 +107,6 @@
 
 (define-public (test-get-total-ustx-stacked)
 	(begin 
-		;; @continue
 		(asserts! (is-eq (contract-call? .pox-4 get-total-ustx-stacked u1) u0) (err u111))
 		(ok true)))
 
