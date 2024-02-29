@@ -53,9 +53,9 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+use stacks_node::config::Config;
 
 use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
 /// The number of bitcoin blocks that can have
@@ -2556,8 +2556,9 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
+    use stacks_node::config::DEFAULT_SATS_PER_VB;
+
     use super::*;
-    use crate::config::DEFAULT_SATS_PER_VB;
 
     #[test]
     fn test_get_satoshis_per_byte() {

@@ -16,10 +16,11 @@ use stacks::core::mempool::MemPoolDB;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
+use stacks_node::config::Config;
 
 /// Only used by the Helium (Mocknet) node
 use super::node::ChainTip;
-use super::{BurnchainTip, Config};
+use super::BurnchainTip;
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,

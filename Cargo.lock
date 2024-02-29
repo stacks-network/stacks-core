@@ -523,6 +523,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "blind-signer"
+version = "0.1.0"
+dependencies = [
+ "libsigner",
+ "pico-args",
+ "reqwest",
+ "serde_json",
+ "slog",
+ "stacks-common",
+ "stacks-node",
+ "stackslib",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3496,6 +3510,7 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
+ "blind-signer",
  "chrono",
  "clarity",
  "hashbrown 0.14.3",

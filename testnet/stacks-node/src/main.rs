@@ -12,12 +12,12 @@ extern crate slog;
 
 pub use stacks_common::util;
 use stacks_common::util::hash::hex_bytes;
+use stacks_node::chain_data::MinerStats;
+use stacks_node::config::{Config, ConfigFile};
 
 pub mod monitoring;
 
 pub mod burnchains;
-pub mod chain_data;
-pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;
@@ -47,13 +47,11 @@ use tikv_jemallocator::Jemalloc;
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };
-pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-use crate::chain_data::MinerStats;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 

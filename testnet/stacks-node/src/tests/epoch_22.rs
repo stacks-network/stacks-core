@@ -16,9 +16,9 @@ use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+use stacks_node::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use stacks_node::utils::{get_account, submit_tx};
 
-use super::neon_integrations::get_account;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon_node::StacksNode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::bytes_to_hex;

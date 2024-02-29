@@ -31,6 +31,7 @@ wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = { workspace = true }
+reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = {workspace = true}
@@ -44,6 +45,7 @@ clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer" }
+blind-signer = { path = "../../blind-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
@@ -60,6 +62,10 @@ path = "src/main.rs"
 [[bin]]
 name = "stacks-events"
 path = "src/stacks_events.rs"
+
+[lib]
+name = "stacks_node"
+path = "src/lib.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]

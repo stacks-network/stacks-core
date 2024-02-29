@@ -201,13 +201,14 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_node::chain_data::MinerStats;
+use stacks_node::config::Config;
 
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
-use crate::chain_data::MinerStats;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;

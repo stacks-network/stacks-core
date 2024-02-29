@@ -27,6 +27,7 @@ use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_node::config::Config;
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
@@ -39,9 +40,7 @@ use crate::node::{
     use_test_genesis_chainstate,
 };
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, BurnchainController, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 
