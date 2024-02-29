@@ -805,11 +805,11 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git#67e7ff9c25a865a83baa3ae312fbf4eb3ea4af6f"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#53f3b276b7e01df28f022a1e52b0d6f492a3f011"
 dependencies = [
  "chrono",
  "clap 4.4.18",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?rev=75ee7718db5b251adf7bc3fcd769b78859310d54)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?rev=de3e3c679e2db0336b95f1c188a3dae73b3b336f)",
  "lazy_static",
  "regex",
  "rusqlite",
@@ -867,7 +867,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=75ee7718db5b251adf7bc3fcd769b78859310d54#75ee7718db5b251adf7bc3fcd769b78859310d54"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=de3e3c679e2db0336b95f1c188a3dae73b3b336f#de3e3c679e2db0336b95f1c188a3dae73b3b336f"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -3066,7 +3066,7 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?rev=de3e3c679e2db0336b95f1c188a3dae73b3b336f)",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
 ]
@@ -4109,7 +4109,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d84cee6525281468387f2c7b9dc259357992e3aa"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#1e9df56b255247928679961d0a7c2541ad127f59"
 dependencies = [
  "chrono",
  "curve25519-dalek",
