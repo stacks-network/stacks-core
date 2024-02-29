@@ -1,4 +1,3 @@
-use std::convert::{From, TryFrom};
 use std::sync::Mutex;
 
 use clarity::vm::costs::ExecutionCost;

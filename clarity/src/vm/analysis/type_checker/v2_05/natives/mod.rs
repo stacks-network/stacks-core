@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-
 use stacks_common::types::StacksEpochId;
 
 use super::{
@@ -187,14 +185,11 @@ pub fn check_special_tuple_cons(
     context: &TypingContext,
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
+    let len = args.len();
 
-    let mut tuple_type_data = Vec::new();
+    runtime_cost(ClarityCostFunction::AnalysisCheckTupleCons, checker, len)?;
 
-    runtime_cost(
-        ClarityCostFunction::AnalysisCheckTupleCons,
-        checker,
-        args.len(),
-    )?;
+    let mut tuple_type_data = Vec::with_capacity(len);
 
     handle_binding_list(args, |var_name, var_sexp| {
         checker.type_check(var_sexp, context).and_then(|var_type| {

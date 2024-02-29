@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};

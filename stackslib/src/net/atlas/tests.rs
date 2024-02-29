@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::convert::TryFrom;
 use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;

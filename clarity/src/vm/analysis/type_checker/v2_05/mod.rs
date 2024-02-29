@@ -19,7 +19,6 @@ pub mod contexts;
 pub mod natives;
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 
 use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
@@ -526,7 +525,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> CheckResult<Vec<TypeSignature>> {
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
             result.push(self.type_check(arg, context)?)

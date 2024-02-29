@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use std::iter::Iterator;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{env, fs, io, process};

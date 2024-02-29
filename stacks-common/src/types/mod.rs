@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 
 use crate::address::c32::{c32_address, c32_address_decode};

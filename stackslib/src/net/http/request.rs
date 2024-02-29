@@ -16,7 +16,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
-use std::string::ToString;
 
 use percent_encoding::percent_decode_str;
 use rand::{thread_rng, Rng};

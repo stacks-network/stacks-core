@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
