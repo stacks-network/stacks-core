@@ -180,3 +180,19 @@ jobs:
         with:
           args: test --manifest-path=./contrib/core-contract-tests/Clarinet.toml contrib/core-contract-tests/tests/bns/name_register_test.ts
 
+  check-tests:
+    name: Check Tests
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - full-genesis
+      - unit-tests
+      - open-api-validation
+      - core-contracts-clarinet-test
+    steps:
+      - name: Check Tests Status
+        id: check_tests_status
+        uses: stacks-network/actions/check-jobs-status@main
+        with:
+          jobs: ${{ toJson(needs) }}
+          summary_print: "true"
