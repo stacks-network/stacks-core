@@ -156,8 +156,8 @@ impl From<SignerConfig> for Signer {
             .expect("FATAL: Too many registered signers to fit in a u32");
         let num_keys = u32::try_from(signer_config.registered_signers.public_keys.key_ids.len())
             .expect("FATAL: Too many key ids to fit in a u32");
-        let threshold = num_keys * 7 / 10;
-        let dkg_threshold = num_keys * 9 / 10;
+        let threshold = (num_keys as f64 * 7_f64 / 10_f64).ceil() as u32;
+        let dkg_threshold = (num_keys as f64 * 9_f64 / 10_f64).ceil() as u32;
 
         let coordinator_config = CoordinatorConfig {
             threshold,
