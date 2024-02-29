@@ -225,19 +225,17 @@ impl StackerDB {
         Ok(transactions)
     }
 
-    /// Get the latest signer transactions from signer ids for the current reward cycle
+    /// Get this signer's latest transactions from stackerdb
     pub fn get_current_transactions_with_retry(
         &mut self,
-        signer_id: u32,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        debug!("Signer #{signer_id}: Getting latest transactions from stacker db",);
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
             .get_mut(&TRANSACTIONS_MSG_ID)
         else {
             return Err(ClientError::NotConnected);
         };
-        Self::get_transactions(transactions_session, &[signer_id])
+        Self::get_transactions(transactions_session, &[self.signer_slot_id])
     }
 
     /// Get the latest signer transactions from signer ids for the next reward cycle
