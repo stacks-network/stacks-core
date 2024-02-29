@@ -128,18 +128,14 @@ pub struct Signer {
     pub mainnet: bool,
     /// The signer id
     pub signer_id: u32,
-    /// The other signer ids for this signer's reward cycle
-    pub signer_ids: Vec<u32>,
-    /// The addresses of other signers mapped to their signer slot ID
-    pub signer_slot_ids: HashMap<StacksAddress, u32>,
+    /// The signer slot ids for the signers in the reward cycle
+    pub signer_slot_ids: Vec<u32>,
     /// The addresses of other signers
-    pub signers: Vec<StacksAddress>,
-    /// The other signer ids for the NEXT reward cycle's signers
-    pub next_signer_ids: Vec<u32>,
-    /// The signer addresses mapped to slot ID for the NEXT reward cycle's signers
-    pub next_signer_slot_ids: HashMap<StacksAddress, u32>,
+    pub signer_addresses: Vec<StacksAddress>,
+    /// The signer slot ids for the signers in the NEXT reward cycle
+    pub next_signer_slot_ids: Vec<u32>,
     /// The addresses of the signers for the NEXT reward cycle
-    pub next_signers: Vec<StacksAddress>,
+    pub next_signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
     /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
@@ -154,9 +150,9 @@ impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
         let stackerdb = StackerDB::from(&signer_config);
 
-        let num_signers = u32::try_from(signer_config.registered_signers.public_keys.signers.len())
+        let num_signers = u32::try_from(signer_config.signer_entries.public_keys.signers.len())
             .expect("FATAL: Too many registered signers to fit in a u32");
-        let num_keys = u32::try_from(signer_config.registered_signers.public_keys.key_ids.len())
+        let num_keys = u32::try_from(signer_config.signer_entries.public_keys.key_ids.len())
             .expect("FATAL: Too many key ids to fit in a u32");
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
@@ -172,8 +168,8 @@ impl From<SignerConfig> for Signer {
             dkg_end_timeout: signer_config.dkg_end_timeout,
             nonce_timeout: signer_config.nonce_timeout,
             sign_timeout: signer_config.sign_timeout,
-            signer_key_ids: signer_config.registered_signers.coordinator_key_ids,
-            signer_public_keys: signer_config.registered_signers.signer_public_keys,
+            signer_key_ids: signer_config.signer_entries.coordinator_key_ids,
+            signer_public_keys: signer_config.signer_entries.signer_public_keys,
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
@@ -184,10 +180,10 @@ impl From<SignerConfig> for Signer {
             signer_config.signer_id,
             signer_config.key_ids,
             signer_config.ecdsa_private_key,
-            signer_config.registered_signers.public_keys.clone(),
+            signer_config.signer_entries.public_keys.clone(),
         );
         let coordinator_selector =
-            CoordinatorSelector::from(signer_config.registered_signers.public_keys);
+            CoordinatorSelector::from(signer_config.signer_entries.public_keys);
 
         debug!(
             "Signer #{}: initial coordinator is signer {}",
@@ -204,22 +200,14 @@ impl From<SignerConfig> for Signer {
             stackerdb,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
-            signer_ids: signer_config
-                .registered_signers
+            signer_addresses: signer_config
+                .signer_entries
                 .signer_ids
-                .values()
-                .copied()
+                .into_keys()
                 .collect(),
-            signer_slot_ids: signer_config.registered_signers.signer_slot_ids,
-            signers: signer_config
-                .registered_signers
-                .signer_ids
-                .keys()
-                .copied()
-                .collect(),
-            next_signer_ids: vec![],
-            next_signer_slot_ids: HashMap::new(),
-            next_signers: vec![],
+            signer_slot_ids: signer_config.signer_slot_ids.clone(),
+            next_signer_slot_ids: vec![],
+            next_signer_addresses: vec![],
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ustx: signer_config.tx_fee_ustx,
             coordinator_selector,
@@ -714,7 +702,7 @@ impl Signer {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let transactions: Vec<_> = self
             .stackerdb
-            .get_current_transactions_with_retry(self.signer_id)?
+            .get_current_transactions_with_retry()?
             .into_iter()
             .filter_map(|tx| {
                 if !NakamotoSigners::valid_vote_transaction(nonces, &tx, self.mainnet) {
@@ -731,7 +719,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        if self.next_signer_ids.is_empty() {
+        if self.next_signer_slot_ids.is_empty() {
             debug!(
                 "Signer #{}: No next signers. Skipping transaction retrieval.",
                 self.signer_id
@@ -739,10 +727,10 @@ impl Signer {
             return Ok(vec![]);
         }
         // Get all the account nonces for the next signers
-        let account_nonces = self.get_account_nonces(stacks_client, &self.next_signers);
+        let account_nonces = self.get_account_nonces(stacks_client, &self.next_signer_addresses);
         let transactions: Vec<_> = self
             .stackerdb
-            .get_next_transactions_with_retry(&self.next_signer_ids)?;
+            .get_next_transactions_with_retry(&self.next_signer_slot_ids)?;
         let mut filtered_transactions = std::collections::HashMap::new();
         NakamotoSigners::update_filtered_transactions(
             &mut filtered_transactions,
@@ -874,7 +862,7 @@ impl Signer {
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
         // Retreieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
-        let account_nonces = self.get_account_nonces(stacks_client, &self.signers);
+        let account_nonces = self.get_account_nonces(stacks_client, &self.signer_addresses);
         let account_nonce = account_nonces.get(signer_address).unwrap_or(&0);
         let signer_transactions = retry_with_exponential_backoff(|| {
             self.get_signer_transactions(&account_nonces)
@@ -1131,14 +1119,14 @@ impl Signer {
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
             let signer_address = stacks_client.get_signer_address();
-            let account_nonces = self.get_account_nonces(stacks_client, &[signer_address.clone()]);
+            let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
             let old_transactions = self.get_signer_transactions(&account_nonces).map_err(|e| {
                 warn!("Signer #{}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily", self.signer_id);
             }).unwrap_or_default();
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
                 let (_index, dkg_public_key, round, reward_cycle) =
-                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).expect(&format!("BUG: Signer #{}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}", self.signer_id));
+                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).unwrap_or_else(|| panic!("BUG: Signer #{}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}", self.signer_id));
                 if Some(dkg_public_key) == self.coordinator.aggregate_public_key
                     && round == self.coordinator.current_dkg_id
                     && reward_cycle == self.reward_cycle
