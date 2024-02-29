@@ -56,6 +56,6 @@ developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
 
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
+[target.'cfg(all(target_arch = "x86_64", not(any(target_os="windows"))))'.dependencies]
 sha2-asm = "0.5.3"
 
