@@ -639,15 +639,6 @@ impl BlockEventDispatcher for EventDispatcher {
             recipient_info,
         )
     }
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        self.process_stacker_set(reward_set, block_id, cycle_number)
-    }
 }
 
 impl EventDispatcher {

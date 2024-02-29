@@ -192,13 +192,6 @@ pub trait BlockEventDispatcher {
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
     );
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    );
 }
 
 pub struct ChainsCoordinatorConfig {
@@ -363,10 +356,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
                 return Err(Error::PoXAnchorBlockRequired);
             }
         }
-
-        // if let Some(dispatcher) = self.0 {
-        //     dispatcher.announce_reward_set(&reward_set, block_id, cycle);
-        // }
 
         Ok(reward_set)
     }
