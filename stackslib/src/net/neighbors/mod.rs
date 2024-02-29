@@ -213,9 +213,14 @@ impl PeerNetwork {
             &self.local_peer, self.walk_attempts
         );
 
+        let (num_always_connected, total_always_connected) = self
+            .count_connected_always_allowed_peers()
+            .unwrap_or((0, 0));
+
         // always ensure we're connected to always-allowed outbound peers
-        let walk_res = if ibd {
-            // always connect to bootstrap peers if in IBD
+        let walk_res = if ibd || (num_always_connected == 0 && total_always_connected > 0) {
+            // always connect to bootstrap peers if in IBD, or if we're not connected to an
+            // always-allowed peer already
             NeighborWalk::instantiate_walk_to_always_allowed(
                 self.get_neighbor_walk_db(),
                 self.get_neighbor_comms(),
@@ -298,25 +303,10 @@ impl PeerNetwork {
     /// Returns true if we instantiated the walk.
     /// Returns false if not.
     fn setup_walk(&mut self, ibd: bool) -> bool {
-        // we unconditionally need to begin walking if we're not connected to any always-allowed
-        // peer
-        let mut need_new_peers = false;
-        let (num_always_connected, total_always_connected) = self
-            .count_connected_always_allowed_peers()
-            .unwrap_or((0, 0));
-        if num_always_connected == 0 && total_always_connected > 0 {
-            // force a reset
-            debug!("{:?}: not connected to any always-allowed peers; forcing a walk reset to try and fix this", &self.local_peer);
-            self.reset_walk();
-
-            need_new_peers = true;
-        }
-
         if self.walk.is_none() {
             // time to do a walk yet?
-            if !need_new_peers
-                && (self.walk_count > self.connection_opts.num_initial_walks
-                    || self.walk_retries > self.connection_opts.walk_retry_count)
+            if (self.walk_count > self.connection_opts.num_initial_walks
+                || self.walk_retries > self.connection_opts.walk_retry_count)
                 && self.walk_deadline > get_epoch_time_secs()
             {
                 // we've done enough walks for an initial mixing, or we can't connect to anyone,

@@ -186,7 +186,7 @@ impl RelayerThread {
         let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
         RelayerThread {
-            config: config.clone(),
+            config: config,
             sortdb,
             chainstate,
             mempool,

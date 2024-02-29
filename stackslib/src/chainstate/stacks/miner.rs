@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -105,6 +104,7 @@ impl MinerStatus {
     pub fn get_spend_amount(&self) -> u64 {
         return self.spend_amount;
     }
+
     pub fn set_spend_amount(&mut self, amt: u64) {
         self.spend_amount = amt;
     }
@@ -585,7 +585,11 @@ impl TransactionResult {
                 // which code paths were hit, the user should really have attached an appropriate
                 // tx fee in the first place.  In Stacks 2.1, the code will debit the fee first, so
                 // this will no longer be an issue.
-                info!("Problematic transaction caused InvalidFee"; "txid" => %tx.txid());
+                info!("Problematic transaction caused InvalidFee";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
                 return (true, Error::InvalidFee);
             }
             e => e,
@@ -1845,7 +1849,7 @@ impl StacksBlockBuilder {
                               "parent_index_hash" => %parent_index_hash,
                               "parent_consensus_hash" => %self.parent_consensus_hash,
                               "parent_microblock_hash" => match self.parent_microblock_hash.as_ref() {
-                                  Some(x) => format!("Some({})", x.to_string()),
+                                  Some(x) => format!("Some({x})"),
                                   None => "None".to_string(),
                               },
                               "error" => ?e);
@@ -1932,7 +1936,7 @@ impl StacksBlockBuilder {
     }
 
     /// Finish up mining an epoch's transactions
-    pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
+    pub fn epoch_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -1944,7 +1948,7 @@ impl StacksBlockBuilder {
         //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash)?;
 
         test_debug!(
             "\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n",
@@ -1953,7 +1957,7 @@ impl StacksBlockBuilder {
             self.chain_tip.anchored_header.block_hash()
         );
 
-        consumed
+        Ok(consumed)
     }
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
@@ -2030,7 +2034,7 @@ impl StacksBlockBuilder {
             None
         };
 
-        let cost = builder.epoch_finish(epoch_tx);
+        let cost = builder.epoch_finish(epoch_tx)?;
         Ok((block, size, cost, mblock_opt))
     }
 
@@ -2458,7 +2462,7 @@ impl StacksBlockBuilder {
         // save the block so we can build microblocks off of it
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
-        let consumed = builder.epoch_finish(epoch_tx);
+        let consumed = builder.epoch_finish(epoch_tx)?;
 
         let ts_end = get_epoch_time_ms();
 

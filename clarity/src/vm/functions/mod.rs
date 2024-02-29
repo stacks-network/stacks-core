@@ -585,10 +585,13 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     } else {
         let first = &args[0];
         // check types:
-        let mut arg_type = TypeSignature::type_of(first);
+        let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
-            arg_type =
-                TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
+            arg_type = TypeSignature::least_supertype(
+                env.epoch(),
+                &TypeSignature::type_of(x)?,
+                &arg_type,
+            )?;
             if x != first {
                 return Ok(Value::Bool(false));
             }
@@ -609,12 +612,12 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let arg = args.get(0).ok_or_else(|| {
+    let arg = args.first().ok_or_else(|| {
         InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
     let input = eval(arg, env, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size())?;
+    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
 
     if cfg!(feature = "developer-mode") {
         debug!("{}", &input);
@@ -698,7 +701,7 @@ pub fn parse_eval_bindings(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;
@@ -736,7 +739,7 @@ fn special_let(
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
 
-            let bind_mem_use = binding_value.get_memory_use();
+            let bind_mem_use = binding_value.get_memory_use()?;
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
@@ -755,7 +758,7 @@ fn special_let(
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        Ok(last_result.unwrap())
+        last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
     })
 }
 
@@ -781,7 +784,7 @@ fn special_as_contract(
 
     let result = eval(&args[0], &mut nested_env, context);
 
-    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
+    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
     result
 }

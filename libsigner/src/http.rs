@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
+use hashbrown::HashMap;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::deps_common::httparse;
 use stacks_common::util::chunked_encoding::*;
@@ -260,6 +260,7 @@ pub fn run_http_request<S: Read + Write>(
     if body_offset >= buf.len() {
         // no body
         debug!("No HTTP body");
+        debug!("Headers: {:?}", &headers);
         return Ok(vec![]);
     }
 

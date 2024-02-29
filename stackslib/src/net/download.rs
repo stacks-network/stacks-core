@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
@@ -48,7 +47,7 @@ use crate::net::db::{PeerDB, *};
 use crate::net::dns::*;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::inv::InvState;
+use crate::net::inv::inv2x::InvState;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
 use crate::net::rpc::*;
@@ -2507,7 +2506,6 @@ impl PeerNetwork {
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
-    use std::convert::TryFrom;
 
     use clarity::vm::clarity::ClarityConnection;
     use clarity::vm::costs::ExecutionCost;
@@ -2527,7 +2525,7 @@ pub mod test {
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
-    use crate::net::inv::*;
+    use crate::net::inv::inv2x::*;
     use crate::net::relay::*;
     use crate::net::test::*;
     use crate::net::*;
@@ -3133,6 +3131,7 @@ pub mod test {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
                             .get_account_nonce(&spending_account.origin_address().unwrap().into())
+                            .unwrap()
                     })
                 })
                 .unwrap()

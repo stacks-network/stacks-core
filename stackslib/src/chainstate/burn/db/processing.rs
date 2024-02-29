@@ -68,15 +68,6 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                op.check(burnchain, self).map_err(|e| {
-                    warn!(
-                        "REJECTED({}) user burn support {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
             BlockstackOperationType::StackStx(ref op) => op.check().map_err(|e| {
                 warn!(
                     "REJECTED({}) stack stx op {} at {},{}: {:?}",
@@ -135,17 +126,12 @@ impl<'a> SortitionHandleTx<'a> {
         let total_burn = state_transition
             .accepted_ops
             .iter()
-            .fold(Some(0u64), |acc, op| {
-                if let Some(acc) = acc {
-                    let bf = match op {
-                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
-                        BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
-                        _ => 0,
-                    };
-                    acc.checked_add(bf)
-                } else {
-                    None
-                }
+            .try_fold(0u64, |acc, op| {
+                let bf = match op {
+                    BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                    _ => 0,
+                };
+                acc.checked_add(bf)
             });
 
         let txids = state_transition

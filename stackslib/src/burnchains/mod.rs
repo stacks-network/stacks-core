@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::default::Default;
 use std::marker::PhantomData;
 use std::{error, fmt, io};
 
@@ -327,7 +325,6 @@ impl PoxConstants {
         v2_unlock_height: u32,
         v3_unlock_height: u32,
         pox_3_activation_height: u32,
-        pox_4_activation_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -335,7 +332,6 @@ impl PoxConstants {
         assert!(v2_unlock_height >= v1_unlock_height);
         assert!(v3_unlock_height >= v2_unlock_height);
         assert!(pox_3_activation_height >= v2_unlock_height);
-        assert!(pox_4_activation_height >= v3_unlock_height);
 
         PoxConstants {
             reward_cycle_length,
@@ -349,7 +345,7 @@ impl PoxConstants {
             v2_unlock_height,
             v3_unlock_height,
             pox_3_activation_height,
-            pox_4_activation_height,
+            pox_4_activation_height: v3_unlock_height,
             _shadow: PhantomData,
         }
     }
@@ -365,6 +361,25 @@ impl PoxConstants {
             5000,
             10000,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
+    }
+
+    #[cfg(test)]
+    /// Create a PoX constants used in tests with 5-block cycles,
+    ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
+    ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.
+    pub(crate) fn test_20_no_sunset() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::MAX,
+            u64::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -430,9 +445,6 @@ impl PoxConstants {
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
-            BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT
-                .try_into()
-                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
@@ -451,9 +463,6 @@ impl PoxConstants {
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
-            BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT
-                .try_into()
-                .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
@@ -468,9 +477,8 @@ impl PoxConstants {
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             1_000_000,
             2_000_000,
-            3_000_000,
             4_000_000,
-            5_000_000,
+            3_000_000,
         )
     }
 
@@ -538,6 +546,29 @@ impl PoxConstants {
         )
     }
 
+    /// Return the reward cycle that the current prepare phase corresponds to if `block_height` is _in_ a prepare
+    /// phase. If it is not in a prepare phase, return None.
+    pub fn reward_cycle_of_prepare_phase(
+        &self,
+        first_block_height: u64,
+        block_height: u64,
+    ) -> Option<u64> {
+        if !self.is_in_prepare_phase(first_block_height, block_height) {
+            return None;
+        }
+        // the None branches here should be unreachable, because if `first_block_height > block_height`,
+        //   `is_in_prepare_phase` would have returned false, but no need to be unsafe anyways.
+        let effective_height = block_height.checked_sub(first_block_height)?;
+        let current_cycle = self.block_height_to_reward_cycle(first_block_height, block_height)?;
+        if effective_height % u64::from(self.reward_cycle_length) == 0 {
+            // if this is the "mod 0" block of a prepare phase, its corresponding reward cycle is the current one
+            Some(current_cycle)
+        } else {
+            // otherwise, the corresponding reward cycle is actually the _next_ reward cycle
+            Some(current_cycle + 1)
+        }
+    }
+
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
         Self::static_is_in_prepare_phase(
             first_block_height,
@@ -562,6 +593,9 @@ impl PoxConstants {
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
+            // TODO: I *think* the logic of `== 0` here requires some further digging.
+            //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
+            //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
             reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
         }
     }

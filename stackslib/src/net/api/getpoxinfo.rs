@@ -17,12 +17,13 @@
 use std::io::{Read, Write};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::ClarityVersion;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha256Sum;
 
 use crate::burnchains::Burnchain;
@@ -31,6 +32,7 @@ use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::mempool::MemPoolDB;
+use crate::core::StacksEpoch;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -80,6 +82,27 @@ pub struct RPCPoxContractVersion {
     pub first_reward_cycle_id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxEpoch {
+    pub epoch_id: StacksEpochId,
+    pub start_height: u64,
+    pub end_height: u64,
+    pub block_limit: ExecutionCost,
+    pub network_epoch: u8,
+}
+
+impl From<StacksEpoch> for RPCPoxEpoch {
+    fn from(epoch: StacksEpoch) -> Self {
+        Self {
+            epoch_id: epoch.epoch_id,
+            start_height: epoch.start_height,
+            end_height: epoch.end_height,
+            block_limit: epoch.block_limit,
+            network_epoch: epoch.network_epoch,
+        }
+    }
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
@@ -94,6 +117,7 @@ pub struct RPCPoxInfoData {
     pub total_liquid_supply_ustx: u64,
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
+    pub epochs: Vec<RPCPoxEpoch>,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
@@ -174,51 +198,51 @@ impl RPCPoxInfoData {
                     sender,
                     None,
                     cost_track,
-                    |env| env.execute_contract(&contract_identifier, function, &vec![], true),
+                    |env| env.execute_contract(&contract_identifier, function, &[], true),
                 )
             })
             .map_err(|_| NetError::NotFoundError)?;
 
         let res = match data {
-            Some(Ok(res)) => res.expect_result_ok().expect_tuple(),
+            Some(Ok(res)) => res.expect_result_ok()?.expect_tuple()?,
             _ => return Err(NetError::DBError(DBError::NotFoundError)),
         };
 
         let first_burnchain_block_height = res
             .get("first-burnchain-block-height")
-            .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'first-burnchain-block-height'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let min_stacking_increment_ustx = res
             .get("min-amount-ustx")
-            .expect(&format!("FATAL: no 'min-amount-ustx'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'min-amount-ustx'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let prepare_cycle_length = res
             .get("prepare-cycle-length")
-            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'prepare-cycle-length'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let reward_cycle_id = res
             .get("reward-cycle-id")
-            .expect(&format!("FATAL: no 'reward-cycle-id'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-id'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let reward_cycle_length = res
             .get("reward-cycle-length")
-            .expect(&format!("FATAL: no 'reward-cycle-length'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let total_liquid_supply_ustx = res
             .get("total-liquid-supply-ustx")
-            .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let has_rejection_data = pox_contract_name == POX_1_NAME
             || pox_contract_name == POX_2_NAME
@@ -227,15 +251,15 @@ impl RPCPoxInfoData {
         let (rejection_fraction, rejection_votes_left_required) = if has_rejection_data {
             let rejection_fraction = res
                 .get("rejection-fraction")
-                .expect(&format!("FATAL: no 'rejection-fraction'"))
+                .unwrap_or_else(|_| panic!("FATAL: no 'rejection-fraction'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let current_rejection_votes = res
                 .get("current-rejection-votes")
-                .expect(&format!("FATAL: no 'current-rejection-votes'"))
+                .unwrap_or_else(|_| panic!("FATAL: no 'current-rejection-votes'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let total_required = (total_liquid_supply_ustx as u128 / 100)
                 .checked_mul(rejection_fraction as u128)
@@ -331,6 +355,10 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+        let epochs: Vec<_> = SortitionDB::get_stacks_epochs(sortdb.conn())?
+            .into_iter()
+            .map(|epoch| RPCPoxEpoch::from(epoch))
+            .collect();
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
@@ -359,6 +387,7 @@ impl RPCPoxInfoData {
                 blocks_until_reward_phase: next_reward_cycle_in,
                 ustx_until_pox_rejection: rejection_votes_left_required,
             },
+            epochs,
             min_amount_ustx: next_threshold,
             prepare_cycle_length,
             reward_cycle_id,

@@ -12,7 +12,7 @@ COPY . .
 RUN apt-get update && apt-get install -y git libclang-dev
 
 # Run all the build steps in ramdisk in an attempt to speed things up
-RUN target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
+RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
     && rustup component add rustfmt \
@@ -21,5 +21,5 @@ RUN target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
 FROM --platform=${TARGETPLATFORM} debian:bookworm
-COPY --from=build /out/stacks-node /bin/
+COPY --from=build /out/stacks-node /out/stacks-signer /bin/
 CMD ["stacks-node", "mainnet"]

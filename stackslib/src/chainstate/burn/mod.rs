@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::fmt;
 use std::io::Write;
 
 use rand::seq::index::sample;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use ripemd::Ripemd160;
 use rusqlite::{Connection, Transaction};
@@ -63,14 +63,10 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
-    UserBurnSupport = '_' as u8,
     StackStx = 'x' as u8,
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
-    PegIn = '<' as u8,
-    PegOutRequest = '>' as u8,
-    PegOutFulfill = '!' as u8,
 }
 
 // a burnchain block snapshot
@@ -153,8 +149,8 @@ impl SortitionHash {
         if max < 2 {
             return (0..max).collect();
         }
-        let first = rng.gen_range(0, max);
-        let try_second = rng.gen_range(0, max - 1);
+        let first = rng.gen_range(0..max);
+        let try_second = rng.gen_range(0..(max - 1));
         let second = if first == try_second {
             // "swap" try_second with max
             max - 1
@@ -200,25 +196,17 @@ impl Opcodes {
         match self {
             Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
             Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
-            Opcodes::UserBurnSupport => Self::HTTP_BURN_SUPPORT,
             Opcodes::StackStx => Self::HTTP_STACK_STX,
             Opcodes::PreStx => Self::HTTP_PRE_STX,
             Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
             Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
-            Opcodes::PegIn => Self::HTTP_PEG_IN,
-            Opcodes::PegOutRequest => Self::HTTP_PEG_OUT_REQUEST,
-            Opcodes::PegOutFulfill => Self::HTTP_PEG_OUT_FULFILL,
         }
     }
 
     pub fn from_http_str(input: &str) -> Option<Opcodes> {
         let opcode = match input {
-            Self::HTTP_PEG_IN => Opcodes::PegIn,
-            Self::HTTP_PEG_OUT_REQUEST => Opcodes::PegOutRequest,
-            Self::HTTP_PEG_OUT_FULFILL => Opcodes::PegOutFulfill,
             Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
             Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
-            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
             Self::HTTP_STACK_STX => Opcodes::StackStx,
             Self::HTTP_PRE_STX => Opcodes::PreStx,
             Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
@@ -361,10 +349,12 @@ impl ConsensusHashExtensions for ConsensusHash {
             let prev_block: u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch = sort_tx
                 .get_consensus_at(prev_block)
-                .expect(&format!(
-                    "FATAL: failed to get consensus hash at {} in fork {}",
-                    prev_block, &sort_tx.context.chain_tip
-                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: failed to get consensus hash at {} in fork {}",
+                        prev_block, &sort_tx.context.chain_tip
+                    )
+                })
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);

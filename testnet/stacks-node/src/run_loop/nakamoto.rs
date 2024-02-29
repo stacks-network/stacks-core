@@ -425,6 +425,7 @@ impl RunLoop {
             self.counters.clone(),
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
+            mine_start,
         );
         self.set_globals(globals.clone());
 
@@ -456,7 +457,7 @@ impl RunLoop {
             sn
         };
 
-        globals.set_last_sortition(burnchain_tip_snapshot.clone());
+        globals.set_last_sortition(burnchain_tip_snapshot);
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)

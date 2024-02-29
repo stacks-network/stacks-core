@@ -730,12 +730,13 @@ impl Relayer {
             );
             return Ok(false);
         };
-        let staging_db_tx = chainstate.db_tx_begin()?;
+        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
             block,
             sort_handle,
             &staging_db_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_db_tx.commit()?;
@@ -2613,7 +2614,7 @@ pub mod test {
     use crate::net::download::*;
     use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
     use crate::net::httpcore::StacksHttpMessage;
-    use crate::net::inv::*;
+    use crate::net::inv::inv2x::*;
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
@@ -4001,9 +4002,11 @@ pub mod test {
                         .chainstate
                         .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                clarity_db.get_account_nonce(
-                                    &spending_account.origin_address().unwrap().into(),
-                                )
+                                clarity_db
+                                    .get_account_nonce(
+                                        &spending_account.origin_address().unwrap().into(),
+                                    )
+                                    .unwrap()
                             })
                         })
                         .unwrap();

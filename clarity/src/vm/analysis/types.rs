@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
@@ -95,6 +96,7 @@ impl ContractAnalysis {
         }
     }
 
+    #[allow(clippy::expect_used)]
     pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
         self.cost_track
             .take()
@@ -365,7 +367,7 @@ mod test {
         {
             assert_eq!(
                 fixed.args[1].signature,
-                TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
             );
         } else {
             panic!("Expected fixed function type");

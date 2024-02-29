@@ -1982,7 +1982,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(value.size() as u64)
+                    .add_memory(value.size()? as u64)
                     .map_err(|e| Error::from(e))?;
 
                 // Create the variable in the global context
@@ -1990,7 +1990,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     &contract,
                     name.as_str(),
                     value_type,
-                );
+                )?;
 
                 // Store the variable in the global context
                 caller.data_mut().global_context.database.set_variable(
@@ -2075,7 +2075,7 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                     .data_mut()
                     .global_context
                     .database
-                    .create_fungible_token(&contract_identifier, &name, &total_supply);
+                    .create_fungible_token(&contract_identifier, &name, &total_supply)?;
 
                 caller
                     .data_mut()
@@ -2149,7 +2149,7 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .data_mut()
                     .global_context
                     .database
-                    .create_non_fungible_token(&contract_identifier, &name, &asset_type);
+                    .create_non_fungible_token(&contract_identifier, &name, &asset_type)?;
 
                 caller
                     .data_mut()
@@ -2236,7 +2236,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &name,
                     key_type.clone(),
                     value_type.clone(),
-                );
+                )?;
 
                 caller
                     .data_mut()
@@ -2477,7 +2477,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
 
                 let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
-                    Err(_e) => data_types.value_type.size() as u64,
+                    Err(_e) => data_types.value_type.size()? as u64,
                 };
 
                 // TODO: Include this cost
@@ -2755,7 +2755,7 @@ fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                     .data_mut()
                     .global_context
                     .database
-                    .get_current_burnchain_block_height();
+                    .get_current_burnchain_block_height()?;
                 Ok((height as i64, 0i64))
             },
         )
@@ -2781,7 +2781,7 @@ fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                     .data_mut()
                     .global_context
                     .database
-                    .get_total_liquid_ustx();
+                    .get_total_liquid_ustx()?;
                 let upper = (supply >> 64) as u64;
                 let lower = supply as u64;
                 Ok((lower as i64, upper as i64))
@@ -2953,8 +2953,8 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                         .data_mut()
                         .global_context
                         .database
-                        .get_stx_balance_snapshot(principal);
-                    snapshot.get_available_balance()
+                        .get_stx_balance_snapshot(principal)?;
+                    snapshot.get_available_balance()?
                 };
                 let high = (balance >> 64) as u64;
                 let low = (balance & 0xffff_ffff_ffff_ffff) as u64;
@@ -3004,8 +3004,8 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                         .data_mut()
                         .global_context
                         .database
-                        .get_stx_balance_snapshot(principal);
-                    snapshot.canonical_balance_repr()
+                        .get_stx_balance_snapshot(principal)?;
+                    snapshot.canonical_balance_repr()?
                 };
                 let v1_unlock_ht = caller
                     .data_mut()
@@ -3016,12 +3016,12 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     .data_mut()
                     .global_context
                     .database
-                    .get_v2_unlock_height();
+                    .get_v2_unlock_height()?;
                 let v3_unlock_ht = caller
                     .data_mut()
                     .global_context
                     .database
-                    .get_v3_unlock_height();
+                    .get_v3_unlock_height()?;
 
                 let locked = account.amount_locked();
                 let locked_high = (locked >> 64) as u64;
@@ -3099,7 +3099,7 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
@@ -3111,13 +3111,13 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .data_mut()
                     .global_context
                     .database
-                    .get_stx_balance_snapshot(&from);
-                if !burner_snapshot.can_transfer(amount) {
+                    .get_stx_balance_snapshot(&from)?;
+                if !burner_snapshot.can_transfer(amount)? {
                     return Ok((0i32, 0i32, StxErrorCodes::NOT_ENOUGH_BALANCE as i64, 0i64));
                 }
 
-                burner_snapshot.debit(amount);
-                burner_snapshot.save();
+                burner_snapshot.debit(amount)?;
+                burner_snapshot.save()?;
 
                 caller
                     .data_mut()
@@ -3230,12 +3230,12 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 // loading sender's locked amount and height
                 // TODO: this does not count the inner stacks block header load, but arguably,
@@ -3255,8 +3255,8 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .data_mut()
                     .global_context
                     .database
-                    .get_stx_balance_snapshot(sender);
-                if !sender_snapshot.can_transfer(amount) {
+                    .get_stx_balance_snapshot(sender)?;
+                if !sender_snapshot.can_transfer(amount)? {
                     return Ok((0i32, 0i32, StxErrorCodes::NOT_ENOUGH_BALANCE as i64, 0i64));
                 }
 
@@ -3494,12 +3494,12 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .add_memory(TypeSignature::UIntType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
 
                 caller.data_mut().global_context.log_token_transfer(
@@ -3607,12 +3607,12 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .add_memory(TypeSignature::UIntType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
 
                 caller.data_mut().global_context.database.set_ft_balance(
@@ -3760,22 +3760,22 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .add_memory(TypeSignature::UIntType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .add_memory(TypeSignature::UIntType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
 
                 caller.data_mut().global_context.database.set_ft_balance(
@@ -3869,7 +3869,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     epoch,
                 )?;
 
-                let _asset_size = asset.serialized_size() as u64;
+                let _asset_size = asset.serialized_size()? as u64;
 
                 // runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
@@ -3905,9 +3905,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                         Ok((1i32, return_offset, bytes_written))
                     }
                     Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok((0i32, 0i32, 0i32)),
-                    Err(e) => {
-                        return Err(e)?;
-                    }
+                    Err(e) => Err(e)?,
                 }
             },
         )
@@ -3979,7 +3977,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 )?;
                 let sender_principal = value_as_principal(&value)?;
 
-                let asset_size = asset.serialized_size() as u64;
+                let asset_size = asset.serialized_size()? as u64;
 
                 // runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
@@ -4009,7 +4007,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
@@ -4030,7 +4028,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &contract_identifier,
                     &asset_name,
                     asset.clone(),
-                );
+                )?;
 
                 let asset_identifier = AssetIdentifier {
                     contract_identifier,
@@ -4114,7 +4112,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
-                let asset_size = asset.serialized_size() as u64;
+                let asset_size = asset.serialized_size()? as u64;
                 // runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
@@ -4139,7 +4137,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
@@ -4251,7 +4249,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
-                let asset_size = asset.serialized_size() as u64;
+                let asset_size = asset.serialized_size()? as u64;
                 // runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
@@ -4299,7 +4297,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .add_memory(TypeSignature::PrincipalType.size()? as u64)
                     .map_err(|e| Error::from(e))?;
                 caller
                     .data_mut()
@@ -4321,7 +4319,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &contract_identifier,
                     &asset_name,
                     asset.clone(),
-                );
+                )?;
 
                 let asset_identifier = AssetIdentifier {
                     contract_identifier,
@@ -4401,7 +4399,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
                 let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
                 };
 
                 // runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -4510,7 +4508,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
                 let result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
                 };
 
                 // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -4612,7 +4610,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
                 let result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
                 };
 
                 // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -4700,7 +4698,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
                 let result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
                 };
 
                 // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -4804,7 +4802,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_block_time(height_value);
+                            .get_block_time(height_value)?;
                         (Value::UInt(block_time as u128), TypeSignature::UIntType)
                     }
                     BlockInfoProperty::VrfSeed => {
@@ -4812,7 +4810,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_block_vrf_seed(height_value);
+                            .get_block_vrf_seed(height_value)?;
                         let data = vrf_seed.as_bytes().to_vec();
                         let len = data.len() as u32;
                         (
@@ -4827,7 +4825,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_block_header_hash(height_value);
+                            .get_block_header_hash(height_value)?;
                         let data = header_hash.as_bytes().to_vec();
                         let len = data.len() as u32;
                         (
@@ -4842,7 +4840,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_burnchain_block_header_hash(height_value);
+                            .get_burnchain_block_header_hash(height_value)?;
                         let data = burnchain_header_hash.as_bytes().to_vec();
                         let len = data.len() as u32;
                         (
@@ -4857,7 +4855,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_index_block_header_hash(height_value);
+                            .get_index_block_header_hash(height_value)?;
                         let data = id_header_hash.as_bytes().to_vec();
                         let len = data.len() as u32;
                         (
@@ -4872,7 +4870,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_miner_address(height_value);
+                            .get_miner_address(height_value)?;
                         (Value::from(miner_address), TypeSignature::PrincipalType)
                     }
                     BlockInfoProperty::MinerSpendWinner => {
@@ -4880,7 +4878,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_miner_spend_winner(height_value);
+                            .get_miner_spend_winner(height_value)?;
                         (Value::UInt(winner_spend), TypeSignature::UIntType)
                     }
                     BlockInfoProperty::MinerSpendTotal => {
@@ -4888,7 +4886,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_miner_spend_total(height_value);
+                            .get_miner_spend_total(height_value)?;
                         (Value::UInt(total_spend), TypeSignature::UIntType)
                     }
                     BlockInfoProperty::BlockReward => {
@@ -4897,7 +4895,7 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             .data_mut()
                             .global_context
                             .database
-                            .get_block_reward(height_value);
+                            .get_block_reward(height_value)?;
                         (
                             match block_reward_opt {
                                 Some(x) => Value::UInt(x),
@@ -4999,7 +4997,9 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
                             .data_mut()
                             .global_context
                             .database
-                            .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+                            .get_burnchain_block_header_hash_for_burnchain_height(
+                            height_value,
+                        )?;
                         (
                             match burnchain_header_hash_opt {
                                 Some(burnchain_header_hash) => {
@@ -5018,7 +5018,7 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
                             .data_mut()
                             .global_context
                             .database
-                            .get_pox_payout_addrs_for_burnchain_height(height_value);
+                            .get_pox_payout_addrs_for_burnchain_height(height_value)?;
                         let addr_ty: TypeSignature = TupleTypeSignature::try_from(vec![
                             ("hashbytes".into(), BUFF_32.clone()),
                             ("version".into(), BUFF_1.clone()),
@@ -5156,7 +5156,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 for arg_ty in function.get_arg_types() {
                     let arg =
                         read_from_wasm_indirect(memory, &mut caller, arg_ty, arg_offset, epoch)?;
-                    args_sizes.push(arg.size() as u64);
+                    args_sizes.push(arg.size()? as u64);
                     args.push(arg);
 
                     arg_offset += get_type_size(arg_ty);
@@ -5307,7 +5307,7 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
             "clarity",
             "roll_back_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().global_context.roll_back();
+                caller.data_mut().global_context.roll_back()?;
                 Ok(())
             },
         )
@@ -5386,9 +5386,8 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
                         if data.len() != 32 {
                             return Err(RuntimeErrorType::BadBlockHash(data).into());
-                        } else {
-                            StacksBlockId::from(data.as_slice())
                         }
+                        StacksBlockId::from(data.as_slice())
                     }
                     x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
                 };
@@ -5442,12 +5441,12 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 // Roll back any changes that occurred during the `at-block`
                 // expression. This is precautionary, since only read-only
                 // operations are allowed during an `at-block` expression.
-                caller.data_mut().global_context.roll_back();
+                caller.data_mut().global_context.roll_back()?;
 
                 caller
                     .data_mut()
                     .global_context
-                    .drop_memory(cost_constants::AT_BLOCK_MEMORY);
+                    .drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
 
                 Ok(())
             },
@@ -5724,9 +5723,9 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     let addr = if *caller.data().contract_context().get_clarity_version()
                         > ClarityVersion::Clarity1
                     {
-                        pubkey_to_address_v2(pub_key, caller.data().global_context.mainnet)
+                        pubkey_to_address_v2(pub_key, caller.data().global_context.mainnet)?
                     } else {
-                        pubkey_to_address_v1(pub_key)
+                        pubkey_to_address_v1(pub_key)?
                     };
                     let principal = addr.to_account_principal();
 
@@ -5869,7 +5868,7 @@ mod tests {
         let read = read_from_wasm_indirect(
             memory,
             &mut store,
-            &TypeSignature::max_string_ascii(),
+            &TypeSignature::max_string_ascii().unwrap(),
             offset as i32,
             StacksEpochId::latest(),
         )
@@ -5957,7 +5956,7 @@ mod tests {
 
         let offset = 6;
         let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
-        let expected_ty = TypeSignature::max_buffer();
+        let expected_ty = TypeSignature::max_buffer().unwrap();
 
         write_to_wasm(
             &mut store,
@@ -5992,7 +5991,7 @@ mod tests {
         let offset = 7;
         let expected =
             Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
-        let expected_ty = TypeSignature::max_string_ascii();
+        let expected_ty = TypeSignature::max_string_ascii().unwrap();
 
         write_to_wasm(
             &mut store,
@@ -6490,7 +6489,12 @@ mod tests {
             ])
             .unwrap(),
         );
-        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+        let expected_ty = expected
+            .clone()
+            .expect_tuple()
+            .unwrap()
+            .type_signature
+            .into();
 
         write_to_wasm(
             &mut store,
@@ -6538,7 +6542,12 @@ mod tests {
             ])
             .unwrap(),
         );
-        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+        let expected_ty = expected
+            .clone()
+            .expect_tuple()
+            .unwrap()
+            .type_signature
+            .into();
 
         write_to_wasm(
             &mut store,
@@ -6640,7 +6649,7 @@ mod tests {
 
         let offset = 6;
         let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
-        let expected_ty = TypeSignature::max_buffer();
+        let expected_ty = TypeSignature::max_buffer().unwrap();
 
         write_to_wasm(
             &mut store,
@@ -6674,7 +6683,7 @@ mod tests {
         let offset = 7;
         let expected =
             Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
-        let expected_ty = TypeSignature::max_string_ascii();
+        let expected_ty = TypeSignature::max_string_ascii().unwrap();
 
         write_to_wasm(
             &mut store,
@@ -7159,7 +7168,12 @@ mod tests {
             ])
             .unwrap(),
         );
-        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+        let expected_ty = expected
+            .clone()
+            .expect_tuple()
+            .unwrap()
+            .type_signature
+            .into();
 
         write_to_wasm(
             &mut store,
@@ -7206,7 +7220,12 @@ mod tests {
             ])
             .unwrap(),
         );
-        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+        let expected_ty = expected
+            .clone()
+            .expect_tuple()
+            .unwrap()
+            .type_signature
+            .into();
 
         write_to_wasm(
             &mut store,

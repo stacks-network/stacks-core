@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
+use hashbrown::HashMap;
 #[cfg(feature = "sqlite")]
 pub use sqlite::MemoryBackingStore;
 

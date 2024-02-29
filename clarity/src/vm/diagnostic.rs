@@ -66,26 +66,24 @@ impl Diagnostic {
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.level)?;
-        match self.spans.len().cmp(&1) {
-            std::cmp::Ordering::Equal => write!(
+        if self.spans.len() == 1 {
+            write!(
                 f,
-                " (line {}, column {}): ",
+                " (line {}, column {})",
                 self.spans[0].start_line, self.spans[0].start_column
-            )?,
-            std::cmp::Ordering::Greater => {
-                let lines: Vec<String> = self
-                    .spans
-                    .iter()
-                    .map(|s| format!("line: {}", s.start_line))
-                    .collect();
-                write!(f, " ({}): ", lines.join(", "))?;
-            }
-            std::cmp::Ordering::Less => {}
+            )?;
+        } else if self.spans.len() > 1 {
+            let lines: Vec<String> = self
+                .spans
+                .iter()
+                .map(|s| format!("line: {}", s.start_line))
+                .collect();
+            write!(f, " ({})", lines.join(", "))?;
         }
         write!(f, ": {}.", &self.message)?;
         if let Some(suggestion) = &self.suggestion {
             write!(f, "\n{}", suggestion)?;
         }
-        writeln!(f)
+        write!(f, "\n")
     }
 }

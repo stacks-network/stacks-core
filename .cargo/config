@@ -2,6 +2,12 @@
 stacks-node = "run --package stacks-node --"
 fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity=Module"
 
+# For x86_64 CPUs, default to `native` and override in CI for release builds
+# This makes it slightly faster for users running locally built binaries
+# TODO: Same for other targets?
+[target.'cfg(all(target_arch = "x86_64"))']
+rustflags = ["-Ctarget-cpu=native"]
+
 # Needed by perf to generate flamegraphs.
 #[target.x86_64-unknown-linux-gnu]
 #linker = "/usr/bin/clang"

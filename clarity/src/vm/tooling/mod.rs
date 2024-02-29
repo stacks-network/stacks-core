@@ -139,7 +139,8 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
     let ecode_result = doc_execute(&ecode_to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")
-        .expect_tuple();
+        .expect_tuple()
+        .expect("BUG: failed to build tuple");
 
     let error_codes = variable_types
         .iter()

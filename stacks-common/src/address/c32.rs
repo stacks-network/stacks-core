@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-
 use sha2::{Digest, Sha256};
 
 use super::Error;
@@ -180,7 +178,10 @@ const C32_CHARACTERS_MAP: [Option<u8>; 128] = [
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    let mut result = vec![];
+    // ASCII characters are 8-bits and c32-encoding encodes 5-bits per
+    // character, so the c32-encoded size should be ceil((ascii size) * 8 / 5)
+    let size = input_bytes.len().saturating_mul(8).div_ceil(5);
+    let mut result = Vec::with_capacity(size);
     let mut carry = 0;
     let mut carry_bits = 0;
 
@@ -221,7 +222,7 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         }
     }
 
-    let result: Vec<u8> = result.drain(..).rev().collect();
+    let result: Vec<u8> = result.into_iter().rev().collect();
     String::from_utf8(result).unwrap()
 }
 
@@ -234,10 +235,6 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
-    let mut result = vec![];
-    let mut carry: u16 = 0;
-    let mut carry_bits = 0; // can be up to 5
-
     let mut iter_c32_digits = Vec::<u8>::with_capacity(input_str.len());
 
     for x in input_str.as_bytes().iter().rev() {
@@ -250,6 +247,14 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         // at least one char was None
         return Err(Error::InvalidCrockford32);
     }
+
+    // c32-encoding encodes 5 bits into each character, while ASCII encodes
+    // 8-bits into each character. So, the ASCII-encoded size should be
+    // ceil((c32 size) * 5 / 8)
+    let size = iter_c32_digits.len().saturating_mul(5).div_ceil(8);
+    let mut result = Vec::with_capacity(size);
+    let mut carry: u16 = 0;
+    let mut carry_bits = 0; // can be up to 5
 
     for current_5bit in &iter_c32_digits {
         carry += (*current_5bit as u16) << carry_bits;
@@ -381,7 +386,7 @@ mod test {
     fn old_c32_validation() {
         for n in 0..5000 {
             // random version
-            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+            let random_version: u8 = rand::thread_rng().gen_range(0..31);
 
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();

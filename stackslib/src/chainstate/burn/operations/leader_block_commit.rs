@@ -33,7 +33,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -238,6 +238,7 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn is_parent_genesis(&self) -> bool {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }
@@ -682,9 +683,9 @@ impl LeaderBlockCommitOp {
                             op_error::BlockCommitAnchorCheck})?;
                     if descended_from_anchor != expect_pox_descendant {
                         if descended_from_anchor {
-                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                            warn!("Invalid block commit: descended from PoX anchor {}, but used burn outputs", &reward_set_info.anchor_block);
                         } else {
-                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
+                            warn!("Invalid block commit: not descended from PoX anchor {}, but used PoX outputs", &reward_set_info.anchor_block);
                         }
                         return Err(op_error::BlockCommitBadOutputs);
                     }
@@ -979,10 +980,12 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitBadInput);
         }
-        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-            "FATAL: impossible block height: no epoch defined for {}",
-            self.block_height
-        ));
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.unwrap_or_else(|| {
+            panic!(
+                "FATAL: impossible block height: no epoch defined for {}",
+                self.block_height
+            )
+        });
 
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
@@ -1746,6 +1749,22 @@ mod tests {
         }
     }
 
+    fn pox_constants() -> PoxConstants {
+        PoxConstants::new(
+            6,
+            2,
+            2,
+            25,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
+    }
+
     #[test]
     fn test_check_2_1() {
         let first_block_height = 121;
@@ -1784,20 +1803,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2331,20 +2337,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -3034,20 +3027,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

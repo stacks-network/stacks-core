@@ -29,9 +29,10 @@
 //! big-endian decimals, etc.)
 //!
 
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::{mem, u32};
+
+use hashbrown::HashMap;
 
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;

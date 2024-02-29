@@ -32,6 +32,7 @@ use rand::thread_rng;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
@@ -58,7 +59,8 @@ use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::StacksHttpRequest;
-use crate::net::inv::*;
+use crate::net::inv::inv2x::*;
+use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine};
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
@@ -217,6 +219,7 @@ pub struct PeerNetwork {
     // refreshed whenever the burnchain advances
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
+    pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
 
@@ -259,6 +262,7 @@ pub struct PeerNetwork {
 
     // work state -- we can be walking, fetching block inventories, fetching blocks, pruning, etc.
     pub work_state: PeerNetworkWorkState,
+    pub nakamoto_work_state: PeerNetworkWorkState,
     have_data_to_download: bool,
 
     // neighbor walk state
@@ -272,8 +276,10 @@ pub struct PeerNetwork {
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
-    // peer block inventory state
+    /// Epoch 2.x inventory state
     pub inv_state: Option<InvState>,
+    /// Epoch 3.x inventory state
+    pub inv_state_nakamoto: Option<NakamotoInvStateMachine<PeerNetworkComms>>,
 
     // cached view of PoX database
     // (maintained by the inv state machine)
@@ -350,6 +356,10 @@ pub struct PeerNetwork {
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
 
+    /// Nakamoto-specific cache for sortition and tenure data, for the purposes of generating
+    /// tenure inventories
+    pub nakamoto_inv_generator: InvGenerator,
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 }
@@ -416,6 +426,7 @@ impl PeerNetwork {
                 &first_burn_header_hash,
                 first_burn_header_ts as u64,
             ),
+            stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -438,6 +449,7 @@ impl PeerNetwork {
             connection_opts: connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
+            nakamoto_work_state: PeerNetworkWorkState::GetPublicIP,
             have_data_to_download: false,
 
             walk: None,
@@ -451,6 +463,7 @@ impl PeerNetwork {
             walk_result: NeighborWalkResult::new(),
 
             inv_state: None,
+            inv_state_nakamoto: None,
             pox_id: PoxId::initial(),
             tip_sort_id: SortitionId([0x00; 32]),
             header_cache: BlockHeaderCache::new(),
@@ -499,6 +512,8 @@ impl PeerNetwork {
 
             fault_last_disconnect: 0,
 
+            nakamoto_inv_generator: InvGenerator::new(),
+
             block_proposal_thread: None,
         };
 
@@ -528,11 +543,17 @@ impl PeerNetwork {
     /// Get the current epoch
     pub fn get_current_epoch(&self) -> StacksEpoch {
         let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
-            .expect(&format!(
-                "BUG: block {} is not in a known epoch",
-                &self.chain_view.burn_block_height
-            ));
-        let epoch = self.epochs[epoch_index].clone();
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: block {} is not in a known epoch",
+                    &self.chain_view.burn_block_height
+                )
+            });
+        let epoch = self
+            .epochs
+            .get(epoch_index)
+            .expect("BUG: no epoch at found index")
+            .clone();
         epoch
     }
 
@@ -553,6 +574,7 @@ impl PeerNetwork {
     }
 
     /// start serving.
+    #[cfg_attr(test, mutants::skip)]
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
         let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
@@ -1016,9 +1038,9 @@ impl PeerNetwork {
         let num_allowed_peers = allowed_peers.len();
         let mut count = 0;
         for allowed in allowed_peers {
-            if self.events.contains_key(&allowed.addr) {
-                count += 1;
-            }
+            let pubkh = Hash160::from_node_public_key(&allowed.public_key);
+            let events = self.get_pubkey_events(&pubkh);
+            count += events.len() as u64;
         }
         Ok((count, num_allowed_peers as u64))
     }
@@ -1536,6 +1558,15 @@ impl PeerNetwork {
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
         }
 
+        // unroutable?
+        if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
+            debug!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
+                  &self.local_peer,
+                  &neighbor_key
+            );
+            return Err(net_error::Denied);
+        }
+
         // consider rate-limits on in-bound peers
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients
@@ -1713,27 +1744,35 @@ impl PeerNetwork {
     pub fn deregister_peer(&mut self, event_id: usize) -> () {
         debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
 
-        let mut nk_remove: Vec<NeighborKey> = vec![];
+        let mut nk_remove: Vec<(NeighborKey, Hash160)> = vec![];
         for (neighbor_key, ev_id) in self.events.iter() {
             if *ev_id == event_id {
-                nk_remove.push(neighbor_key.clone());
+                let pubkh = self
+                    .get_p2p_convo(event_id)
+                    .and_then(|convo| convo.get_public_key_hash())
+                    .unwrap_or(Hash160([0x00; 20]));
+                nk_remove.push((neighbor_key.clone(), pubkh));
             }
         }
 
-        for nk in nk_remove.into_iter() {
+        for (nk, pubkh) in nk_remove.into_iter() {
             // remove event state
             self.events.remove(&nk);
 
             // remove inventory state
-            match self.inv_state {
-                Some(ref mut inv_state) => {
-                    debug!(
-                        "{:?}: Remove inventory state for {:?}",
-                        &self.local_peer, &nk
-                    );
-                    inv_state.del_peer(&nk);
-                }
-                None => {}
+            if let Some(inv_state) = self.inv_state.as_mut() {
+                debug!(
+                    "{:?}: Remove inventory state for epoch 2.x {:?}",
+                    &self.local_peer, &nk
+                );
+                inv_state.del_peer(&nk);
+            }
+            if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+                debug!(
+                    "{:?}: Remove inventory state for epoch 2.x {:?}",
+                    &self.local_peer, &nk
+                );
+                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk, pubkh));
             }
         }
 
@@ -2419,6 +2458,7 @@ impl PeerNetwork {
     }
 
     /// Do a mempool sync. Return any transactions we might receive.
+    #[cfg_attr(test, mutants::skip)]
     fn do_network_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -2469,6 +2509,7 @@ impl PeerNetwork {
     /// Begin the process of learning this peer's public IP address.
     /// Return Ok(finished with this step)
     /// Return Err(..) on failure
+    #[cfg_attr(test, mutants::skip)]
     fn begin_learn_public_ip(&mut self) -> Result<bool, net_error> {
         if self.peers.len() == 0 {
             return Err(net_error::NoSuchNeighbor);
@@ -2738,37 +2779,6 @@ impl PeerNetwork {
             }
         }
         true
-    }
-
-    /// Update the state of our neighbors' block inventories.
-    /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB, ibd: bool) -> (bool, bool) {
-        if cfg!(test) && self.connection_opts.disable_inv_sync {
-            test_debug!("{:?}: inv sync is disabled", &self.local_peer);
-            return (true, false);
-        }
-
-        debug!("{:?}: network inventory sync", &self.local_peer);
-
-        if self.inv_state.is_none() {
-            self.init_inv_sync(sortdb);
-        }
-
-        // synchronize peer block inventories
-        let (done, throttled, broken_neighbors, dead_neighbors) =
-            self.sync_inventories(sortdb, ibd);
-
-        // disconnect and ban broken peers
-        for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
-        }
-
-        // disconnect from dead connections
-        for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
-        }
-
-        (done, throttled)
     }
 
     /// Download blocks, and add them to our network result.
@@ -3057,7 +3067,9 @@ impl PeerNetwork {
     /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
     /// Start with the most-recently-arrived data, since this node is likely to have already
     /// fetched older data via the block-downloader.
-    fn try_push_local_data(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
+    ///
+    /// Only applicable to epoch 2.x state.
+    fn try_push_local_data_epoch2x(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
         {
@@ -3434,6 +3446,7 @@ impl PeerNetwork {
     /// Returns Ok(Some(..)) if we're not done, and can proceed
     /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
     /// or SendQuery if we got the IP address and can just issue the query.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_pick_outbound_peer(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3493,6 +3506,7 @@ impl PeerNetwork {
     /// Returns Ok(Some(..)) if we're not done, and can proceed
     /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
     /// or SendQuery if we got the IP address and can just issue the query.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_begin_resolve_data_url(
         &self,
         url_str: UrlString,
@@ -3549,6 +3563,7 @@ impl PeerNetwork {
     /// Returns Ok(true, ..) if we're done syncing the mempool.
     /// Returns Ok(false, ..) if there's more to do
     /// Returns the socket addr if we ever succeed in resolving it.
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_resolve_data_url(
         &mut self,
         url_str: &UrlString,
@@ -3596,6 +3611,7 @@ impl PeerNetwork {
     /// Returns Ok((true, ..)) if we're done mempool syncing
     /// Returns Ok((false, ..)) if there's more to do
     /// Returns the event ID on success
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_send_query(
         &mut self,
         url: &UrlString,
@@ -3621,6 +3637,7 @@ impl PeerNetwork {
     /// Return Ok(true, ..) if we're done with the mempool sync.
     /// Return Ok(false, ..) if we have more work to do.
     /// Returns the page ID of the next request to make, and the list of transactions we got
+    #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_recv_response(
         &mut self,
         event_id: usize,
@@ -3672,6 +3689,7 @@ impl PeerNetwork {
     /// Do a mempool sync
     /// Return true if we're done and can advance to the next state.
     /// Returns the transactions as well if the sync ran to completion.
+    #[cfg_attr(test, mutants::skip)]
     fn do_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3848,7 +3866,145 @@ impl PeerNetwork {
 
     /// Do the actual work in the state machine.
     /// Return true if we need to prune connections.
+    /// This will call the epoch-appropriate network worker
     fn do_network_work(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        download_backpressure: bool,
+        ibd: bool,
+        network_result: &mut NetworkResult,
+    ) -> bool {
+        let cur_epoch = self.get_current_epoch();
+        let prune = if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            debug!("{:?}: run Nakamoto work loop", self.get_local_peer());
+
+            // in Nakamoto epoch, so do Nakamoto things
+            let prune = self.do_network_work_nakamoto(sortdb, ibd);
+
+            // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
+            // not begin on a reward cycle boundary.
+            if cur_epoch.epoch_id == StacksEpochId::Epoch30
+                && (self.burnchain_tip.block_height <= cur_epoch.start_height
+                    || self.connection_opts.force_nakamoto_epoch_transition)
+            {
+                debug!(
+                    "{:?}: run Epoch 2.x work loop in Nakamoto epoch",
+                    self.get_local_peer()
+                );
+                let epoch2_prune = self.do_network_work_epoch2x(
+                    sortdb,
+                    chainstate,
+                    dns_client_opt,
+                    download_backpressure,
+                    ibd,
+                    network_result,
+                );
+                debug!(
+                    "{:?}: ran Epoch 2.x work loop in Nakamoto epoch",
+                    self.get_local_peer()
+                );
+                prune || epoch2_prune
+            } else {
+                prune
+            }
+        } else {
+            // in epoch 2.x, so do epoch 2.x things
+            debug!("{:?}: run Epoch 2.x work loop", self.get_local_peer());
+            self.do_network_work_epoch2x(
+                sortdb,
+                chainstate,
+                dns_client_opt,
+                download_backpressure,
+                ibd,
+                network_result,
+            )
+        };
+        prune
+    }
+
+    /// Do the actual work in the state machine.
+    /// Return true if we need to prune connections.
+    /// Used only for nakamoto.
+    /// TODO: put this into a separate file for nakamoto p2p code paths
+    fn do_network_work_nakamoto(&mut self, sortdb: &SortitionDB, ibd: bool) -> bool {
+        // do some Actual Work(tm)
+        let mut do_prune = false;
+        let mut did_cycle = false;
+
+        while !did_cycle {
+            // always do an inv sync
+            let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
+            debug!(
+                "{:?}: network work state is {:?}",
+                self.get_local_peer(),
+                &self.nakamoto_work_state;
+                "learned_new_blocks?" => learned
+            );
+            let cur_state = self.nakamoto_work_state;
+            match self.nakamoto_work_state {
+                PeerNetworkWorkState::GetPublicIP => {
+                    if cfg!(test) && self.connection_opts.disable_natpunch {
+                        self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
+                    } else {
+                        // (re)determine our public IP address
+                        let done = self.do_get_public_ip();
+                        if done {
+                            self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
+                        }
+                    }
+                }
+                PeerNetworkWorkState::BlockInvSync => {
+                    // this state is useless in Nakamoto since we're always doing inv-syncs
+                    self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
+                }
+                PeerNetworkWorkState::BlockDownload => {
+                    debug!(
+                        "{:?}: Block download for Nakamoto is not yet implemented",
+                        self.get_local_peer()
+                    );
+                    self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
+                }
+                PeerNetworkWorkState::AntiEntropy => {
+                    debug!(
+                        "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
+                        self.get_local_peer()
+                    );
+                    self.nakamoto_work_state = PeerNetworkWorkState::Prune;
+                }
+                PeerNetworkWorkState::Prune => {
+                    // did one pass
+                    did_cycle = true;
+                    do_prune = true;
+
+                    // restart
+                    self.nakamoto_work_state = PeerNetworkWorkState::GetPublicIP;
+                }
+            }
+
+            if self.nakamoto_work_state == cur_state {
+                // only break early if we can't make progress
+                break;
+            }
+        }
+
+        if did_cycle {
+            self.num_state_machine_passes += 1;
+            debug!(
+                "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
+                &self.local_peer, self.num_state_machine_passes
+            );
+        }
+
+        do_prune
+    }
+
+    /// Do the actual work in the state machine.
+    /// Return true if we need to prune connections.
+    /// This is only used in epoch 2.x.
+    /// TODO: put into a separate file specific to epoch 2.x p2p code paths
+    fn do_network_work_epoch2x(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
@@ -3889,168 +4045,8 @@ impl PeerNetwork {
                     }
                 }
                 PeerNetworkWorkState::BlockInvSync => {
-                    // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd);
-                    if inv_done {
-                        if !download_backpressure {
-                            // proceed to get blocks, if we're not backpressured
-                            self.work_state = PeerNetworkWorkState::BlockDownload;
-                        } else {
-                            // skip downloads for now
-                            self.work_state = PeerNetworkWorkState::Prune;
-                        }
-
-                        if !inv_throttled {
-                            // only count an inv_sync as passing if there's an always-allowed node
-                            // in our inv state
-                            let always_allowed: HashSet<_> = PeerDB::get_always_allowed_peers(
-                                &self.peerdb.conn(),
-                                self.local_peer.network_id,
-                            )
-                            .unwrap_or(vec![])
-                            .into_iter()
-                            .map(|neighbor| neighbor.addr)
-                            .collect();
-
-                            // have we finished a full pass of the inventory state machine on an
-                            // always-allowed peer?
-                            let mut finished_always_allowed_inv_sync = false;
-
-                            if always_allowed.len() == 0 {
-                                // vacuously, we have done so
-                                finished_always_allowed_inv_sync = true;
-                            } else {
-                                // do we have an always-allowed peer that we have not fully synced
-                                // with?
-                                let mut have_unsynced = false;
-                                if let Some(ref inv_state) = self.inv_state {
-                                    for (nk, stats) in inv_state.block_stats.iter() {
-                                        if self.is_bound(&nk) {
-                                            // this is the same address we're bound to
-                                            continue;
-                                        }
-                                        if Some((nk.addrbytes.clone(), nk.port))
-                                            == self.local_peer.public_ip_address
-                                        {
-                                            // this is a peer at our address
-                                            continue;
-                                        }
-                                        if !always_allowed.contains(&nk) {
-                                            // this peer isn't in the always-allowed set
-                                            continue;
-                                        }
-
-                                        if stats.inv.num_reward_cycles
-                                            >= self.pox_id.num_inventory_reward_cycles() as u64
-                                        {
-                                            // we have fully sync'ed with an always-allowed peer
-                                            debug!(
-                                                "{:?}: Fully-sync'ed PoX inventory from {}",
-                                                &self.local_peer, nk
-                                            );
-                                            finished_always_allowed_inv_sync = true;
-                                        } else {
-                                            // there exists an always-allowed peer that we have not
-                                            // fully sync'ed with
-                                            debug!(
-                                                "{:?}: Have not fully sync'ed with {}",
-                                                &self.local_peer, &nk
-                                            );
-                                            have_unsynced = true;
-                                        }
-                                    }
-                                }
-
-                                if !have_unsynced {
-                                    // There exists one or more always-allowed peers in
-                                    // the inv state machine (per the peer DB), but all such peers
-                                    // report either our bind address or our public IP address.
-                                    // If this is the case (i.e. a configuration error, a weird
-                                    // case where nodes share an IP, etc), then we declare this inv
-                                    // sync pass as finished.
-                                    finished_always_allowed_inv_sync = true;
-                                }
-                            }
-
-                            if finished_always_allowed_inv_sync {
-                                debug!("{:?}: synchronized inventories with at least one always-allowed peer", &self.local_peer);
-                                self.num_inv_sync_passes += 1;
-                            } else {
-                                debug!("{:?}: did NOT synchronize inventories with at least one always-allowed peer", &self.local_peer);
-                            }
-                            debug!(
-                                "{:?}: Finished full inventory state-machine pass ({})",
-                                &self.local_peer, self.num_inv_sync_passes
-                            );
-
-                            // hint to the downloader to start scanning at the sortition
-                            // height we just synchronized
-                            // NOTE: this only works in Stacks 2.x.
-                            // Nakamoto uses a different state machine
-                            let start_download_sortition = if let Some(ref inv_state) =
-                                self.inv_state
-                            {
-                                let (consensus_hash, _) =
-                                    SortitionDB::get_canonical_stacks_chain_tip_hash(
-                                        sortdb.conn(),
-                                    )
-                                    .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
-                                let stacks_tip_sortition_height =
-                                    SortitionDB::get_block_snapshot_consensus(
-                                        sortdb.conn(),
-                                        &consensus_hash,
-                                    )
-                                    .expect("FATAL: failed to query sortition DB")
-                                    .map(|sn| sn.block_height)
-                                    .unwrap_or(self.burnchain.first_block_height)
-                                    .saturating_sub(self.burnchain.first_block_height);
-
-                                let sortition_height_start = cmp::min(
-                                    stacks_tip_sortition_height,
-                                    inv_state.block_sortition_start,
-                                );
-
-                                debug!(
-                                        "{:?}: Begin downloader synchronization at sortition height {} min({},{})",
-                                        &self.local_peer,
-                                        sortition_height_start,
-                                        inv_state.block_sortition_start,
-                                        stacks_tip_sortition_height
-                                    );
-
-                                sortition_height_start
-                            } else {
-                                // really unreachable, but why tempt fate?
-                                warn!(
-                                    "{:?}: Inventory state machine not yet initialized",
-                                    &self.local_peer
-                                );
-                                0
-                            };
-
-                            if let Some(ref mut downloader) = self.block_downloader {
-                                debug!(
-                                    "{:?}: wake up downloader at sortition height {}",
-                                    &self.local_peer, start_download_sortition
-                                );
-                                downloader.hint_block_sortition_height_available(
-                                    start_download_sortition,
-                                    ibd,
-                                    false,
-                                );
-                                downloader.hint_microblock_sortition_height_available(
-                                    start_download_sortition,
-                                    ibd,
-                                    false,
-                                );
-                            } else {
-                                warn!(
-                                    "{:?}: Block downloader not yet initialized",
-                                    &self.local_peer
-                                );
-                            }
-                        }
-                    }
+                    let new_state = self.work_inv_sync_epoch2x(sortdb, download_backpressure, ibd);
+                    self.work_state = new_state;
                 }
                 PeerNetworkWorkState::BlockDownload => {
                     // go fetch blocks
@@ -4085,7 +4081,7 @@ impl PeerNetwork {
                             &self.local_peer
                         );
                     } else {
-                        self.try_push_local_data(sortdb, chainstate);
+                        self.try_push_local_data_epoch2x(sortdb, chainstate);
                     }
                     self.work_state = PeerNetworkWorkState::Prune;
                 }
@@ -4291,7 +4287,8 @@ impl PeerNetwork {
 
     /// Update a peer's inventory state to indicate that the given block is available.
     /// If updated, return the sortition height of the bit in the inv that was set.
-    fn handle_unsolicited_inv_update(
+    /// Only valid for epoch 2.x
+    fn handle_unsolicited_inv_update_epoch2x(
         &mut self,
         sortdb: &SortitionDB,
         event_id: usize,
@@ -4299,6 +4296,22 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         microblocks: bool,
     ) -> Result<Option<u64>, net_error> {
+        let epoch = self.get_current_epoch();
+        if epoch.epoch_id >= StacksEpochId::Epoch30 {
+            info!(
+                "{:?}: Ban peer event {} for sending an inv 2.x update for {} in epoch 3.x",
+                event_id,
+                self.get_local_peer(),
+                consensus_hash
+            );
+            self.bans.insert(event_id);
+
+            if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
+                self.bans.insert(*outbound_event_id);
+            }
+            return Ok(None);
+        }
+
         let block_sortition_height = match self.inv_state {
             Some(ref mut inv) => {
                 let res = if microblocks {
@@ -4509,7 +4522,7 @@ impl PeerNetwork {
 
         let mut to_buffer = false;
         for (consensus_hash, block_hash) in new_blocks.available.iter() {
-            let block_sortition_height = match self.handle_unsolicited_inv_update(
+            let block_sortition_height = match self.handle_unsolicited_inv_update_epoch2x(
                 sortdb,
                 event_id,
                 &outbound_neighbor_key,
@@ -4610,7 +4623,7 @@ impl PeerNetwork {
 
         let mut to_buffer = false;
         for (consensus_hash, block_hash) in new_mblocks.available.iter() {
-            let mblock_sortition_height = match self.handle_unsolicited_inv_update(
+            let mblock_sortition_height = match self.handle_unsolicited_inv_update_epoch2x(
                 sortdb,
                 event_id,
                 &outbound_neighbor_key,
@@ -4790,7 +4803,7 @@ impl PeerNetwork {
             // only bother updating the inventory for this event's peer if we have an outbound
             // connection to it.
             if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
-                let _ = self.handle_unsolicited_inv_update(
+                let _ = self.handle_unsolicited_inv_update_epoch2x(
                     sortdb,
                     event_id,
                     &outbound_neighbor_key,
@@ -5196,6 +5209,21 @@ impl PeerNetwork {
         &self.stacker_db_configs
     }
 
+    /// Reload StackerDB configs from chainstate
+    pub fn refresh_stacker_db_configs(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<(), net_error> {
+        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
+            chainstate,
+            sortdb,
+            stacker_db_configs,
+        )?;
+        Ok(())
+    }
+
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5211,9 +5239,16 @@ impl PeerNetwork {
         ibd: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let stacks_tip =
+            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
+
+        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height;
+        let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height != self.chain_view.burn_block_height {
+
+        if burnchain_tip_changed || stacks_tip_changed {
+            // only do the needful depending on what changed
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
@@ -5232,6 +5267,12 @@ impl PeerNetwork {
                 ancestor_sn.consensus_hash
             };
 
+            // update cached burnchain view for /v2/info
+            self.chain_view = new_chain_view;
+            self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
+        }
+
+        if burnchain_tip_changed {
             // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs(self.chain_view.burn_stable_block_height);
             self.hint_download_rescan(
@@ -5246,10 +5287,6 @@ impl PeerNetwork {
             self.antientropy_last_push_ts = get_epoch_time_secs();
             self.antientropy_start_reward_cycle =
                 self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
-
-            // update cached burnchain view for /v2/info
-            self.chain_view = new_chain_view;
-            self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
 
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
@@ -5293,18 +5330,10 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
 
             // refresh stackerdb configs
-            let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
-            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
-                chainstate,
-                sortdb,
-                stacker_db_configs,
-            )?;
+            self.refresh_stacker_db_configs(sortdb, chainstate)?;
         }
 
-        if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
-            || sn.canonical_stacks_tip_consensus_hash
-                != self.burnchain_tip.canonical_stacks_tip_consensus_hash
-        {
+        if stacks_tip_changed {
             // update stacks tip affirmation map view
             let burnchain_db = self.burnchain.open_burnchain_db(false)?;
             self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
@@ -5321,7 +5350,7 @@ impl PeerNetwork {
 
         // can't fail after this point
 
-        if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
+        if burnchain_tip_changed {
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             ret =
@@ -5330,6 +5359,7 @@ impl PeerNetwork {
 
         // update cached stacks chain view for /v2/info
         self.burnchain_tip = sn;
+        self.stacks_tip = stacks_tip;
         Ok(ret)
     }
 
@@ -5497,6 +5527,7 @@ impl PeerNetwork {
     /// Store a single transaction
     /// Return true if stored; false if it was a dup or if it's temporarily blacklisted.
     /// Has to be done here, since only the p2p network has the unconfirmed state.
+    #[cfg_attr(test, mutants::skip)]
     fn store_transaction(
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
@@ -5546,6 +5577,7 @@ impl PeerNetwork {
 
     /// Store all inbound transactions, and return the ones that we actually stored so they can be
     /// relayed.
+    #[cfg_attr(test, mutants::skip)]
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
         chainstate: &mut StacksChainState,

@@ -149,8 +149,7 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
         .unwrap()
         .get_mut(contract_id)
         .unwrap()
-        .reset(None, stackerdb_config)
-        .unwrap();
+        .reset(None, stackerdb_config);
 }
 
 /// Load up the entire stacker DB, including its metadata
@@ -228,6 +227,9 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         let mut i = 0;
         loop {
             // run peer network state-machines
+            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
+            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
 
@@ -347,6 +349,9 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         let mut i = 0;
         loop {
             // run peer network state-machines
+            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
+            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
 
@@ -485,6 +490,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         loop {
             // run peer network state-machines
             for i in 0..num_peers {
+                peers[i].network.stacker_db_configs = peer_db_configs[i].clone();
                 let res = peers[i].step_with_ibd(false);
                 if let Ok(mut res) = res {
                     let rc_consensus_hash =

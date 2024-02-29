@@ -33,7 +33,7 @@ use clarity::vm::database::{
 use clarity::vm::events::*;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
-use clarity::vm::Value;
+use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
@@ -51,7 +51,7 @@ use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStx
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -115,6 +115,7 @@ pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
+    pub nakamoto_staging_blocks_conn: NakamotoStagingBlocksConn,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
@@ -220,6 +221,8 @@ pub struct StacksEpochReceipt {
     /// in.
     pub evaluated_epoch: StacksEpochId,
     pub epoch_transition: bool,
+    /// Was .signers updated during this block?
+    pub signers_updated: bool,
 }
 
 /// Headers we serve over the network
@@ -532,8 +535,11 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(self, block_hash: &StacksBlockId) -> ExecutionCost {
-        self.block.commit_mined_block(block_hash).get_total()
+    pub fn commit_mined_block(
+        self,
+        block_hash: &StacksBlockId,
+    ) -> Result<ExecutionCost, clarity_error> {
+        Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
     pub fn commit_to_block(
@@ -784,14 +790,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );"#,
     r#"
-    -- users who burned in support of a block
-    CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
-                                           consensus_hash TEXT NOT NULL,
-                                           address TEXT NOT NULL,
-                                           burn_amount INT NOT NULL,
-                                           vtxindex INT NOT NULL
-    );"#,
-    r#"
     CREATE TABLE transactions(
         id INTEGER PRIMARY KEY,
         txid TEXT NOT NULL,
@@ -884,7 +882,6 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_hashes ON staging_blocks(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
-    "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
@@ -1406,7 +1403,7 @@ impl StacksChainState {
                                         Value::UInt(entry.no_vowel_discount.into());
                                     let buckets: Vec<_> = entry
                                         .buckets
-                                        .split(";")
+                                        .split(';')
                                         .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
                                         .collect();
                                     assert_eq!(buckets.len(), 16);
@@ -1458,7 +1455,7 @@ impl StacksChainState {
                             let initial_names = get_names();
                             for entry in initial_names {
                                 let components: Vec<_> =
-                                    entry.fully_qualified_name.split(".").collect();
+                                    entry.fully_qualified_name.split('.').collect();
                                 assert_eq!(components.len(), 2);
 
                                 let namespace = {
@@ -1622,7 +1619,7 @@ impl StacksChainState {
                     MAINNET_2_0_GENESIS_ROOT_HASH,
                     "Incorrect root hash for genesis block computed. expected={} computed={}",
                     MAINNET_2_0_GENESIS_ROOT_HASH,
-                    genesis_root_hash.to_string()
+                    genesis_root_hash
                 )
             }
         }
@@ -1781,6 +1778,11 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
+        let nakamoto_staging_blocks_path =
+            StacksChainState::get_nakamoto_staging_blocks_path(path.clone())?;
+        let nakamoto_staging_blocks_conn =
+            StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
+
         let init_required = match fs::metadata(&clarity_state_index_marf) {
             Ok(_) => false,
             Err(_) => true,
@@ -1804,6 +1806,7 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
+            nakamoto_staging_blocks_conn,
             state_index: state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
@@ -1908,6 +1911,49 @@ impl StacksChainState {
             code,
             ASTRules::PrecheckSize,
         )
+    }
+
+    /// Execute a public function in `contract` from a read-only DB context
+    ///  Any mutations that occur will be rolled-back before returning, regardless of
+    ///  an okay or error result.
+    pub fn eval_fn_read_only(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_id_bhh: &StacksBlockId,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, clarity_error> {
+        let headers_db = HeadersDBConn(self.state_index.sqlite_conn());
+        let mut conn = self.clarity_state.read_only_connection_checked(
+            parent_id_bhh,
+            &headers_db,
+            burn_dbconn,
+        )?;
+
+        let args: Vec<_> = args
+            .iter()
+            .map(|x| SymbolicExpression::atom_value(x.clone()))
+            .collect();
+
+        let result = conn.with_readonly_clarity_env(
+            self.mainnet,
+            self.chain_id,
+            ClarityVersion::latest(),
+            contract.clone().into(),
+            None,
+            LimitedCostTracker::Free,
+            |env| {
+                env.execute_contract(
+                    contract, function, &args,
+                    // read-only is set to `false` so that non-read-only functions
+                    //  can be executed. any transformation is rolled back.
+                    false,
+                )
+            },
+        )?;
+
+        Ok(result)
     }
 
     pub fn db(&self) -> &DBConn {
@@ -2378,7 +2424,9 @@ impl StacksChainState {
         let height_opt = clarity_tx
             .connection()
             .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
-                let height_opt = db.get_microblock_pubkey_hash_height(mblock_pubkey_hash);
+                let height_opt = db
+                    .get_microblock_pubkey_hash_height(mblock_pubkey_hash)
+                    .expect("FATAL: failed to query microblock public key hash");
                 Ok(height_opt)
             })
             .expect("FATAL: failed to query microblock public key hash");
@@ -2478,7 +2526,6 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
@@ -2543,11 +2590,7 @@ impl StacksChainState {
             anchor_block_cost,
             affirmation_weight,
         )?;
-        StacksChainState::insert_miner_payment_schedule(
-            headers_tx.deref_mut(),
-            block_reward,
-            user_burns,
-        )?;
+        StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),
             &index_block_hash,

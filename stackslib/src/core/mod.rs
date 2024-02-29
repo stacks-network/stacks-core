@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
@@ -34,8 +33,7 @@ pub mod mempool;
 #[cfg(test)]
 pub mod tests;
 
-use std::cmp::{Ord, Ordering, PartialOrd};
-
+use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
@@ -188,9 +186,9 @@ pub const POX_V2_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
     (BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT as u32) + 1;
 
 pub const POX_V3_MAINNET_EARLY_UNLOCK_HEIGHT: u32 =
-    (BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT as u32) + 1;
+    (BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT as u32) + 1;
 pub const POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
-    (BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT as u32) + 1;
+    (BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT as u32) + 1;
 
 /// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
 pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022

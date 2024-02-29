@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
-use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
 use std::time::Duration;
@@ -172,14 +171,16 @@ impl PeerThread {
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let rpc_sock = config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.rpc_bind
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let rpc_sock = config
+            .node
+            .rpc_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
@@ -200,6 +201,24 @@ impl PeerThread {
             num_download_passes: 0,
             last_burn_block_height: 0,
         }
+    }
+
+    /// Check if the StackerDB config needs to be updated (by looking
+    ///  at the signal in `self.globals`), and if so, refresh the
+    ///  StackerDB config
+    fn refresh_stackerdb(&mut self) {
+        if !self.globals.coord_comms.need_stackerdb_update() {
+            return;
+        }
+
+        if let Err(e) = self
+            .net
+            .refresh_stacker_db_configs(&self.sortdb, &mut self.chainstate)
+        {
+            warn!("Failed to update StackerDB configs: {e}");
+        }
+
+        self.globals.coord_comms.set_stackerdb_update(false);
     }
 
     /// Run one pass of the p2p/http state machine
@@ -227,6 +246,8 @@ impl PeerThread {
         } else {
             self.poll_timeout
         };
+
+        self.refresh_stackerdb();
 
         // do one pass
         let p2p_res = {

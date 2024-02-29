@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{From, TryFrom};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -79,7 +78,7 @@ pub use stacks_common::address::{
 };
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
-pub const STACKS_BLOCK_VERSION: u8 = 6;
+pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
@@ -128,6 +127,7 @@ pub enum Error {
     ChannelClosed(String),
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
+    NoRegisteredSigners(u64),
 }
 
 impl From<marf_error> for Error {
@@ -221,11 +221,15 @@ impl fmt::Display for Error {
                 f,
                 "Block has a different tenure than parent, but no tenure change transaction"
             ),
+            Error::NoRegisteredSigners(reward_cycle) => {
+                write!(f, "No registered signers for reward cycle {reward_cycle}")
+            }
         }
     }
 }
 
 impl error::Error for Error {
+    #[cfg_attr(test, mutants::skip)]
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidFee => None,
@@ -263,11 +267,13 @@ impl error::Error for Error {
             Error::ChannelClosed(ref _s) => None,
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
+            Error::NoRegisteredSigners(_) => None,
         }
     }
 }
 
 impl Error {
+    #[cfg_attr(test, mutants::skip)]
     fn name(&self) -> &'static str {
         match self {
             Error::InvalidFee => "InvalidFee",
@@ -305,9 +311,11 @@ impl Error {
             Error::ChannelClosed(ref _s) => "ChannelClosed",
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
+            Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn into_json(&self) -> serde_json::Value {
         let reason_code = self.name();
         let reason_data = format!("{:?}", &self);
@@ -731,10 +739,6 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
-    /// The Stacker signature
-    pub signature: ThresholdSignature,
-    /// A bitmap of which Stackers signed
-    pub signers: Vec<u8>,
 }
 
 impl TenureChangePayload {
@@ -752,8 +756,6 @@ impl TenureChangePayload {
             previous_tenure_blocks: num_blocks_so_far,
             cause: TenureChangeCause::Extended,
             pubkey_hash: self.pubkey_hash.clone(),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         }
     }
 }
@@ -774,10 +776,25 @@ impl TransactionPayload {
         match self {
             TransactionPayload::TokenTransfer(..) => "TokenTransfer",
             TransactionPayload::ContractCall(..) => "ContractCall",
-            TransactionPayload::SmartContract(..) => "SmartContract",
+            TransactionPayload::SmartContract(_, version_opt) => {
+                if version_opt.is_some() {
+                    "SmartContract(Versioned)"
+                } else {
+                    "SmartContract"
+                }
+            }
             TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
-            TransactionPayload::Coinbase(..) => "Coinbase",
-            TransactionPayload::TenureChange(..) => "TenureChange",
+            TransactionPayload::Coinbase(_, _, vrf_opt) => {
+                if vrf_opt.is_some() {
+                    "Coinbase(Nakamoto)"
+                } else {
+                    "Coinbase"
+                }
+            }
+            TransactionPayload::TenureChange(payload) => match payload.cause {
+                TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
+                TenureChangeCause::Extended => "TenureChange(Extension)",
+            },
         }
     }
 }
@@ -1400,8 +1417,6 @@ pub mod test {
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,
                 pubkey_hash: Hash160([0x00; 20]),
-                signature: ThresholdSignature::mock(),
-                signers: vec![],
             }),
         ];
 
