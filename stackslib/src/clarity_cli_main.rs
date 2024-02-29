@@ -39,8 +39,7 @@ fn main() {
         &argv[1..]
     )
     ;
-    match 
-    result {
+    match result {
         (exit_code, Some(output)) => {
             println!("{}", &serde_json::to_string(&output).unwrap());
             process::exit(exit_code);
