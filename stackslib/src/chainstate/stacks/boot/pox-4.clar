@@ -32,6 +32,8 @@
 (define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
 (define-constant ERR_INVALID_SIGNATURE_PUBKEY 35)
 (define-constant ERR_INVALID_SIGNATURE_RECOVER 36)
+(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH 37)
+(define-constant ERR_SIGNER_AUTH_USED 38)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -233,8 +235,28 @@
         topic: (string-ascii 12),
         ;; The PoX address that can be used with this signer key
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+        ;; The unique auth-id for this authorization
+        auth-id: uint,
+        ;; The maximum amount of uSTX that can be used (per tx) with this signer key
+        max-amount: uint,
     }
     bool ;; Whether the authorization can be used or not
+)
+
+;; State for tracking used signer key authorizations. This prevents re-use
+;; of the same signature or pre-set authorization for multiple transactions.
+;; Refer to the `signer-key-authorizations` map for the documentation on these fields
+(define-map used-signer-key-authorizations
+    {
+        signer-key: (buff 33),
+        reward-cycle: uint,
+        period: uint,
+        topic: (string-ascii 12),
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+        auth-id: uint,
+        max-amount: uint,
+    }
+    bool ;; Whether the field has been used or not
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -603,7 +625,9 @@
                           (start-burn-ht uint)
                           (lock-period uint)
                           (signer-sig (optional (buff 65)))
-                          (signer-key (buff 33)))
+                          (signer-key (buff 33))
+                          (max-amount uint)
+                          (auth-id uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
@@ -629,7 +653,7 @@
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
       ;; Validate ownership of the given signer key
-      (try! (verify-signer-key-sig pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key))
+      (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
 
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
@@ -708,12 +732,14 @@
 
 ;; Generate a message hash for validating a signer key.
 ;; The message hash follows SIP018 for signing structured data. The structured data
-;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle }`. The domain is
-;; `{ name: "pox-4-signer", version: "1.0.0", chain-id: chain-id }`.
+;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount }`.
+;; The domain is `{ name: "pox-4-signer", version: "1.0.0", chain-id: chain-id }`.
 (define-read-only (get-signer-key-message-hash (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                (reward-cycle uint)
                                                (topic (string-ascii 12))
-                                               (period uint))
+                                               (period uint)
+                                               (max-amount uint)
+                                               (auth-id uint))
   (sha256 (concat
     SIP018_MSG_PREFIX
     (concat
@@ -724,6 +750,8 @@
           reward-cycle: reward-cycle,
           topic: topic,
           period: period,
+          auth-id: auth-id,
+          max-amount: max-amount,
         })))))))
 
 ;; Verify a signature from the signing key for this specific stacker.
@@ -747,21 +775,55 @@
                                          (topic (string-ascii 12))
                                          (period uint)
                                          (signer-sig-opt (optional (buff 65)))
-                                         (signer-key (buff 33)))
-  (match signer-sig-opt
-    ;; `signer-sig` is present, verify the signature
-    signer-sig (ok (asserts!
-      (is-eq
-        (unwrap! (secp256k1-recover?
-          (get-signer-key-message-hash pox-addr reward-cycle topic period)
-          signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER))
-        signer-key)
-      (err ERR_INVALID_SIGNATURE_PUBKEY)))
-    ;; `signer-sig` is not present, verify that an authorization was previously added for this key
-    (ok (asserts! (default-to false (map-get? signer-key-authorizations
-          { signer-key: signer-key, reward-cycle: reward-cycle, period: period, topic: topic, pox-addr: pox-addr }))
-        (err ERR_NOT_ALLOWED)))
+                                         (signer-key (buff 33))
+                                         (amount uint)
+                                         (max-amount uint)
+                                         (auth-id uint))
+  (begin
+    ;; Validate that amount is less than or equal to `max-amount`
+    (asserts! (>= max-amount amount) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+    (asserts! (is-none (map-get? used-signer-key-authorizations { signer-key: signer-key, reward-cycle: reward-cycle, topic: topic, period: period, pox-addr: pox-addr, auth-id: auth-id, max-amount: max-amount }))
+              (err ERR_SIGNER_AUTH_USED))
+    (match signer-sig-opt
+      ;; `signer-sig` is present, verify the signature
+      signer-sig (ok (asserts!
+        (is-eq
+          (unwrap! (secp256k1-recover?
+            (get-signer-key-message-hash pox-addr reward-cycle topic period max-amount auth-id)
+            signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER))
+          signer-key)
+        (err ERR_INVALID_SIGNATURE_PUBKEY)))
+      ;; `signer-sig` is not present, verify that an authorization was previously added for this key
+      (ok (asserts! (default-to false (map-get? signer-key-authorizations
+            { signer-key: signer-key, reward-cycle: reward-cycle, period: period, topic: topic, pox-addr: pox-addr, auth-id: auth-id, max-amount: max-amount }))
+          (err ERR_NOT_ALLOWED)))
     ))
+  )
+
+;; This function does two things:
+;;
+;; - Verify that a signer key is authorized to be used
+;; - Updates the `used-signer-key-authorizations` map to prevent reuse
+;;
+;; This "wrapper" method around `verify-signer-key-sig` allows that function to remain
+;; read-only, so that it can be used by clients as a sanity check before submitting a transaction.
+(define-private (consume-signer-key-authorization (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                  (reward-cycle uint)
+                                                  (topic (string-ascii 12))
+                                                  (period uint)
+                                                  (signer-sig-opt (optional (buff 65)))
+                                                  (signer-key (buff 33))
+                                                  (amount uint)
+                                                  (max-amount uint)
+                                                  (auth-id uint))
+  (begin
+    ;; verify the authorization
+    (try! (verify-signer-key-sig pox-addr reward-cycle topic period signer-sig-opt signer-key amount max-amount auth-id))
+    ;; update the `used-signer-key-authorizations` map
+    (asserts! (map-insert used-signer-key-authorizations
+      { signer-key: signer-key, reward-cycle: reward-cycle, topic: topic, period: period, pox-addr: pox-addr, auth-id: auth-id, max-amount: max-amount } true)
+      (err ERR_SIGNER_AUTH_USED))
+    (ok true)))
 
 ;; Commit partially stacked STX and allocate a new PoX reward address slot.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,
@@ -778,7 +840,9 @@
 (define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                 (reward-cycle uint)
                                                 (signer-sig (optional (buff 65)))
-                                                (signer-key (buff 33)))
+                                                (signer-key (buff 33))
+                                                (max-amount uint)
+                                                (auth-id uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
@@ -786,8 +850,8 @@
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
-    (try! (verify-signer-key-sig pox-addr reward-cycle "agg-commit" u1 signer-sig signer-key))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
+      (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-commit" u1 signer-sig signer-key amount-ustx max-amount auth-id))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
       ;; Add the pox addr to the reward cycle, and extract the index of the PoX address
       ;; so the delegator can later use it to call stack-aggregation-increase.
@@ -821,8 +885,10 @@
 (define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                          (reward-cycle uint)
                                          (signer-sig (optional (buff 65)))
-                                         (signer-key (buff 33)))
-    (match (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key)
+                                         (signer-key (buff 33))
+                                         (max-amount uint)
+                                         (auth-id uint))
+    (match (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key max-amount auth-id)
         pox-addr-index (ok true)
         commit-err (err commit-err)))
 
@@ -831,8 +897,10 @@
 (define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                  (reward-cycle uint)
                                                  (signer-sig (optional (buff 65)))
-                                                 (signer-key (buff 33)))
-    (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key))
+                                                 (signer-key (buff 33))
+                                                 (max-amount uint)
+                                                 (auth-id uint))
+    (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key max-amount auth-id))
 
 ;; Commit partially stacked STX to a PoX address which has already received some STX (more than the Stacking min).
 ;; This allows a delegator to lock up marginally more STX from new delegates, even if they collectively do not
@@ -1080,7 +1148,9 @@
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                              (signer-sig (optional (buff 65)))
-                             (signer-key (buff 33)))
+                             (signer-key (buff 33))
+                             (max-amount uint)
+                             (auth-id uint))
    (let ((stacker-info (stx-account tx-sender))
          ;; to extend, there must already be an etry in the stacking-state
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
@@ -1106,7 +1176,7 @@
               (err ERR_STACKING_IS_DELEGATED))
 
     ;; Verify signature from delegate that allows this sender for this cycle
-    (try! (verify-signer-key-sig pox-addr cur-cycle "stack-extend" extend-count signer-sig signer-key))
+    (try! (consume-signer-key-authorization pox-addr cur-cycle "stack-extend" extend-count signer-sig signer-key u0 max-amount auth-id))
 
     ;; TODO: add more assertions to sanity check the `stacker-info` values with
     ;;       the `stacker-state` values
@@ -1362,13 +1432,15 @@
                                              (reward-cycle uint)
                                              (topic (string-ascii 12))
                                              (signer-key (buff 33))
-                                             (allowed bool))
+                                             (allowed bool)
+                                             (max-amount uint)
+                                             (auth-id uint))
   (begin
     ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
     (asserts! (is-eq
       (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
       tx-sender) (err ERR_NOT_ALLOWED))
-    (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key } allowed)
+    (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key, auth-id: auth-id, max-amount: max-amount } allowed)
     (ok allowed)))
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information

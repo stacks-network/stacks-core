@@ -236,6 +236,12 @@ pub struct GenerateStackingSignatureArgs {
     /// Use `1` for stack-aggregation-commit
     #[arg(long)]
     pub period: u64,
+    /// The max amount of uSTX that can be used in this unique transaction
+    #[arg(long)]
+    pub max_amount: u128,
+    /// A unique identifier to prevent re-using this authorization
+    #[arg(long)]
+    pub auth_id: u128,
 }
 
 /// Parse the contract ID

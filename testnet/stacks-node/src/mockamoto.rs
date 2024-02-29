@@ -863,6 +863,8 @@ impl MockamotoNode {
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
                 12_u128,
+                u128::MAX,
+                1,
             )
             .unwrap()
             .to_rsv();
@@ -877,6 +879,8 @@ impl MockamotoNode {
                     ClarityValue::UInt(12),
                     ClarityValue::some(ClarityValue::buff_from(signature).unwrap()).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
+                    ClarityValue::UInt(u128::MAX),
+                    ClarityValue::UInt(1),
                 ],
             })
         } else {
@@ -887,6 +891,8 @@ impl MockamotoNode {
                 &Pox4SignatureTopic::StackExtend,
                 CHAIN_ID_TESTNET,
                 5_u128,
+                u128::MAX,
+                1,
             )
             .unwrap()
             .to_rsv();
@@ -901,6 +907,8 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::some(ClarityValue::buff_from(signature).unwrap()).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
+                    ClarityValue::UInt(u128::MAX),
+                    ClarityValue::UInt(1),
                 ],
             })
         };
