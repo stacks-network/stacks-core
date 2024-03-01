@@ -306,10 +306,7 @@ impl AssetMap {
         asset: AssetIdentifier,
         transfered: Value,
     ) {
-        let principal_map = self
-            .asset_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.asset_map.entry(principal.clone()).or_default();
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
             map_entry.push(transfered);
@@ -326,10 +323,7 @@ impl AssetMap {
     ) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
-        let principal_map = self
-            .token_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.token_map.entry(principal.clone()).or_default();
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -362,10 +356,7 @@ impl AssetMap {
         // After this point, this function will not fail.
         for (principal, mut principal_map) in other.asset_map.drain() {
             for (asset, mut transfers) in principal_map.drain() {
-                let landing_map = self
-                    .asset_map
-                    .entry(principal.clone())
-                    .or_insert_with(|| HashMap::new());
+                let landing_map = self.asset_map.entry(principal.clone()).or_default();
                 if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 } else {
@@ -383,10 +374,7 @@ impl AssetMap {
         }
 
         for (principal, asset, amount) in to_add.into_iter() {
-            let principal_map = self
-                .token_map
-                .entry(principal)
-                .or_insert_with(|| HashMap::new());
+            let principal_map = self.token_map.entry(principal).or_default();
             principal_map.insert(asset, amount);
         }
 
@@ -394,9 +382,9 @@ impl AssetMap {
     }
 
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::new();
+        let mut map = HashMap::with_capacity(self.token_map.len());
         for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::new();
+            let mut output_map = HashMap::with_capacity(principal_map.len());
             for (asset, amount) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
@@ -404,9 +392,7 @@ impl AssetMap {
         }
 
         for (principal, stx_amount) in self.stx_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX(),
                 AssetMapEntry::STX(stx_amount as u128),
@@ -414,9 +400,7 @@ impl AssetMap {
         }
 
         for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount as u128),
@@ -424,9 +408,7 @@ impl AssetMap {
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -436,17 +418,11 @@ impl AssetMap {
     }
 
     pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.stx_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.stx_map.get(principal).copied()
     }
 
     pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.burn_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.burn_map.get(principal).copied()
     }
 
     pub fn get_stx_burned_total(&self) -> Result<u128> {
