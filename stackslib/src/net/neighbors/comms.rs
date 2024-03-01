@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::{cmp, mem};
 
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Address, PublicKey};
 use crate::core::PEER_VERSION_TESTNET;
@@ -59,10 +59,10 @@ pub trait NeighborComms {
     /// Unpin a connection -- allow it to get pruned
     fn unpin_connection(&mut self, event_id: usize);
     /// Get the collection of pinned connections
-    fn get_pinned_connections(&self) -> &HashSet<usize>;
+    fn get_pinned_connections(&self) -> &StacksHashSet<usize>;
     /// Clear all pinned connections and return them.
     /// List items are guaranteed to be unique
-    fn clear_pinned_connections(&mut self) -> HashSet<usize>;
+    fn clear_pinned_connections(&mut self) -> StacksHashSet<usize>;
     /// Is the connection pinned?
     fn is_pinned(&self, event_id: usize) -> bool;
     /// Add an in-flight request to begin polling on
@@ -77,9 +77,9 @@ pub trait NeighborComms {
         network: &mut PeerNetwork,
     ) -> Vec<(NeighborAddress, StacksMessage)>;
     /// Take all dead neighbors
-    fn take_dead_neighbors(&mut self) -> HashSet<NeighborKey>;
+    fn take_dead_neighbors(&mut self) -> StacksHashSet<NeighborKey>;
     /// Take all broken neighbors
-    fn take_broken_neighbors(&mut self) -> HashSet<NeighborKey>;
+    fn take_broken_neighbors(&mut self) -> StacksHashSet<NeighborKey>;
     /// Cancel any ongoing requests.  Any messages that had been enqueued from
     /// `add_batch_request()` will not be delivered after this call completes.
     fn cancel_inflight(&mut self);
@@ -416,13 +416,13 @@ pub trait NeighborComms {
 /// Prod implementation of NeighborComms.
 pub struct PeerNetworkComms {
     /// Set of PeerNetwork event IDs that this walk is tracking (so they won't get pruned)
-    events: HashSet<usize>,
+    events: StacksHashSet<usize>,
     /// Map of neighbors we're currently trying to connect to (binds their addresses to their event IDs)
-    connecting: HashMap<NeighborKey, usize>,
+    connecting: StacksHashMap<NeighborKey, usize>,
     /// Set of neighbors that died during our comms session
-    dead_connections: HashSet<NeighborKey>,
+    dead_connections: StacksHashSet<NeighborKey>,
     /// Set of neighbors who misbehaved during our comms session
-    broken_connections: HashSet<NeighborKey>,
+    broken_connections: StacksHashSet<NeighborKey>,
     /// Ongoing batch of requests.  Will be `None` if there are no inflight requests.
     ongoing_batch_request: Option<NeighborCommsRequest>,
 }
@@ -430,10 +430,10 @@ pub struct PeerNetworkComms {
 impl PeerNetworkComms {
     pub fn new() -> PeerNetworkComms {
         PeerNetworkComms {
-            events: HashSet::new(),
-            connecting: HashMap::new(),
-            dead_connections: HashSet::new(),
-            broken_connections: HashSet::new(),
+            events: StacksHashSet::new(),
+            connecting: StacksHashMap::new(),
+            dead_connections: StacksHashSet::new(),
+            broken_connections: StacksHashSet::new(),
             ongoing_batch_request: None,
         }
     }
@@ -480,12 +480,12 @@ impl NeighborComms for PeerNetworkComms {
         self.events.remove(&event_id);
     }
 
-    fn get_pinned_connections(&self) -> &HashSet<usize> {
+    fn get_pinned_connections(&self) -> &StacksHashSet<usize> {
         &self.events
     }
 
-    fn clear_pinned_connections(&mut self) -> HashSet<usize> {
-        let events = mem::replace(&mut self.events, HashSet::new());
+    fn clear_pinned_connections(&mut self) -> StacksHashSet<usize> {
+        let events = mem::replace(&mut self.events, StacksHashSet::new());
         events
     }
 
@@ -543,13 +543,13 @@ impl NeighborComms for PeerNetworkComms {
         self.ongoing_batch_request = None;
     }
 
-    fn take_dead_neighbors(&mut self) -> HashSet<NeighborKey> {
-        let dead = mem::replace(&mut self.dead_connections, HashSet::new());
+    fn take_dead_neighbors(&mut self) -> StacksHashSet<NeighborKey> {
+        let dead = mem::replace(&mut self.dead_connections, StacksHashSet::new());
         dead
     }
 
-    fn take_broken_neighbors(&mut self) -> HashSet<NeighborKey> {
-        let broken = mem::replace(&mut self.broken_connections, HashSet::new());
+    fn take_broken_neighbors(&mut self) -> StacksHashSet<NeighborKey> {
+        let broken = mem::replace(&mut self.broken_connections, StacksHashSet::new());
         broken
     }
 }
@@ -585,14 +585,14 @@ impl ToNeighborKey for NeighborAddress {
 /// neighbor key (or something that converts to it)
 #[derive(Debug)]
 pub struct NeighborCommsRequest {
-    state: HashMap<NeighborAddress, ReplyHandleP2P>,
+    state: StacksHashMap<NeighborAddress, ReplyHandleP2P>,
 }
 
 /// This struct represents everything we need to iterate through a set of ongoing requests, in
 /// order to pull out completed replies.
 pub struct NeighborCommsMessageIterator<'a, NS: NeighborComms> {
     network: &'a mut PeerNetwork,
-    state: &'a mut HashMap<NeighborAddress, ReplyHandleP2P>,
+    state: &'a mut StacksHashMap<NeighborAddress, ReplyHandleP2P>,
     neighbor_set: &'a mut NS,
 }
 
@@ -601,7 +601,7 @@ impl<NS: NeighborComms> Iterator for NeighborCommsMessageIterator<'_, NS> {
     type Item = (NeighborAddress, StacksMessage);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut inflight = HashMap::new();
+        let mut inflight = StacksHashMap::new();
         let mut ret = None;
         let stable_block_height = self.network.get_chain_view().burn_stable_block_height;
         for (naddr, rh) in self.state.drain() {
@@ -652,7 +652,7 @@ impl<NS: NeighborComms> Iterator for NeighborCommsMessageIterator<'_, NS> {
 impl NeighborCommsRequest {
     pub fn new() -> NeighborCommsRequest {
         NeighborCommsRequest {
-            state: HashMap::new(),
+            state: StacksHashMap::new(),
         }
     }
 

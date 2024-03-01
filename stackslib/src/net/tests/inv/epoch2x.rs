@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use clarity::util::StacksHashMap;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -1150,7 +1151,7 @@ fn test_sync_inv_diagnose_nack() {
         burn_block_hash: BurnchainHeaderHash([0x11; 32]),
         burn_stable_block_height: 12340,
         burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-        last_burn_block_hashes: HashMap::new(),
+        last_burn_block_hashes: StacksHashMap::new(),
         rc_consensus_hash: ConsensusHash([0x33; 20]),
     };
 

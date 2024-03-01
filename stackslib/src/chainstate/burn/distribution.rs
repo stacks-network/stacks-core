@@ -15,13 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::StacksHashMap;
 
 use crate::burnchains::{
     Address, Burnchain, BurnchainRecipient, BurnchainSigner, BurnchainTransaction, PublicKey, Txid,
@@ -182,12 +183,12 @@ impl BurnSamplePoint {
             let cur_missed = missed_commits.remove(rel_block_height as usize);
             // build a map from txid -> block commit for all the block commits
             //   in the current block
-            let mut cur_commits_map: HashMap<_, _> = cur_commits
+            let mut cur_commits_map: StacksHashMap<_, _> = cur_commits
                 .into_iter()
                 .map(|commit| (commit.txid.clone(), commit))
                 .collect();
             // build a map from txid -> missed block commit for the current block
-            let mut cur_missed_map: HashMap<_, _> = cur_missed
+            let mut cur_missed_map: StacksHashMap<_, _> = cur_missed
                 .into_iter()
                 .map(|missed| (missed.txid.clone(), missed))
                 .collect();

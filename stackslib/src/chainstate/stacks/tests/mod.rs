@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -29,6 +29,7 @@ use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
@@ -114,21 +115,21 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
 
 // one point per round
 pub struct TestMinerTracePoint {
-    pub fork_snapshots: HashMap<usize, BlockSnapshot>, // map miner ID to snapshot
-    pub stacks_blocks: HashMap<usize, StacksBlock>,    // map miner ID to stacks block
-    pub microblocks: HashMap<usize, Vec<StacksMicroblock>>, // map miner ID to microblocks
-    pub block_commits: HashMap<usize, LeaderBlockCommitOp>, // map miner ID to block commit
-    pub miner_node_map: HashMap<usize, String>,        // map miner ID to the node it worked on
+    pub fork_snapshots: StacksHashMap<usize, BlockSnapshot>, // map miner ID to snapshot
+    pub stacks_blocks: StacksHashMap<usize, StacksBlock>,    // map miner ID to stacks block
+    pub microblocks: StacksHashMap<usize, Vec<StacksMicroblock>>, // map miner ID to microblocks
+    pub block_commits: StacksHashMap<usize, LeaderBlockCommitOp>, // map miner ID to block commit
+    pub miner_node_map: StacksHashMap<usize, String>,        // map miner ID to the node it worked on
 }
 
 impl TestMinerTracePoint {
     pub fn new() -> TestMinerTracePoint {
         TestMinerTracePoint {
-            fork_snapshots: HashMap::new(),
-            stacks_blocks: HashMap::new(),
-            microblocks: HashMap::new(),
-            block_commits: HashMap::new(),
-            miner_node_map: HashMap::new(),
+            fork_snapshots: StacksHashMap::new(),
+            stacks_blocks: StacksHashMap::new(),
+            microblocks: StacksHashMap::new(),
+            block_commits: StacksHashMap::new(),
+            miner_node_map: StacksHashMap::new(),
         }
     }
 
@@ -169,7 +170,7 @@ impl TestMinerTracePoint {
     }
 
     pub fn get_miner_ids(&self) -> Vec<usize> {
-        let mut miner_ids = HashSet::new();
+        let mut miner_ids = StacksHashSet::new();
         for miner_id in self.fork_snapshots.keys() {
             miner_ids.insert(*miner_id);
         }
@@ -242,7 +243,7 @@ impl TestMinerTrace {
 
     /// what are the chainstate directories?
     pub fn get_test_names(&self) -> Vec<String> {
-        let mut all_test_names = HashSet::new();
+        let mut all_test_names = StacksHashSet::new();
         for p in self.points.iter() {
             for miner_id in p.miner_node_map.keys() {
                 if let Some(test_name) = p.miner_node_map.get(miner_id) {
@@ -263,12 +264,12 @@ impl TestMinerTrace {
 pub struct TestStacksNode {
     pub chainstate: StacksChainState,
     pub prev_keys: Vec<LeaderKeyRegisterOp>, // _all_ keys generated
-    pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
+    pub key_ops: StacksHashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
     pub microblocks: Vec<Vec<StacksMicroblock>>,
     pub nakamoto_blocks: Vec<Vec<NakamotoBlock>>,
-    pub commit_ops: HashMap<BlockHeaderHash, usize>,
-    pub nakamoto_commit_ops: HashMap<StacksBlockId, usize>,
+    pub commit_ops: StacksHashMap<BlockHeaderHash, usize>,
+    pub nakamoto_commit_ops: StacksHashMap<StacksBlockId, usize>,
     pub test_name: String,
     forkable: bool,
 }
@@ -290,12 +291,12 @@ impl TestStacksNode {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
-            key_ops: HashMap::new(),
+            key_ops: StacksHashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
             nakamoto_blocks: vec![],
-            commit_ops: HashMap::new(),
-            nakamoto_commit_ops: HashMap::new(),
+            commit_ops: StacksHashMap::new(),
+            nakamoto_commit_ops: StacksHashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -306,12 +307,12 @@ impl TestStacksNode {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
-            key_ops: HashMap::new(),
+            key_ops: StacksHashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
             nakamoto_blocks: vec![],
-            commit_ops: HashMap::new(),
-            nakamoto_commit_ops: HashMap::new(),
+            commit_ops: StacksHashMap::new(),
+            nakamoto_commit_ops: StacksHashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -321,12 +322,12 @@ impl TestStacksNode {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
-            key_ops: HashMap::new(),
+            key_ops: StacksHashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
             nakamoto_blocks: vec![],
-            commit_ops: HashMap::new(),
-            nakamoto_commit_ops: HashMap::new(),
+            commit_ops: StacksHashMap::new(),
+            nakamoto_commit_ops: StacksHashMap::new(),
             test_name: "".to_string(),
             forkable: false,
         }
@@ -844,10 +845,10 @@ pub fn check_mining_reward(
     block_height: u64,
     prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
 ) -> bool {
-    let mut block_rewards = HashMap::new();
-    let mut stream_rewards = HashMap::new();
-    let mut heights = HashMap::new();
-    let mut confirmed = HashSet::new();
+    let mut block_rewards = StacksHashMap::new();
+    let mut stream_rewards = StacksHashMap::new();
+    let mut heights = StacksHashMap::new();
+    let mut confirmed = StacksHashSet::new();
     for (i, reward_list) in prev_block_rewards.iter().enumerate() {
         for reward in reward_list.iter() {
             let ibh = StacksBlockHeader::make_index_block_hash(
@@ -929,11 +930,11 @@ pub fn check_mining_reward(
             }
         }
 
-        for (parent_block, confirmed_block_height) in confirmed.into_iter() {
-            if confirmed_block_height as u64 > block_height - MINER_REWARD_MATURITY {
+        for (parent_block, confirmed_block_height) in confirmed.iter() {
+            if *confirmed_block_height as u64 > block_height - MINER_REWARD_MATURITY {
                 continue;
             }
-            if let Some(ref parent_reward) = stream_rewards.get(&parent_block) {
+            if let Some(ref parent_reward) = stream_rewards.get(parent_block) {
                 if parent_reward.address == miner.origin_address().unwrap() {
                     let streamed = match &parent_reward.tx_fees {
                         MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,

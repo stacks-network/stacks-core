@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::mpsc::{
     sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError, TrySendError,
@@ -36,6 +36,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use {mio, url};
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
@@ -75,10 +76,10 @@ use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 #[derive(Debug)]
 pub enum NetworkRequest {
     Ban(Vec<NeighborKey>),
-    AdvertizeBlocks(BlocksAvailableMap, HashMap<ConsensusHash, StacksBlock>), // announce to all wanting neighbors that we have these blocks
+    AdvertizeBlocks(BlocksAvailableMap, StacksHashMap<ConsensusHash, StacksBlock>), // announce to all wanting neighbors that we have these blocks
     AdvertizeMicroblocks(
         BlocksAvailableMap,
-        HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+        StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ), // announce to all wanting neighbors that we have these confirmed microblock streams
     Relay(NeighborKey, StacksMessage),
     Broadcast(Vec<RelayData>, StacksMessageType),
@@ -130,7 +131,7 @@ impl NetworkHandle {
     pub fn advertize_blocks(
         &mut self,
         blocks: BlocksAvailableMap,
-        block_data: HashMap<ConsensusHash, StacksBlock>,
+        block_data: StacksHashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
         let req = NetworkRequest::AdvertizeBlocks(blocks, block_data);
         self.send_request(req)
@@ -140,7 +141,7 @@ impl NetworkHandle {
     pub fn advertize_microblocks(
         &mut self,
         microblocks: BlocksAvailableMap,
-        microblock_data: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+        microblock_data: StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(), net_error> {
         let req = NetworkRequest::AdvertizeMicroblocks(microblocks, microblock_data);
         self.send_request(req)
@@ -206,7 +207,7 @@ pub enum MempoolSyncState {
     RecvResponse(UrlString, SocketAddr, usize),
 }
 
-pub type PeerMap = HashMap<usize, ConversationP2P>;
+pub type PeerMap = StacksHashMap<usize, ConversationP2P>;
 
 pub struct PeerNetwork {
     // constants
@@ -237,13 +238,13 @@ pub struct PeerNetwork {
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
     pub peers: PeerMap,
-    pub sockets: HashMap<usize, mio_net::TcpStream>,
-    pub events: HashMap<NeighborKey, usize>,
-    pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>, // (socket, outbound?, connection sent timestamp)
-    pub bans: HashSet<usize>,
+    pub sockets: StacksHashMap<usize, mio_net::TcpStream>,
+    pub events: StacksHashMap<NeighborKey, usize>,
+    pub connecting: StacksHashMap<usize, (mio_net::TcpStream, bool, u64)>, // (socket, outbound?, connection sent timestamp)
+    pub bans: StacksHashSet<usize>,
 
     // ongoing messages the network is sending via the p2p interface
-    pub relay_handles: HashMap<usize, VecDeque<ReplyHandleP2P>>,
+    pub relay_handles: StacksHashMap<usize, VecDeque<ReplyHandleP2P>>,
     pub relayer_stats: RelayerStats,
 
     // handles for other threads to send/receive data to peers
@@ -273,7 +274,7 @@ pub struct PeerNetwork {
     pub walk_retries: u64,
     pub walk_resets: u64,
     pub walk_total_step_count: u64,
-    pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
+    pub walk_pingbacks: StacksHashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
     /// Epoch 2.x inventory state
@@ -298,9 +299,9 @@ pub struct PeerNetwork {
 
     // peer stacker DB state machines
     pub stacker_db_syncs:
-        Option<HashMap<QualifiedContractIdentifier, StackerDBSync<PeerNetworkComms>>>,
+        Option<StacksHashMap<QualifiedContractIdentifier, StackerDBSync<PeerNetworkComms>>>,
     // configuration state for stacker DBs (loaded at runtime from smart contracts)
-    pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    pub stacker_db_configs: StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
     // handle to all stacker DB state
     pub stackerdbs: StackerDBs,
 
@@ -314,8 +315,8 @@ pub struct PeerNetwork {
     mempool_sync_txs: u64,
 
     // how often we pruned a given inbound/outbound peer
-    pub prune_outbound_counts: HashMap<NeighborKey, u64>,
-    pub prune_inbound_counts: HashMap<NeighborKey, u64>,
+    pub prune_outbound_counts: StacksHashMap<NeighborKey, u64>,
+    pub prune_inbound_counts: StacksHashMap<NeighborKey, u64>,
 
     // http endpoint, used for driving HTTP conversations (some of which we initiate)
     pub http: Option<HttpPeer>,
@@ -344,14 +345,14 @@ pub struct PeerNetwork {
 
     // to whom did we send a block or microblock stream as part of our anti-entropy protocol, and
     // when did we send it?
-    antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
-    antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
+    antientropy_blocks: StacksHashMap<NeighborKey, StacksHashMap<StacksBlockId, u64>>,
+    antientropy_microblocks: StacksHashMap<NeighborKey, StacksHashMap<StacksBlockId, u64>>,
     antientropy_start_reward_cycle: u64,
     pub antientropy_last_push_ts: u64,
 
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
-    pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
+    pub pending_messages: StacksHashMap<usize, Vec<StacksMessage>>,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
@@ -374,7 +375,7 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
-        stacker_db_syncs: HashMap<
+        stacker_db_syncs: StacksHashMap<
             QualifiedContractIdentifier,
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
@@ -400,8 +401,8 @@ impl PeerNetwork {
         let first_burn_header_hash = burnchain.first_block_hash.clone();
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
-        let mut stacker_db_configs = HashMap::new();
-        let mut stacker_db_sync_map = HashMap::new();
+        let mut stacker_db_configs = StacksHashMap::new();
+        let mut stacker_db_sync_map = StacksHashMap::new();
         for (contract_id, (stacker_db_config, stacker_db_sync)) in stacker_db_syncs.into_iter() {
             stacker_db_configs.insert(contract_id.clone(), stacker_db_config);
             stacker_db_sync_map.insert(contract_id.clone(), stacker_db_sync);
@@ -432,12 +433,12 @@ impl PeerNetwork {
             atlasdb: atlasdb,
 
             peers: PeerMap::new(),
-            sockets: HashMap::new(),
-            events: HashMap::new(),
-            connecting: HashMap::new(),
-            bans: HashSet::new(),
+            sockets: StacksHashMap::new(),
+            events: StacksHashMap::new(),
+            connecting: StacksHashMap::new(),
+            bans: StacksHashSet::new(),
 
-            relay_handles: HashMap::new(),
+            relay_handles: StacksHashMap::new(),
             relayer_stats: RelayerStats::new(),
 
             handles: VecDeque::new(),
@@ -459,7 +460,7 @@ impl PeerNetwork {
             walk_resets: 0,
             walk_count: 0,
             walk_total_step_count: 0,
-            walk_pingbacks: HashMap::new(),
+            walk_pingbacks: StacksHashMap::new(),
             walk_result: NeighborWalkResult::new(),
 
             inv_state: None,
@@ -481,8 +482,8 @@ impl PeerNetwork {
             mempool_sync_completions: 0,
             mempool_sync_txs: 0,
 
-            prune_outbound_counts: HashMap::new(),
-            prune_inbound_counts: HashMap::new(),
+            prune_outbound_counts: StacksHashMap::new(),
+            prune_inbound_counts: StacksHashMap::new(),
 
             http: Some(http),
             bind_nk: NeighborKey {
@@ -503,12 +504,12 @@ impl PeerNetwork {
             num_inv_sync_passes: 0,
             num_downloader_passes: 0,
 
-            antientropy_blocks: HashMap::new(),
-            antientropy_microblocks: HashMap::new(),
+            antientropy_blocks: StacksHashMap::new(),
+            antientropy_microblocks: StacksHashMap::new(),
             antientropy_last_push_ts: 0,
             antientropy_start_reward_cycle: 0,
 
-            pending_messages: HashMap::new(),
+            pending_messages: StacksHashMap::new(),
 
             fault_last_disconnect: 0,
 
@@ -681,7 +682,7 @@ impl PeerNetwork {
     }
 
     /// Get a ref to the walk pingbacks --
-    pub fn get_walk_pingbacks(&self) -> &HashMap<NeighborAddress, NeighborPingback> {
+    pub fn get_walk_pingbacks(&self) -> &StacksHashMap<NeighborAddress, NeighborPingback> {
         &self.walk_pingbacks
     }
 
@@ -886,7 +887,7 @@ impl PeerNetwork {
         neighbor_key: &NeighborKey,
         message: StacksMessage,
     ) -> Result<(), net_error> {
-        let event_id = if let Some(event_id) = self.events.get(&neighbor_key) {
+        let event_id = if let Some(event_id) = self.events.get(neighbor_key) {
             *event_id
         } else {
             info!("Not connected to {:?}", &neighbor_key);
@@ -1014,7 +1015,7 @@ impl PeerNetwork {
     /// Count how many connections to a given IP address we have
     pub fn count_ip_connections(
         ipaddr: &SocketAddr,
-        sockets: &HashMap<usize, mio_net::TcpStream>,
+        sockets: &StacksHashMap<usize, mio_net::TcpStream>,
     ) -> u64 {
         let mut ret = 0;
         for (_, socket) in sockets.iter() {
@@ -1125,8 +1126,8 @@ impl PeerNetwork {
     /// connections.  This is used by the broadcast logic to ensure that we only send a message to
     /// a peer once, even if we have both an inbound and outbound connection to it.
     fn coalesce_neighbors(&self, neighbors: Vec<NeighborKey>) -> Vec<NeighborKey> {
-        let mut seen = HashSet::new();
-        let mut unique = HashSet::new();
+        let mut seen = StacksHashSet::new();
+        let mut unique = StacksHashSet::new();
         for nk in neighbors.into_iter() {
             if seen.contains(&nk) {
                 continue;
@@ -1185,7 +1186,7 @@ impl PeerNetwork {
             RELAY_DUPLICATE_INFERENCE_WARMUP,
         );
 
-        let mut relay_pubkhs = HashSet::new();
+        let mut relay_pubkhs = StacksHashSet::new();
         for rhint in relay_hints {
             relay_pubkhs.insert(rhint.peer.public_key_hash.clone());
         }
@@ -1278,7 +1279,7 @@ impl PeerNetwork {
                 let neighbor_keys = match msg {
                     StacksMessageType::Blocks(ref data) => {
                         // send to each neighbor that needs one
-                        let mut all_neighbors = HashSet::new();
+                        let mut all_neighbors = StacksHashSet::new();
                         for BlocksDatum(_, block) in data.blocks.iter() {
                             let mut neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
                             for nk in neighbors.drain(..) {
@@ -1289,7 +1290,7 @@ impl PeerNetwork {
                     }
                     StacksMessageType::Microblocks(ref data) => {
                         // send to each neighbor that needs at least one
-                        let mut all_neighbors = HashSet::new();
+                        let mut all_neighbors = StacksHashSet::new();
                         for mblock in data.microblocks.iter() {
                             let mut neighbors =
                                 self.sample_broadcast_peers(&relay_hints, mblock)?;
@@ -1798,7 +1799,7 @@ impl PeerNetwork {
     /// Deregister by neighbor key
     pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) -> () {
         debug!("Disconnect from {:?}", neighbor_key);
-        let event_id = match self.events.get(&neighbor_key) {
+        let event_id = match self.events.get(neighbor_key) {
             None => {
                 return;
             }
@@ -1828,7 +1829,7 @@ impl PeerNetwork {
         peer_key: &NeighborKey,
         message_payload: StacksMessageType,
     ) -> Result<StacksMessage, net_error> {
-        match self.events.get(&peer_key) {
+        match self.events.get(peer_key) {
             None => {
                 // not connected
                 test_debug!("Could not sign for peer {:?}: not connected", peer_key);
@@ -2070,9 +2071,9 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         poll_state: &mut NetworkPollState,
         ibd: bool,
-    ) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
+    ) -> (Vec<usize>, StacksHashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
-        let mut unhandled: HashMap<usize, Vec<StacksMessage>> = HashMap::new();
+        let mut unhandled: StacksHashMap<usize, Vec<StacksMessage>> = StacksHashMap::new();
 
         for event_id in &poll_state.ready {
             let (mut convo_unhandled, alive) =
@@ -2112,9 +2113,9 @@ impl PeerNetwork {
 
     /// Get stats for a neighbor
     pub fn get_neighbor_stats(&self, nk: &NeighborKey) -> Option<NeighborStats> {
-        match self.events.get(&nk) {
+        match self.events.get(nk) {
             None => None,
-            Some(eid) => match self.peers.get(&eid) {
+            Some(eid) => match self.peers.get(eid) {
                 None => None,
                 Some(ref convo) => Some(convo.stats.clone()),
             },
@@ -2146,7 +2147,7 @@ impl PeerNetwork {
     /// alive.
     pub fn queue_ping_heartbeats(&mut self) -> () {
         let now = get_epoch_time_secs();
-        let mut relay_handles = HashMap::new();
+        let mut relay_handles = StacksHashMap::new();
         for (_, convo) in self.peers.iter_mut() {
             if convo.is_outbound()
                 && convo.is_authenticated()
@@ -2246,7 +2247,7 @@ impl PeerNetwork {
         }
 
         debug!("Prune from {} connections", self.events.len());
-        let mut safe: HashSet<usize> = HashSet::new();
+        let mut safe: StacksHashSet<usize> = StacksHashSet::new();
         let now = get_epoch_time_secs();
 
         // don't prune allowed peers
@@ -2306,7 +2307,7 @@ impl PeerNetwork {
         let _old_local_peer = old_local_peer_opt.unwrap();
 
         // begin re-key
-        let mut msgs = HashMap::new();
+        let mut msgs = StacksHashMap::new();
         for (event_id, convo) in self.peers.iter_mut() {
             let nk = convo.to_neighbor_key();
             let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
@@ -2357,7 +2358,7 @@ impl PeerNetwork {
         let mut drained = vec![];
 
         // flush each outgoing conversation
-        let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
+        let mut relay_handles = std::mem::replace(&mut self.relay_handles, StacksHashMap::new());
         for (event_id, handle_list) in relay_handles.iter_mut() {
             if handle_list.len() == 0 {
                 drained.push(*event_id);
@@ -2839,8 +2840,8 @@ impl PeerNetwork {
             .append(&mut microblocks);
 
         if cfg!(test) {
-            let mut block_set = HashSet::new();
-            let mut microblock_set = HashSet::new();
+            let mut block_set = StacksHashSet::new();
+            let mut microblock_set = StacksHashSet::new();
 
             for (_, block, _) in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
@@ -3108,7 +3109,7 @@ impl PeerNetwork {
 
         let mut total_blocks_to_broadcast = 0;
         let mut total_microblocks_to_broadcast = 0;
-        let mut lowest_reward_cycle_with_missing_block = HashMap::new();
+        let mut lowest_reward_cycle_with_missing_block = StacksHashMap::new();
         let neighbor_keys: Vec<NeighborKey> = self
             .inv_state
             .as_ref()
@@ -3162,8 +3163,8 @@ impl PeerNetwork {
                 &self.local_peer, reward_cycle, &local_blocks_inv
             );
 
-            let mut blocks_to_broadcast = HashMap::new();
-            let mut microblocks_to_broadcast = HashMap::new();
+            let mut blocks_to_broadcast = StacksHashMap::new();
+            let mut microblocks_to_broadcast = StacksHashMap::new();
 
             let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
             let highest_snapshot = self.burnchain_tip.clone();
@@ -3227,7 +3228,7 @@ impl PeerNetwork {
                                                 .insert(index_block_hash, get_epoch_time_secs() + network.connection_opts.antientropy_retry);
                                         }
                                     } else {
-                                        let mut pushed = HashMap::new();
+                                        let mut pushed = StacksHashMap::new();
                                         pushed.insert(index_block_hash, get_epoch_time_secs());
                                         network.antientropy_blocks.insert(nk.clone(), pushed);
                                     }
@@ -3288,7 +3289,7 @@ impl PeerNetwork {
                                             );
                                         }
                                     } else {
-                                        let mut pushed = HashMap::new();
+                                        let mut pushed = StacksHashMap::new();
                                         pushed.insert(index_block_hash, get_epoch_time_secs());
                                         network.antientropy_microblocks.insert(nk.clone(), pushed);
                                     }
@@ -4306,7 +4307,7 @@ impl PeerNetwork {
             );
             self.bans.insert(event_id);
 
-            if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
+            if let Some(outbound_event_id) = self.events.get(outbound_neighbor_key) {
                 self.bans.insert(*outbound_event_id);
             }
             return Ok(None);
@@ -4364,7 +4365,7 @@ impl PeerNetwork {
                         );
                         self.bans.insert(event_id);
 
-                        if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
+                        if let Some(outbound_event_id) = self.events.get(outbound_neighbor_key) {
                             self.bans.insert(*outbound_event_id);
                         }
                         return Ok(None);
@@ -4974,11 +4975,11 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-        unsolicited: HashMap<usize, Vec<StacksMessage>>,
+        unsolicited: StacksHashMap<usize, Vec<StacksMessage>>,
         ibd: bool,
         buffer: bool,
-    ) -> HashMap<NeighborKey, Vec<StacksMessage>> {
-        let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
+    ) -> StacksHashMap<NeighborKey, Vec<StacksMessage>> {
+        let mut unhandled: StacksHashMap<NeighborKey, Vec<StacksMessage>> = StacksHashMap::new();
         for (event_id, messages) in unsolicited.into_iter() {
             if messages.len() == 0 {
                 // no messages for this event
@@ -5192,7 +5193,7 @@ impl PeerNetwork {
     /// Set the stacker DB configs
     pub fn set_stacker_db_configs(
         &mut self,
-        configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        configs: StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) {
         self.stacker_db_configs = configs;
     }
@@ -5200,12 +5201,12 @@ impl PeerNetwork {
     /// Obtain a copy of the stacker DB configs
     pub fn get_stacker_db_configs_owned(
         &self,
-    ) -> HashMap<QualifiedContractIdentifier, StackerDBConfig> {
+    ) -> StacksHashMap<QualifiedContractIdentifier, StackerDBConfig> {
         self.stacker_db_configs.clone()
     }
 
     /// Obtain a ref to the stacker DB configs
-    pub fn get_stacker_db_configs(&self) -> &HashMap<QualifiedContractIdentifier, StackerDBConfig> {
+    pub fn get_stacker_db_configs(&self) -> &StacksHashMap<QualifiedContractIdentifier, StackerDBConfig> {
         &self.stacker_db_configs
     }
 
@@ -5215,7 +5216,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
-        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, StacksHashMap::new());
         self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
             chainstate,
             sortdb,
@@ -5237,7 +5238,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> Result<StacksHashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let stacks_tip =
@@ -5245,7 +5246,7 @@ impl PeerNetwork {
 
         let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
-        let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
+        let mut ret: StacksHashMap<NeighborKey, Vec<StacksMessage>> = StacksHashMap::new();
 
         if burnchain_tip_changed || stacks_tip_changed {
             // only do the needful depending on what changed
@@ -5352,7 +5353,7 @@ impl PeerNetwork {
 
         if burnchain_tip_changed {
             // try processing previously-buffered messages (best-effort)
-            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            let buffered_messages = mem::replace(&mut self.pending_messages, StacksHashMap::new());
             ret =
                 self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
         }
@@ -5598,8 +5599,8 @@ impl PeerNetwork {
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
 
-        let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
-            HashMap::new();
+        let mut ret: StacksHashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
+            StacksHashMap::new();
 
         // messages pushed via the p2p network
         for (nk, tx_data) in network_result.pushed_transactions.drain() {
@@ -5693,7 +5694,7 @@ impl PeerNetwork {
                 Ok(msgs) => msgs,
                 Err(e) => {
                     warn!("Failed to refresh burnchain view: {:?}", &e);
-                    HashMap::new()
+                    StacksHashMap::new()
                 }
             };
 
@@ -5755,6 +5756,7 @@ impl PeerNetwork {
 mod test {
     use std::{thread, time};
 
+    use clarity::util::StacksHashMap;
     use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use clarity::vm::types::StacksAddressExtensions;
     use clarity::vm::MAX_CALL_STACK_DEPTH;
@@ -5842,7 +5844,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12339,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         burnchain_view.make_test_data();
@@ -5870,7 +5872,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
-            HashMap::new(),
+            StacksHashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
@@ -6176,7 +6178,7 @@ mod test {
 
         // old transactions
         let num_txs = 10;
-        let mut old_txs = HashMap::new();
+        let mut old_txs = StacksHashMap::new();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
         let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
         for i in 0..num_txs {
@@ -6253,7 +6255,7 @@ mod test {
             sn.block_height + 1
         };
 
-        let mut txs = HashMap::new();
+        let mut txs = StacksHashMap::new();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
         let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
         for i in 0..num_txs {
@@ -6433,7 +6435,7 @@ mod test {
         };
 
         // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
+        let mut txs = StacksHashMap::new();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
         let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
         for i in 0..num_txs {
@@ -6618,7 +6620,7 @@ mod test {
         };
 
         // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
+        let mut txs = StacksHashMap::new();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
         let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
         let mut peer_2_blacklist = vec![];
@@ -6824,7 +6826,7 @@ mod test {
         };
 
         // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
+        let mut txs = StacksHashMap::new();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
         let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
         for i in 0..num_txs {

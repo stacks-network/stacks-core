@@ -118,8 +118,6 @@ pub mod config;
 pub mod db;
 pub mod sync;
 
-use std::collections::{HashMap, HashSet};
-
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -127,6 +125,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -157,13 +156,13 @@ pub struct StackerDBSyncResult {
     /// which contract this is a replica for
     pub contract_id: QualifiedContractIdentifier,
     /// slot inventory for this replica
-    pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
+    pub chunk_invs: StacksHashMap<NeighborAddress, StackerDBChunkInvData>,
     /// list of data to store
     pub chunks_to_store: Vec<StackerDBChunkData>,
     /// neighbors that died while syncing
-    dead: HashSet<NeighborKey>,
+    dead: StacksHashSet<NeighborKey>,
     /// neighbors that misbehaved while syncing
-    broken: HashSet<NeighborKey>,
+    broken: StacksHashSet<NeighborKey>,
 }
 
 /// Settings for the Stacker DB
@@ -263,10 +262,10 @@ impl StackerDBs {
         &mut self,
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-        stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-    ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
+        stacker_db_configs: StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    ) -> Result<StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
         let existing_contract_ids = self.get_stackerdb_contract_ids()?;
-        let mut new_stackerdb_configs = HashMap::new();
+        let mut new_stackerdb_configs = StacksHashMap::new();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
         for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
@@ -349,13 +348,13 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// how frequently we accept chunk writes, in seconds
     pub write_freq: u64,
     /// What versions of each chunk does each neighbor have?
-    pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
+    pub chunk_invs: StacksHashMap<NeighborAddress, StackerDBChunkInvData>,
     /// What priority should we be fetching chunks in, and from whom?
     pub chunk_fetch_priorities: Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>,
     /// What priority should we be pushing chunks in, and to whom?
     pub chunk_push_priorities: Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>,
     /// ID and version of chunk we pushed
-    pub(crate) chunk_push_receipts: HashMap<NeighborAddress, (u32, u32)>,
+    pub(crate) chunk_push_receipts: StacksHashMap<NeighborAddress, (u32, u32)>,
     /// Index into `chunk_fetch_priorities` at which to consider the next download.
     pub next_chunk_fetch_priority: usize,
     /// Index into `chunk_push_priorities` at which to consider the next chunk push.
@@ -363,11 +362,11 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// What is the expected version vector for this DB's chunks?
     pub expected_versions: Vec<u32>,
     /// Downloaded chunks
-    pub downloaded_chunks: HashMap<NeighborAddress, Vec<StackerDBChunkData>>,
+    pub downloaded_chunks: StacksHashMap<NeighborAddress, Vec<StackerDBChunkData>>,
     /// Replicas to contact
-    pub(crate) replicas: HashSet<NeighborAddress>,
+    pub(crate) replicas: StacksHashSet<NeighborAddress>,
     /// Replicas that have connected
-    pub(crate) connected_replicas: HashSet<NeighborAddress>,
+    pub(crate) connected_replicas: StacksHashSet<NeighborAddress>,
     /// Comms with neigbors
     pub(crate) comms: NC,
     /// Handle to StackerDBs
@@ -393,10 +392,10 @@ impl StackerDBSyncResult {
     pub fn from_pushed_chunk(chunk: StackerDBPushChunkData) -> StackerDBSyncResult {
         StackerDBSyncResult {
             contract_id: chunk.contract_id,
-            chunk_invs: HashMap::new(),
+            chunk_invs: StacksHashMap::new(),
             chunks_to_store: vec![chunk.chunk_data],
-            dead: HashSet::new(),
-            broken: HashSet::new(),
+            dead: StacksHashSet::new(),
+            broken: StacksHashSet::new(),
         }
     }
 }

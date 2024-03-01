@@ -14,13 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::BinaryHeap;
 use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
@@ -78,8 +79,8 @@ fn new_attachments_batch_from(
     attachments_batch
 }
 
-fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityReport> {
-    let mut new_peers = HashMap::new();
+fn new_peers(peers: Vec<(&str, u32, u32)>) -> StacksHashMap<UrlString, ReliabilityReport> {
+    let mut new_peers = StacksHashMap::new();
     for (url, req_sent, req_success) in peers {
         let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
         new_peers.insert(url, ReliabilityReport::new(req_sent, req_success));
@@ -94,7 +95,7 @@ fn new_attachment_request(
     block_height: u64,
 ) -> AttachmentRequest {
     let sources = {
-        let mut s = HashMap::new();
+        let mut s = StacksHashMap::new();
         for (url, req_sent, req_success) in sources {
             let url = UrlString::try_from(format!("{}", url)).unwrap();
             s.insert(url, ReliabilityReport::new(req_sent, req_success));
@@ -684,7 +685,7 @@ fn test_downloader_context_attachment_requests() {
     let peer_url_3 = request_3.get_url().clone();
     let request_4 = inventories_requests.pop().unwrap();
     let peer_url_4 = request_4.get_url().clone();
-    let mut responses = HashMap::new();
+    let mut responses = StacksHashMap::new();
 
     let response_1 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
@@ -750,7 +751,7 @@ fn test_keep_uninstantiated_attachments() {
     let bns_contract_id = boot_code_id("bns", false);
     let pox_contract_id = boot_code_id("pox", false);
 
-    let mut contracts = HashSet::new();
+    let mut contracts = StacksHashSet::new();
     contracts.insert(bns_contract_id.clone());
 
     let atlas_config = AtlasConfig {
@@ -786,7 +787,7 @@ fn test_keep_uninstantiated_attachments() {
 #[test]
 fn schema_2_migration() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 0,
@@ -884,7 +885,7 @@ fn schema_2_migration() {
 #[test]
 fn test_evict_k_oldest_uninstantiated_attachments() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 10,
         uninstantiated_attachments_expire_after: 0,
@@ -1032,7 +1033,7 @@ fn test_evict_k_oldest_uninstantiated_attachments() {
 #[test]
 fn test_evict_expired_uninstantiated_attachments() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
@@ -1101,7 +1102,7 @@ fn test_evict_expired_uninstantiated_attachments() {
 #[test]
 fn test_evict_expired_unresolved_attachment_instances() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 200,
@@ -1178,7 +1179,7 @@ fn test_evict_expired_unresolved_attachment_instances() {
 #[test]
 fn test_get_minmax_heights_atlasdb() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
@@ -1198,7 +1199,7 @@ fn test_get_minmax_heights_atlasdb() {
 #[test]
 fn test_bit_vectors() {
     let atlas_config = AtlasConfig {
-        contracts: HashSet::new(),
+        contracts: StacksHashSet::new(),
         attachments_max_size: 1024,
         max_uninstantiated_attachments: 100,
         uninstantiated_attachments_expire_after: 10,
@@ -1310,7 +1311,7 @@ fn test_bit_vectors() {
 
 #[test]
 fn test_attachments_inventory_requests_hashing() {
-    let mut requests = HashMap::new();
+    let mut requests = StacksHashMap::new();
 
     let attachments_inventory_1_request =
         new_attachments_inventory_request("http://localhost:20443", vec![0, 1], 1, 0, 0);

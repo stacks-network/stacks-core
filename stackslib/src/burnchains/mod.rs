@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::{error, fmt, io};
 
@@ -26,6 +25,7 @@ use stacks_common::types::chainstate::{
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -627,7 +627,7 @@ pub struct BurnchainView {
     /// latest stable burn block hash
     pub burn_stable_block_hash: BurnchainHeaderHash,
     /// map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
-    pub last_burn_block_hashes: HashMap<u64, BurnchainHeaderHash>,
+    pub last_burn_block_hashes: StacksHashMap<u64, BurnchainHeaderHash>,
     /// consensus hash of the current reward cycle's start block
     pub rc_consensus_hash: ConsensusHash,
 }
@@ -759,7 +759,7 @@ impl BurnchainView {
             self.burn_stable_block_height - MAX_NEIGHBOR_BLOCK_DELAY
         };
 
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
         for i in oldest_height..self.burn_block_height + 1 {
             if i == self.burn_stable_block_height {
                 ret.insert(i, self.burn_stable_block_hash.clone());

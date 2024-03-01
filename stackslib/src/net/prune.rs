@@ -15,13 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::net::{Shutdown, SocketAddr};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::net::chat::NeighborStats;
 use crate::net::connection::ConnectionOptions;
@@ -41,10 +42,10 @@ impl PeerNetwork {
     fn org_neighbor_distribution(
         &self,
         peer_dbconn: &DBConn,
-        preserve: &HashSet<usize>,
-    ) -> Result<HashMap<u32, Vec<(NeighborKey, NeighborStats)>>, net_error> {
+        preserve: &StacksHashSet<usize>,
+    ) -> Result<StacksHashMap<u32, Vec<(NeighborKey, NeighborStats)>>, net_error> {
         // find out which organizations have which neighbors
-        let mut org_neighbor: HashMap<u32, Vec<(NeighborKey, NeighborStats)>> = HashMap::new();
+        let mut org_neighbor: StacksHashMap<u32, Vec<(NeighborKey, NeighborStats)>> = StacksHashMap::new();
         for (_, event_id) in self.events.iter() {
             if preserve.contains(event_id) {
                 continue;
@@ -146,7 +147,7 @@ impl PeerNetwork {
     }
 
     /// Sample an org based on its weight
-    fn sample_org_by_neighbor_count(org_weights: &HashMap<u32, usize>) -> u32 {
+    fn sample_org_by_neighbor_count(org_weights: &StacksHashMap<u32, usize>) -> u32 {
         let mut rng = thread_rng();
         let mut total = 0;
         for (_, count) in org_weights.iter() {
@@ -173,7 +174,7 @@ impl PeerNetwork {
     /// Returns the list of neighbor keys to remove.
     fn prune_frontier_outbound_orgs(
         &mut self,
-        preserve: &HashSet<usize>,
+        preserve: &StacksHashSet<usize>,
     ) -> Result<Vec<NeighborKey>, net_error> {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if num_outbound <= self.connection_opts.soft_num_neighbors {
@@ -196,7 +197,7 @@ impl PeerNetwork {
             // likely to be up for X more seconds, so we only really want to distinguish between nodes that
             // have wildly different uptimes.
             // Within uptime buckets, sort by health.
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     neighbor_infos.sort_by(|&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
@@ -209,7 +210,7 @@ impl PeerNetwork {
         // don't let a single organization have more than
         // soft_max_neighbors_per_org neighbors.
         for org in orgs.iter() {
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
@@ -265,7 +266,7 @@ impl PeerNetwork {
             &self.local_peer, num_outbound, self.connection_opts.soft_num_neighbors
         );
         while num_outbound - (ret.len() as u64) > self.connection_opts.soft_num_neighbors {
-            let mut weighted_sample: HashMap<u32, usize> = HashMap::new();
+            let mut weighted_sample: StacksHashMap<u32, usize> = StacksHashMap::new();
             for (org, neighbor_info) in org_neighbors.iter() {
                 if neighbor_info.len() > 0 {
                     weighted_sample.insert(*org, neighbor_info.len());
@@ -308,7 +309,7 @@ impl PeerNetwork {
     /// Prune inbound peers by IP address -- can't have too many from the same IP.
     /// Returns the list of IPs to remove.
     /// Removes them in reverse order they are added
-    fn prune_frontier_inbound_ip(&mut self, preserve: &HashSet<usize>) -> Vec<NeighborKey> {
+    fn prune_frontier_inbound_ip(&mut self, preserve: &StacksHashSet<usize>) -> Vec<NeighborKey> {
         let num_inbound =
             (self.num_peers() as u64) - PeerNetwork::count_outbound_conversations(&self.peers);
         if num_inbound <= self.connection_opts.soft_num_clients {
@@ -316,13 +317,13 @@ impl PeerNetwork {
         }
 
         // map IP address to (event ID, neighbor, neighbor stats)
-        let mut ip_neighbor: HashMap<PeerAddress, Vec<(usize, NeighborKey, NeighborStats)>> =
-            HashMap::new();
+        let mut ip_neighbor: StacksHashMap<PeerAddress, Vec<(usize, NeighborKey, NeighborStats)>> =
+            StacksHashMap::new();
         for (nk, event_id) in self.events.iter() {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(&event_id) {
+            match self.peers.get(event_id) {
                 Some(ref convo) => {
                     if !convo.stats.outbound {
                         let stats = convo.stats.clone();
@@ -395,7 +396,7 @@ impl PeerNetwork {
     }
 
     /// Prune our frontier.  Ignore connections in the preserve set.
-    pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
+    pub fn prune_frontier(&mut self, preserve: &StacksHashSet<usize>) -> () {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         let num_inbound = (self.peers.len() as u64).saturating_sub(num_outbound);
         debug!(

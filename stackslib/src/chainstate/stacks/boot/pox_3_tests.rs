@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -40,6 +40,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -439,9 +440,9 @@ fn simple_pox_lockup_transition_pox_2() {
     let bob_address = key_to_stacks_addr(&bob);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     debug!("Alice addr: {}, Bob addr: {}", alice_address, bob_address);
 
@@ -916,8 +917,8 @@ fn pox_auto_unlock(alice_first: bool) {
     let bob_address = key_to_stacks_addr(&bob);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
     let mut coinbase_txs = vec![];
 
     for b in blocks.into_iter() {
@@ -970,7 +971,7 @@ fn pox_auto_unlock(alice_first: bool) {
 
         let auto_unlock_tx = coinbase_txs[unlock_coinbase_index as usize].events[0].clone();
         let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
-        let auto_unlock_op_data = HashMap::from([
+        let auto_unlock_op_data = StacksHashMap::from_iter([
             ("first-cycle-locked", Value::UInt(expected_cycle.into())),
             ("first-unlocked-cycle", Value::UInt(expected_cycle.into())),
             ("pox-addr", pox_addr_val),
@@ -1476,8 +1477,8 @@ fn delegate_stack_increase() {
     let alice_address = key_to_stacks_addr(&alice);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -1550,7 +1551,7 @@ fn delegate_stack_increase() {
 
     for delegation_nonce in [alice_delegation_pox_2_nonce, alice_delegation_pox_3_nonce] {
         let delegate_stx_tx = &alice_txs.get(&delegation_nonce).unwrap().clone().events[0];
-        let delegate_stx_op_data = HashMap::from([
+        let delegate_stx_op_data = StacksHashMap::from_iter([
             ("pox-addr", Value::none()),
             ("amount-ustx", Value::UInt(10230000000000)),
             ("unlock-burn-height", Value::none()),
@@ -1585,7 +1586,7 @@ fn delegate_stack_increase() {
         let delegate_stack_increase_tx =
             &bob_txs.get(&del_increase_nonce).unwrap().clone().events[0];
         let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
-        let delegate_op_data = HashMap::from([
+        let delegate_op_data = StacksHashMap::from_iter([
             ("pox-addr", pox_addr_val),
             ("increase-by", Value::UInt(5110000000000)),
             ("total-locked", Value::UInt(10230000000000)),
@@ -1968,7 +1969,7 @@ fn stack_increase() {
     // now let's check some tx receipts
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -2020,7 +2021,7 @@ fn stack_increase() {
     ] {
         let stack_increase_tx = &alice_txs.get(&increase_nonce).unwrap().clone().events[0];
         let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
-        let stack_op_data = HashMap::from([
+        let stack_op_data = StacksHashMap::from_iter([
             ("increase-by", Value::UInt(5120000000000)),
             ("total-locked", Value::UInt(10240000000000)),
             ("pox-addr", pox_addr_val),
@@ -2465,8 +2466,8 @@ fn pox_extend_transition() {
     let bob_address = key_to_stacks_addr(&bob);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -2514,7 +2515,7 @@ fn pox_extend_transition() {
         .clone()
         .events[0];
     let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
-    let stack_op_data = HashMap::from([
+    let stack_op_data = StacksHashMap::from_iter([
         ("lock-amount", Value::UInt(ALICE_LOCKUP)),
         (
             "unlock-burn-height",
@@ -2542,7 +2543,7 @@ fn pox_extend_transition() {
         .unwrap()
         .clone()
         .events[0];
-    let stack_ext_op_data = HashMap::from([
+    let stack_ext_op_data = StacksHashMap::from_iter([
         ("extend-count", Value::UInt(6)),
         ("pox-addr", pox_addr_val),
         (
@@ -2919,9 +2920,9 @@ fn delegate_extend_pox_3() {
     // now let's check some tx receipts
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -2981,7 +2982,7 @@ fn delegate_extend_pox_3() {
         .clone()
         .events[0];
     let pox_addr_val = generate_pox_clarity_value("12d93ae7b61e5b7d905c85828d4320e7c221f433");
-    let delegate_op_data = HashMap::from([
+    let delegate_op_data = StacksHashMap::from_iter([
         ("lock-amount", Value::UInt(LOCKUP_AMT)),
         (
             "unlock-burn-height",
@@ -3010,7 +3011,7 @@ fn delegate_extend_pox_3() {
         .unwrap()
         .clone()
         .events[0];
-    let delegate_ext_op_data = HashMap::from([
+    let delegate_ext_op_data = StacksHashMap::from_iter([
         ("pox-addr", pox_addr_val.clone()),
         (
             "unlock-burn-height",
@@ -3030,7 +3031,7 @@ fn delegate_extend_pox_3() {
 
     // Check that the call to `stack-aggregation-commit` has a well-formed print event.
     let stack_agg_commit_tx = &charlie_txs.get(&stack_agg_nonce).unwrap().clone().events[0];
-    let stack_agg_commit_op_data = HashMap::from([
+    let stack_agg_commit_op_data = StacksHashMap::from_iter([
         ("pox-addr", pox_addr_val),
         ("reward-cycle", Value::UInt(stack_agg_cycle.into())),
         ("amount-ustx", Value::UInt(2 * LOCKUP_AMT)),
@@ -3532,7 +3533,7 @@ fn get_pox_addrs() {
     // now we should be in the reward phase, produce the reward blocks
     let reward_blocks =
         burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
-    let mut rewarded = HashSet::new();
+    let mut rewarded = StacksHashSet::new();
     for i in 0..reward_blocks {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -3564,7 +3565,7 @@ fn get_pox_addrs() {
     }
 
     // now we should be in the reward phase, produce the reward blocks
-    let mut rewarded = HashSet::new();
+    let mut rewarded = StacksHashSet::new();
     for i in 0..reward_blocks {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -3740,7 +3741,7 @@ fn stack_with_segwit() {
     // now we should be in the reward phase, produce the reward blocks
     let reward_blocks =
         burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
-    let mut rewarded = HashSet::new();
+    let mut rewarded = StacksHashSet::new();
     for i in 0..reward_blocks {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -3772,7 +3773,7 @@ fn stack_with_segwit() {
     }
 
     // now we should be in the reward phase, produce the reward blocks
-    let mut rewarded = HashSet::new();
+    let mut rewarded = StacksHashSet::new();
     for i in 0..reward_blocks {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -4175,9 +4176,9 @@ fn stack_aggregation_increase() {
     let alice_address = key_to_stacks_addr(&alice);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {

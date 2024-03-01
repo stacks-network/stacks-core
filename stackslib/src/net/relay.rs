@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::{cmp, mem};
 
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
@@ -30,6 +30,7 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, 
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
@@ -57,7 +58,7 @@ use crate::net::stackerdb::{
 };
 use crate::net::{Error as net_error, *};
 
-pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
+pub type BlocksAvailableMap = StacksHashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
 pub const MAX_RECENT_MESSAGES: usize = 256;
@@ -77,11 +78,11 @@ pub struct RelayerStats {
     /// Note that we key on (addr, port), not the full NeighborAddress.
     /// (TODO: Nothing is done with this yet, but one day we'll use it to probe for network
     /// choke-points).
-    relay_stats: HashMap<NeighborAddress, RelayStats>,
+    relay_stats: StacksHashMap<NeighborAddress, RelayStats>,
     relay_updates: BTreeMap<u64, NeighborAddress>,
 
     /// Messages sent from each neighbor recently (includes duplicates)
-    recent_messages: HashMap<NeighborKey, VecDeque<(u64, Sha512Trunc256Sum)>>,
+    recent_messages: StacksHashMap<NeighborKey, VecDeque<(u64, Sha512Trunc256Sum)>>,
     recent_updates: BTreeMap<u64, NeighborKey>,
 
     next_priority: u64,
@@ -183,16 +184,16 @@ impl RelayPayload for StacksTransaction {
 impl RelayerStats {
     pub fn new() -> RelayerStats {
         RelayerStats {
-            relay_stats: HashMap::new(),
+            relay_stats: StacksHashMap::new(),
             relay_updates: BTreeMap::new(),
-            recent_messages: HashMap::new(),
+            recent_messages: StacksHashMap::new(),
             recent_updates: BTreeMap::new(),
             next_priority: 0,
         }
     }
 
     /// Add in new stats gleaned from the PeerNetwork's network result
-    pub fn merge_relay_stats(&mut self, mut stats: HashMap<NeighborAddress, RelayStats>) -> () {
+    pub fn merge_relay_stats(&mut self, mut stats: StacksHashMap<NeighborAddress, RelayStats>) -> () {
         for (mut addr, new_stats) in stats.drain() {
             addr.clear_public_key();
             let inserted = if let Some(stats) = self.relay_stats.get_mut(&addr) {
@@ -292,10 +293,10 @@ impl RelayerStats {
 
     /// See if anyone has sent this message to us already, and if so, return the set of neighbors
     /// that did so already (and how many times)
-    pub fn count_relay_dups<R: RelayPayload>(&self, msg: &R) -> HashMap<NeighborKey, usize> {
+    pub fn count_relay_dups<R: RelayPayload>(&self, msg: &R) -> StacksHashMap<NeighborKey, usize> {
         let h = msg.get_digest();
         let now = get_epoch_time_secs();
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
 
         for (nk, relayed) in self.recent_messages.iter() {
             for (ts, msg_hash) in relayed.iter() {
@@ -320,9 +321,9 @@ impl RelayerStats {
     fn count_ASNs(
         conn: &DBConn,
         neighbors: &[NeighborKey],
-    ) -> Result<HashMap<NeighborKey, usize>, net_error> {
+    ) -> Result<StacksHashMap<NeighborKey, usize>, net_error> {
         // look up ASNs
-        let mut asns = HashMap::new();
+        let mut asns = StacksHashMap::new();
         for nk in neighbors.iter() {
             if asns.get(nk).is_none() {
                 match PeerDB::asn_lookup(conn, &nk.addrbytes)? {
@@ -332,7 +333,7 @@ impl RelayerStats {
             }
         }
 
-        let mut asn_dist = HashMap::new();
+        let mut asn_dist = StacksHashMap::new();
 
         // calculate ASN distribution
         for nk in neighbors.iter() {
@@ -344,7 +345,7 @@ impl RelayerStats {
             }
         }
 
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
 
         // map neighbors to ASN counts
         for nk in neighbors.iter() {
@@ -366,7 +367,7 @@ impl RelayerStats {
         neighbors: &[NeighborKey],
         msg: &R,
         warmup_threshold: usize,
-    ) -> HashMap<NeighborKey, usize> {
+    ) -> StacksHashMap<NeighborKey, usize> {
         let mut dup_counts = self.count_relay_dups(msg);
         let mut dup_total = dup_counts.values().fold(0, |t, s| t + s);
 
@@ -377,7 +378,7 @@ impl RelayerStats {
             dup_counts.clear();
         }
 
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
 
         for nk in neighbors.iter() {
             let dup_count = *(dup_counts.get(nk).unwrap_or(&0));
@@ -400,11 +401,11 @@ impl RelayerStats {
         &self,
         peerdb: &PeerDB,
         neighbors: &[NeighborKey],
-    ) -> Result<HashMap<NeighborKey, usize>, net_error> {
+    ) -> Result<StacksHashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
         let asn_total = asn_counts.values().fold(0, |t, s| t + s);
 
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
 
         for nk in neighbors.iter() {
             let asn_count = *(asn_counts.get(nk).unwrap_or(&0));
@@ -422,10 +423,10 @@ impl RelayerStats {
     /// Sampling is done *without* replacement, so the resulting neighbors list will have length
     /// min(count, rankings.len())
     pub fn sample_neighbors(
-        rankings: HashMap<NeighborKey, usize>,
+        rankings: StacksHashMap<NeighborKey, usize>,
         count: usize,
     ) -> Vec<NeighborKey> {
-        let mut ret = HashSet::new();
+        let mut ret = StacksHashSet::new();
         let mut rng = thread_rng();
 
         let mut norm = rankings.values().fold(0, |t, s| t + s);
@@ -753,14 +754,14 @@ impl Relayer {
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
     /// process_new_blocks().  Make sure the messages don't get too big.
     fn make_microblocksdata_messages(
-        new_microblocks: HashMap<
+        new_microblocks: StacksHashMap<
             StacksBlockId,
-            (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
+            (Vec<RelayData>, StacksHashMap<BlockHeaderHash, StacksMicroblock>),
         >,
     ) -> Vec<(Vec<RelayData>, MicroblocksData)> {
-        let mut mblocks_data: HashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> =
-            HashMap::new();
-        let mut mblocks_sizes: HashMap<StacksBlockId, usize> = HashMap::new();
+        let mut mblocks_data: StacksHashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> =
+            StacksHashMap::new();
+        let mut mblocks_sizes: StacksHashMap<StacksBlockId, usize> = StacksHashMap::new();
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
             for (_, mblock) in mblocks_map.into_iter() {
@@ -834,8 +835,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> HashMap<ConsensusHash, StacksBlock> {
-        let mut new_blocks = HashMap::new();
+    ) -> StacksHashMap<ConsensusHash, StacksBlock> {
+        let mut new_blocks = StacksHashMap::new();
 
         for (consensus_hash, block, download_time) in network_result.blocks.iter() {
             debug!(
@@ -940,8 +941,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> Result<(HashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> {
-        let mut new_blocks = HashMap::new();
+    ) -> Result<(StacksHashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> {
+        let mut new_blocks = StacksHashMap::new();
         let mut bad_neighbors = vec![];
 
         // process blocks pushed to us.
@@ -1045,8 +1046,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
-        let mut ret = HashMap::new();
+    ) -> StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
+        let mut ret = StacksHashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -1148,10 +1149,10 @@ impl Relayer {
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
     ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
-        let mut new_microblocks: HashMap<
+        let mut new_microblocks: StacksHashMap<
             StacksBlockId,
-            (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
-        > = HashMap::new();
+            (Vec<RelayData>, StacksHashMap<BlockHeaderHash, StacksMicroblock>),
+        > = StacksHashMap::new();
         let mut bad_neighbors = vec![];
 
         // process unconfirmed microblocks pushed to us.
@@ -1219,7 +1220,7 @@ impl Relayer {
                                 {
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                                 } else {
-                                    let mut mblocks_map = HashMap::new();
+                                    let mut mblocks_map = StacksHashMap::new();
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                                     new_microblocks.insert(
                                         index_hash,
@@ -1288,7 +1289,7 @@ impl Relayer {
                     {
                         mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                     } else {
-                        let mut mblocks_map = HashMap::new();
+                        let mut mblocks_map = StacksHashMap::new();
                         mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                         new_microblocks.insert(
                             uploaded_mblock.index_anchor_block.clone(),
@@ -1502,14 +1503,14 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<
         (
-            HashMap<ConsensusHash, StacksBlock>,
-            HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+            StacksHashMap<ConsensusHash, StacksBlock>,
+            StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
             Vec<(Vec<RelayData>, MicroblocksData)>,
             Vec<NeighborKey>,
         ),
         net_error,
     > {
-        let mut new_blocks = HashMap::new();
+        let mut new_blocks = StacksHashMap::new();
         let mut bad_neighbors = vec![];
 
         let sort_ic = sortdb.index_conn();
@@ -1629,7 +1630,7 @@ impl Relayer {
         epoch_id: StacksEpochId,
     ) {
         // filter out transactions that prove problematic
-        let mut filtered_pushed_transactions = HashMap::new();
+        let mut filtered_pushed_transactions = StacksHashMap::new();
         let mut filtered_uploaded_transactions = vec![];
         for (nk, tx_data) in network_result.pushed_transactions.drain() {
             let mut filtered_tx_data = vec![];
@@ -1755,7 +1756,7 @@ impl Relayer {
     pub fn advertize_blocks(
         &mut self,
         available: BlocksAvailableMap,
-        blocks: HashMap<ConsensusHash, StacksBlock>,
+        blocks: StacksHashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
         self.p2p.advertize_blocks(available, blocks)
     }
@@ -1865,8 +1866,8 @@ impl Relayer {
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
         if let Some(observer) = event_observer {
-            let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
-                HashMap::new();
+            let mut all_events: StacksHashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+                StacksHashMap::new();
             for chunk in uploaded_chunks.into_iter() {
                 debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
@@ -1884,13 +1885,13 @@ impl Relayer {
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
     pub fn process_stacker_db_chunks(
         stackerdbs: &mut StackerDBs,
-        stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        stackerdb_configs: &StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
         sync_results: Vec<StackerDBSyncResult>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // sort stacker results by contract, so as to minimize the number of transactions.
-        let mut sync_results_map: HashMap<QualifiedContractIdentifier, Vec<StackerDBSyncResult>> =
-            HashMap::new();
+        let mut sync_results_map: StacksHashMap<QualifiedContractIdentifier, Vec<StackerDBSyncResult>> =
+            StacksHashMap::new();
         for sync_result in sync_results.into_iter() {
             let sc = sync_result.contract_id.clone();
             if let Some(result_list) = sync_results_map.get_mut(&sc) {
@@ -1900,8 +1901,8 @@ impl Relayer {
             }
         }
 
-        let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
-            HashMap::new();
+        let mut all_events: StacksHashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+            StacksHashMap::new();
 
         for (sc, sync_results) in sync_results_map.into_iter() {
             if let Some(config) = stackerdb_configs.get(&sc) {
@@ -1947,8 +1948,8 @@ impl Relayer {
     /// extract all StackerDBPushChunk messages from `unhandled_messages`
     pub fn process_pushed_stacker_db_chunks(
         stackerdbs: &mut StackerDBs,
-        stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        unhandled_messages: &mut HashMap<NeighborKey, Vec<StacksMessage>>,
+        stackerdb_configs: &StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        unhandled_messages: &mut StacksHashMap<NeighborKey, Vec<StacksMessage>>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
@@ -2166,7 +2167,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
     ) -> Result<(Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         let outbound_recipients_set = PeerNetwork::with_inv_state(self, |_network, inv_state| {
-            let mut recipients = HashSet::new();
+            let mut recipients = StacksHashSet::new();
             for (neighbor, stats) in inv_state.block_stats.iter() {
                 for (_, (block_height, _)) in available.iter() {
                     if !stats.inv.has_ith_block(*block_height) {
@@ -2180,7 +2181,7 @@ impl PeerNetwork {
         // make a normalized random sample of inbound recipients, but don't send to an inbound peer
         // if it's already represented in the outbound set, or its reciprocal conversation is
         // represented in the outbound set.
-        let mut inbound_recipients_set = HashSet::new();
+        let mut inbound_recipients_set = StacksHashSet::new();
         for (event_id, convo) in self.peers.iter() {
             if !convo.is_authenticated() {
                 continue;
@@ -2345,7 +2346,7 @@ impl PeerNetwork {
         &mut self,
         recipient: &NeighborKey,
         available: &BlocksAvailableMap,
-        blocks: &HashMap<ConsensusHash, StacksBlock>,
+        blocks: &StacksHashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
@@ -2387,7 +2388,7 @@ impl PeerNetwork {
         &mut self,
         recipient: &NeighborKey,
         available: &BlocksAvailableMap,
-        microblocks: &HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+        microblocks: &StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
@@ -2453,7 +2454,7 @@ impl PeerNetwork {
     pub fn advertize_blocks(
         &mut self,
         availability_data: BlocksAvailableMap,
-        blocks: HashMap<ConsensusHash, StacksBlock>,
+        blocks: StacksHashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(usize, usize), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
@@ -2504,7 +2505,7 @@ impl PeerNetwork {
     pub fn advertize_microblocks(
         &mut self,
         availability_data: BlocksAvailableMap,
-        microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+        microblocks: StacksHashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(usize, usize), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
@@ -2577,7 +2578,6 @@ impl PeerNetwork {
 #[cfg(test)]
 pub mod test {
     use std::cell::RefCell;
-    use std::collections::HashMap;
 
     use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use clarity::vm::ast::ASTRules;
@@ -2593,6 +2593,7 @@ pub mod test {
     use stacks_common::util::hash::MerkleTree;
     use stacks_common::util::sleep_ms;
     use stacks_common::util::vrf::VRFProof;
+    use stacks_common::util::StacksHashSet;
 
     use super::*;
     use crate::burnchains::tests::TestMiner;
@@ -2694,7 +2695,7 @@ pub mod test {
             last_seen: 1,
         };
 
-        let mut rs = HashMap::new();
+        let mut rs = StacksHashMap::new();
         rs.insert(na.clone(), relay_stats.clone());
 
         relayer_stats.merge_relay_stats(rs);
@@ -2712,7 +2713,7 @@ pub mod test {
             last_seen: now,
         };
 
-        let mut rs = HashMap::new();
+        let mut rs = StacksHashMap::new();
         rs.insert(na.clone(), relay_stats_2.clone());
 
         relayer_stats.merge_relay_stats(rs);
@@ -2731,7 +2732,7 @@ pub mod test {
             last_seen: 0,
         };
 
-        let mut rs = HashMap::new();
+        let mut rs = StacksHashMap::new();
         rs.insert(na.clone(), relay_stats_3.clone());
 
         relayer_stats.merge_relay_stats(rs);
@@ -2759,7 +2760,7 @@ pub mod test {
                 last_seen: now,
             };
 
-            let mut rs = HashMap::new();
+            let mut rs = StacksHashMap::new();
             rs.insert(na.clone(), relay_stats.clone());
 
             relayer_stats.merge_relay_stats(rs);
@@ -4562,8 +4563,8 @@ pub mod test {
 
                     let done_flag = *done.borrow();
 
-                    let mut connectivity_0_to_n = HashSet::new();
-                    let mut connectivity_n_to_0 = HashSet::new();
+                    let mut connectivity_0_to_n = StacksHashSet::new();
+                    let mut connectivity_n_to_0 = StacksHashSet::new();
 
                     let peer_0_nk = peers[0].to_neighbor().addr;
 
@@ -5589,11 +5590,11 @@ pub mod test {
                 payload: StacksMessageType::Transaction(bad_tx.clone()),
             },
         ];
-        let mut unsolicited = HashMap::new();
+        let mut unsolicited = StacksHashMap::new();
         unsolicited.insert(nk.clone(), bad_msgs.clone());
 
         let mut network_result =
-            NetworkResult::new(0, 0, 0, 0, ConsensusHash([0x01; 20]), HashMap::new());
+            NetworkResult::new(0, 0, 0, 0, ConsensusHash([0x01; 20]), StacksHashMap::new());
         network_result.consume_unsolicited(unsolicited);
 
         assert!(network_result.has_blocks());

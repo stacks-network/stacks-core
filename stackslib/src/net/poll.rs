@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::io::{Error as io_error, ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
@@ -24,6 +23,7 @@ use mio::{net as mio_net, PollOpt, Ready, Token};
 use rand::RngCore;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::{log, sleep_ms};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use {mio, rand};
 
 use crate::net::{Error as net_error, Neighbor, NeighborKey};
@@ -32,14 +32,14 @@ use crate::util_lib::db::{DBConn, Error as db_error};
 const SERVER: Token = mio::Token(0);
 
 pub struct NetworkPollState {
-    pub new: HashMap<usize, mio_net::TcpStream>,
+    pub new: StacksHashMap<usize, mio_net::TcpStream>,
     pub ready: Vec<usize>,
 }
 
 impl NetworkPollState {
     pub fn new() -> NetworkPollState {
         NetworkPollState {
-            new: HashMap::new(),
+            new: StacksHashMap::new(),
             ready: vec![],
         }
     }
@@ -61,7 +61,7 @@ pub struct NetworkState {
     event_capacity: usize,
     servers: Vec<NetworkServerState>,
     count: usize,
-    event_map: HashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
+    event_map: StacksHashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
 }
 
 impl NetworkState {
@@ -79,7 +79,7 @@ impl NetworkState {
             event_capacity: event_capacity,
             servers: vec![],
             count: 1,
-            event_map: HashMap::new(),
+            event_map: StacksHashMap::new(),
         })
     }
 
@@ -262,7 +262,7 @@ impl NetworkState {
         Ok(())
     }
 
-    fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Option<usize> {
+    fn make_next_event_id(&self, cur_count: usize, in_use: &StacksHashSet<usize>) -> Option<usize> {
         let mut ret = cur_count;
 
         let mut in_use_count = 0;
@@ -292,7 +292,7 @@ impl NetworkState {
     /// next event ID
     pub fn next_event_id(&mut self) -> Result<usize, net_error> {
         let ret = self
-            .make_next_event_id(self.count, &HashSet::new())
+            .make_next_event_id(self.count, &StacksHashSet::new())
             .ok_or(net_error::TooManyPeers)?;
         self.count = (ret + 1) % (self.event_capacity + self.servers.len());
         Ok(ret)
@@ -369,7 +369,7 @@ impl NetworkState {
 
     /// Poll all server sockets.
     /// Returns a map between network server handles (returned by bind()) and their new polling state
-    pub fn poll(&mut self, timeout: u64) -> Result<HashMap<usize, NetworkPollState>, net_error> {
+    pub fn poll(&mut self, timeout: u64) -> Result<StacksHashMap<usize, NetworkPollState>, net_error> {
         self.events.clear();
         self.poll
             .poll(&mut self.events, Some(Duration::from_millis(timeout)))
@@ -378,14 +378,14 @@ impl NetworkState {
                 net_error::PollError
             })?;
 
-        let mut poll_states = HashMap::new();
+        let mut poll_states = StacksHashMap::new();
         for server in self.servers.iter() {
             // pre-populate with server tokens
             let server_event_id = usize::from(server.server_event);
             poll_states.insert(server_event_id, NetworkPollState::new());
         }
 
-        let mut new_events = HashSet::new();
+        let mut new_events = StacksHashSet::new();
 
         for event in &self.events {
             let token = event.token();
@@ -594,7 +594,7 @@ mod test {
     fn test_register_deregister_stress() {
         let mut ns = NetworkState::new(20).unwrap();
         let count = 0;
-        let mut in_use = HashSet::new();
+        let mut in_use = StacksHashSet::new();
         let mut events_in = vec![];
 
         for _ in 0..20 {

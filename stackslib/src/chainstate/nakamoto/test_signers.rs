@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -32,6 +32,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlock
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::StacksHashMap;
 use wsts::curve::point::Point;
 use wsts::traits::Aggregator;
 
@@ -66,7 +67,7 @@ pub struct TestSigners {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,
     /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: HashMap<u32, wsts::common::PolyCommitment>,
+    pub poly_commitments: StacksHashMap<u32, wsts::common::PolyCommitment>,
     /// The aggregate public key
     pub aggregate_public_key: Point,
     /// The total number of key ids distributed among signer_parties
@@ -119,7 +120,7 @@ impl Default for TestSigners {
         Self {
             signer_parties,
             aggregate_public_key,
-            poly_commitments,
+            poly_commitments: StacksHashMap(poly_commitments),
             num_keys,
             threshold,
             party_key_ids,
@@ -179,7 +180,7 @@ impl TestSigners {
             .collect();
         self.poly_commitments =
             match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng) {
-                Ok(poly_commitments) => poly_commitments,
+                Ok(poly_commitments) => StacksHashMap(poly_commitments),
                 Err(secret_errors) => {
                     panic!("Got secret errors from DKG: {:?}", secret_errors);
                 }

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
@@ -25,6 +24,7 @@ use serde::ser::Serialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
@@ -92,7 +92,7 @@ pub struct AttachmentPage {
 
 #[derive(Debug, Clone)]
 pub struct AtlasConfig {
-    pub contracts: HashSet<QualifiedContractIdentifier>,
+    pub contracts: StacksHashSet<QualifiedContractIdentifier>,
     pub attachments_max_size: u32,
     pub max_uninstantiated_attachments: u32,
     pub uninstantiated_attachments_expire_after: u32,
@@ -102,7 +102,7 @@ pub struct AtlasConfig {
 
 impl AtlasConfig {
     pub fn new(mainnet: bool) -> AtlasConfig {
-        let mut contracts = HashSet::new();
+        let mut contracts = StacksHashSet::new();
         contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {
             contracts,

@@ -12,8 +12,7 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashMap;
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.¨
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
@@ -42,6 +41,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::StacksHashMap;
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::neon_node::{BlockMinerThread, TipCandidate};
@@ -1217,37 +1217,37 @@ fn test_inner_pick_best_tip() {
     let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates.clone());
     assert_eq!(
         None,
-        BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(vec![], StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[5].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[0].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[1].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[1].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[1].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), StacksHashMap::new())
     );
     assert_eq!(
         Some(sorted_candidates[4].clone()),
-        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), HashMap::new())
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), StacksHashMap::new())
     );
 
     // suppose now that we previously picked (2,104) as the best-tip.
     // No other tips at Stacks height 2 will be accepted, nor will those at heights 3 and 4 (since
     // they descend from the wrong height-2 block).
-    let mut best_tips = HashMap::new();
+    let mut best_tips = StacksHashMap::new();
     best_tips.insert(2, sorted_candidates[3].clone());
 
     assert_eq!(
@@ -1277,7 +1277,7 @@ fn test_inner_pick_best_tip() {
 
     // now suppose that we previously picked (2,102) as the best-tip.
     // Conflicting blocks are (2,101) and (2,104)
-    let mut best_tips = HashMap::new();
+    let mut best_tips = StacksHashMap::new();
     best_tips.insert(2, sorted_candidates[2].clone());
 
     assert_eq!(
@@ -1309,7 +1309,7 @@ fn test_inner_pick_best_tip() {
     // these best-tips are in conflict, but that shouldn't prohibit us from choosing (4,106) as the
     // best tip even though it doesn't confirm (2,101).  However, it would mean that (2,102) and
     // (2,104) are in conflict.
-    let mut best_tips = HashMap::new();
+    let mut best_tips = StacksHashMap::new();
     best_tips.insert(2, sorted_candidates[1].clone());
     best_tips.insert(3, sorted_candidates[4].clone());
 

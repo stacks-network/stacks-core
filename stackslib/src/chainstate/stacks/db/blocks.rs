@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -44,6 +43,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
@@ -1354,7 +1354,7 @@ impl StacksChainState {
         let mut tip: Option<StacksMicroblock> = None;
         let mut fork_poison = None;
         let mut expected_sequence = start_seq;
-        let mut parents: HashMap<BlockHeaderHash, usize> = HashMap::new();
+        let mut parents: StacksHashMap<BlockHeaderHash, usize> = StacksHashMap::new();
 
         // load associated staging microblock data, but best-effort.
         // Stop loading once we find a fork juncture.
@@ -1630,14 +1630,14 @@ impl StacksChainState {
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
             &u64_to_sql(block.header.total_work.work)?,
-            &attachable,
-            &0,
-            &0,
+            &attachable as &dyn ToSql,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
             &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
-            &0,
+            &0 as &dyn ToSql,
             &u64_to_sql(download_time)?,
         ];
 
@@ -1702,8 +1702,8 @@ impl StacksChainState {
             &microblock.header.prev_block,
             &index_microblock_hash,
             &microblock.header.sequence,
-            &0,
-            &0,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
         ];
 
         tx.execute(&sql, args)
@@ -2062,7 +2062,7 @@ impl StacksChainState {
         let mut microblock_bits = vec![false; header_hashes.len()];
         let mut num_rows = 0;
 
-        let mut ch_lookup: HashMap<&ConsensusHash, _> = HashMap::new();
+        let mut ch_lookup: StacksHashMap<&ConsensusHash, _> = StacksHashMap::new();
         for (i, (ch, _)) in header_hashes.iter().enumerate() {
             ch_lookup.insert(ch, i);
         }
@@ -3084,7 +3084,7 @@ impl StacksChainState {
 
         // sanity check -- all parent block hashes are unique.  If there are duplicates, then the
         // miner equivocated.
-        let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
+        let mut parent_hashes: StacksHashMap<BlockHeaderHash, StacksMicroblockHeader> = StacksHashMap::new();
         for i in 0..signed_microblocks.len() {
             let signed_microblock = &signed_microblocks[i];
             if parent_hashes.contains_key(&signed_microblock.header.prev_block) {

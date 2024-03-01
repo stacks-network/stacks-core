@@ -33,7 +33,6 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -86,6 +85,7 @@ use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -374,7 +374,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let header_hashes = {
             let ic = sort_db.index_conn();
 
-            ic.get_stacks_header_hashes(2100, &chain_tip.consensus_hash, &HashMap::new())
+            ic.get_stacks_header_hashes(2100, &chain_tip.consensus_hash, &StacksHashMap::new())
                 .unwrap()
         };
 
@@ -431,7 +431,7 @@ check if the associated microblocks can be downloaded
         let header_hashes = {
             let ic = sort_db.index_conn();
 
-            ic.get_stacks_header_hashes(2100, &chain_tip.consensus_hash, &HashMap::new())
+            ic.get_stacks_header_hashes(2100, &chain_tip.consensus_hash, &StacksHashMap::new())
                 .unwrap()
         };
 
@@ -1124,7 +1124,7 @@ simulating a miner.
             .map(|(h, _)| h)
             .collect();
 
-        let mut stacks_blocks_available: HashMap<StacksBlockId, StagingBlock> = HashMap::new();
+        let mut stacks_blocks_available: StacksHashMap<StacksBlockId, StagingBlock> = StacksHashMap::new();
         let num_staging_blocks = all_stacks_blocks.len();
         for staging_block in all_stacks_blocks.into_iter() {
             if !staging_block.orphaned {
@@ -1146,7 +1146,7 @@ simulating a miner.
             num_staging_blocks
         );
 
-        let mut known_stacks_blocks = HashSet::new();
+        let mut known_stacks_blocks = StacksHashSet::new();
         let mut next_arrival = 0;
 
         let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);

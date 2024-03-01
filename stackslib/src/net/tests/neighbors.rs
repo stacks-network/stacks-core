@@ -2559,9 +2559,9 @@ fn dump_peers(peers: &Vec<TestPeer>) -> () {
 }
 
 fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
-    let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
-    let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
-    let mut all_hist: HashMap<usize, usize> = HashMap::new();
+    let mut outbound_hist: StacksHashMap<usize, usize> = StacksHashMap::new();
+    let mut inbound_hist: StacksHashMap<usize, usize> = StacksHashMap::new();
+    let mut all_hist: StacksHashMap<usize, usize> = StacksHashMap::new();
     for i in 0..peers.len() {
         let mut neighbor_index = vec![];
         let mut inbound_neighbor_index = vec![];
@@ -2637,8 +2637,8 @@ where
 {
     let PEER_COUNT = peers.len();
 
-    let mut initial_allowed: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
-    let mut initial_denied: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+    let mut initial_allowed: StacksHashMap<NeighborKey, Vec<NeighborKey>> = StacksHashMap::new();
+    let mut initial_denied: StacksHashMap<NeighborKey, Vec<NeighborKey>> = StacksHashMap::new();
 
     for i in 0..PEER_COUNT {
         // turn off components we don't need
@@ -2721,7 +2721,7 @@ where
             };
 
             // all ports are unique in the p2p socket table
-            let mut ports: HashSet<u16> = HashSet::new();
+            let mut ports: StacksHashSet<u16> = StacksHashSet::new();
             for k in peers[i].network.events.keys() {
                 if ports.contains(&k.port) {
                     error!("duplicate port {} from {:?}", k.port, k);

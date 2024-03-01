@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;
@@ -30,6 +30,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::RewardSet;
@@ -873,7 +874,7 @@ pub struct PaidRewards {
 /// Determine the rewards paid for a given set of burnchain operations.  All of these operations
 /// ought to be from the same burnchain block.
 pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
-    let mut reward_recipients: HashMap<_, u64> = HashMap::new();
+    let mut reward_recipients: StacksHashMap<_, u64> = StacksHashMap::new();
     let mut burn_amt = 0;
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
@@ -1093,7 +1094,7 @@ impl<
     pub fn handle_new_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new Stacks block");
         if let Some(pox_anchor) = self.process_ready_blocks()? {
-            self.process_new_pox_anchor(pox_anchor, &mut HashSet::new())
+            self.process_new_pox_anchor(pox_anchor, &mut StacksHashSet::new())
         } else {
             Ok(None)
         }
@@ -2357,7 +2358,7 @@ impl<
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // burnchain has not yet advanced to epoch 3.0
             return self
-                .handle_new_epoch2_burnchain_block(&mut HashSet::new())
+                .handle_new_epoch2_burnchain_block(&mut StacksHashSet::new())
                 .and_then(|block_hash_opt| {
                     if let Some(block_hash) = block_hash_opt {
                         Ok(NewBurnchainBlockStatus::WaitForPox2x(block_hash))
@@ -2386,7 +2387,7 @@ impl<
 
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // need to catch the sortition DB up
-            self.handle_new_epoch2_burnchain_block(&mut HashSet::new())?;
+            self.handle_new_epoch2_burnchain_block(&mut StacksHashSet::new())?;
         }
 
         // proceed to process sortitions in epoch 3.0
@@ -2418,7 +2419,7 @@ impl<
     /// anchor block.
     pub fn handle_new_epoch2_burnchain_block(
         &mut self,
-        already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
+        already_processed_burn_blocks: &mut StacksHashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new burnchain block");
 
@@ -2892,7 +2893,7 @@ impl<
         block_receipt: &StacksEpochReceipt,
         canonical_stacks_tip_height: u64,
     ) {
-        let mut attachments_instances = HashSet::new();
+        let mut attachments_instances = StacksHashSet::new();
         for receipt in block_receipt.tx_receipts.iter() {
             if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
                 if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload {
@@ -2928,8 +2929,8 @@ impl<
                 "stacks_height" => block_receipt.header.stacks_block_height,
             );
             if let Some(atlas_db) = atlas_db {
-                for new_attachment in attachments_instances.into_iter() {
-                    if let Err(e) = atlas_db.queue_attachment_instance(&new_attachment) {
+                for new_attachment in attachments_instances.iter() {
+                    if let Err(e) = atlas_db.queue_attachment_instance(new_attachment) {
                         warn!(
                             "Atlas: Error writing attachment instance to DB";
                             "err" => ?e,
@@ -3364,7 +3365,7 @@ impl<
     fn process_new_pox_anchor(
         &mut self,
         block_id: BlockHeaderHash,
-        already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
+        already_processed_burn_blocks: &mut StacksHashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         // get the last sortition in the prepare phase that chose this anchor block
         //   that sortition is now the current canonical sortition,

@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::{cmp, mem};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Address, Burnchain, BurnchainView};
 use crate::net::db::PeerDB;
@@ -36,16 +36,16 @@ use crate::util_lib::db::{DBConn, DBTx};
 #[derive(Debug, Clone, PartialEq)]
 pub struct NeighborReplacements {
     /// neighbors to be replaced
-    replacements: HashMap<NeighborAddress, Neighbor>,
+    replacements: StacksHashMap<NeighborAddress, Neighbor>,
     /// slots in the peer DB into which a neighbor will be stored if it must be replaced
-    replaced_neighbors: HashMap<NeighborAddress, u32>,
+    replaced_neighbors: StacksHashMap<NeighborAddress, u32>,
 }
 
 impl NeighborReplacements {
     pub fn new() -> NeighborReplacements {
         NeighborReplacements {
-            replacements: HashMap::new(),
-            replaced_neighbors: HashMap::new(),
+            replacements: StacksHashMap::new(),
+            replaced_neighbors: StacksHashMap::new(),
         }
     }
 
@@ -111,7 +111,7 @@ pub trait NeighborWalkDB {
         &self,
         network: &PeerNetwork,
         addrs: &Vec<NeighborAddress>,
-    ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
+    ) -> Result<(StacksHashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
 
     /// Add a neighbor to the DB, or if there's no slot available for it, schedule it to be
     /// replaced.  The neighbor info is identified by the handshake message components
@@ -312,12 +312,12 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         &self,
         network: &PeerNetwork,
         addrs: &Vec<NeighborAddress>,
-    ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
+    ) -> Result<(StacksHashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let network_id = network.bound_neighbor_key().network_id;
         let block_height = network.get_chain_view().burn_block_height;
         let dbconn = network.peerdb_conn();
         let mut to_resolve = vec![];
-        let mut resolved: HashMap<NeighborAddress, Neighbor> = HashMap::new();
+        let mut resolved: StacksHashMap<NeighborAddress, Neighbor> = StacksHashMap::new();
         for naddr in addrs {
             let neighbor_opt = Neighbor::load_by_address(dbconn, network_id, block_height, naddr)?;
 

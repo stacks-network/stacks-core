@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
@@ -42,6 +41,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use wsts::common::Signature as WSTSSignature;
 use wsts::curve::point::{Compressed, Point};
 
@@ -94,7 +94,7 @@ const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
-pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
+pub type BlockHeaderCache = StacksHashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
@@ -2392,8 +2392,8 @@ impl<'a> SortitionHandleConn<'a> {
         let prepare_end = block_height;
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
-        let mut candidate_anchors = HashMap::new();
-        let mut memoized_candidates: HashMap<_, (SortitionId, Txid, u64)> = HashMap::new();
+        let mut candidate_anchors = StacksHashMap::new();
+        let mut memoized_candidates: StacksHashMap<_, (SortitionId, Txid, u64)> = StacksHashMap::new();
 
         // iterate over every sortition winner in the prepare phase
         //   looking for their highest ancestor _before_ prepare_begin.
@@ -4133,7 +4133,7 @@ impl SortitionDB {
             stable_block_height - MAX_NEIGHBOR_BLOCK_DELAY
         };
 
-        let mut last_burn_block_hashes = HashMap::new();
+        let mut last_burn_block_hashes = StacksHashMap::new();
         let tip_height = chain_tip.block_height;
 
         let mut cursor = chain_tip.clone();
@@ -5797,7 +5797,7 @@ impl<'a> SortitionHandleTx<'a> {
                         .collect();
                     let mut recipient_indexes: Vec<_> =
                         reward_info.recipients.iter().map(|(_, x)| *x).collect();
-                    let mut remapped_entries = HashMap::new();
+                    let mut remapped_entries = StacksHashMap::new();
                     // sort in decrementing order
                     recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
                     for index in recipient_indexes.into_iter() {
@@ -5926,7 +5926,7 @@ impl<'a> SortitionHandleTx<'a> {
         // break ties by hashing the index block hash with the snapshot's sortition hash, and
         // picking the lexicographically smallest one
         let mut hash_tied = vec![];
-        let mut mapping = HashMap::new();
+        let mut mapping = StacksHashMap::new();
         for (block_id, arrival_idx) in tied.into_iter() {
             let mut buff = [0u8; 64];
             buff[0..32].copy_from_slice(&block_id.0);
@@ -5943,7 +5943,7 @@ impl<'a> SortitionHandleTx<'a> {
             .expect("FATAL: zero-length list of tied block IDs");
 
         let winner_index = *mapping
-            .get(&winner)
+            .get(winner)
             .expect("FATAL: winning block ID not mapped");
 
         Some(winner_index)

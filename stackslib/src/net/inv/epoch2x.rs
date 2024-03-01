@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
@@ -26,6 +26,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{
@@ -950,7 +951,7 @@ pub struct InvState {
     /// Kept separately from p2p conversations so they persist
     /// beyond connection resets (since they can be expensive
     /// to build up).
-    pub block_stats: HashMap<NeighborKey, NeighborBlockStats>,
+    pub block_stats: StacksHashMap<NeighborKey, NeighborBlockStats>,
 
     /// How long is a request allowed to take?
     request_timeout: u64,
@@ -979,7 +980,7 @@ pub struct InvState {
 impl InvState {
     pub fn new(first_block_height: u64, request_timeout: u64, sync_interval: u64) -> InvState {
         InvState {
-            block_stats: HashMap::new(),
+            block_stats: StacksHashMap::new(),
 
             request_timeout: request_timeout,
             first_block_height: first_block_height,
@@ -1000,8 +1001,8 @@ impl InvState {
 
     fn reset_sync_peers(
         &mut self,
-        peers: HashSet<NeighborKey>,
-        bootstrap_peers: &HashSet<NeighborKey>,
+        peers: StacksHashSet<NeighborKey>,
+        bootstrap_peers: &StacksHashSet<NeighborKey>,
         max_neighbors: usize,
     ) -> () {
         for (nk, stats) in self.block_stats.iter_mut() {
@@ -1020,7 +1021,7 @@ impl InvState {
             if let Some(stats) = self.block_stats.get_mut(peer) {
                 debug!("Already tracking inventories of peer {:?}", &peer);
                 stats.reset_pox_scan(0);
-                stats.is_bootstrap_peer = bootstrap_peers.contains(&peer);
+                stats.is_bootstrap_peer = bootstrap_peers.contains(peer);
             } else if self.block_stats.len() < max_neighbors {
                 debug!("Will track inventories of new peer {:?}", &peer);
                 self.block_stats.insert(
@@ -1028,7 +1029,7 @@ impl InvState {
                     NeighborBlockStats::new(
                         peer.clone(),
                         self.first_block_height,
-                        bootstrap_peers.contains(&peer),
+                        bootstrap_peers.contains(peer),
                     ),
                 );
                 added += 1;
@@ -1080,8 +1081,8 @@ impl InvState {
     }
 
     /// Cull broken peers and purge their stats
-    pub fn cull_bad_peers(&mut self) -> HashSet<NeighborKey> {
-        let mut bad_peers = HashSet::new();
+    pub fn cull_bad_peers(&mut self) -> StacksHashSet<NeighborKey> {
+        let mut bad_peers = StacksHashSet::new();
         for (nk, stats) in self.block_stats.iter() {
             if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
                 debug!(
@@ -1153,7 +1154,7 @@ impl InvState {
     }
 
     pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
-        self.block_stats.remove(&nk);
+        self.block_stats.remove(nk);
     }
 
     /// Is there any downloader-actionable data available?
@@ -2255,7 +2256,7 @@ impl PeerNetwork {
             let mut all_done = true;
             let mut ibd_diverged_height: Option<u64> = None;
 
-            let bootstrap_peers: HashSet<_> =
+            let bootstrap_peers: StacksHashSet<_> =
                 PeerDB::get_bootstrap_peers(&network.peerdb.conn(), network.local_peer.network_id)
                     .unwrap_or(vec![])
                     .into_iter()
@@ -2321,7 +2322,7 @@ impl PeerNetwork {
                         // if this node diverged from us, and we're in ibd, and this is an
                         // always-allowed peer, then start scanning here (or lower)
                         if ibd
-                            && bootstrap_peers.contains(&nk)
+                            && bootstrap_peers.contains(nk)
                             && stats.status == NodeStatus::Diverged
                         {
                             inv_state.last_change_at = get_epoch_time_secs();
@@ -2429,7 +2430,7 @@ impl PeerNetwork {
                 random_neighbor_list.shuffle(&mut thread_rng());
 
                 // always pick permanently-allowed peers
-                let mut good_sync_peers_set = HashSet::new();
+                let mut good_sync_peers_set = StacksHashSet::new();
                 let mut random_sync_peers_list = vec![];
                 for nk in random_neighbor_list.into_iter() {
                     if bootstrap_peers.contains(&nk)
@@ -2493,8 +2494,8 @@ impl PeerNetwork {
     }
 
     /// Get a list of outbound neighbors we can sync with.
-    pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
-        let mut cur_neighbors = HashSet::new();
+    pub fn get_outbound_sync_peers(&self) -> StacksHashSet<NeighborKey> {
+        let mut cur_neighbors = StacksHashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers
             match self.peers.get(event_id) {
@@ -2665,7 +2666,7 @@ impl PeerNetwork {
     fn check_always_allowed_peer_inv_sync_epoch2x(&self) -> bool {
         // only count an inv_sync as passing if there's an always-allowed node
         // in our inv state
-        let always_allowed: HashSet<_> =
+        let always_allowed: StacksHashSet<_> =
             PeerDB::get_always_allowed_peers(&self.peerdb.conn(), self.local_peer.network_id)
                 .unwrap_or(vec![])
                 .into_iter()
@@ -2697,7 +2698,7 @@ impl PeerNetwork {
                 // this is a peer at our address
                 continue;
             }
-            if !always_allowed.contains(&nk) {
+            if !always_allowed.contains(nk) {
                 // this peer isn't in the always-allowed set
                 continue;
             }

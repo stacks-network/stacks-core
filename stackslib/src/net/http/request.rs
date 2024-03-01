@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
 use percent_encoding::percent_decode_str;
@@ -24,6 +24,7 @@ use serde_json;
 use stacks_common::codec::{write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
 use stacks_common::types::net::PeerHost;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use url::form_urlencoded;
 
 use crate::net::http::common::{
@@ -376,7 +377,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 };
 
                 let mut headers: BTreeMap<String, String> = BTreeMap::new();
-                let mut seen_headers: HashSet<String> = HashSet::new();
+                let mut seen_headers: StacksHashSet<String> = StacksHashSet::new();
 
                 for i in 0..req.headers.len() {
                     let value = String::from_utf8(req.headers[i].value.to_vec()).map_err(|_e| {
@@ -516,34 +517,34 @@ pub struct HttpRequestContents {
     /// payload consumed from the connection buffer
     payload: HttpRequestPayload,
     /// arguments extracted from the path that are useful to this request
-    path_args: HashMap<String, String>,
+    path_args: StacksHashMap<String, String>,
     /// query string arguments from the path that are useful to this request
-    query_args: HashMap<String, String>,
+    query_args: StacksHashMap<String, String>,
     /// parsed data from the request, used by the caller
-    parsed_data: HashMap<String, serde_json::Value>,
+    parsed_data: StacksHashMap<String, serde_json::Value>,
 }
 
 impl HttpRequestContents {
     pub fn new() -> Self {
         Self {
             payload: HttpRequestPayload::Empty,
-            path_args: HashMap::new(),
-            query_args: HashMap::new(),
-            parsed_data: HashMap::new(),
+            path_args: StacksHashMap::new(),
+            query_args: StacksHashMap::new(),
+            parsed_data: StacksHashMap::new(),
         }
     }
 
     /// Decode the query string
-    fn parse_qs(query: Option<&str>) -> HashMap<String, String> {
+    fn parse_qs(query: Option<&str>) -> StacksHashMap<String, String> {
         query
             .map(|query_string| {
-                let mut kv = HashMap::new();
+                let mut kv = StacksHashMap::new();
                 for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
                     kv.insert(key.to_string(), value.to_string());
                 }
                 kv
             })
-            .unwrap_or(HashMap::new())
+            .unwrap_or(StacksHashMap::new())
     }
 
     /// chain constructor -- add a query strings' values to the existing values, and also
@@ -596,12 +597,12 @@ impl HttpRequestContents {
     }
 
     /// Directly ref the inner path args
-    pub fn get_path_args(&self) -> &HashMap<String, String> {
+    pub fn get_path_args(&self) -> &StacksHashMap<String, String> {
         &self.path_args
     }
 
     /// Directly ref the inner query args
-    pub fn get_query_args(&self) -> &HashMap<String, String> {
+    pub fn get_query_args(&self) -> &StacksHashMap<String, String> {
         &self.query_args
     }
 

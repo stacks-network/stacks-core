@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{cmp, fmt, fs, io};
 
@@ -22,6 +21,7 @@ use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::{
@@ -1205,7 +1205,7 @@ impl BurnchainDB {
         );
 
         let mut ops = Vec::new();
-        let mut pre_stx_ops = HashMap::new();
+        let mut pre_stx_ops = StacksHashMap::new();
 
         for tx in block.txs().iter() {
             let result = Burnchain::classify_transaction(

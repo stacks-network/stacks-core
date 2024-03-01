@@ -15,8 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::{cmp, fmt};
@@ -26,6 +25,8 @@ use rand::{thread_rng, Rng};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::hash::{Hash160, MerkleHashFunc};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
+use hashbrown::hash_map::Entry;
 
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use crate::chainstate::burn::ConsensusHash;
@@ -47,7 +48,7 @@ pub struct AttachmentsDownloader {
     initial_batch: Vec<AttachmentInstance>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
     processed_batches: Vec<AttachmentsBatch>,
-    reliability_reports: HashMap<UrlString, ReliabilityReport>,
+    reliability_reports: StacksHashMap<UrlString, ReliabilityReport>,
 }
 
 impl AttachmentsDownloader {
@@ -56,7 +57,7 @@ impl AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
             processed_batches: vec![],
-            reliability_reports: HashMap::new(),
+            reliability_reports: StacksHashMap::new(),
             initial_batch,
         }
     }
@@ -115,7 +116,7 @@ impl AttachmentsDownloader {
                     return Ok((vec![], vec![]));
                 }
 
-                let mut peers = HashMap::new();
+                let mut peers = StacksHashMap::new();
                 for peer in network.get_outbound_sync_peers() {
                     if let Some(peer_url) = network.get_data_url(&peer) {
                         let report = match self.reliability_reports.get(&peer_url) {
@@ -238,7 +239,7 @@ impl AttachmentsDownloader {
         F: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), DBError>,
         G: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), DBError>,
     {
-        let mut attachments_batches: HashMap<StacksBlockId, AttachmentsBatch> = HashMap::new();
+        let mut attachments_batches: StacksHashMap<StacksBlockId, AttachmentsBatch> = StacksHashMap::new();
         let mut resolved_attachments = vec![];
         for attachment_instance in iterator {
             if attachment_instance.content_hash == Hash160::empty() {
@@ -344,30 +345,30 @@ impl AttachmentsDownloader {
 #[derive(Debug)]
 pub struct AttachmentsBatchStateContext {
     pub attachments_batch: AttachmentsBatch,
-    pub peers: HashMap<UrlString, ReliabilityReport>,
+    pub peers: StacksHashMap<UrlString, ReliabilityReport>,
     pub connection_options: ConnectionOptions,
-    pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
-    pub inventories: HashMap<
+    pub dns_lookups: StacksHashMap<UrlString, Option<Vec<SocketAddr>>>,
+    pub inventories: StacksHashMap<
         (QualifiedContractIdentifier, Vec<u32>, StacksBlockId),
-        HashMap<UrlString, GetAttachmentsInvResponse>,
+        StacksHashMap<UrlString, GetAttachmentsInvResponse>,
     >,
-    pub attachments: HashSet<Attachment>,
+    pub attachments: StacksHashSet<Attachment>,
     pub events_to_deregister: Vec<usize>,
 }
 
 impl AttachmentsBatchStateContext {
     pub fn new(
         attachments_batch: AttachmentsBatch,
-        peers: HashMap<UrlString, ReliabilityReport>,
+        peers: StacksHashMap<UrlString, ReliabilityReport>,
         connection_options: &ConnectionOptions,
     ) -> AttachmentsBatchStateContext {
         AttachmentsBatchStateContext {
             attachments_batch,
             peers,
             connection_options: connection_options.clone(),
-            dns_lookups: HashMap::new(),
-            inventories: HashMap::new(),
-            attachments: HashSet::new(),
+            dns_lookups: StacksHashMap::new(),
+            inventories: StacksHashMap::new(),
+            attachments: StacksHashSet::new(),
             events_to_deregister: vec![],
         }
     }
@@ -406,12 +407,12 @@ impl AttachmentsBatchStateContext {
 
     pub fn get_prioritized_attachments_requests(&self) -> BinaryHeap<AttachmentRequest> {
         let mut queue = BinaryHeap::new();
-        let mut enqueued = HashSet::new();
+        let mut enqueued = StacksHashSet::new();
         for ((contract_id, pages, _), peers_responses) in self.inventories.iter() {
             let missing_attachments = match self
                 .attachments_batch
                 .attachments_instances
-                .get(&contract_id)
+                .get(contract_id)
             {
                 None => continue,
                 Some(missing_attachments) => missing_attachments,
@@ -430,7 +431,7 @@ impl AttachmentsBatchStateContext {
                     continue;
                 }
 
-                let mut sources = HashMap::new();
+                let mut sources = StacksHashMap::new();
                 let position_in_page =
                     attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
@@ -521,7 +522,7 @@ impl AttachmentsBatchStateContext {
                         responses.into_mut().insert(peer_url, response);
                     }
                     Entry::Vacant(v) => {
-                        let mut responses = HashMap::new();
+                        let mut responses = StacksHashMap::new();
                         responses.insert(peer_url, response);
                         v.insert(responses);
                     }
@@ -837,7 +838,7 @@ enum BatchedRequestsState<T: Ord + Requestable + fmt::Display + std::hash::Hash>
 impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState<T> {
     fn try_proceed(
         fsm: BatchedRequestsState<T>,
-        dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
+        dns_lookups: &StacksHashMap<UrlString, Option<Vec<SocketAddr>>>,
         network: &mut PeerNetwork,
         connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
@@ -851,7 +852,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                 };
                 let mut results = match results.take() {
                     Some(results) => results,
-                    None => BatchedRequestsResult::new(HashMap::new()),
+                    None => BatchedRequestsResult::new(StacksHashMap::new()),
                 };
 
                 // We want to limit the number of requests in flight,
@@ -871,7 +872,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                 BatchedRequestsState::PollRequests(Some(queue), Some(results))
             }
             BatchedRequestsState::PollRequests(ref mut queue, ref mut results) => {
-                let mut pending_requests = HashMap::new();
+                let mut pending_requests = StacksHashMap::new();
 
                 let state = match results {
                     Some(state) => state,
@@ -961,11 +962,21 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BatchedDNSLookupsResults {
-    pub parsed_urls: HashMap<UrlString, DNSRequest>,
-    pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
-    pub errors: HashMap<UrlString, net_error>,
+    pub parsed_urls: StacksHashMap<UrlString, DNSRequest>,
+    pub dns_lookups: StacksHashMap<UrlString, Option<Vec<SocketAddr>>>,
+    pub errors: StacksHashMap<UrlString, net_error>,
+}
+
+impl Default for BatchedDNSLookupsResults {
+    fn default() -> BatchedDNSLookupsResults {
+        BatchedDNSLookupsResults {
+            parsed_urls: StacksHashMap::new(),
+            dns_lookups: StacksHashMap::new(),
+            errors: StacksHashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -973,30 +984,30 @@ struct BatchedRequestsInitializedState<T: Ord + Requestable> {
     pub queue: BinaryHeap<T>,
 }
 
-#[derive(Debug, Default)]
-pub struct BatchedRequestsResult<T: Requestable> {
-    pub remaining: HashMap<usize, T>,
-    pub succeeded: HashMap<T, Option<StacksHttpResponse>>,
-    pub errors: HashMap<T, net_error>,
-    pub faulty_peers: HashMap<usize, UrlString>,
+#[derive(Debug)]
+pub struct BatchedRequestsResult<T: Requestable + Eq + Hash> {
+    pub remaining: StacksHashMap<usize, T>,
+    pub succeeded: StacksHashMap<T, Option<StacksHttpResponse>>,
+    pub errors: StacksHashMap<T, net_error>,
+    pub faulty_peers: StacksHashMap<usize, UrlString>,
 }
 
-impl<T: Requestable> BatchedRequestsResult<T> {
-    pub fn new(remaining: HashMap<usize, T>) -> BatchedRequestsResult<T> {
+impl<T: Requestable + Eq + Hash> BatchedRequestsResult<T> {
+    pub fn new(remaining: StacksHashMap<usize, T>) -> BatchedRequestsResult<T> {
         BatchedRequestsResult {
             remaining,
-            succeeded: HashMap::new(),
-            errors: HashMap::new(),
-            faulty_peers: HashMap::new(),
+            succeeded: StacksHashMap::new(),
+            errors: StacksHashMap::new(),
+            faulty_peers: StacksHashMap::new(),
         }
     }
 
     pub fn empty() -> BatchedRequestsResult<T> {
         BatchedRequestsResult {
-            remaining: HashMap::new(),
-            succeeded: HashMap::new(),
-            errors: HashMap::new(),
-            faulty_peers: HashMap::new(),
+            remaining: StacksHashMap::new(),
+            succeeded: StacksHashMap::new(),
+            errors: StacksHashMap::new(),
+            faulty_peers: StacksHashMap::new(),
         }
     }
 }
@@ -1049,12 +1060,12 @@ impl Requestable for AttachmentsInventoryRequest {
     }
 
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest {
-        let mut page_indexes = HashSet::new();
+        let mut page_indexes = StacksHashSet::new();
         for page in self.pages.iter() {
             page_indexes.insert(*page);
         }
         let mut page_list: Vec<String> = page_indexes
-            .into_iter()
+            .iter()
             .map(|i| format!("{}", &i))
             .collect();
         page_list.sort();
@@ -1083,7 +1094,7 @@ impl std::fmt::Display for AttachmentsInventoryRequest {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AttachmentRequest {
     pub content_hash: Hash160,
-    pub sources: HashMap<UrlString, ReliabilityReport>,
+    pub sources: StacksHashMap<UrlString, ReliabilityReport>,
     pub stacks_block_height: u64,
     pub canonical_stacks_tip_height: Option<u64>,
 }
@@ -1148,7 +1159,7 @@ pub struct AttachmentsBatch {
     pub stacks_block_height: u64,
     pub canonical_stacks_tip_height: Option<u64>,
     pub index_block_hash: StacksBlockId,
-    pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
+    pub attachments_instances: StacksHashMap<QualifiedContractIdentifier, StacksHashMap<u32, Hash160>>,
     pub retry_count: u64,
     pub retry_deadline: u64,
 }
@@ -1159,7 +1170,7 @@ impl AttachmentsBatch {
             stacks_block_height: 0,
             canonical_stacks_tip_height: None,
             index_block_hash: StacksBlockId([0u8; 32]),
-            attachments_instances: HashMap::new(),
+            attachments_instances: StacksHashMap::new(),
             retry_count: 0,
             retry_deadline: 0,
         }
@@ -1190,7 +1201,7 @@ impl AttachmentsBatch {
                     .insert(inner_key, attachment.content_hash.clone());
             }
             Entry::Vacant(v) => {
-                let mut missing_attachments = HashMap::new();
+                let mut missing_attachments = StacksHashMap::new();
                 missing_attachments.insert(inner_key, attachment.content_hash.clone());
                 v.insert(missing_attachments);
             }
@@ -1218,14 +1229,17 @@ impl AttachmentsBatch {
         &self,
         contract_id: &QualifiedContractIdentifier,
     ) -> Vec<u32> {
-        let mut pages_indexes = HashSet::new();
-        if let Some(missing_attachments) = self.attachments_instances.get(&contract_id) {
+        let mut pages_indexes = StacksHashSet::new();
+        if let Some(missing_attachments) = self.attachments_instances.get(contract_id) {
             for (attachment_index, _) in missing_attachments.iter() {
                 let page_index = attachment_index / AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
                 pages_indexes.insert(page_index);
             }
         }
-        pages_indexes.into_iter().collect()
+        pages_indexes
+            .iter()
+            .map(|i| *i)
+            .collect()
     }
 
     pub fn get_paginated_missing_pages_for_contract_id(

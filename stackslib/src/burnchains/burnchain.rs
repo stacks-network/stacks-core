@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -27,6 +26,7 @@ use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha25
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, StacksAddress, TrieHash};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
@@ -106,7 +106,7 @@ impl BurnchainStateTransition {
         assert!(Burnchain::ops_are_sorted(block_ops));
 
         // identify which block commits are consumed and which are not
-        let mut all_block_commits: HashMap<Txid, LeaderBlockCommitOp> = HashMap::new();
+        let mut all_block_commits: StacksHashMap<Txid, LeaderBlockCommitOp> = StacksHashMap::new();
 
         // accept all leader keys we found.
         // don't treat block commits and user burn supports just yet.
@@ -162,7 +162,7 @@ impl BurnchainStateTransition {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
             //   discovered in this block.
-            let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
+            let mut missed_commits_map: StacksHashMap<_, Vec<_>> = StacksHashMap::new();
             for missed in missed_commits.iter() {
                 if let Some(commits_at_sortition) =
                     missed_commits_map.get_mut(&missed.intended_sortition)
@@ -708,7 +708,7 @@ impl Burnchain {
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
         burn_tx: &BurnchainTransaction,
-        pre_stx_op_map: &HashMap<Txid, PreStxOp>,
+        pre_stx_op_map: &StacksHashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
@@ -760,7 +760,7 @@ impl Burnchain {
             }
             x if x == Opcodes::TransferStx as u8 => {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(&*pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -789,7 +789,7 @@ impl Burnchain {
             }
             x if x == Opcodes::StackStx as u8 => {
                 let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(&*pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -824,7 +824,7 @@ impl Burnchain {
             }
             x if x == Opcodes::DelegateStx as u8 => {
                 let pre_stx_txid = DelegateStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(&*pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -878,7 +878,7 @@ impl Burnchain {
         debug!("Check Blockstack transactions: reject duplicate VRF keys");
         assert!(Burnchain::ops_are_sorted(&checked_ops));
 
-        let mut all_keys: HashSet<VRFPublicKey> = HashSet::new();
+        let mut all_keys: StacksHashSet<VRFPublicKey> = StacksHashSet::new();
         checked_ops.retain(|op| {
             if let BlockstackOperationType::LeaderKeyRegister(data) = op {
                 if all_keys.contains(&data.public_key) {

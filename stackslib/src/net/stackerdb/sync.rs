@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::mem;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -23,6 +22,7 @@ use rand::{thread_rng, Rng, RngCore};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ReplyHandleP2P;
@@ -53,16 +53,16 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             smart_contract_id: smart_contract,
             num_slots: config.num_slots() as usize,
             write_freq: config.write_freq,
-            chunk_invs: HashMap::new(),
+            chunk_invs: StacksHashMap::new(),
             chunk_fetch_priorities: vec![],
             chunk_push_priorities: vec![],
-            chunk_push_receipts: HashMap::new(),
+            chunk_push_receipts: StacksHashMap::new(),
             next_chunk_fetch_priority: 0,
             next_chunk_push_priority: 0,
             expected_versions: vec![],
-            downloaded_chunks: HashMap::new(),
-            replicas: HashSet::new(),
-            connected_replicas: HashSet::new(),
+            downloaded_chunks: StacksHashMap::new(),
+            replicas: StacksHashSet::new(),
+            connected_replicas: StacksHashSet::new(),
             comms,
             stackerdbs,
             request_capacity: MAX_CHUNKS_IN_FLIGHT,
@@ -80,8 +80,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     fn find_qualified_replicas(
         &self,
         network: &PeerNetwork,
-    ) -> Result<HashSet<NeighborAddress>, net_error> {
-        let mut found = HashSet::new();
+    ) -> Result<StacksHashSet<NeighborAddress>, net_error> {
+        let mut found = StacksHashSet::new();
         let mut min_age =
             get_epoch_time_secs().saturating_sub(network.get_connection_opts().max_neighbor_age);
         while found.len() < self.max_neighbors {
@@ -134,10 +134,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// config hints and discovered nodes from the DB.
     fn find_new_replicas(
         &self,
-        mut connected_replicas: HashSet<NeighborAddress>,
+        mut connected_replicas: StacksHashSet<NeighborAddress>,
         network: Option<&PeerNetwork>,
         config: &StackerDBConfig,
-    ) -> Result<HashSet<NeighborAddress>, net_error> {
+    ) -> Result<StacksHashSet<NeighborAddress>, net_error> {
         // keep all connected replicas, and replenish from config hints and the DB as needed
         let mut peers = config.hint_replicas.clone();
         if let Some(network) = network {
@@ -165,12 +165,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     ) -> StackerDBSyncResult {
         debug!("Reset {} with config {:?}", &self.smart_contract_id, config);
         let mut chunks = vec![];
-        let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, HashMap::new());
+        let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, StacksHashMap::new());
         for (_, mut data) in downloaded_chunks.into_iter() {
             chunks.append(&mut data);
         }
 
-        let chunk_invs = mem::replace(&mut self.chunk_invs, HashMap::new());
+        let chunk_invs = mem::replace(&mut self.chunk_invs, StacksHashMap::new());
         let result = StackerDBSyncResult {
             contract_id: self.smart_contract_id.clone(),
             chunk_invs,
@@ -180,7 +180,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
-        let connected_replicas = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let connected_replicas = mem::replace(&mut self.connected_replicas, StacksHashSet::new());
         let next_connected_replicas =
             if let Ok(new_replicas) = self.find_new_replicas(connected_replicas, network, config) {
                 new_replicas
@@ -213,7 +213,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Get the set of connection IDs in use
-    pub fn get_pinned_connections(&self) -> &HashSet<usize> {
+    pub fn get_pinned_connections(&self) -> &StacksHashSet<usize> {
         self.comms.get_pinned_connections()
     }
 
@@ -247,8 +247,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .get_slot_write_timestamps(&self.smart_contract_id)?;
         assert_eq!(local_slot_versions.len(), local_write_timestamps.len());
 
-        let mut need_chunks: HashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
-            HashMap::new();
+        let mut need_chunks: StacksHashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
+            StacksHashMap::new();
         let now = get_epoch_time_secs();
 
         // who has data we need?
@@ -348,8 +348,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
         let local_slot_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
 
-        let mut need_chunks: HashMap<usize, (StackerDBPushChunkData, Vec<NeighborAddress>)> =
-            HashMap::new();
+        let mut need_chunks: StacksHashMap<usize, (StackerDBPushChunkData, Vec<NeighborAddress>)> =
+            StacksHashMap::new();
 
         // who needs data we can serve?
         for (i, local_version) in local_slot_versions.iter().enumerate() {
@@ -537,7 +537,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &mut PeerNetwork,
         already_sent: &[NeighborAddress],
     ) {
-        let sent_naddr_set: HashSet<_> = already_sent.iter().collect();
+        let sent_naddr_set: StacksHashSet<_> = already_sent.iter().collect();
         let mut to_send = vec![];
         for event_id in network.iter_peer_event_ids() {
             let convo = if let Some(c) = network.get_p2p_convo(*event_id) {
@@ -621,7 +621,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Ok(false);
         }
 
-        let naddrs = mem::replace(&mut self.replicas, HashSet::new());
+        let naddrs = mem::replace(&mut self.replicas, StacksHashSet::new());
         for naddr in naddrs.into_iter() {
             if self.comms.has_neighbor_session(network, &naddr) {
                 debug!(
@@ -746,7 +746,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
     pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
-        let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let naddrs = mem::replace(&mut self.connected_replicas, StacksHashSet::new());
         let mut already_sent = vec![];
         debug!(
             "{:?}: getchunksinv_begin: Send StackerDBGetChunksInv to {} replicas",
@@ -888,7 +888,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
-                self.connected_replicas.remove(&selected_neighbor);
+                self.connected_replicas.remove(selected_neighbor);
                 continue;
             }
 
@@ -1031,7 +1031,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
-                self.connected_replicas.remove(&selected_neighbor);
+                self.connected_replicas.remove(selected_neighbor);
                 continue;
             }
 

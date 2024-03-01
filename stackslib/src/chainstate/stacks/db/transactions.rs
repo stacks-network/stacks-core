@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -39,6 +38,7 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use stacks_common::util::hash::to_hex;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -569,12 +569,12 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
     ) -> Result<bool, InterpreterError> {
-        let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
-            HashMap::new();
-        let mut checked_nonfungible_assets: HashMap<
+        let mut checked_fungible_assets: StacksHashMap<PrincipalData, HashSet<AssetIdentifier>> =
+            StacksHashMap::new();
+        let mut checked_nonfungible_assets: StacksHashMap<
             PrincipalData,
-            HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
-        > = HashMap::new();
+            StacksHashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
+        > = StacksHashMap::new();
         let allow_unchecked_assets = *post_condition_mode == TransactionPostConditionMode::Allow;
 
         for postcond in post_conditions {
@@ -689,7 +689,7 @@ impl StacksChainState {
                             asset_id_map.insert(asset_id, asset_set);
                         }
                     } else {
-                        let mut asset_id_map = HashMap::new();
+                        let mut asset_id_map = StacksHashMap::new();
                         let mut asset_set = HashSet::new();
                         asset_set.insert(asset_value.clone().try_into()?);
                         asset_id_map.insert(asset_id, asset_set);

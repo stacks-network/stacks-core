@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::{cmp, mem};
@@ -28,6 +28,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Burnchain, BurnchainView, PublicKey};
 use crate::chainstate::burn::db::sortdb;
@@ -119,7 +120,7 @@ pub struct NeighborStats {
     pub msgs_rx_unsolicited: u64,
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
-    pub msg_rx_counts: HashMap<StacksMessageID, u64>,
+    pub msg_rx_counts: StacksHashMap<StacksMessageID, u64>,
     /// (timestamp, num bytes)
     pub block_push_rx_counts: VecDeque<(u64, u64)>,
     /// (timestamp, num bytes)
@@ -128,7 +129,7 @@ pub struct NeighborStats {
     pub transaction_push_rx_counts: VecDeque<(u64, u64)>,
     /// (timestamp, num bytes)
     pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>,
-    pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
+    pub relayed_messages: StacksHashMap<NeighborAddress, RelayStats>,
 }
 
 impl NeighborStats {
@@ -147,12 +148,12 @@ impl NeighborStats {
             msgs_rx_unsolicited: 0,
             msgs_err: 0,
             healthpoints: VecDeque::new(),
-            msg_rx_counts: HashMap::new(),
+            msg_rx_counts: StacksHashMap::new(),
             block_push_rx_counts: VecDeque::new(),
             microblocks_push_rx_counts: VecDeque::new(),
             transaction_push_rx_counts: VecDeque::new(),
             stackerdb_push_rx_counts: VecDeque::new(),
-            relayed_messages: HashMap::new(),
+            relayed_messages: StacksHashMap::new(),
         }
     }
 
@@ -229,8 +230,8 @@ impl NeighborStats {
         }
     }
 
-    pub fn take_relayers(&mut self) -> HashMap<NeighborAddress, RelayStats> {
-        let ret = mem::replace(&mut self.relayed_messages, HashMap::new());
+    pub fn take_relayers(&mut self) -> StacksHashMap<NeighborAddress, RelayStats> {
+        let ret = mem::replace(&mut self.relayed_messages, StacksHashMap::new());
         ret
     }
 
@@ -1998,7 +1999,7 @@ impl ConversationP2P {
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
     fn check_relayer_cycles(relayers: &[RelayData]) -> bool {
-        let mut addrs = HashSet::new();
+        let mut addrs = StacksHashSet::new();
         for r in relayers.iter() {
             if addrs.contains(&r.peer.public_key_hash) {
                 return false;
@@ -3079,7 +3080,7 @@ mod test {
             burnchain.clone(),
             chain_view.clone(),
             ConnectionOptions::default(),
-            HashMap::new(),
+            StacksHashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
         );
         network
@@ -3127,7 +3128,7 @@ mod test {
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 12341,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-                last_burn_block_hashes: HashMap::new(),
+                last_burn_block_hashes: StacksHashMap::new(),
                 rc_consensus_hash: peer_1_rc_consensus_hash.clone(),
             };
             chain_view_1.make_test_data();
@@ -3469,7 +3470,7 @@ mod test {
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 12341,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-                last_burn_block_hashes: HashMap::new(),
+                last_burn_block_hashes: StacksHashMap::new(),
                 rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
@@ -3648,7 +3649,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -3787,7 +3788,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -3929,7 +3930,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4090,7 +4091,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4283,7 +4284,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4426,7 +4427,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4601,7 +4602,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4827,7 +4828,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -4976,7 +4977,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -5150,7 +5151,7 @@ mod test {
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 12331 - 7,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-                last_burn_block_hashes: HashMap::new(),
+                last_burn_block_hashes: StacksHashMap::new(),
                 rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
@@ -5427,7 +5428,7 @@ mod test {
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 12331 - 7,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-                last_burn_block_hashes: HashMap::new(),
+                last_burn_block_hashes: StacksHashMap::new(),
                 rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
@@ -5700,7 +5701,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -5841,7 +5842,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6122,7 +6123,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6460,7 +6461,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6578,7 +6579,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6645,7 +6646,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6779,7 +6780,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -6913,7 +6914,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
@@ -7047,7 +7048,7 @@ mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new(),
+            last_burn_block_hashes: StacksHashMap::new(),
             rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();

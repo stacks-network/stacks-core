@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::{self, Ordering};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -40,6 +40,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlo
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -475,7 +476,7 @@ impl FromStr for MemPoolWalkTxTypes {
 }
 
 impl MemPoolWalkTxTypes {
-    pub fn all() -> HashSet<MemPoolWalkTxTypes> {
+    pub fn all() -> StacksHashSet<MemPoolWalkTxTypes> {
         [
             MemPoolWalkTxTypes::TokenTransfer,
             MemPoolWalkTxTypes::SmartContract,
@@ -485,7 +486,7 @@ impl MemPoolWalkTxTypes {
         .collect()
     }
 
-    pub fn only(selected: &[MemPoolWalkTxTypes]) -> HashSet<MemPoolWalkTxTypes> {
+    pub fn only(selected: &[MemPoolWalkTxTypes]) -> StacksHashSet<MemPoolWalkTxTypes> {
         selected.iter().map(|x| x.clone()).collect()
     }
 }
@@ -505,9 +506,9 @@ pub struct MemPoolWalkSettings {
     /// transaction is mined.
     pub candidate_retry_cache_size: u64,
     /// Types of transactions we'll consider
-    pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
+    pub txs_to_consider: StacksHashSet<MemPoolWalkTxTypes>,
     /// Origins for transactions that we'll consider
-    pub filter_origins: HashSet<StacksAddress>,
+    pub filter_origins: StacksHashSet<StacksAddress>,
 }
 
 impl MemPoolWalkSettings {
@@ -524,7 +525,7 @@ impl MemPoolWalkSettings {
             ]
             .into_iter()
             .collect(),
-            filter_origins: HashSet::new(),
+            filter_origins: StacksHashSet::new(),
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
@@ -540,7 +541,7 @@ impl MemPoolWalkSettings {
             ]
             .into_iter()
             .collect(),
-            filter_origins: HashSet::new(),
+            filter_origins: StacksHashSet::new(),
         }
     }
 }
@@ -1003,7 +1004,7 @@ impl MemPoolTxInfo {
 
 /// Used to locally cache nonces to avoid repeatedly looking them up in the nonce.
 struct NonceCache {
-    cache: HashMap<StacksAddress, u64>,
+    cache: StacksHashMap<StacksAddress, u64>,
     /// The maximum size that this cache can be.
     max_cache_size: usize,
 }
@@ -1014,7 +1015,7 @@ impl NonceCache {
             .try_into()
             .expect("Could not cast `nonce_cache_size` as `usize`.");
         Self {
-            cache: HashMap::new(),
+            cache: StacksHashMap::new(),
             max_cache_size: max_size,
         }
     }
@@ -1559,7 +1560,7 @@ impl MemPoolDB {
     /// `nonces` cache, but the write fails due to lock contention from another thread.  The
     /// retry-buffer will be used to later store this data in a single transaction.
     fn save_nonce_for_retry(
-        retry_store: &mut HashMap<StacksAddress, u64>,
+        retry_store: &mut StacksHashMap<StacksAddress, u64>,
         max_size: u64,
         addr: StacksAddress,
         new_nonce: u64,
@@ -1627,7 +1628,7 @@ impl MemPoolDB {
 
         // set of (address, nonce) to store after the inner loop completes.  This will be done in a
         // single transaction.  This cannot grow to more than `settings.nonce_cache_size` entries.
-        let mut retry_store = HashMap::new();
+        let mut retry_store = StacksHashMap::new();
 
         let sql = "
              SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -2774,7 +2775,7 @@ impl MemPoolDB {
             &u64_to_sql(max_run)?,
         ];
 
-        let mut tags_table = HashSet::new();
+        let mut tags_table = StacksHashSet::new();
         if let MemPoolSyncData::TxTags(_, ref tags) = data {
             for tag in tags.iter() {
                 tags_table.insert(tag.clone());

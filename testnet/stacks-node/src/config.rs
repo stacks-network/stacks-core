@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -41,6 +40,7 @@ use stacks_common::types::Address;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::StacksHashSet;
 
 use crate::chain_data::MinerStats;
 
@@ -57,7 +57,7 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    pub events_observer: Option<HashSet<EventObserverConfigFile>>,
+    pub events_observer: Option<StacksHashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
@@ -466,7 +466,7 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
-    pub events_observers: HashSet<EventObserverConfig>,
+    pub events_observers: StacksHashSet<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
@@ -1007,7 +1007,7 @@ impl Config {
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
-                let mut observers = HashSet::new();
+                let mut observers = StacksHashSet::new();
                 for observer in raw_observers {
                     let events_keys: Vec<EventKeyType> = observer
                         .events_keys
@@ -1024,7 +1024,7 @@ impl Config {
                 }
                 observers
             }
-            None => HashSet::new(),
+            None => StacksHashSet::new(),
         };
 
         // check for observer config in env vars
@@ -1241,7 +1241,7 @@ impl std::default::Default for Config {
             burnchain,
             node,
             initial_balances: vec![],
-            events_observers: HashSet::new(),
+            events_observers: StacksHashSet::new(),
             connection_options,
             estimation,
             miner: MinerConfig::default(),
@@ -2021,10 +2021,10 @@ pub struct MinerConfig {
     pub underperform_stop_threshold: Option<u64>,
     /// Kinds of transactions to consider from the mempool.  This is used by boosted and neutral
     /// miners to push past averse fee estimations.
-    pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
+    pub txs_to_consider: StacksHashSet<MemPoolWalkTxTypes>,
     /// Origin addresses to whitelist when doing a mempool walk.  This is used by boosted and
     /// neutral miners to push transactions through that are important to them.
-    pub filter_origins: HashSet<StacksAddress>,
+    pub filter_origins: StacksHashSet<StacksAddress>,
     /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
     /// behind the highest tip.
     pub max_reorg_depth: u64,
@@ -2056,7 +2056,7 @@ impl Default for MinerConfig {
             fast_rampup: false,
             underperform_stop_threshold: None,
             txs_to_consider: MemPoolWalkTxTypes::all(),
-            filter_origins: HashSet::new(),
+            filter_origins: StacksHashSet::new(),
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_secs(200),
@@ -2477,7 +2477,7 @@ impl MinerConfigFile {
                         })
                         .collect()
                 } else {
-                    HashSet::new()
+                    StacksHashSet::new()
                 }
             },
             max_reorg_depth: self

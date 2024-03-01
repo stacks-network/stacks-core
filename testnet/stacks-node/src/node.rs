@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::thread::JoinHandle;
 use std::{env, thread, time};
@@ -44,6 +43,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;
@@ -89,8 +89,8 @@ pub struct Node {
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
     nonce: u64,
-    leader_key_registers: HashSet<Txid>,
-    block_commits: HashSet<Txid>,
+    leader_key_registers: StacksHashSet<Txid>,
+    block_commits: StacksHashSet<Txid>,
 }
 
 pub fn get_account_lockups(
@@ -340,7 +340,7 @@ impl Node {
 
         let mut event_dispatcher = EventDispatcher::new();
 
-        for observer in &config.events_observers {
+        for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
 
@@ -363,8 +363,8 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
-            leader_key_registers: HashSet::new(),
-            block_commits: HashSet::new(),
+            leader_key_registers: StacksHashSet::new(),
+            block_commits: StacksHashSet::new(),
         }
     }
 
@@ -491,7 +491,7 @@ impl Node {
             burnchain.clone(),
             view,
             self.config.connection_options.clone(),
-            HashMap::new(),
+            StacksHashMap::new(),
             epochs,
         );
         let _join_handle = spawn_peer(
@@ -933,8 +933,8 @@ impl Node {
         &self,
         epoch_receipt: &StacksEpochReceipt,
         atlas_config: &AtlasConfig,
-    ) -> HashSet<AttachmentInstance> {
-        let mut attachments_instances = HashSet::new();
+    ) -> StacksHashSet<AttachmentInstance> {
+        let mut attachments_instances = StacksHashSet::new();
         for receipt in epoch_receipt.tx_receipts.iter() {
             if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
                 if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload {

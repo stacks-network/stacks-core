@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use stacks_common::bitvec::BitVec;
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -95,15 +96,15 @@ impl InvTenureInfo {
 /// in sync.  By caching (immutable) tenure data in this struct, we can enusre that this happens
 /// all the time except for during node bootup.
 pub struct InvGenerator {
-    processed_tenures: HashMap<ConsensusHash, Option<InvTenureInfo>>,
-    sortitions: HashMap<ConsensusHash, InvSortitionInfo>,
+    processed_tenures: StacksHashMap<ConsensusHash, Option<InvTenureInfo>>,
+    sortitions: StacksHashMap<ConsensusHash, InvSortitionInfo>,
 }
 
 impl InvGenerator {
     pub fn new() -> Self {
         Self {
-            processed_tenures: HashMap::new(),
-            sortitions: HashMap::new(),
+            processed_tenures: StacksHashMap::new(),
+            sortitions: StacksHashMap::new(),
         }
     }
 
@@ -114,7 +115,7 @@ impl InvGenerator {
         chainstate: &StacksChainState,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
+        if let Some(info_opt) = self.processed_tenures.get(tenure_id_consensus_hash) {
             return Ok((*info_opt).clone());
         };
         // not cached so go load it
@@ -479,7 +480,7 @@ pub struct NakamotoInvStateMachine<NC: NeighborComms> {
     /// Communications links
     pub(crate) comms: NC,
     /// Nakamoto inventories we have
-    pub(crate) inventories: HashMap<NeighborAddress, NakamotoTenureInv>,
+    pub(crate) inventories: StacksHashMap<NeighborAddress, NakamotoTenureInv>,
     /// Reward cycle consensus hashes
     reward_cycle_consensus_hashes: BTreeMap<u64, ConsensusHash>,
 }
@@ -488,7 +489,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     pub fn new(comms: NC) -> Self {
         Self {
             comms,
-            inventories: HashMap::new(),
+            inventories: StacksHashMap::new(),
             reward_cycle_consensus_hashes: BTreeMap::new(),
         }
     }
@@ -582,7 +583,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         let current_reward_cycle = self.update_reward_cycle_consensus_hashes(sortdb)?;
 
         // we're updating inventories, so preserve the state we have
-        let mut new_inventories = HashMap::new();
+        let mut new_inventories = StacksHashMap::new();
         let event_ids: Vec<usize> = network.iter_peer_event_ids().map(|e_id| *e_id).collect();
         for event_id in event_ids.into_iter() {
             let Some(convo) = network.get_p2p_convo(event_id) else {

@@ -10,6 +10,7 @@ extern crate stacks;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use stacks::util::StacksHashMap;
 pub use stacks_common::util;
 use stacks_common::util::hash::hex_bytes;
 
@@ -31,7 +32,6 @@ pub mod run_loop;
 pub mod syncctl;
 pub mod tenure;
 
-use std::collections::HashMap;
 use std::{env, panic, process};
 
 use backtrace::Backtrace;
@@ -95,7 +95,7 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         at_stacks_height,
     );
 
-    let best_tip = BlockMinerThread::inner_pick_best_tip(stacks_tips, HashMap::new()).unwrap();
+    let best_tip = BlockMinerThread::inner_pick_best_tip(stacks_tips, StacksHashMap::new()).unwrap();
     best_tip
 }
 

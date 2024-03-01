@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use clarity::util::StacksHashMap;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
@@ -705,7 +706,7 @@ fn pox_extend_transition() {
         .clone()
         .events[0];
     let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
-    let stack_op_data = HashMap::from([
+    let stack_op_data = StacksHashMap::from_iter([
         ("lock-amount", Value::UInt(ALICE_LOCKUP)),
         (
             "unlock-burn-height",
@@ -733,7 +734,7 @@ fn pox_extend_transition() {
         .unwrap()
         .clone()
         .events[0];
-    let stack_ext_op_data = HashMap::from([
+    let stack_ext_op_data = StacksHashMap::from_iter([
         ("extend-count", Value::UInt(6)),
         ("pox-addr", pox_addr_val),
         (
@@ -1387,7 +1388,7 @@ fn pox_4_revoke_delegate_stx_events() {
     peer.tenure_with_txs(&[alice_revoke_3], &mut coinbase_nonce);
 
     let blocks = observer.get_blocks();
-    let mut alice_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -1411,7 +1412,7 @@ fn pox_4_revoke_delegate_stx_events() {
     let revoke_delegation_tx_events = &alice_txs.get(&alice_revoke_nonce).unwrap().clone().events;
     assert_eq!(revoke_delegation_tx_events.len() as u64, 1);
     let revoke_delegation_tx_event = &revoke_delegation_tx_events[0];
-    let revoke_delegate_stx_op_data = HashMap::from([(
+    let revoke_delegate_stx_op_data = StacksHashMap::from_iter([(
         "delegate-to",
         Value::Principal(PrincipalData::from(bob_address.clone())),
     )]);

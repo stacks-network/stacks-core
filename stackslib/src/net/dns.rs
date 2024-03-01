@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{
@@ -24,6 +24,7 @@ use std::sync::mpsc::{
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
@@ -33,7 +34,7 @@ use crate::util_lib::db::Error as db_error;
 /// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in
 /// a separate thread, and implement a way for the block downloader to periodically poll for
 /// resolved names.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Default, Clone, Eq)]
 pub struct DNSRequest {
     pub host: String,
     pub port: u16,
@@ -100,14 +101,14 @@ pub struct DNSResolver {
     max_inflight: u64,
 
     // used mainly for testing
-    hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
+    hardcoded: StacksHashMap<(String, u16), Vec<SocketAddr>>,
 }
 
 /// The DNSClient provides an API to send DNS requests and poll DNS results. The client forwards
 /// requests and receives results through "channels" to the DNSResolver.  
 #[derive(Debug)]
 pub struct DNSClient {
-    requests: HashMap<DNSRequest, Option<DNSResponse>>,
+    requests: StacksHashMap<DNSRequest, Option<DNSResponse>>,
     requests_tx: SyncSender<DNSRequest>,
     requests_rx: Receiver<DNSResponse>,
 }
@@ -123,7 +124,7 @@ impl DNSResolver {
             inbound: socket_chan_rx,
             outbound: dns_chan_tx,
             max_inflight: max_inflight,
-            hardcoded: HashMap::new(),
+            hardcoded: StacksHashMap::new(),
         };
         (resolver, client)
     }
@@ -256,7 +257,7 @@ impl DNSClient {
         DNSClient {
             requests_tx: inbound,
             requests_rx: outbound,
-            requests: HashMap::new(),
+            requests: StacksHashMap::new(),
         }
     }
 

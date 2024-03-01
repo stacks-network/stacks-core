@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -58,6 +57,7 @@ use stacks_common::util::secp256k1::{
     MessageSignature, Secp256k1PublicKey, MESSAGE_SIGNATURE_ENCODED_SIZE,
 };
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 use {rusqlite, serde_json, url};
 
 use self::dns::*;
@@ -1410,12 +1410,12 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 /// Result of doing network work
 pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
-    pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+    pub unhandled_messages: StacksHashMap<NeighborKey, Vec<StacksMessage>>,
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
     pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
-    pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
-    pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
-    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
+    pub pushed_transactions: StacksHashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
+    pub pushed_blocks: StacksHashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
+    pub pushed_microblocks: StacksHashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
@@ -1428,7 +1428,7 @@ pub struct NetworkResult {
     pub num_download_passes: u64,
     pub burn_height: u64,
     pub rc_consensus_hash: ConsensusHash,
-    pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    pub stacker_db_configs: StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
 }
 
 impl NetworkResult {
@@ -1438,16 +1438,16 @@ impl NetworkResult {
         num_download_passes: u64,
         burn_height: u64,
         rc_consensus_hash: ConsensusHash,
-        stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        stacker_db_configs: StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
-            unhandled_messages: HashMap::new(),
+            unhandled_messages: StacksHashMap::new(),
             download_pox_id: None,
             blocks: vec![],
             confirmed_microblocks: vec![],
-            pushed_transactions: HashMap::new(),
-            pushed_blocks: HashMap::new(),
-            pushed_microblocks: HashMap::new(),
+            pushed_transactions: StacksHashMap::new(),
+            pushed_blocks: StacksHashMap::new(),
+            pushed_microblocks: StacksHashMap::new(),
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
@@ -1511,7 +1511,7 @@ impl NetworkResult {
 
     pub fn consume_unsolicited(
         &mut self,
-        unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+        unhandled_messages: StacksHashMap<NeighborKey, Vec<StacksMessage>>,
     ) -> () {
         for (neighbor_key, messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
@@ -1601,6 +1601,7 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::util::StacksHashMap;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -2089,8 +2090,8 @@ pub mod test {
 
         pub fn get_stacker_db_configs(
             &self,
-        ) -> HashMap<QualifiedContractIdentifier, StackerDBConfig> {
-            let mut ret = HashMap::new();
+        ) -> StacksHashMap<QualifiedContractIdentifier, StackerDBConfig> {
+            let mut ret = StacksHashMap::new();
             for (contract_id, config_opt) in
                 self.stacker_dbs.iter().zip(self.stacker_db_configs.iter())
             {
@@ -2181,11 +2182,11 @@ pub mod test {
         fn init_stackerdb_syncs(
             root_path: &str,
             peerdb: &PeerDB,
-            stacker_dbs: &mut HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        ) -> HashMap<QualifiedContractIdentifier, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>
+            stacker_dbs: &mut StacksHashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        ) -> StacksHashMap<QualifiedContractIdentifier, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>
         {
             let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
-            let mut stacker_db_syncs = HashMap::new();
+            let mut stacker_db_syncs = StacksHashMap::new();
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             for (i, (contract_id, db_config)) in stacker_dbs.iter_mut().enumerate() {
                 let initial_peers = PeerDB::find_stacker_db_replicas(
@@ -2448,7 +2449,7 @@ pub mod test {
             let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
             let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
 
-            let mut old_stackerdb_configs = HashMap::new();
+            let mut old_stackerdb_configs = StacksHashMap::new();
             for (i, contract) in config.stacker_dbs.iter().enumerate() {
                 old_stackerdb_configs.insert(
                     contract.clone(),

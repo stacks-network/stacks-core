@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
@@ -32,6 +32,7 @@ use rusqlite::{
 use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
@@ -56,24 +57,24 @@ pub struct TrieNodeAddr(u32, TriePtr);
 pub struct TrieCacheState<T: MarfTrieId> {
     /// Mapping between trie blob IDs (i.e. rowids) and the MarfTrieId of the trie.  Contents are
     /// never evicted, since the size of this map grows only at the rate of new Stacks blocks.
-    block_hash_cache: HashMap<u32, T>,
+    block_hash_cache: StacksHashMap<u32, T>,
 
     /// Mapping between trie blob hashes and their IDs
-    block_id_cache: HashMap<T, u32>,
+    block_id_cache: StacksHashMap<T, u32>,
 
     /// cached nodes
-    node_cache: HashMap<TrieNodeAddr, TrieNodeType>,
+    node_cache: StacksHashMap<TrieNodeAddr, TrieNodeType>,
     /// cached trie root hashes
-    hash_cache: HashMap<TrieNodeAddr, TrieHash>,
+    hash_cache: StacksHashMap<TrieNodeAddr, TrieHash>,
 }
 
 impl<T: MarfTrieId> TrieCacheState<T> {
     pub fn new() -> TrieCacheState<T> {
         TrieCacheState {
-            block_hash_cache: HashMap::new(),
-            block_id_cache: HashMap::new(),
-            node_cache: HashMap::new(),
-            hash_cache: HashMap::new(),
+            block_hash_cache: StacksHashMap::new(),
+            block_id_cache: StacksHashMap::new(),
+            node_cache: StacksHashMap::new(),
+            hash_cache: StacksHashMap::new(),
         }
     }
 

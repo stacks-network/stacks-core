@@ -14,13 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::io::{Error as io_error, ErrorKind, Read, Write};
 use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError};
 
 use mio::net as mio_net;
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -39,11 +40,11 @@ use crate::net::{Error as net_error, *};
 #[derive(Debug)]
 pub struct HttpPeer {
     /// ongoing http conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationHttp>,
-    pub sockets: HashMap<usize, mio_net::TcpStream>,
+    pub peers: StacksHashMap<usize, ConversationHttp>,
+    pub sockets: StacksHashMap<usize, mio_net::TcpStream>,
 
     /// outbound connections that are pending connection
-    pub connecting: HashMap<
+    pub connecting: StacksHashMap<
         usize,
         (
             mio_net::TcpStream,
@@ -70,10 +71,10 @@ impl HttpPeer {
         server_addr: SocketAddr,
     ) -> HttpPeer {
         HttpPeer {
-            peers: HashMap::new(),
-            sockets: HashMap::new(),
+            peers: StacksHashMap::new(),
+            sockets: StacksHashMap::new(),
 
-            connecting: HashMap::new(),
+            connecting: StacksHashMap::new(),
             http_server_handle: server_handle,
             http_server_addr: server_addr,
 
@@ -558,13 +559,13 @@ impl HttpPeer {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
-            if !self.sockets.contains_key(&event_id) {
+            if !self.sockets.contains_key(event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             }
 
-            let client_sock_opt = self.sockets.get_mut(&event_id);
+            let client_sock_opt = self.sockets.get_mut(event_id);
             if client_sock_opt.is_none() {
                 test_debug!("No such socket event {}", event_id);
                 to_remove.push(*event_id);

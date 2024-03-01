@@ -139,7 +139,7 @@
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};
@@ -201,6 +201,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
@@ -218,7 +219,7 @@ const VRF_MOCK_MINER_KEY: u64 = 1;
 
 pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 
-type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
+type MinedBlocks = StacksHashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
 /// Result of running the miner thread.  It could produce a Stacks block or a microblock.
 pub(crate) enum MinerThreadResult {
@@ -1166,7 +1167,7 @@ impl BlockMinerThread {
             return vec![];
         }
 
-        let mut considered = HashSet::new();
+        let mut considered = StacksHashSet::new();
         let mut candidates = vec![];
         let end_height = stacks_tips[0].height;
 
@@ -1259,7 +1260,7 @@ impl BlockMinerThread {
         let stacks_tips =
             Self::load_candidate_tips(burn_db, chain_state, max_depth, at_stacks_height);
 
-        let mut previous_best_tips = HashMap::new();
+        let mut previous_best_tips = StacksHashMap::new();
         for tip in stacks_tips.iter() {
             let Some(prev_best_tip) = globals.get_best_tip(tip.stacks_height) else {
                 continue;
@@ -1298,10 +1299,10 @@ impl BlockMinerThread {
     /// considered (since the node updates its understanding of the best-tip on each RunTenure).
     pub(crate) fn inner_pick_best_tip(
         stacks_tips: Vec<TipCandidate>,
-        previous_best_tips: HashMap<u64, TipCandidate>,
+        previous_best_tips: StacksHashMap<u64, TipCandidate>,
     ) -> Option<TipCandidate> {
         // identify leaf tips -- i.e. blocks with no children
-        let parent_consensus_hashes: HashSet<_> = stacks_tips
+        let parent_consensus_hashes: StacksHashSet<_> = stacks_tips
             .iter()
             .map(|x| x.parent_consensus_hash.clone())
             .collect();
@@ -2968,7 +2969,7 @@ impl RelayerThread {
             .expect("Failed to obtain block information for a block we mined.");
 
             let block_data = {
-                let mut bd = HashMap::new();
+                let mut bd = StacksHashMap::new();
                 bd.insert(consensus_hash.clone(), mined_block.clone());
                 bd
             };
@@ -3303,7 +3304,7 @@ impl RelayerThread {
     /// Remove any block state we've mined for the given burnchain height.
     /// Return the filtered `last_mined_blocks`
     fn clear_stale_mined_blocks(burn_height: u64, last_mined_blocks: MinedBlocks) -> MinedBlocks {
-        let mut ret = HashMap::new();
+        let mut ret = StacksHashMap::new();
         for (stacks_bhh, (assembled_block, microblock_privkey)) in last_mined_blocks.into_iter() {
             if assembled_block.my_block_height < burn_height {
                 debug!(
@@ -4502,10 +4503,10 @@ impl StacksNode {
         let mut chainstate =
             open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
 
-        let mut stackerdb_machines = HashMap::new();
+        let mut stackerdb_machines = StacksHashMap::new();
         let mut stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
 
-        let mut stackerdb_configs = HashMap::new();
+        let mut stackerdb_configs = StacksHashMap::new();
         for contract in config.node.stacker_dbs.iter() {
             stackerdb_configs.insert(contract.clone(), StackerDBConfig::noop());
         }

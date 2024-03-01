@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -40,6 +40,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -212,7 +213,7 @@ pub struct PoxPrintFields {
 pub fn check_pox_print_event(
     event: &StacksTransactionEvent,
     common_data: PoxPrintFields,
-    op_data: HashMap<&str, Value>,
+    op_data: StacksHashMap<&str, Value>,
 ) {
     if let StacksTransactionEvent::SmartContractEvent(data) = event {
         test_debug!(
@@ -308,7 +309,7 @@ pub fn check_pox_print_event(
 pub struct StackingStateCheckData {
     pub pox_addr: PoxAddress,
     /// this is a map from reward cycle number to the value in reward-set-indexes
-    pub cycle_indexes: HashMap<u128, u128>,
+    pub cycle_indexes: StacksHashMap<u128, u128>,
     pub first_cycle: u128,
     pub lock_period: u128,
 }
@@ -380,7 +381,7 @@ pub fn check_stacking_state_invariants(
         active_pox_contract,
     );
 
-    let mut cycle_indexes = HashMap::new();
+    let mut cycle_indexes = StacksHashMap::new();
 
     if reward_indexes.len() > 0 || expect_indexes {
         assert_eq!(
@@ -1019,9 +1020,9 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let bob_address = key_to_stacks_addr(&bob);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
@@ -1360,9 +1361,9 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let charlie_address = key_to_stacks_addr(&charlie);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
     // let mut network_protocol_txs = vec![];
     let mut coinbase_txs = vec![];
 
@@ -1416,7 +1417,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     // and that this event is included as part of the coinbase tx
     let auto_unlock_tx = coinbase_txs[16].events[0].clone();
     let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
-    let auto_unlock_op_data = HashMap::from([
+    let auto_unlock_op_data = StacksHashMap::from_iter([
         ("first-cycle-locked", Value::UInt(8)),
         ("first-unlocked-cycle", Value::UInt(8)),
         ("pox-addr", pox_addr_val),
@@ -1683,8 +1684,8 @@ fn delegate_stack_increase() {
     let alice_address = key_to_stacks_addr(&alice);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -1733,7 +1734,7 @@ fn delegate_stack_increase() {
         .unwrap()
         .clone()
         .events[0];
-    let delegate_stx_op_data = HashMap::from([
+    let delegate_stx_op_data = StacksHashMap::from_iter([
         ("pox-addr", Value::none()),
         ("amount-ustx", Value::UInt(10230000000000)),
         ("unlock-burn-height", Value::none()),
@@ -1762,7 +1763,7 @@ fn delegate_stack_increase() {
     // Check that the call to `delegate-stack-increase` has a well-formed print event.
     let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0];
     let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
-    let delegate_op_data = HashMap::from([
+    let delegate_op_data = StacksHashMap::from_iter([
         ("pox-addr", pox_addr_val),
         ("increase-by", Value::UInt(5110000000000)),
         ("total-locked", Value::UInt(10230000000000)),
@@ -1993,7 +1994,7 @@ fn stack_increase() {
     // now let's check some tx receipts
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -2023,7 +2024,7 @@ fn stack_increase() {
     // Check that the call to `stack-increase` has a well-formed print event.
     let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0];
     let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
-    let stack_op_data = HashMap::from([
+    let stack_op_data = StacksHashMap::from_iter([
         ("increase-by", Value::UInt(5120000000000)),
         ("total-locked", Value::UInt(10240000000000)),
         ("pox-addr", pox_addr_val),
@@ -2528,8 +2529,8 @@ fn test_pox_extend_transition_pox_2() {
     let bob_address = key_to_stacks_addr(&bob);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
 
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
@@ -2592,7 +2593,7 @@ fn test_pox_extend_transition_pox_2() {
     // Check that the call to `stack-stx` has a well-formed print event.
     let stack_tx = &bob_txs.get(&0).unwrap().clone().events[0];
     let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
-    let stack_op_data = HashMap::from([
+    let stack_op_data = StacksHashMap::from_iter([
         ("lock-amount", Value::UInt(5_120_000_000_000)),
         ("unlock-burn-height", Value::UInt(55)),
         ("start-burn-height", Value::UInt(35)),
@@ -2614,7 +2615,7 @@ fn test_pox_extend_transition_pox_2() {
 
     // Check that the call to `stack-extend` has a well-formed print event.
     let stack_extend_tx = &bob_txs.get(&1).unwrap().clone().events[0];
-    let stack_ext_op_data = HashMap::from([
+    let stack_ext_op_data = StacksHashMap::from_iter([
         ("extend-count", Value::UInt(1)),
         ("pox-addr", pox_addr_val),
         ("unlock-burn-height", Value::UInt(60)),
@@ -3251,9 +3252,9 @@ fn test_delegate_extend_transition_pox_2() {
     // now let's check some tx receipts
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -3312,7 +3313,7 @@ fn test_delegate_extend_transition_pox_2() {
     // Check that the call to `delegate-stack-stx` has a well-formed print event.
     let delegate_stack_tx = &charlie_txs.get(&5).unwrap().clone().events[0];
     let pox_addr_val = generate_pox_clarity_value("12d93ae7b61e5b7d905c85828d4320e7c221f433");
-    let delegate_op_data = HashMap::from([
+    let delegate_op_data = StacksHashMap::from_iter([
         ("lock-amount", Value::UInt(10240000000000)),
         ("unlock-burn-height", Value::UInt(55)),
         ("start-burn-height", Value::UInt(35)),
@@ -3342,7 +3343,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     // Check that the call to `delegate-stack-extend` has a well-formed print event.
     let delegate_stack_extend_tx = &charlie_txs.get(&6).unwrap().clone().events[0];
-    let delegate_ext_op_data = HashMap::from([
+    let delegate_ext_op_data = StacksHashMap::from_iter([
         ("pox-addr", pox_addr_val.clone()),
         ("unlock-burn-height", Value::UInt(70)),
         ("extend-count", Value::UInt(6)),
@@ -3370,7 +3371,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     // Check that the call to `stack-aggregation-commit` has a well-formed print event.
     let stack_agg_commit_tx = &charlie_txs.get(&8).unwrap().clone().events[0];
-    let stack_agg_commit_op_data = HashMap::from([
+    let stack_agg_commit_op_data = StacksHashMap::from_iter([
         ("pox-addr", pox_addr_val),
         ("reward-cycle", Value::UInt(9)),
         ("amount-ustx", Value::UInt(20480000000000)),
@@ -3732,7 +3733,7 @@ fn test_get_pox_addrs() {
     let mut lockup_reward_cycle = 0;
     let mut prepared = false;
     let mut rewarded = false;
-    let mut paid_out = HashSet::new();
+    let mut paid_out = StacksHashSet::new();
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
@@ -4006,7 +4007,7 @@ fn test_stack_with_segwit() {
     let mut lockup_reward_cycle = 0;
     let mut prepared = false;
     let mut rewarded = false;
-    let mut paid_out = HashSet::new();
+    let mut paid_out = StacksHashSet::new();
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
@@ -4846,9 +4847,9 @@ fn stack_aggregation_increase() {
     let alice_address = key_to_stacks_addr(&alice);
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
-    let mut charlie_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
+    let mut charlie_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {
@@ -5051,8 +5052,8 @@ fn stack_in_both_pox1_and_pox2() {
 
     let blocks = observer.get_blocks();
 
-    let mut alice_txs = HashMap::new();
-    let mut bob_txs = HashMap::new();
+    let mut alice_txs = StacksHashMap::new();
+    let mut bob_txs = StacksHashMap::new();
 
     for b in blocks.into_iter() {
         for r in b.receipts.into_iter() {

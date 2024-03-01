@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::{cmp, mem};
 
 use rand::prelude::*;
@@ -23,6 +22,7 @@ use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
@@ -58,23 +58,23 @@ pub struct NeighborPingback {
 #[derive(Clone, Debug)]
 pub struct NeighborWalkResult {
     /// Newly-added node neighbors
-    pub new_connections: HashSet<NeighborKey>,
+    pub new_connections: StacksHashSet<NeighborKey>,
     /// Dead connections discovered (so we can close their sockets)
-    pub dead_connections: HashSet<NeighborKey>,
+    pub dead_connections: StacksHashSet<NeighborKey>,
     /// Connections to misbehaving peers (so we can close their sockets and ban them)
-    pub broken_connections: HashSet<NeighborKey>,
+    pub broken_connections: StacksHashSet<NeighborKey>,
     /// Neighbors who got replaced in the PeerDB because they were offline, but mapped to a new
     /// peer that was online and had the same slot locations
-    pub replaced_neighbors: HashSet<NeighborKey>,
+    pub replaced_neighbors: StacksHashSet<NeighborKey>,
 }
 
 impl NeighborWalkResult {
     pub fn new() -> NeighborWalkResult {
         NeighborWalkResult {
-            new_connections: HashSet::new(),
-            dead_connections: HashSet::new(),
-            broken_connections: HashSet::new(),
-            replaced_neighbors: HashSet::new(),
+            new_connections: StacksHashSet::new(),
+            dead_connections: StacksHashSet::new(),
+            broken_connections: StacksHashSet::new(),
+            replaced_neighbors: StacksHashSet::new(),
         }
     }
 
@@ -160,17 +160,17 @@ pub struct NeighborWalk<DB: NeighborWalkDB, NC: NeighborComms> {
     neighbor_from_handshake: NeighborKey,
 
     /// current neighbor's frontier, built up when querying `cur_neighbor`'s neighbors
-    pub frontier: HashMap<NeighborKey, Neighbor>,
+    pub frontier: StacksHashMap<NeighborKey, Neighbor>,
     /// newly-discovered neighbors-of-neighbors of `cur_neighbor`
-    new_frontier: HashMap<NeighborKey, Neighbor>,
+    new_frontier: StacksHashMap<NeighborKey, Neighbor>,
 
     /// GetHandshakesBegin / GetHandshakesFinish: outstanding requests to handshake with our cur_neighbor's neighbors.
-    resolved_handshake_neighbors: HashMap<NeighborAddress, Neighbor>,
+    resolved_handshake_neighbors: StacksHashMap<NeighborAddress, Neighbor>,
     handshake_neighbor_addrs: Vec<NeighborAddress>,
 
     /// GetNeighborsNeighborsBegin / GetNeighborsNeighborsFinish:
     /// outstanding requests to get the neighbors of our cur_neighbor's neighbors
-    resolved_getneighbors_neighbors: HashMap<NeighborAddress, Vec<NeighborAddress>>,
+    resolved_getneighbors_neighbors: StacksHashMap<NeighborAddress, Vec<NeighborAddress>>,
 
     /// ReplacedNeighborsPingBegin / ReplacedNeighborsPingFinish:
     /// outstanding requests to ping existing neighbors to be replaced in the frontier
@@ -178,7 +178,7 @@ pub struct NeighborWalk<DB: NeighborWalkDB, NC: NeighborComms> {
 
     /// PingbackHandshakesBegin / PingbackHandshakesFinish:
     /// outstanding requests to new inbound peers
-    network_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // taken from the network at instantiation.  Maps address to (peer version, network ID, timestamp)
+    network_pingbacks: StacksHashMap<NeighborAddress, NeighborPingback>, // taken from the network at instantiation.  Maps address to (peer version, network ID, timestamp)
 
     /// neighbor walk result we build up incrementally
     pub result: NeighborWalkResult,
@@ -212,7 +212,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         comms: NC,
         neighbor: &Neighbor,
         outbound: bool,
-        pingbacks: HashMap<NeighborAddress, NeighborPingback>,
+        pingbacks: StacksHashMap<NeighborAddress, NeighborPingback>,
         connection_opts: &ConnectionOptions,
     ) -> NeighborWalk<DB, NC> {
         NeighborWalk {
@@ -228,13 +228,13 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             walk_outbound: outbound,
             neighbor_from_handshake: NeighborKey::empty(),
 
-            frontier: HashMap::new(),
-            new_frontier: HashMap::new(),
+            frontier: StacksHashMap::new(),
+            new_frontier: StacksHashMap::new(),
 
-            resolved_handshake_neighbors: HashMap::new(),
+            resolved_handshake_neighbors: StacksHashMap::new(),
             handshake_neighbor_addrs: vec![],
 
-            resolved_getneighbors_neighbors: HashMap::new(),
+            resolved_getneighbors_neighbors: StacksHashMap::new(),
 
             neighbor_replacements: NeighborReplacements::new(),
 
@@ -560,7 +560,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     }
 
     /// facade to self.comms.get_pinned_connections() to the pruner can have at the events we're using
-    pub fn get_pinned_connections(&self) -> &HashSet<usize> {
+    pub fn get_pinned_connections(&self) -> &StacksHashSet<usize> {
         self.comms.get_pinned_connections()
     }
 
@@ -1366,7 +1366,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
     /// Pick a random neighbor from a given list of neighbors, excluding an optional given neighbor
     fn pick_random_neighbor(
-        frontier: &HashMap<NeighborKey, Neighbor>,
+        frontier: &StacksHashMap<NeighborKey, Neighbor>,
         exclude: Option<&Neighbor>,
     ) -> Option<Neighbor> {
         let mut rnd = thread_rng();
@@ -1534,8 +1534,8 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // caller will have already populated the pending_pingback_handshakes hashmap
         assert!(self.state == NeighborWalkState::PingbackHandshakesBegin);
 
-        let network_pingbacks = mem::replace(&mut self.network_pingbacks, HashMap::new());
-        let mut still_pending: HashMap<NeighborAddress, _> = HashMap::new();
+        let network_pingbacks = mem::replace(&mut self.network_pingbacks, StacksHashMap::new());
+        let mut still_pending: StacksHashMap<NeighborAddress, _> = StacksHashMap::new();
 
         for (naddr, pingback) in network_pingbacks.into_iter() {
             // pingback hint is stale? (or we tried to connect and timed out?)

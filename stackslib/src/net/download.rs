@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
@@ -29,6 +29,7 @@ use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
@@ -214,36 +215,36 @@ pub struct BlockDownloader {
     max_inflight_requests: u64,
 
     /// Block requests to try, grouped by block, keyed by sortition height
-    blocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>>,
+    blocks_to_try: StacksHashMap<u64, VecDeque<BlockRequestKey>>,
 
     /// Microblock requests to try, grouped by block, keyed by sortition height
-    microblocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>>,
+    microblocks_to_try: StacksHashMap<u64, VecDeque<BlockRequestKey>>,
 
     /// In-flight requests for DNS names
-    parsed_urls: HashMap<UrlString, DNSRequest>,
-    dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
+    parsed_urls: StacksHashMap<UrlString, DNSRequest>,
+    dns_lookups: StacksHashMap<UrlString, Option<Vec<SocketAddr>>>,
     dns_timeout: u128,
 
     /// In-flight requests for blocks and confirmed microblocks
     /// The key for each of these is the sortition height and _index_ block hash.
-    getblock_requests: HashMap<BlockRequestKey, usize>,
-    getmicroblocks_requests: HashMap<BlockRequestKey, usize>,
-    blocks: HashMap<BlockRequestKey, StacksBlock>,
-    microblocks: HashMap<BlockRequestKey, Vec<StacksMicroblock>>,
+    getblock_requests: StacksHashMap<BlockRequestKey, usize>,
+    getmicroblocks_requests: StacksHashMap<BlockRequestKey, usize>,
+    blocks: StacksHashMap<BlockRequestKey, StacksBlock>,
+    microblocks: StacksHashMap<BlockRequestKey, Vec<StacksMicroblock>>,
 
     /// statistics on peers' data-plane endpoints
     dead_peers: Vec<usize>,
     broken_peers: Vec<usize>,
     broken_neighbors: Vec<NeighborKey>, // disconnect peers who report invalid block inventories too
 
-    blocked_urls: HashMap<UrlString, u64>, // URLs that chronically don't work, and when we can try them again
+    blocked_urls: StacksHashMap<UrlString, u64>, // URLs that chronically don't work, and when we can try them again
 
     /// how often to download
     download_interval: u64,
 
     /// when did we last request a given block hash
-    requested_blocks: HashMap<StacksBlockId, u64>,
-    requested_microblocks: HashMap<StacksBlockId, u64>,
+    requested_blocks: StacksHashMap<StacksBlockId, u64>,
+    requested_microblocks: StacksHashMap<StacksBlockId, u64>,
 }
 
 impl BlockDownloader {
@@ -269,26 +270,26 @@ impl BlockDownloader {
             last_inv_update_at: 0,
 
             max_inflight_requests: max_inflight_requests,
-            blocks_to_try: HashMap::new(),
-            microblocks_to_try: HashMap::new(),
+            blocks_to_try: StacksHashMap::new(),
+            microblocks_to_try: StacksHashMap::new(),
 
-            parsed_urls: HashMap::new(),
-            dns_lookups: HashMap::new(),
+            parsed_urls: StacksHashMap::new(),
+            dns_lookups: StacksHashMap::new(),
             dns_timeout: dns_timeout,
 
-            getblock_requests: HashMap::new(),
-            getmicroblocks_requests: HashMap::new(),
-            blocks: HashMap::new(),
-            microblocks: HashMap::new(),
+            getblock_requests: StacksHashMap::new(),
+            getmicroblocks_requests: StacksHashMap::new(),
+            blocks: StacksHashMap::new(),
+            microblocks: StacksHashMap::new(),
 
             dead_peers: vec![],
             broken_peers: vec![],
             broken_neighbors: vec![],
-            blocked_urls: HashMap::new(),
+            blocked_urls: StacksHashMap::new(),
 
             download_interval: download_interval,
-            requested_blocks: HashMap::new(),
-            requested_microblocks: HashMap::new(),
+            requested_blocks: StacksHashMap::new(),
+            requested_microblocks: StacksHashMap::new(),
         }
     }
 
@@ -419,7 +420,7 @@ impl BlockDownloader {
         Ok(inflight == 0)
     }
 
-    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getblocks_begin(&mut self, requests: StacksHashMap<BlockRequestKey, usize>) -> () {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksBegin);
 
         // don't touch blocks-to-try -- that's managed by the peer network directly.
@@ -434,7 +435,7 @@ impl BlockDownloader {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksFinish);
 
         // requests that are still pending
-        let mut pending_block_requests = HashMap::new();
+        let mut pending_block_requests = StacksHashMap::new();
 
         PeerNetwork::with_http(network, |ref mut network, ref mut http| {
             for (block_key, event_id) in self.getblock_requests.drain() {
@@ -549,7 +550,7 @@ impl BlockDownloader {
     }
 
     /// Start fetching microblocks
-    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getmicroblocks_begin(&mut self, requests: StacksHashMap<BlockRequestKey, usize>) -> () {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksBegin);
 
         self.getmicroblocks_requests = requests;
@@ -563,7 +564,7 @@ impl BlockDownloader {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksFinish);
 
         // requests that are still pending
-        let mut pending_microblock_requests = HashMap::new();
+        let mut pending_microblock_requests = StacksHashMap::new();
 
         PeerNetwork::with_http(network, |ref mut network, ref mut http| {
             for (block_key, event_id) in self.getmicroblocks_requests.drain() {
@@ -1051,7 +1052,7 @@ impl PeerNetwork {
     /// Get the data URL for a neighbor
     pub fn get_data_url(&self, neighbor_key: &NeighborKey) -> Option<UrlString> {
         match self.events.get(neighbor_key) {
-            Some(ref event_id) => match self.peers.get(event_id) {
+            Some(event_id) => match self.peers.get(event_id) {
                 Some(ref convo) => {
                     if convo.data_url.len() > 0 {
                         Some(convo.data_url.clone())
@@ -1191,9 +1192,9 @@ impl PeerNetwork {
         downloader: &BlockDownloader,
         start_sortition_height: u64,
         microblocks: bool,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<StacksHashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
-        let mut blocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>> = HashMap::new();
+        let mut blocks_to_try: StacksHashMap<u64, VecDeque<BlockRequestKey>> = StacksHashMap::new();
 
         debug!(
             "{:?}: find {} availability over sortitions ({}-{})...",
@@ -1535,7 +1536,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<StacksHashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         self.make_requests(
             sortdb,
             chainstate,
@@ -1552,12 +1553,12 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<StacksHashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         self.make_requests(sortdb, chainstate, downloader, start_sortition_height, true)
     }
 
     /// Prioritize block requests -- ask for the rarest blocks first
-    fn prioritize_requests(requests: &HashMap<u64, VecDeque<BlockRequestKey>>) -> Vec<u64> {
+    fn prioritize_requests(requests: &StacksHashMap<u64, VecDeque<BlockRequestKey>>) -> Vec<u64> {
         let mut ordered = vec![];
         for (block_height, requests) in requests.iter() {
             ordered.push((*block_height, requests.len()));
@@ -1873,7 +1874,7 @@ impl PeerNetwork {
         }
 
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut urlset = HashSet::new();
+            let mut urlset = StacksHashSet::new();
             for (_, requests) in downloader.blocks_to_try.iter() {
                 for request in requests.iter() {
                     urlset.insert(request.data_url.clone());
@@ -1912,7 +1913,7 @@ impl PeerNetwork {
     /// handling the request.
     pub fn begin_request<T: Requestable>(
         network: &mut PeerNetwork,
-        dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
+        dns_lookups: &StacksHashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
     ) -> Option<(T, usize)> {
         loop {
@@ -1977,7 +1978,7 @@ impl PeerNetwork {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
-            let mut requests = HashMap::new();
+            let mut requests = StacksHashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
@@ -2015,7 +2016,7 @@ impl PeerNetwork {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
-            let mut requests = HashMap::new();
+            let mut requests = StacksHashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {

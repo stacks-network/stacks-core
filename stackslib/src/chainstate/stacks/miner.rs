@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -37,6 +36,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
+use stacks_common::util::{StacksHashMap, StacksHashSet};
 
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
@@ -72,14 +72,14 @@ use crate::net::Error as net_error;
 /// or not they or another thread were the last to modify the state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerStatus {
-    blockers: HashSet<ThreadId>,
+    blockers: StacksHashSet<ThreadId>,
     spend_amount: u64,
 }
 
 impl MinerStatus {
     pub fn make_ready(spend_amount: u64) -> MinerStatus {
         MinerStatus {
-            blockers: HashSet::new(),
+            blockers: StacksHashSet::new(),
             spend_amount,
         }
     }
@@ -188,7 +188,7 @@ impl BlockBuilderSettings {
 struct MicroblockMinerRuntime {
     bytes_so_far: u64,
     pub prev_microblock_header: Option<StacksMicroblockHeader>,
-    considered: Option<HashSet<Txid>>,
+    considered: Option<StacksHashSet<Txid>>,
     num_mined: u64,
     tip: StacksBlockId,
 
@@ -2170,9 +2170,9 @@ impl StacksBlockBuilder {
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
+        let mut considered = StacksHashSet::new(); // txids of all transactions we looked at
+        let mut mined_origin_nonces: StacksHashMap<StacksAddress, u64> = StacksHashMap::new(); // map addrs of mined transaction origins to the nonces we used
+        let mut mined_sponsor_nonces: StacksHashMap<StacksAddress, u64> = StacksHashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
