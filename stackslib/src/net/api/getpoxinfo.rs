@@ -226,12 +226,6 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128()? as u64;
 
-        let reward_cycle_id = res
-            .get("reward-cycle-id")
-            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-id'"))
-            .to_owned()
-            .expect_u128()? as u64;
-
         let reward_cycle_length = res
             .get("reward-cycle-length")
             .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
@@ -292,7 +286,13 @@ impl RPCPoxInfoData {
             return Err(NetError::DBError(DBError::Corruption));
         }
 
+        let reward_cycle_id = burnchain
+            .block_height_to_reward_cycle(burnchain_tip.block_height)
+            .ok_or_else(|| {
+                NetError::ChainstateError("Current burn block height is before stacks start".into())
+            })?;
         let effective_height = burnchain_tip.block_height - first_burnchain_block_height;
+
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
         let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
