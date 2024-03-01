@@ -41,6 +41,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stdext::num::integer::Integer;
 use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
@@ -1699,11 +1700,83 @@ fn verify_signer_key_signatures() {
 
     assert_eq!(result, expected_error);
 
-    // TODO: using incorrect auth-id
-    // TODO: using incorrect max-amount
-    // TODO: using amount > max-amount
+    // Test incorrect auth-id
+    let signature = make_signer_key_signature(
+        &bob_pox_addr,
+        &bob,
+        reward_cycle,
+        &topic,
+        period,
+        u128::MAX,
+        1,
+    );
+    let result = verify_signer_key_sig(
+        &signature,
+        &bob_public_key,
+        &bob_pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        period,
+        &topic,
+        1,
+        u128::MAX,
+        2, // different
+    );
+    assert_eq!(result, expected_error);
 
-    // Test 6: using a valid signature
+    // Test incorrect max-amount
+    let signature = make_signer_key_signature(
+        &bob_pox_addr,
+        &bob,
+        reward_cycle,
+        &topic,
+        period,
+        u128::MAX,
+        1,
+    );
+    let result = verify_signer_key_sig(
+        &signature,
+        &bob_public_key,
+        &bob_pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        period,
+        &topic,
+        1,
+        11111, // different
+        1,
+    );
+    assert_eq!(result, expected_error);
+
+    // Test amount > max-amount
+    let signature = make_signer_key_signature(
+        &bob_pox_addr,
+        &bob,
+        reward_cycle,
+        &topic,
+        period,
+        4, // less than max to invalidate `amount`
+        1,
+    );
+    let result = verify_signer_key_sig(
+        &signature,
+        &bob_public_key,
+        &bob_pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        period,
+        &topic,
+        5, // different
+        4, // less than amount
+        1,
+    );
+    // Different error code
+    assert_eq!(result, Value::error(Value::Int(37)).unwrap());
+
+    // Test using a valid signature
 
     let signature = make_signer_key_signature(
         &bob_pox_addr,
@@ -1884,11 +1957,82 @@ fn stack_stx_verify_signer_sig() {
         1,
     );
 
-    // TODO: invalid auth-id
-    // TODO: invalid amount
-    // TODO: invalid max-amount
+    // Test invalid auth-id
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let invalid_auth_id_nonce = stacker_nonce;
+    let invalid_auth_id_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        &pox_addr,
+        lock_period,
+        &signer_public_key,
+        block_height,
+        Some(signature),
+        u128::MAX,
+        2, // wrong auth-id
+    );
 
-    // Test 6: valid signature
+    // Test invalid amount
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        min_ustx.saturating_sub(1),
+        1,
+    );
+    let invalid_amount_nonce = stacker_nonce;
+    let invalid_amount_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        &pox_addr,
+        lock_period,
+        &signer_public_key,
+        block_height,
+        Some(signature),
+        min_ustx.saturating_sub(1),
+        1,
+    );
+
+    // Test invalid max-amount
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        u128::MAX.saturating_sub(1),
+        1,
+    );
+    let invalid_max_amount_nonce = stacker_nonce;
+    let invalid_max_amount_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        &pox_addr,
+        lock_period,
+        &signer_public_key,
+        block_height,
+        Some(signature),
+        u128::MAX, // different than signature
+        1,
+    );
+
+    // Test: valid signature
     stacker_nonce += 1;
     let signature = make_signer_key_signature(
         &pox_addr,
@@ -1908,7 +2052,7 @@ fn stack_stx_verify_signer_sig() {
         lock_period,
         &signer_public_key,
         block_height,
-        Some(signature),
+        Some(signature.clone()),
         u128::MAX,
         1,
     );
@@ -1919,10 +2063,13 @@ fn stack_stx_verify_signer_sig() {
         invalid_key_tx,
         invalid_topic_tx,
         invalid_period_tx,
+        invalid_auth_id_tx,
+        invalid_amount_tx,
+        invalid_max_amount_tx,
         valid_tx,
     ];
 
-    peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     let stacker_txs = get_last_block_sender_transactions(&observer, stacker_addr);
     let expected_error = Value::error(Value::Int(35)).unwrap();
@@ -1935,11 +2082,47 @@ fn stack_stx_verify_signer_sig() {
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
     assert_eq!(tx_result(invalid_period_nonce), expected_error);
     assert_eq!(tx_result(invalid_topic_nonce), expected_error);
+    assert_eq!(tx_result(invalid_auth_id_nonce), expected_error);
+    assert_eq!(tx_result(invalid_max_amount_nonce), expected_error);
+    assert_eq!(
+        tx_result(invalid_amount_nonce),
+        Value::error(Value::Int(37)).unwrap()
+    );
 
     // valid tx should succeed
     tx_result(valid_nonce)
         .expect_result_ok()
         .expect("Expected ok result from tx");
+
+    // Ensure that the used signature cannot be re-used
+    let result = verify_signer_key_sig(
+        &signature,
+        &signer_public_key,
+        &pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        lock_period,
+        &topic,
+        min_ustx,
+        u128::MAX,
+        1,
+    );
+    let expected_error = Value::error(Value::Int(38)).unwrap();
+    assert_eq!(result, expected_error);
+
+    // Ensure the authorization is stored as used
+    let entry = get_signer_key_authorization_used_pox_4(
+        &mut peer,
+        &latest_block,
+        &pox_addr,
+        reward_cycle.try_into().unwrap(),
+        &topic,
+        lock_period,
+        &signer_public_key,
+        u128::MAX,
+        1,
+    );
 }
 
 #[test]
@@ -2061,7 +2244,74 @@ fn stack_extend_verify_sig() {
         1,
     );
 
-    // TODO: invalid auth-id, amount, max-amount
+    // Test invalid auth-id
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let invalid_auth_id_nonce = stacker_nonce;
+    let invalid_auth_id_tx = make_pox_4_extend(
+        &stacker_key,
+        stacker_nonce,
+        pox_addr.clone(),
+        lock_period,
+        signer_public_key.clone(),
+        Some(signature),
+        u128::MAX,
+        2, // wrong auth-id
+    );
+
+    // Test invalid max-amount
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        u128::MAX.saturating_sub(1),
+        1,
+    );
+    let invalid_max_amount_nonce = stacker_nonce;
+    let invalid_max_amount_tx = make_pox_4_extend(
+        &stacker_key,
+        stacker_nonce,
+        pox_addr.clone(),
+        lock_period,
+        signer_public_key.clone(),
+        Some(signature),
+        u128::MAX, // different than signature
+        1,
+    );
+
+    // Test invalid amount
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period,
+        min_ustx.saturating_sub(1),
+        1,
+    );
+    let invalid_amount_nonce = stacker_nonce;
+    let invalid_amount_tx = make_pox_4_extend(
+        &stacker_key,
+        stacker_nonce,
+        pox_addr.clone(),
+        lock_period,
+        signer_public_key.clone(),
+        Some(signature),
+        min_ustx.saturating_sub(1), // less than amount
+        1,
+    );
 
     // Test 4: valid stack-extend
     stacker_nonce += 1;
@@ -2078,20 +2328,23 @@ fn stack_extend_verify_sig() {
     let valid_tx = make_pox_4_extend(
         &stacker_key,
         stacker_nonce,
-        pox_addr,
+        pox_addr.clone(),
         lock_period,
         signer_public_key.clone(),
-        Some(signature),
+        Some(signature.clone()),
         u128::MAX,
         1,
     );
 
-    peer.tenure_with_txs(
+    let latest_block = peer.tenure_with_txs(
         &[
             stack_tx,
             invalid_cycle_tx,
             invalid_stacker_tx,
             invalid_key_tx,
+            invalid_auth_id_tx,
+            invalid_max_amount_tx,
+            invalid_amount_tx,
             valid_tx,
         ],
         &mut coinbase_nonce,
@@ -2109,9 +2362,47 @@ fn stack_extend_verify_sig() {
     assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
     assert_eq!(tx_result(invalid_stacker_nonce), expected_error);
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
+    assert_eq!(tx_result(invalid_auth_id_nonce), expected_error);
+    assert_eq!(tx_result(invalid_max_amount_nonce), expected_error);
+    assert_eq!(
+        tx_result(invalid_amount_nonce),
+        Value::error(Value::Int(37)).unwrap()
+    );
+
+    // valid tx should succeed
     tx_result(valid_nonce)
         .expect_result_ok()
         .expect("Expected ok result from tx");
+
+    // Ensure that the used signature cannot be re-used
+    let result = verify_signer_key_sig(
+        &signature,
+        &signer_public_key,
+        &pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        lock_period,
+        &topic,
+        min_ustx,
+        u128::MAX,
+        1,
+    );
+    let expected_error = Value::error(Value::Int(38)).unwrap();
+    assert_eq!(result, expected_error);
+
+    // Ensure the authorization is stored as used
+    let entry = get_signer_key_authorization_used_pox_4(
+        &mut peer,
+        &latest_block,
+        &pox_addr,
+        reward_cycle.try_into().unwrap(),
+        &topic,
+        lock_period,
+        &signer_public_key,
+        u128::MAX,
+        1,
+    );
 }
 
 #[test]
@@ -2285,11 +2576,76 @@ fn stack_agg_commit_verify_sig() {
         1,
     );
 
-    // TODO: using incorrect auth-id
-    // TODO: using incorrect max-amount
-    // TODO: using amount > max-amount
+    // Test using incorrect auth-id
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &topic,
+        1_u128,
+        u128::MAX,
+        2, // wrong auth-id
+    );
+    let invalid_auth_id_nonce = delegate_nonce;
+    let invalid_auth_id_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        Some(signature),
+        &signer_pk,
+        u128::MAX,
+        1, // different auth-id
+    );
 
-    // Test 6: valid signature
+    // Test incorrect max-amount
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &topic,
+        1_u128,
+        u128::MAX,
+        1,
+    );
+    let invalid_max_amount_nonce = delegate_nonce;
+    let invalid_max_amount_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        Some(signature),
+        &signer_pk,
+        u128::MAX - 1, // different max-amount
+        1,
+    );
+
+    // Test amount > max-amount
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &topic,
+        1_u128,
+        min_ustx.saturating_sub(1), // amount > max-amount
+        1,
+    );
+    let invalid_amount_nonce = delegate_nonce;
+    let invalid_amount_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        Some(signature),
+        &signer_pk,
+        min_ustx.saturating_sub(1), // amount > max-amount
+        1,
+    );
+
+    // Test with valid signature
     delegate_nonce += 1;
     let signature = make_signer_key_signature(
         &pox_addr,
@@ -2306,13 +2662,13 @@ fn stack_agg_commit_verify_sig() {
         delegate_nonce,
         &pox_addr,
         next_reward_cycle,
-        Some(signature),
+        Some(signature.clone()),
         &signer_pk,
         u128::MAX,
         1,
     );
 
-    peer.tenure_with_txs(
+    let latest_block = peer.tenure_with_txs(
         &[
             delegate_tx,
             delegate_stack_stx_tx,
@@ -2321,6 +2677,9 @@ fn stack_agg_commit_verify_sig() {
             invalid_key_tx,
             invalid_period_tx,
             invalid_topic_tx,
+            invalid_auth_id_tx,
+            invalid_max_amount_tx,
+            invalid_amount_tx,
             valid_tx,
         ],
         &mut coinbase_nonce,
@@ -2331,6 +2690,7 @@ fn stack_agg_commit_verify_sig() {
     let tx_result = |nonce: u64| -> Value { txs.get(nonce as usize).unwrap().result.clone() };
 
     let expected_error = Value::error(Value::Int(35)).unwrap();
+    let amount_too_high_error = Value::error(Value::Int(37)).unwrap();
 
     tx_result(delegate_stack_stx_nonce)
         .expect_result_ok()
@@ -2340,9 +2700,42 @@ fn stack_agg_commit_verify_sig() {
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
     assert_eq!(tx_result(invalid_period_nonce), expected_error);
     assert_eq!(tx_result(invalid_topic_nonce), expected_error);
+    assert_eq!(tx_result(invalid_auth_id_nonce), expected_error);
+    assert_eq!(tx_result(invalid_max_amount_nonce), expected_error);
+    assert_eq!(tx_result(invalid_amount_nonce), amount_too_high_error);
     tx_result(valid_nonce)
         .expect_result_ok()
         .expect("Expected ok result from tx");
+
+    // Ensure that the used signature cannot be re-used
+    let result = verify_signer_key_sig(
+        &signature,
+        &signer_pk,
+        &pox_addr,
+        &mut peer,
+        &latest_block,
+        reward_cycle,
+        1,
+        &topic,
+        min_ustx,
+        u128::MAX,
+        1,
+    );
+    let expected_error = Value::error(Value::Int(38)).unwrap();
+    assert_eq!(result, expected_error);
+
+    // Ensure the authorization is stored as used
+    let entry = get_signer_key_authorization_used_pox_4(
+        &mut peer,
+        &latest_block,
+        &pox_addr,
+        reward_cycle.try_into().unwrap(),
+        &topic,
+        1,
+        &signer_pk,
+        u128::MAX,
+        1,
+    );
 }
 
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {
@@ -3647,6 +4040,37 @@ pub fn get_stacking_state_pox_4(
     })
 }
 
+pub fn make_signer_key_authorization_lookup_key(
+    pox_addr: &PoxAddress,
+    reward_cycle: u64,
+    topic: &Pox4SignatureTopic,
+    period: u128,
+    signer_key: &StacksPublicKey,
+    max_amount: u128,
+    auth_id: u128,
+) -> Value {
+    TupleData::from_data(vec![
+        (
+            "pox-addr".into(),
+            pox_addr.as_clarity_tuple().unwrap().into(),
+        ),
+        ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
+        (
+            "topic".into(),
+            Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
+        ),
+        ("period".into(), Value::UInt(period.into())),
+        (
+            "signer-key".into(),
+            Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount".into(), Value::UInt(max_amount)),
+        ("auth-id".into(), Value::UInt(auth_id)),
+    ])
+    .unwrap()
+    .into()
+}
+
 pub fn get_signer_key_authorization_pox_4(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -3659,42 +4083,66 @@ pub fn get_signer_key_authorization_pox_4(
     auth_id: u128,
 ) -> Option<bool> {
     with_clarity_db_ro(peer, tip, |db| {
-        let lookup_tuple = TupleData::from_data(vec![
-            (
-                "pox-addr".into(),
-                pox_addr.as_clarity_tuple().unwrap().into(),
-            ),
-            ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
-            (
-                "topic".into(),
-                Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
-            ),
-            ("period".into(), Value::UInt(period.into())),
-            (
-                "signer-key".into(),
-                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
-            ),
-            ("max-amount".into(), Value::UInt(max_amount)),
-            ("auth-id".into(), Value::UInt(auth_id)),
-        ])
-        .unwrap()
-        .into();
+        let lookup_tuple = make_signer_key_authorization_lookup_key(
+            &pox_addr,
+            reward_cycle,
+            &topic,
+            period,
+            &signer_key,
+            max_amount,
+            auth_id,
+        );
         let epoch = db.get_clarity_epoch_version().unwrap();
-        let map_entry = db
-            .fetch_entry_unknown_descriptor(
-                &boot_code_id(boot::POX_4_NAME, false),
-                "signer-key-authorizations",
-                &lookup_tuple,
-                &epoch,
-            )
-            .unwrap()
-            .expect_optional()
-            .unwrap();
-        match map_entry {
-            Some(v) => Some(v.expect_bool().unwrap()),
-            None => None,
-        }
+        db.fetch_entry_unknown_descriptor(
+            &boot_code_id(boot::POX_4_NAME, false),
+            "signer-key-authorizations",
+            &lookup_tuple,
+            &epoch,
+        )
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .map(|v| v.expect_bool().unwrap())
     })
+}
+
+/// Lookup in the `used-signer-key-authorizations` map
+/// for a specific signer key authorization. If no entry is
+/// found, `false` is returned.
+pub fn get_signer_key_authorization_used_pox_4(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    pox_addr: &PoxAddress,
+    reward_cycle: u64,
+    topic: &Pox4SignatureTopic,
+    period: u128,
+    signer_key: &StacksPublicKey,
+    max_amount: u128,
+    auth_id: u128,
+) -> bool {
+    with_clarity_db_ro(peer, tip, |db| {
+        let lookup_tuple = make_signer_key_authorization_lookup_key(
+            &pox_addr,
+            reward_cycle,
+            &topic,
+            period,
+            &signer_key,
+            max_amount,
+            auth_id,
+        );
+        let epoch = db.get_clarity_epoch_version().unwrap();
+        db.fetch_entry_unknown_descriptor(
+            &boot_code_id(boot::POX_4_NAME, false),
+            "used-signer-key-authorizations",
+            &lookup_tuple,
+            &epoch,
+        )
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .map(|v| v.expect_bool().unwrap())
+    })
+    .unwrap_or(false)
 }
 
 pub fn get_partially_stacked_state_pox_4(
