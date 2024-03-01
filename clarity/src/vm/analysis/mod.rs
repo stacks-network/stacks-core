@@ -117,7 +117,7 @@ pub fn type_check(
 
 pub fn run_analysis(
     contract_identifier: &QualifiedContractIdentifier,
-    expressions: &mut [SymbolicExpression],
+    expressions: &[SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,

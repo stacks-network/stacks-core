@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::net::Shutdown;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
@@ -569,7 +568,9 @@ impl BitcoinIndexer {
                         test_debug!("Copy interval {} to {}", interval, &reorg_headers_path);
                         let work_score = canonical_spv_client
                             .find_interval_work(interval)?
-                            .expect(&format!("FATAL: no work score for interval {}", interval));
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no work score for interval {}", interval)
+                            });
                         reorg_spv_client.store_interval_work(interval, work_score)?;
                     }
                 }

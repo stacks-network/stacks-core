@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
@@ -2507,7 +2506,6 @@ impl PeerNetwork {
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
-    use std::convert::TryFrom;
 
     use clarity::vm::clarity::ClarityConnection;
     use clarity::vm::costs::ExecutionCost;

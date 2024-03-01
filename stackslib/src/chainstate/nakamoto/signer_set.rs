@@ -46,7 +46,7 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -63,9 +63,8 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE,
+    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
-use crate::chainstate::stacks::db::blocks::StagingUserBurnSupport;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
     MinerPaymentTxFees, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState, StacksDBTx,
@@ -100,6 +99,13 @@ pub struct SignerCalculation {
     pub events: Vec<StacksTransactionEvent>,
 }
 
+pub struct AggregateKeyVoteParams {
+    pub signer_index: u64,
+    pub aggregate_key: Point,
+    pub voting_round: u64,
+    pub reward_cycle: u64,
+}
+
 impl RawRewardSetEntry {
     pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
@@ -109,7 +115,7 @@ impl RawRewardSetEntry {
             .expect("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address)");
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .expect(&format!("FATAL: not a valid PoX address: {pox_addr_tuple}"));
+            .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple}"));
 
         let total_ustx = tuple_data
             .remove("total-ustx")
@@ -195,10 +201,12 @@ impl NakamotoSigners {
                     ],
                 )?
                 .expect_optional()?
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    index, list_length, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        index, list_length, reward_cycle
+                    )
+                })
                 .expect_tuple()?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
@@ -274,11 +282,11 @@ impl NakamotoSigners {
                                 "signer".into(),
                                 Value::Principal(PrincipalData::from(signing_address)),
                             ),
-                            ("weight".into(), Value::UInt(signer.slots.into())),
+                            ("weight".into(), Value::UInt(signer.weight.into())),
                         ])
-                            .expect(
-                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
-                            ),
+                        .expect(
+                            "BUG: Failed to construct `{ signer: principal, weight: uint }` tuple",
+                        ),
                     )
                 })
                 .collect()
@@ -303,7 +311,7 @@ impl NakamotoSigners {
         let set_signers_args = [
             SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
             SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
-                "BUG: Failed to construct `(list 4000 { signer: principal, weight: u64 })` list",
+                "BUG: Failed to construct `(list 4000 { signer: principal, weight: uint })` list",
             )),
         ];
 
@@ -442,5 +450,133 @@ impl NakamotoSigners {
     ) -> QualifiedContractIdentifier {
         let name = Self::make_signers_db_name(reward_cycle, message_id);
         boot_code_id(&name, mainnet)
+    }
+
+    /// Get the signer addresses and corresponding weights for a given reward cycle
+    pub fn get_signers_weights(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, u64>, ChainstateError> {
+        let signers_opt = chainstate
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                SIGNERS_NAME,
+                &format!("(get-signers u{})", reward_cycle),
+            )?
+            .expect_optional()?;
+        let mut signers = HashMap::new();
+        if let Some(signers_list) = signers_opt {
+            for signer in signers_list.expect_list()? {
+                let signer_tuple = signer.expect_tuple()?;
+                let principal_data = signer_tuple.get("signer")?.clone().expect_principal()?;
+                let signer_address = if let PrincipalData::Standard(signer) = principal_data {
+                    signer.into()
+                } else {
+                    panic!(
+                        "FATAL: Signer returned from get-signers is not a standard principal: {:?}",
+                        principal_data
+                    );
+                };
+                let weight = u64::try_from(signer_tuple.get("weight")?.to_owned().expect_u128()?)
+                    .expect("FATAL: Signer weight greater than a u64::MAX");
+                signers.insert(signer_address, weight);
+            }
+        }
+        if signers.is_empty() {
+            error!(
+                "No signers found for reward cycle";
+                "reward_cycle" => reward_cycle,
+            );
+            return Err(ChainstateError::NoRegisteredSigners(reward_cycle));
+        }
+        Ok(signers)
+    }
+
+    /// Verify that the transaction is a valid vote for the aggregate public key
+    /// Note: it does not verify the function arguments, only that the transaction is validly formed
+    /// and has a valid nonce from an expected address
+    pub fn valid_vote_transaction(
+        account_nonces: &HashMap<StacksAddress, u64>,
+        transaction: &StacksTransaction,
+        is_mainnet: bool,
+    ) -> bool {
+        let origin_address = transaction.origin_address();
+        let origin_nonce = transaction.get_origin_nonce();
+        let Some(account_nonce) = account_nonces.get(&origin_address) else {
+            debug!("valid_vote_transaction: Unrecognized origin address ({origin_address}).",);
+            return false;
+        };
+        if transaction.is_mainnet() != is_mainnet {
+            debug!("valid_vote_transaction: Received a transaction for an unexpected network.",);
+            return false;
+        }
+        if origin_nonce < *account_nonce {
+            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}).");
+            return false;
+        }
+        Self::parse_vote_for_aggregate_public_key(transaction).is_some()
+    }
+
+    pub fn parse_vote_for_aggregate_public_key(
+        transaction: &StacksTransaction,
+    ) -> Option<AggregateKeyVoteParams> {
+        let TransactionPayload::ContractCall(payload) = &transaction.payload else {
+            // Not a contract call so not a special cased vote for aggregate public key transaction
+            return None;
+        };
+        if payload.contract_identifier()
+            != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
+            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.into()
+        {
+            // This is not a special cased transaction.
+            return None;
+        }
+        if payload.function_args.len() != 4 {
+            return None;
+        }
+        let signer_index_value = payload.function_args.first()?;
+        let signer_index = u64::try_from(signer_index_value.clone().expect_u128().ok()?).ok()?;
+        let point_value = payload.function_args.get(1)?;
+        let point_bytes = point_value.clone().expect_buff(33).ok()?;
+        let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
+        let aggregate_key = Point::try_from(&compressed_data).ok()?;
+        let round_value = payload.function_args.get(2)?;
+        let voting_round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
+        let reward_cycle =
+            u64::try_from(payload.function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
+        Some(AggregateKeyVoteParams {
+            signer_index,
+            aggregate_key,
+            voting_round,
+            reward_cycle,
+        })
+    }
+
+    /// Update the map of filtered valid transactions, selecting one per address based first on lowest nonce, then txid
+    pub fn update_filtered_transactions(
+        filtered_transactions: &mut HashMap<StacksAddress, StacksTransaction>,
+        account_nonces: &HashMap<StacksAddress, u64>,
+        mainnet: bool,
+        transactions: Vec<StacksTransaction>,
+    ) {
+        for transaction in transactions {
+            if NakamotoSigners::valid_vote_transaction(&account_nonces, &transaction, mainnet) {
+                let origin_address = transaction.origin_address();
+                let origin_nonce = transaction.get_origin_nonce();
+                if let Some(entry) = filtered_transactions.get_mut(&origin_address) {
+                    let entry_nonce = entry.get_origin_nonce();
+                    if entry_nonce > origin_nonce
+                        || (entry_nonce == origin_nonce && entry.txid() > transaction.txid())
+                    {
+                        *entry = transaction;
+                    }
+                } else {
+                    filtered_transactions.insert(origin_address, transaction);
+                }
+            }
+        }
     }
 }

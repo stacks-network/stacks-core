@@ -30,7 +30,10 @@ libsigner = { path = "../../libsigner" }
 wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-hashbrown = "0.14"
+hashbrown = { workspace = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -44,6 +47,7 @@ stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
+mutants = "0.0.3"
 
 [dependencies.rusqlite]
 version = "=0.24.2"

@@ -30,6 +30,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 stacks_common = { package = "stacks-common", path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
+hashbrown = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"
@@ -54,7 +55,4 @@ default = []
 developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
-
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
-sha2-asm = "0.5.3"
 

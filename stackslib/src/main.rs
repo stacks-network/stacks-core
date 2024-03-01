@@ -26,8 +26,14 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -215,7 +221,8 @@ fn main() {
         }
 
         let block_path = &argv[2];
-        let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
+        let block_data =
+            fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
@@ -355,7 +362,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -402,7 +409,7 @@ check if the associated microblocks can be downloaded
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -513,7 +520,7 @@ check if the associated microblocks can be downloaded
             .unwrap_or(start_height);
 
         let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", argv[2]));
+            .unwrap_or_else(|_| panic!("Failed to open {}", argv[2]));
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
         let sort_conn = sort_db.index_handle(&chain_tip);
@@ -584,7 +591,7 @@ simulating a miner.
         }
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -692,7 +699,8 @@ simulating a miner.
         }
 
         let mblock_path = &argv[2];
-        let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
+        let mblock_data =
+            fs::read(mblock_path).unwrap_or_else(|_| panic!("Failed to open {mblock_path}"));
 
         let mut cursor = io::Cursor::new(&mblock_data);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
@@ -761,10 +769,8 @@ simulating a miner.
                 },
             );
 
-            let row = res.expect(&format!(
-                "Failed to query DB for MARF value hash {}",
-                &value
-            ));
+            let row =
+                res.unwrap_or_else(|_| panic!("Failed to query DB for MARF value hash {value}"));
             println!("{}", row);
         } else {
             println!("(undefined)");
@@ -778,8 +784,8 @@ simulating a miner.
             eprintln!("Usage: {} exec_program [program-file.clar]", argv[0]);
             process::exit(1);
         }
-        let program: String =
-            fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
+        let program: String = fs::read_to_string(&argv[2])
+            .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
         let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
             Ok(Some(result)) => println!("{}", result),
@@ -1338,7 +1344,7 @@ simulating a miner.
     let mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
 
     let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-        .expect(&format!("Failed to open {}", &sort_db_path));
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
     let chain_id = CHAIN_ID_MAINNET;
     let mut chain_state = StacksChainState::open(true, chain_id, &chain_state_path, None)
         .expect("Failed to open stacks chain state")
@@ -1683,9 +1689,6 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         last_microblock_seq
     );
 
-    // user supports were never activated
-    let user_supports = vec![];
-
     let block_am = StacksChainState::find_stacks_tip_affirmation_map(
         &burnchain_blocks_db,
         sort_tx.tx(),
@@ -1711,7 +1714,6 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         &next_microblocks,
         next_staging_block.commit_burn,
         next_staging_block.sortition_burn,
-        &user_supports,
         block_am.weight(),
         true,
     ) {

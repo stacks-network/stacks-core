@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::{cmp, mem};
@@ -668,6 +667,7 @@ impl ConversationP2P {
 
     /// Does the given services bitfield mempool query interface?  It will if it has both
     /// RELAY and RPC bits set.
+    #[cfg_attr(test, mutants::skip)]
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
@@ -716,10 +716,8 @@ impl ConversationP2P {
 
     /// Get the current epoch
     fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
-            "BUG: block {} is not in a known epoch",
-            cur_burn_height
-        ));
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height));
         let epoch = self.epochs[epoch_index].clone();
         epoch
     }

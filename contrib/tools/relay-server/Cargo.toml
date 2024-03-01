@@ -8,3 +8,4 @@ name = "relay-server"
 path = "src/main.rs"
 
 [dependencies]
+hashbrown = { workspace = true }

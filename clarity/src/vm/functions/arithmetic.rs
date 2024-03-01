@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::convert::TryFrom;
 
 use integer_sqrt::IntegerSquareRoot;
 

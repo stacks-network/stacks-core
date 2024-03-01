@@ -56,7 +56,8 @@ pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
     ProposedBlocks(Vec<NakamotoBlock>),
     /// The signer messages for other signers and miners to observe
-    SignerMessages(Vec<SignerMessage>),
+    /// The u32 is the signer set to which the message belongs (either 0 or 1)
+    SignerMessages(u32, Vec<SignerMessage>),
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
@@ -126,8 +127,6 @@ pub trait EventReceiver {
 
 /// Event receiver for Signer events
 pub struct SignerEventReceiver {
-    /// stacker db contracts we're listening for
-    pub stackerdb_contract_ids: Vec<QualifiedContractIdentifier>,
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
@@ -143,12 +142,8 @@ pub struct SignerEventReceiver {
 impl SignerEventReceiver {
     /// Make a new Signer event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
-    pub fn new(
-        contract_ids: Vec<QualifiedContractIdentifier>,
-        is_mainnet: bool,
-    ) -> SignerEventReceiver {
+    pub fn new(is_mainnet: bool) -> SignerEventReceiver {
         SignerEventReceiver {
-            stackerdb_contract_ids: contract_ids,
             http_server: None,
             local_addr: None,
             out_channels: vec![],
@@ -349,13 +344,18 @@ fn process_stackerdb_event(
     } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
         && event.contract_id.issuer.1 == [0u8; 20]
     {
+        let Some((signer_set, _)) =
+            get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
+        else {
+            return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+        };
         // signer-XXX-YYY boot contract
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
             .iter()
             .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
             .collect();
-        SignerEvent::SignerMessages(signer_messages)
+        SignerEvent::SignerMessages(signer_set, signer_messages)
     } else {
         info!(
             "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
@@ -399,4 +399,37 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     }
 
     Ok(SignerEvent::BlockValidationResponse(event))
+}
+
+fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
+    // Splitting the string by '-'
+    let parts: Vec<&str> = name.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    // Extracting message ID and slot ID
+    let signer_set = parts[1].parse::<u32>().ok()?;
+    let message_id = parts[2].parse::<u32>().ok()?;
+    Some((signer_set, message_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_signers_db_signer_set_message_id() {
+        let name = "signer-1-1";
+        let (signer_set, message_id) = get_signers_db_signer_set_message_id(name).unwrap();
+        assert_eq!(signer_set, 1);
+        assert_eq!(message_id, 1);
+
+        let name = "signer-0-2";
+        let (signer_set, message_id) = get_signers_db_signer_set_message_id(name).unwrap();
+        assert_eq!(signer_set, 0);
+        assert_eq!(message_id, 2);
+
+        let name = "signer--2";
+        assert!(get_signers_db_signer_set_message_id(name).is_none());
+    }
 }

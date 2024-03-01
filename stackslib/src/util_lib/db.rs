@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
@@ -790,7 +789,7 @@ fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
     match index.get(header_hash, key) {
         Ok(Some(marf_value)) => {
             let value = load_indexed(index.sqlite_conn(), &marf_value)?
-                .expect(&format!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
             Ok(Some(value))
         }
         Ok(None) => Ok(None),

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::{error, fmt, thread};
 
 use clarity::vm::analysis::errors::{CheckError, CheckErrors};
@@ -40,6 +39,7 @@ use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
 };
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::{Burnchain, PoxConstants};
@@ -264,14 +264,10 @@ impl ClarityInstance {
 
         let burn_height = header_db
             .get_burn_block_height_for_block(stacks_block)
-            .expect(&format!(
-                "Failed to get burn block height of {}",
-                stacks_block
-            ));
-        burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
-            "Failed to get Stacks epoch for height = {}",
-            burn_height
-        ))
+            .unwrap_or_else(|| panic!("Failed to get burn block height of {}", stacks_block));
+        burn_state_db
+            .get_stacks_epoch(burn_height)
+            .unwrap_or_else(|| panic!("Failed to get Stacks epoch for height = {}", burn_height))
     }
 
     pub fn begin_block<'a, 'b>(
@@ -572,7 +568,7 @@ impl ClarityInstance {
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
         self.read_only_connection_checked(at_block, header_db, burn_state_db)
-            .expect(&format!("BUG: failed to open block {}", at_block))
+            .unwrap_or_else(|_| panic!("BUG: failed to open block {}", at_block))
     }
 
     /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
@@ -1331,38 +1327,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_4_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
-            let initialized_agg_key = if !mainnet {
-                let agg_key_value_opt = self
-                    .with_readonly_clarity_env(
-                        false,
-                        self.chain_id,
-                        ClarityVersion::Clarity2,
-                        StacksAddress::burn_address(false).into(),
-                        None,
-                        LimitedCostTracker::Free,
-                        |vm_env| {
-                            vm_env.execute_contract_allow_private(
-                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
-                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
-                                &[],
-                                true,
-                            )
-                        },
-                    )
-                    .map(|agg_key_value| {
-                        Ok::<_, InterpreterError>(
-                            Value::buff_from(agg_key_value.expect_buff(33)?)
-                                .expect("failed to reconstruct buffer"),
-                        )
-                    })
-                    .ok()
-                    .transpose()
-                    .expect("FATAL: failed to load aggregate public key");
-                agg_key_value_opt
-            } else {
-                None
-            };
-
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_4_contract_id);
@@ -1393,47 +1357,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         |_, _| false,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
-
-                // set the aggregate public key for all pre-pox-4 cycles, if in testnet, and can fetch a boot-setting
-                if !mainnet {
-                    if let Some(ref agg_pub_key) = initialized_agg_key {
-                        for set_in_reward_cycle in 0..=pox_4_first_cycle {
-                            info!(
-                                "Setting initial aggregate-public-key in PoX-4";
-                                "agg_pub_key" => %agg_pub_key,
-                                "reward_cycle" => set_in_reward_cycle,
-                                "pox_4_first_cycle" => pox_4_first_cycle,
-                            );
-                            tx_conn
-                                .with_abort_callback(
-                                    |vm_env| {
-                                        vm_env.execute_in_env(
-                                            StacksAddress::burn_address(false).into(),
-                                            None,
-                                            None,
-                                            |env| {
-                                                env.execute_contract_allow_private(
-                                                    &pox_4_contract_id,
-                                                    "set-aggregate-public-key",
-                                                    &[
-                                                        SymbolicExpression::atom_value(
-                                                            Value::UInt(set_in_reward_cycle.into()),
-                                                        ),
-                                                        SymbolicExpression::atom_value(
-                                                            agg_pub_key.clone(),
-                                                        ),
-                                                    ],
-                                                    false,
-                                                )
-                                            },
-                                        )
-                                    },
-                                    |_, _| false,
-                                )
-                                .unwrap();
-                        }
-                    }
-                }
 
                 receipt
             });
@@ -1534,13 +1457,59 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 }
             }
 
-            let signers_voting_code = &*SIGNER_VOTING_CODE;
+            let initialized_agg_key = if !mainnet {
+                let agg_key_value_opt = self
+                    .with_readonly_clarity_env(
+                        false,
+                        self.chain_id,
+                        ClarityVersion::Clarity2,
+                        StacksAddress::burn_address(false).into(),
+                        None,
+                        LimitedCostTracker::Free,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
+                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
+                                &[],
+                                true,
+                            )
+                        },
+                    )
+                    .map(|agg_key_value| {
+                        agg_key_value
+                            .expect_buff(33)
+                            .expect("FATAL: test aggregate pub key must be a buffer")
+                    })
+                    .ok();
+                agg_key_value_opt
+            } else {
+                None
+            };
+
+            let mut signers_voting_code = SIGNER_VOTING_CODE.clone();
+            if !mainnet {
+                if let Some(ref agg_pub_key) = initialized_agg_key {
+                    let hex_agg_pub_key = to_hex(agg_pub_key);
+                    for set_in_reward_cycle in 0..pox_4_first_cycle {
+                        info!(
+                            "Setting initial aggregate-public-key in PoX-4";
+                            "agg_pub_key" => &hex_agg_pub_key,
+                            "reward_cycle" => set_in_reward_cycle,
+                            "pox_4_first_cycle" => pox_4_first_cycle,
+                        );
+                        let set_str = format!("(map-set aggregate-public-keys u{set_in_reward_cycle} 0x{hex_agg_pub_key})");
+                        signers_voting_code.push_str("\n");
+                        signers_voting_code.push_str(&set_str);
+                    }
+                }
+            }
+
             let signers_voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(SIGNERS_VOTING_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(signers_voting_code)
+                    code_body: StacksString::from_str(&signers_voting_code)
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity2),

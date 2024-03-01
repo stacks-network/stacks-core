@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -586,7 +585,11 @@ impl TransactionResult {
                 // which code paths were hit, the user should really have attached an appropriate
                 // tx fee in the first place.  In Stacks 2.1, the code will debit the fee first, so
                 // this will no longer be an issue.
-                info!("Problematic transaction caused InvalidFee"; "txid" => %tx.txid());
+                info!("Problematic transaction caused InvalidFee";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
                 return (true, Error::InvalidFee);
             }
             e => e,
@@ -1846,7 +1849,7 @@ impl StacksBlockBuilder {
                               "parent_index_hash" => %parent_index_hash,
                               "parent_consensus_hash" => %self.parent_consensus_hash,
                               "parent_microblock_hash" => match self.parent_microblock_hash.as_ref() {
-                                  Some(x) => format!("Some({})", x.to_string()),
+                                  Some(x) => format!("Some({x})"),
                                   None => "None".to_string(),
                               },
                               "error" => ?e);

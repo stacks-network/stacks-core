@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::default::Default;
 use std::marker::PhantomData;
 use std::{error, fmt, io};
 
@@ -595,6 +593,9 @@ impl PoxConstants {
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
+            // TODO: I *think* the logic of `== 0` here requires some further digging.
+            //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
+            //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
             reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
         }
     }

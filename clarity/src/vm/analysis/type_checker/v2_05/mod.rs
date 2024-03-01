@@ -18,9 +18,9 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
+use std::collections::BTreeMap;
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -393,7 +393,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // charge for the eventual storage cost of the analysis --
         //  it is linear in the size of the AST.
         let mut size: u64 = 0;
@@ -525,7 +525,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> CheckResult<Vec<TypeSignature>> {
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
             result.push(self.type_check(arg, context)?)
@@ -561,7 +561,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs::<()>(StacksEpochId::Epoch2_05, args, &mut ())
+        let args = parse_name_type_pairs::<()>(StacksEpochId::Epoch2_05, args, &mut ())
             .map_err(|_| CheckErrors::BadSyntaxBinding)?;
 
         if self.function_return_tracker.is_some() {
@@ -617,7 +617,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 self.function_return_tracker = None;
 
                 let func_args: Vec<FunctionArg> = args
-                    .drain(..)
+                    .into_iter()
                     .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name))
                     .collect();
 

@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::fmt;
 use std::io::Write;
 
 use rand::seq::index::sample;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use ripemd::Ripemd160;
 use rusqlite::{Connection, Transaction};
@@ -63,7 +63,6 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
-    UserBurnSupport = '_' as u8,
     StackStx = 'x' as u8,
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
@@ -197,7 +196,6 @@ impl Opcodes {
         match self {
             Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
             Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
-            Opcodes::UserBurnSupport => Self::HTTP_BURN_SUPPORT,
             Opcodes::StackStx => Self::HTTP_STACK_STX,
             Opcodes::PreStx => Self::HTTP_PRE_STX,
             Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
@@ -209,7 +207,6 @@ impl Opcodes {
         let opcode = match input {
             Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
             Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
-            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
             Self::HTTP_STACK_STX => Opcodes::StackStx,
             Self::HTTP_PRE_STX => Opcodes::PreStx,
             Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
@@ -352,10 +349,12 @@ impl ConsensusHashExtensions for ConsensusHash {
             let prev_block: u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch = sort_tx
                 .get_consensus_at(prev_block)
-                .expect(&format!(
-                    "FATAL: failed to get consensus hash at {} in fork {}",
-                    prev_block, &sort_tx.context.chain_tip
-                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: failed to get consensus hash at {} in fork {}",
+                        prev_block, &sort_tx.context.chain_tip
+                    )
+                })
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);

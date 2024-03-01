@@ -126,6 +126,10 @@ pub struct SignArgs {
     /// Path to config file
     #[arg(long, value_name = "FILE")]
     pub config: PathBuf,
+    /// The reward cycle the signer is registered for and wants to sign for
+    /// Note: this must be the current reward cycle of the node
+    #[arg(long, short)]
+    pub reward_cycle: u64,
     /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
     // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
@@ -139,6 +143,9 @@ pub struct RunDkgArgs {
     /// Path to config file
     #[arg(long, value_name = "FILE")]
     pub config: PathBuf,
+    /// The reward cycle the signer is registered for and wants to peform DKG for
+    #[arg(long, short)]
+    pub reward_cycle: u64,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -147,9 +154,6 @@ pub struct GenerateFilesArgs {
     /// The Stacks node to connect to
     #[arg(long)]
     pub host: SocketAddr,
-    /// The signers stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
-    #[arg(short, long, value_parser = parse_contract)]
-    pub signers_contract: QualifiedContractIdentifier,
     #[arg(
         long,
         required_unless_present = "private_keys",
@@ -160,9 +164,6 @@ pub struct GenerateFilesArgs {
     #[clap(long, value_name = "FILE")]
     /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
     pub private_keys: Option<PathBuf>,
-    #[arg(long)]
-    /// The total number of key ids to distribute among the signers
-    pub num_keys: u32,
     #[arg(long, value_parser = parse_network)]
     /// The network to use. One of "mainnet", "testnet", or "mocknet".
     pub network: Network,

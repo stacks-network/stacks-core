@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use std::iter::Iterator;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{env, fs, io, process};
@@ -340,10 +338,7 @@ fn get_cli_db_path(db_path: &str) -> String {
     cli_db_path_buf.push("cli.sqlite");
     let cli_db_path = cli_db_path_buf
         .to_str()
-        .expect(&format!(
-            "FATAL: failed to convert '{}' to a string",
-            db_path
-        ))
+        .unwrap_or_else(|| panic!("FATAL: failed to convert '{}' to a string", db_path))
         .to_string();
     cli_db_path
 }
@@ -395,7 +390,7 @@ where
 {
     // store CLI data alongside the MARF database state
     let from = StacksBlockId::from_hex(blockhash)
-        .expect(&format!("FATAL: failed to parse inputted blockhash"));
+        .unwrap_or_else(|_| panic!("FATAL: failed to parse inputted blockhash: {blockhash}"));
     let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
     let marf_tx = marf_kv.begin(&from, &to);

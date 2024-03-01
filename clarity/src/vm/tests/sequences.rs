@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
@@ -798,7 +796,7 @@ fn test_simple_buff_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(BufferType(buff_len)),
             Value::buff_from(vec![0, 68]).unwrap()
         )
         .into()
@@ -875,7 +873,7 @@ fn test_simple_string_ascii_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? \"abc\" u0 \"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(StringType(ASCII(buff_len))),
             Value::string_ascii_from_bytes("de".into()).unwrap()
         )
         .into()
@@ -956,7 +954,7 @@ fn test_simple_string_utf8_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" u0 u\"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
-            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
+            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len))),
             Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap()
         )
         .into()

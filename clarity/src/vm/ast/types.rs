@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::vec::Drain;
+
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
@@ -93,6 +94,10 @@ impl PreExpressionsDrain {
             sorting,
             index: 0,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 }
 

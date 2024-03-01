@@ -50,7 +50,6 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 
 use serde_json;
 use stacks_common::types::StacksEpochId;
@@ -257,7 +256,7 @@ pub fn apply(
         resp
     } else {
         let mut used_memory = 0;
-        let mut evaluated_args = vec![];
+        let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
             let arg_value = match eval(arg_x, env, context) {
@@ -587,8 +586,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
+    use hashbrown::HashMap;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 

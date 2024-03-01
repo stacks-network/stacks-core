@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::convert::TryInto;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 
+use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -277,7 +277,7 @@ impl AssetMap {
         amount: u128,
     ) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
-            Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
+            Some(principal_map) => *principal_map.get(asset).unwrap_or(&0),
             None => 0,
         };
 
@@ -339,8 +339,8 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
-        let mut stx_to_add = Vec::new();
-        let mut stx_burn_to_add = Vec::new();
+        let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
+        let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
 
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
@@ -374,15 +374,15 @@ impl AssetMap {
             }
         }
 
-        for (principal, stx_amount) in stx_to_add.drain(..) {
+        for (principal, stx_amount) in stx_to_add.into_iter() {
             self.stx_map.insert(principal, stx_amount);
         }
 
-        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+        for (principal, stx_burn_amount) in stx_burn_to_add.into_iter() {
             self.burn_map.insert(principal, stx_burn_amount);
         }
 
-        for (principal, asset, amount) in to_add.drain(..) {
+        for (principal, asset, amount) in to_add.into_iter() {
             let principal_map = self
                 .token_map
                 .entry(principal)
@@ -611,7 +611,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b mut ContractContext,
+        context: &'b ContractContext,
     ) -> Environment<'b, 'a, 'hooks> {
         Environment::new(
             &mut self.context,
@@ -671,7 +671,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             None,
             |exec_env| {
                 exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
@@ -689,7 +689,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 version,
@@ -710,7 +710,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 clarity_version,
@@ -1948,7 +1948,7 @@ impl CallStack {
                 )
                 .into());
             }
-            if tracked && !self.set.remove(&function) {
+            if tracked && !self.set.remove(function) {
                 return Err(InterpreterError::InterpreterError(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )
@@ -1990,11 +1990,11 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let _t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
 
@@ -2029,27 +2029,27 @@ mod test {
         let p3 = PrincipalData::Contract(c_contract_id.clone());
         let _p4 = PrincipalData::Contract(d_contract_id.clone());
         let _p5 = PrincipalData::Contract(e_contract_id.clone());
-        let _p6 = PrincipalData::Contract(f_contract_id.clone());
-        let _p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id);
+        let _p7 = PrincipalData::Contract(g_contract_id);
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
         let t3 = AssetIdentifier {
-            contract_identifier: c_contract_id.clone(),
+            contract_identifier: c_contract_id,
             asset_name: "a".into(),
         };
         let t4 = AssetIdentifier {
-            contract_identifier: d_contract_id.clone(),
+            contract_identifier: d_contract_id,
             asset_name: "a".into(),
         };
         let t5 = AssetIdentifier {
-            contract_identifier: e_contract_id.clone(),
+            contract_identifier: e_contract_id,
             asset_name: "a".into(),
         };
         let t6 = AssetIdentifier::STX();
@@ -2187,7 +2187,7 @@ mod test {
                 .get("alpha")
                 .unwrap()
                 .args[0],
-            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
     }
 }

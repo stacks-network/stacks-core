@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;
@@ -319,9 +318,7 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
-            .expect(&format!(
-                "FATAL: no epoch for burn height {cycle_start_burn_height}",
-            ));
+            .unwrap_or_else(|| panic!("FATAL: no epoch for burn height {cycle_start_burn_height}"));
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
@@ -757,9 +754,8 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     provider: &U,
     always_use_affirmation_maps: bool,
 ) -> Result<Option<RewardCycleInfo>, Error> {
-    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
-        &format!("FATAL: no epoch defined for burn height {}", burn_height),
-    );
+    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
+        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height));
     if !burnchain.is_reward_cycle_start(burn_height) {
         return Ok(None);
     }
@@ -1697,7 +1693,7 @@ impl<
 
         let sortition_height =
             SortitionDB::get_block_snapshot(self.sortition_db.conn(), &sortition_tip)?
-                .expect(&format!("FATAL: no sortition {}", &sortition_tip))
+                .unwrap_or_else(|| panic!("FATAL: no sortition {}", &sortition_tip))
                 .block_height;
 
         let sortition_reward_cycle = self
@@ -1851,10 +1847,12 @@ impl<
                 first_invalidate_start_block - 1,
             )
             .expect("FATAL: failed to read burnchain DB")
-            .expect(&format!(
-                "FATAL: no burnchain block {}",
-                first_invalidate_start_block - 1
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no burnchain block {}",
+                    first_invalidate_start_block - 1
+                )
+            });
 
             // find the burnchain block hash and height of the first burnchain block in which we'll
             // invalidate all descendant sortitions, no matter what.
@@ -1863,10 +1861,12 @@ impl<
                 last_invalidate_start_block - 1,
             )
             .expect("FATAL: failed to read burnchain DB")
-            .expect(&format!(
-                "FATAL: no burnchain block {}",
-                last_invalidate_start_block - 1
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no burnchain block {}",
+                    last_invalidate_start_block - 1
+                )
+            });
 
             // let invalidation_height = revalidate_sn.block_height;
             let invalidation_height = revalidated_burn_header.block_height;
@@ -1881,10 +1881,12 @@ impl<
                         last_invalidate_start_block - 1,
                         &sortition_tip,
                     )?
-                    .expect(&format!(
-                        "BUG: no ancestral sortition at height {}",
-                        last_invalidate_start_block - 1
-                    ));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "BUG: no ancestral sortition at height {}",
+                            last_invalidate_start_block - 1
+                        )
+                    });
 
                     valid_sortitions
                         .last()
@@ -1937,12 +1939,8 @@ impl<
                             &valid_sn.winning_stacks_block_hash,
                         ).expect("FATAL: failed to query chainstate DB");
 
-                        SortitionDB::revalidate_snapshot_with_block(sort_tx, &valid_sn.sortition_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).expect(
-                            &format!(
-                                "FATAL: failed to revalidate sortition {}",
-                                valid_sn.sortition_id
-                            ),
-                        );
+                        SortitionDB::revalidate_snapshot_with_block(sort_tx, &valid_sn.sortition_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).unwrap_or_else(|_| panic!("FATAL: failed to revalidate sortition {}",
+                                valid_sn.sortition_id));
                     }
 
                     // recalculate highest valid sortition with revalidated snapshots
@@ -1953,10 +1951,8 @@ impl<
                             &sortition_tip,
                         )
                         .expect("FATAL: failed to query the sortition DB")
-                        .expect(&format!(
-                            "BUG: no ancestral sortition at height {}",
-                            last_invalidate_start_block - 1
-                        ));
+                        .unwrap_or_else(|| panic!("BUG: no ancestral sortition at height {}",
+                            last_invalidate_start_block - 1));
 
                         valid_sortitions
                             .last()
@@ -2001,12 +1997,8 @@ impl<
                             &dirty_sort_sn.winning_stacks_block_hash,
                         ).expect("FATAL: failed to query chainstate DB");
 
-                        SortitionDB::revalidate_snapshot_with_block(sort_tx, dirty_sort_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).expect(
-                            &format!(
-                                "FATAL: failed to revalidate dirty sortition {}",
-                                dirty_sort_id
-                            ),
-                        );
+                        SortitionDB::revalidate_snapshot_with_block(sort_tx, dirty_sort_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).unwrap_or_else(|_| panic!("FATAL: failed to revalidate dirty sortition {}",
+                                dirty_sort_id));
                     }
 
                     // recalculate highest valid stacks tip once more
@@ -2035,12 +2027,8 @@ impl<
                         &highest_valid_sn.winning_stacks_block_hash,
                     ).expect("FATAL: failed to query chainstate DB");
 
-                    SortitionDB::revalidate_snapshot_with_block(sort_tx, &highest_valid_sortition_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).expect(
-                        &format!(
-                            "FATAL: failed to revalidate highest valid sortition {}",
-                            &highest_valid_sortition_id
-                        ),
-                    );
+                    SortitionDB::revalidate_snapshot_with_block(sort_tx, &highest_valid_sortition_id, &canonical_ch, &canonical_bhh, canonical_height, Some(block_known)).unwrap_or_else(|_| panic!("FATAL: failed to revalidate highest valid sortition {}",
+                            &highest_valid_sortition_id));
                 },
             )?;
 
@@ -2315,9 +2303,10 @@ impl<
         rc_info: &mut RewardCycleInfo,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         let cur_epoch =
-            SortitionDB::get_stacks_epoch(self.sortition_db.conn(), header.block_height)?.expect(
-                &format!("BUG: no epoch defined at height {}", header.block_height),
-            );
+            SortitionDB::get_stacks_epoch(self.sortition_db.conn(), header.block_height)?
+                .unwrap_or_else(|| {
+                    panic!("BUG: no epoch defined at height {}", header.block_height)
+                });
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
             // potentially have an anchor block, but only process the next reward cycle (and
@@ -2381,10 +2370,12 @@ impl<
         // burnchain has advanced to epoch 3.0, but has our sortition DB?
         let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
             Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
-                .expect(&format!(
-                    "FATAL: do not have previously-calculated highest valid sortition tip {}",
-                    sn_tip
-                )),
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                        sn_tip
+                    )
+                }),
             None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
         };
         let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height)
@@ -2439,20 +2430,24 @@ impl<
         // only do this if affirmation maps are supported in this epoch.
         let before_canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
             Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
-                .expect(&format!(
-                    "FATAL: do not have previously-calculated highest valid sortition tip {}",
-                    sn_tip
-                )),
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                        sn_tip
+                    )
+                }),
             None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
         };
         let cur_epoch = SortitionDB::get_stacks_epoch(
             self.sortition_db.conn(),
             before_canonical_snapshot.block_height,
         )?
-        .expect(&format!(
-            "BUG: no epoch defined at height {}",
-            before_canonical_snapshot.block_height
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "BUG: no epoch defined at height {}",
+                before_canonical_snapshot.block_height
+            )
+        });
 
         if self.affirmation_maps_active(&cur_epoch.epoch_id) {
             self.handle_affirmation_reorg()?;
@@ -2461,10 +2456,12 @@ impl<
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
             Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
-                .expect(&format!(
-                    "FATAL: do not have previously-calculated highest valid sortition tip {}",
-                    sn_tip
-                )),
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                        sn_tip
+                    )
+                }),
             None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
         };
 
@@ -2787,10 +2784,14 @@ impl<
 
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
-            Some(sn_tip) => SortitionDB::get_block_snapshot(&sort_tx, sn_tip)?.expect(&format!(
-                "FATAL: do not have previously-calculated highest valid sortition tip {}",
-                sn_tip
-            )),
+            Some(sn_tip) => {
+                SortitionDB::get_block_snapshot(&sort_tx, sn_tip)?.unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                        sn_tip
+                    )
+                })
+            }
             None => SortitionDB::get_canonical_burn_chain_tip(&sort_tx)?,
         };
         let highest_valid_sortition_id = canonical_snapshot.sortition_id;
@@ -2843,10 +2844,12 @@ impl<
             canonical_height,
             Some(block_known),
         )
-        .expect(&format!(
-            "FATAL: failed to revalidate highest valid sortition {}",
-            &highest_valid_sortition_id
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "FATAL: failed to revalidate highest valid sortition {}",
+                &highest_valid_sortition_id
+            )
+        });
 
         sort_tx.commit()?;
 
@@ -3022,6 +3025,7 @@ impl<
 
     /// Try and replay a newly-discovered (or re-affirmed) sortition's associated Stacks block, if
     /// we have it.
+    #[cfg_attr(test, mutants::skip)]
     fn try_replay_stacks_block(
         &mut self,
         canonical_snapshot: &BlockSnapshot,
@@ -3124,6 +3128,7 @@ impl<
     /// block."
     ///
     /// Returning None means "we can keep processing Stacks blocks"
+    #[cfg_attr(test, mutants::skip)]
     fn consider_pox_anchor(
         &self,
         pox_anchor: &BlockHeaderHash,
@@ -3163,10 +3168,12 @@ impl<
                     self.sortition_db.conn(),
                     pox_anchor_snapshot.block_height,
                 )?
-                .expect(&format!(
-                    "BUG: no epoch defined at height {}",
-                    pox_anchor_snapshot.block_height
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: no epoch defined at height {}",
+                        pox_anchor_snapshot.block_height
+                    )
+                });
                 if cur_epoch.epoch_id < StacksEpochId::Epoch21 {
                     panic!("FATAL: found Stacks block that 2.0/2.05 rules would treat as an anchor block, but that 2.1+ would not");
                 }
@@ -3230,10 +3237,12 @@ impl<
                         self.sortition_db.conn(),
                         &canonical_sortition_tip,
                     )?
-                    .expect(&format!(
-                        "FAIL: could not find data for the canonical sortition {}",
-                        &canonical_sortition_tip
-                    ));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "FAIL: could not find data for the canonical sortition {}",
+                            &canonical_sortition_tip
+                        )
+                    });
                     let new_canonical_stacks_block =
                         new_canonical_block_snapshot.get_canonical_stacks_block_id();
 
@@ -3307,10 +3316,12 @@ impl<
                             self.sortition_db.conn(),
                             winner_snapshot.block_height,
                         )?
-                        .expect(&format!(
-                            "BUG: no epoch defined at height {}",
-                            winner_snapshot.block_height
-                        ));
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "BUG: no epoch defined at height {}",
+                                winner_snapshot.block_height
+                            )
+                        });
 
                         if self.affirmation_maps_active(&cur_epoch.epoch_id) {
                             if let Some(pox_anchor) =
@@ -3366,10 +3377,8 @@ impl<
         let mut prep_end = self
             .sortition_db
             .get_prepare_end_for(sortition_id, &block_id)?
-            .expect(&format!(
-                "FAIL: expected to get a sortition for a chosen anchor block {}, but not found.",
-                &block_id
-            ));
+            .unwrap_or_else(|| panic!("FAIL: expected to get a sortition for a chosen anchor block {}, but not found.",
+                &block_id));
 
         // was this block a pox anchor for an even earlier reward cycle?
         while let Some(older_prep_end) = self
@@ -3410,10 +3419,8 @@ pub fn check_chainstate_db_versions(
         // check sortition DB and load up the current epoch
         let max_height = SortitionDB::get_highest_block_height_from_path(&sortdb_path)
             .expect("FATAL: could not query sortition DB for maximum block height");
-        let cur_epoch_idx = StacksEpoch::find_epoch(epochs, max_height).expect(&format!(
-            "FATAL: no epoch defined for burn height {}",
-            max_height
-        ));
+        let cur_epoch_idx = StacksEpoch::find_epoch(epochs, max_height)
+            .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", max_height));
         let cur_epoch = epochs[cur_epoch_idx].epoch_id;
 
         // save for later
@@ -3453,6 +3460,7 @@ pub fn check_chainstate_db_versions(
 
 /// Migrate all databases to their latest schemas.
 /// Verifies that this is possible as well
+#[cfg_attr(test, mutants::skip)]
 pub fn migrate_chainstate_dbs(
     epochs: &[StacksEpoch],
     sortdb_path: &str,

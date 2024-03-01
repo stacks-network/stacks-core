@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
@@ -64,7 +63,7 @@ impl SugarExpander {
         pre_exprs_iter: PreExpressionsDrain,
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
-        let mut expressions: Vec<SymbolicExpression> = Vec::new();
+        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(pre_exprs_iter.len());
         #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 

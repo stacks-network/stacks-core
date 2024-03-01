@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1043,6 +1042,9 @@ impl StacksChainState {
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call successfully processed";
+                              "txid" => %tx.txid(),
+                              "origin" => %origin_account.principal,
+                              "origin_nonce" => %origin_account.nonce,
                               "contract_name" => %contract_id,
                               "function_name" => %contract_call.function_name,
                               "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1053,6 +1055,9 @@ impl StacksChainState {
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Contract-call processed with {}", err_type;
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1061,6 +1066,9 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
                             info!("Contract-call aborted by post-condition";
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args));
@@ -1081,6 +1089,9 @@ impl StacksChainState {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
                                 warn!("Contract-call encountered an analysis error at runtime";
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1096,6 +1107,9 @@ impl StacksChainState {
                             } else {
                                 // prior to 2.1, this is not permitted in a block.
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                          "txid" => %tx.txid(),
+                                          "origin" => %origin_account.principal,
+                                          "origin_nonce" => %origin_account.nonce,
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1107,6 +1121,9 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
+                                       "txid" => %tx.txid(),
+                                       "origin" => %origin_account.principal,
+                                       "origin_nonce" => %origin_account.nonce,
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),

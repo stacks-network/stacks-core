@@ -1,7 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use hashbrown::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 

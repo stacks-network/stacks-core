@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 pub trait QueryEx {
     fn url_query(&self) -> HashMap<&str, &str>;

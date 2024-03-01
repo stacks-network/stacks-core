@@ -206,6 +206,7 @@ impl HttpChunkGenerator for StacksBlockStream {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         let block_path =
             StacksChainState::get_index_block_path(&self.blocks_path, &self.index_block_hash)

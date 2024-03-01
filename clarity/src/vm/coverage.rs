@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
 
+use hashbrown::{HashMap, HashSet};
 use serde_json::Value as JsonValue;
 
 use super::functions::define::DefineFunctionsParsed;
@@ -73,10 +74,11 @@ impl CoverageReporter {
         let f = File::create(filename)?;
         let mut coverage = HashMap::new();
         for (contract, execution_map) in self.executed_lines.iter() {
-            let mut executed_lines = vec![];
-            for (line, count) in execution_map.iter() {
-                executed_lines.push((*line, *count));
-            }
+            let mut executed_lines = execution_map
+                .iter()
+                .map(|(line, count)| (*line, *count))
+                .collect::<Vec<_>>();
+
             executed_lines.sort_by_key(|f| f.0);
 
             coverage.insert(contract.to_string(), executed_lines);

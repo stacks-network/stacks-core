@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
-use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
 use std::time::Duration;
@@ -172,14 +171,16 @@ impl PeerThread {
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let rpc_sock = config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.rpc_bind
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let rpc_sock = config
+            .node
+            .rpc_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
