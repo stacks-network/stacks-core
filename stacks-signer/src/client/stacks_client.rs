@@ -17,7 +17,9 @@ use std::net::SocketAddr;
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME, SIGNERS_VOTING_NAME};
+use blockstack_lib::chainstate::stacks::boot::{
+    RewardSet, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -46,9 +48,6 @@ use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::{GlobalConfig, RegisteredSignersInfo};
-
-/// The name of the function for casting a DKG result to signer vote contract
-pub const VOTE_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -484,12 +483,12 @@ impl StacksClient {
                 "Failed to convert aggregate public key to compressed data: {e}"
             ))
         })?;
-        let point = Point::try_from(&compressed_data).map_err(|e| {
+        let dkg_public_key = Point::try_from(&compressed_data).map_err(|e| {
             ClientError::MalformedClarityValue(format!(
                 "Failed to convert aggregate public key to a point: {e}"
             ))
         })?;
-        Ok(Some(point))
+        Ok(Some(dkg_public_key))
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
@@ -497,18 +496,18 @@ impl StacksClient {
         &self,
         signer_index: u32,
         round: u64,
-        point: Point,
+        dkg_public_key: Point,
         reward_cycle: u64,
         tx_fee: Option<u64>,
         nonce: u64,
     ) -> Result<StacksTransaction, ClientError> {
-        debug!("Building {VOTE_FUNCTION_NAME} transaction...");
+        debug!("Building {SIGNERS_VOTING_FUNCTION_NAME} transaction...");
         let contract_address = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
+        let function_name = ClarityName::from(SIGNERS_VOTING_FUNCTION_NAME);
         let function_args = vec![
             ClarityValue::UInt(signer_index as u128),
-            ClarityValue::buff_from(point.compress().data.to_vec())?,
+            ClarityValue::buff_from(dkg_public_key.compress().data.to_vec())?,
             ClarityValue::UInt(round as u128),
             ClarityValue::UInt(reward_cycle as u128),
         ];

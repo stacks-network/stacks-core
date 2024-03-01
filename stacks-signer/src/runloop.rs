@@ -156,6 +156,12 @@ impl RunLoop {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
                         debug!("Signer #{}: Next reward cycle ({reward_cycle}) signer set calculated. Updating current reward cycle ({prior_reward_cycle}) signer.", signer.signer_id);
+                        signer.next_signers = new_signer_config
+                            .registered_signers
+                            .signer_ids
+                            .keys()
+                            .copied()
+                            .collect();
                         signer.next_signer_ids = new_signer_config
                             .registered_signers
                             .signer_ids
@@ -201,7 +207,7 @@ impl RunLoop {
             if signer.approved_aggregate_public_key.is_none() {
                 retry_with_exponential_backoff(|| {
                     signer
-                        .update_dkg(&self.stacks_client, current_reward_cycle)
+                        .update_dkg(&self.stacks_client)
                         .map_err(backoff::Error::transient)
                 })?;
             }
