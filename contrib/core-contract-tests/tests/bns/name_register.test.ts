@@ -557,42 +557,41 @@ describe("register a name again before and after expiration", () => {
     expect(register.result).toBeOk(Cl.bool(true));
   });
 
-  // temp disabled, focusing on importing clarunit correctly
-  // it("should allow someone else to register after expiration", () => {
-  //   simnet.mineEmptyBlocks(cases[0].renewalRule + 5001);
+  it("should allow someone else to register after expiration", () => {
+    simnet.mineEmptyBlocks(cases[0].renewalRule + 5001);
 
-  //   const name = "bob";
-  //   const salt = "2222";
-  //   const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${salt}`);
-  //   const sha256 = createHash("sha256").update(merged).digest();
-  //   const ripemd160 = createHash("ripemd160").update(sha256).digest();
-  //   simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2560000)], charlie);
-  //   const register = simnet.callPublicFn(
-  //     "bns",
-  //     "name-register",
-  //     [
-  //       Cl.bufferFromAscii(cases[0].namespace),
-  //       Cl.bufferFromAscii(name),
-  //       Cl.bufferFromAscii(salt),
-  //       Cl.bufferFromAscii("CHARLIE"),
-  //     ],
-  //     charlie
-  //   );
-  //   expect(register.result).toBeOk(Cl.bool(true));
+    const name = "bob";
+    const salt = "2222";
+    const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${salt}`);
+    const sha256 = createHash("sha256").update(merged).digest();
+    const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2560000)], charlie);
+    const register = simnet.callPublicFn(
+      "bns",
+      "name-register",
+      [
+        Cl.bufferFromAscii(cases[0].namespace),
+        Cl.bufferFromAscii(name),
+        Cl.bufferFromAscii(salt),
+        Cl.bufferFromAscii("CHARLIE"),
+      ],
+      charlie
+    );
+    expect(register.result).toBeOk(Cl.bool(true));
 
-  //   const resolve = simnet.callReadOnlyFn(
-  //     "bns",
-  //     "name-resolve",
-  //     [Cl.bufferFromAscii(cases[0].namespace), Cl.bufferFromAscii(name)],
-  //     alice
-  //   );
-  //   expect(resolve.result).toBeOk(
-  //     Cl.tuple({
-  //       owner: Cl.standardPrincipal(charlie),
-  //       ["zonefile-hash"]: Cl.bufferFromAscii("CHARLIE"),
-  //       ["lease-ending-at"]: Cl.some(Cl.uint(5030)),
-  //       ["lease-started-at"]: Cl.uint(5020),
-  //     })
-  //   );
-  // });
+    const resolve = simnet.callReadOnlyFn(
+      "bns",
+      "name-resolve",
+      [Cl.bufferFromAscii(cases[0].namespace), Cl.bufferFromAscii(name)],
+      alice
+    );
+    expect(resolve.result).toBeOk(
+      Cl.tuple({
+        owner: Cl.standardPrincipal(charlie),
+        ["zonefile-hash"]: Cl.bufferFromAscii("CHARLIE"),
+        ["lease-ending-at"]: Cl.some(Cl.uint(5029)),
+        ["lease-started-at"]: Cl.uint(5019),
+      })
+    );
+  });
 });
