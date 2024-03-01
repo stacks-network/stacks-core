@@ -2152,6 +2152,10 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
+        // signer_key: StacksPublicKey,
+        // signature_opt: Option<Vec<u8>>,
+        // max_amount: u128,
+        // auth_id: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
