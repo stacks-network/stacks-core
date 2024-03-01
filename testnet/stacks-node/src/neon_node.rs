@@ -1251,7 +1251,7 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
         at_stacks_height: Option<u64>,
     ) -> Option<TipCandidate> {
-        info!("Picking best Stacks tip");
+        debug!("Picking best Stacks tip");
         let miner_config = config.get_miner_config();
         let max_depth = miner_config.max_reorg_depth;
 
@@ -1272,7 +1272,7 @@ impl BlockMinerThread {
             globals.add_best_tip(best_tip.stacks_height, best_tip.clone(), max_depth);
         } else {
             // no best-tip found; revert to old tie-breaker logic
-            info!("No best-tips found; using old tie-breaking logic");
+            debug!("No best-tips found; using old tie-breaking logic");
             return chain_state
                 .get_stacks_chain_tip(burn_db)
                 .expect("FATAL: could not load chain tip")
@@ -1357,7 +1357,7 @@ impl BlockMinerThread {
                     {
                         // This leaf does not confirm a previous-best-tip, so assign it the
                         // worst-possible score.
-                        info!("Tip #{} {}/{} at {}:{} conflicts with a previous best-tip {}/{} at {}:{}",
+                        debug!("Tip #{} {}/{} at {}:{} conflicts with a previous best-tip {}/{} at {}:{}",
                               i,
                               &leaf_tip.consensus_hash,
                               &leaf_tip.anchored_block_hash,
@@ -1417,7 +1417,7 @@ impl BlockMinerThread {
                 }
             }
 
-            info!(
+            debug!(
                 "Tip #{} {}/{} at {}:{} has score {} ({})",
                 i,
                 &leaf_tip.consensus_hash,
@@ -1448,7 +1448,7 @@ impl BlockMinerThread {
             .get(*best_tip_idx)
             .expect("FATAL: candidates should not be empty");
 
-        info!(
+        debug!(
             "Best tip is #{} {}/{}",
             best_tip_idx, &best_tip.consensus_hash, &best_tip.anchored_block_hash
         );
@@ -1559,12 +1559,12 @@ impl BlockMinerThread {
         } else {
             let mut best_attempt = 0;
             let mut max_txs = 0;
-            info!(
+            debug!(
                 "Consider {} in-flight Stacks tip(s)",
                 &last_mined_blocks.len()
             );
             for prev_block in last_mined_blocks.iter() {
-                info!(
+                debug!(
                     "Consider in-flight block {} on Stacks tip {}/{} in {} with {} txs",
                     &prev_block.anchored_block.block_hash(),
                     &prev_block.parent_consensus_hash,
@@ -1631,7 +1631,7 @@ impl BlockMinerThread {
                     } else {
                         if !force {
                             // no microblock stream to confirm, and the stacks tip hasn't changed
-                            info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
+                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
 
