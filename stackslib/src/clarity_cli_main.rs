@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-// comment
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
@@ -31,14 +31,7 @@ use stacks_common::util::log;
 fn main() {
     let argv: Vec<String> = env::args().collect();
 
-    let result = 
-    clarity::
-    invoke_command
-    (
-        &argv[0], 
-        &argv[1..]
-    )
-    ;
+    let result = clarity::invoke_command(&argv[0], &argv[1..]);
     match result {
         (exit_code, Some(output)) => {
             println!("{}", &serde_json::to_string(&output).unwrap());
