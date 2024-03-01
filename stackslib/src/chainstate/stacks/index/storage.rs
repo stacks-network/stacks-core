@@ -27,7 +27,7 @@ use std::{cmp, env, error, fmt, fs, io, os};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 use sha2::Digest;
 use stacks_common::types::chainstate::{

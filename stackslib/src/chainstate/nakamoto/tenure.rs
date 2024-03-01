@@ -68,7 +68,7 @@ use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,

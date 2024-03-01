@@ -17,9 +17,10 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{mem_type_check, AnalysisDatabase};
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };

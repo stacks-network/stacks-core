@@ -19,7 +19,6 @@ use std::{cmp, fmt};
 
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
@@ -342,6 +341,14 @@ impl CostErrors {
         }
     }
 }
+
+impl fmt::Display for CostErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for CostErrors {}
 
 fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
@@ -1158,23 +1165,6 @@ impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",
                self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
-    }
-}
-
-impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let val = serde_json::to_string(self)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        Ok(ToSqlOutput::from(val))
-    }
-}
-
-impl FromSql for ExecutionCost {
-    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
-        let str_val = String::column_result(value)?;
-        let parsed = serde_json::from_str(&str_val)
-            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))?;
-        Ok(parsed)
     }
 }
 

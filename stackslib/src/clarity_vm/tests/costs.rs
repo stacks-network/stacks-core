@@ -1083,7 +1083,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         .iter()
         {
             block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         contract_name,
                         clarity_version,
@@ -1094,7 +1094,8 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                 tx.initialize_smart_contract(
                     contract_name,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_src,
                     None,
                     |_, _| false,
@@ -1368,7 +1369,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         .iter()
         {
             block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         contract_name,
                         clarity_version,
@@ -1379,7 +1380,8 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                 tx.initialize_smart_contract(
                     contract_name,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_src,
                     None,
                     |_, _| false,

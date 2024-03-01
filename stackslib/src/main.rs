@@ -914,7 +914,7 @@ simulating a miner.
         };
 
         let mut stmt = conn.prepare(&query).unwrap();
-        let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut hashes_set = stmt.query([]).unwrap();
 
         let mut index_block_hashes: Vec<String> = vec![];
         while let Ok(Some(row)) = hashes_set.next() {
@@ -946,7 +946,7 @@ simulating a miner.
             byte_prefix
         );
         let mut stmt = conn.prepare(&query).unwrap();
-        let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut rows = stmt.query([]).unwrap();
         while let Ok(Some(row)) = rows.next() {
             let val_string: String = row.get(0).unwrap();
             let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {

@@ -22,7 +22,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -216,7 +216,7 @@ impl<'a> StackerDBTx<'a> {
         &self,
     ) -> Result<Vec<QualifiedContractIdentifier>, net_error> {
         let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
-        query_rows(&self.conn(), sql, NO_PARAMS).map_err(|e| e.into())
+        query_rows(&self.conn(), sql, []).map_err(|e| e.into())
     }
 
     /// Get the Stacker DB ID for a smart contract
@@ -519,7 +519,7 @@ impl StackerDBs {
         &self,
     ) -> Result<Vec<QualifiedContractIdentifier>, net_error> {
         let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
-        query_rows(&self.conn, sql, NO_PARAMS).map_err(|e| e.into())
+        query_rows(&self.conn, sql, []).map_err(|e| e.into())
     }
 
     /// Get the principal who signs a particular slot in a particular stacker DB.

@@ -37,7 +37,7 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, SymbolicExpression,
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use rand::prelude::*;
 use rand::thread_rng;
-use rusqlite::{DatabaseName, NO_PARAMS};
+use rusqlite::DatabaseName;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
