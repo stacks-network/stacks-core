@@ -376,15 +376,15 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
         // Only accept requests from localhost
-        let is_loopback = match preamble.host {
-            // Should never be DNS
-            PeerHost::DNS(..) => false,
-            PeerHost::IP(addr, ..) => addr.is_loopback(),
-        };
+        // let is_loopback = match preamble.host {
+        //     // Should never be DNS
+        //     PeerHost::DNS(..) => false,
+        //     PeerHost::IP(addr, ..) => addr.is_loopback(),
+        // };
 
-        if !is_loopback {
-            return Err(Error::Http(403, "Forbidden".into()));
-        }
+        // if !is_loopback {
+        //     return Err(Error::Http(403, "Forbidden".into()));
+        // }
 
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(

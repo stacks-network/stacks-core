@@ -477,14 +477,20 @@ impl Signer {
                 BlockInfo::new(block.clone()),
             );
             // Submit the block for validation
-            stacks_client
-                .submit_block_for_validation(block.clone())
-                .unwrap_or_else(|e| {
+            match stacks_client.submit_block_for_validation(block.clone()) {
+                Ok(_) => {
+                    info!(
+                        "Signer #{} (cycle {}): Submitted block for validation",
+                        self.signer_id, self.reward_cycle
+                    );
+                }
+                Err(e) => {
                     warn!(
                         "Signer #{}: Failed to submit block for validation: {e:?}",
                         self.signer_id
                     );
-                });
+                }
+            }
         }
     }
 
@@ -655,7 +661,7 @@ impl Signer {
                         );
                         Some(tx)
                     } else {
-                        debug!(
+                        warn!(
                             "Signer #{}: missing expected txid {}",
                             self.signer_id,
                             &tx.txid()
@@ -666,7 +672,7 @@ impl Signer {
                 .collect::<Vec<_>>();
             let is_valid = missing_transactions.is_empty();
             if !is_valid {
-                debug!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
+                warn!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
                 let block_rejection = BlockRejection::new(
                     block.header.signer_signature_hash(),
                     RejectCode::MissingTransactions(missing_transactions),
