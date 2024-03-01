@@ -32,7 +32,8 @@ fn main() {
     let argv: Vec<String> = env::args().collect();
     let a = 0;
     println!("{a}");
-    let result = clarity::invoke_command(&argv[0], &argv[1..]);
+    let result = clarity::
+    invoke_command(&argv[0], &argv[1..]);
     match result {
         (exit_code, Some(output)) => {
             println!("{}", &serde_json::to_string(&output).unwrap());
