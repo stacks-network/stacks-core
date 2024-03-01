@@ -94,7 +94,7 @@ describe("test pox-4 contract read only functions", () => {
     );
   });
 
-  it("should return none stacker-info", () => {
+  it("should return none get-stacker-info", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...simnet.getAccounts().values()),
