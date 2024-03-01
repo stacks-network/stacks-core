@@ -475,14 +475,20 @@ impl Signer {
                 BlockInfo::new(block.clone()),
             );
             // Submit the block for validation
-            stacks_client
-                .submit_block_for_validation(block.clone())
-                .unwrap_or_else(|e| {
+            match stacks_client.submit_block_for_validation(block.clone()) {
+                Ok(_) => {
+                    info!(
+                        "Signer #{} (cycle {}): Submitted block for validation",
+                        self.signer_id, self.reward_cycle
+                    );
+                }
+                Err(e) => {
                     warn!(
                         "Signer #{}: Failed to submit block for validation: {e:?}",
                         self.signer_id
                     );
-                });
+                }
+            }
         }
     }
 
