@@ -1101,7 +1101,12 @@
 ;; *New in Stacks 2.1*
 ;; This method locks up an additional amount of STX from `tx-sender`'s, indicated
 ;; by `increase-by`.  The `tx-sender` must already be Stacking.
-(define-public (stack-increase (increase-by uint))
+(define-public (stack-increase 
+  (increase-by uint)
+  (signer-sig (optional (buff 65)))
+  (signer-key (buff 33))
+  (max-amount uint)
+  (auth-id uint))
    (let ((stacker-info (stx-account tx-sender))
          (amount-stacked (get locked stacker-info))
          (amount-unlocked (get unlocked stacker-info))
@@ -1129,6 +1134,10 @@
       ;; stacker must not be delegating
       (asserts! (is-none (get delegated-to stacker-state))
                 (err ERR_STACKING_IS_DELEGATED))
+
+      ;; Validate that amount is less than or equal to `max-amount`
+      (asserts! (>= max-amount amount) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+      
       ;; update reward cycle amounts
       (asserts! (is-some (fold increase-reward-cycle-entry
             (get reward-set-indexes stacker-state)
