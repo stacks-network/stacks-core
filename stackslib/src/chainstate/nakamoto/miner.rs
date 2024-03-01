@@ -413,9 +413,13 @@ impl NakamotoBlockBuilder {
             parent_stacks_header.stacks_block_height,
         );
 
-        debug!(
-            "Build Nakamoto block off of {}/{} height {}",
-            &tip_consensus_hash, &tip_block_hash, tip_height
+        // TODO: use `debug!`
+        info!(
+            "Build Nakamoto block off of {}/{} height {} with {} signer transactions",
+            &tip_consensus_hash,
+            &tip_block_hash,
+            tip_height,
+            signer_transactions.clone().len()
         );
 
         let (mut chainstate, _) = chainstate_handle.reopen()?;
