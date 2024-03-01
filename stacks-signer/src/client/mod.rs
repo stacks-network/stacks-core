@@ -99,9 +99,6 @@ pub enum ClientError {
     /// No reward set exists for the given reward cycle
     #[error("No reward set exists for reward cycle {0}")]
     NoRewardSet(u64),
-    /// Reward set contained corrupted data
-    #[error("{0}")]
-    CorruptedRewardSet(String),
     /// Stacks node does not support a feature we need
     #[error("Stacks node does not support a required feature: {0}")]
     UnsupportedStacksFeature(String),
@@ -156,7 +153,8 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, RegisteredSignersInfo, SignerConfig};
+    use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -425,7 +423,7 @@ pub(crate) mod tests {
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
-        let mut signer_slot_ids = HashMap::new();
+        let mut signer_slot_ids = vec![];
         let ecdsa_private_key = config.ecdsa_private_key;
         let ecdsa_public_key =
             ecdsa::PublicKey::new(&ecdsa_private_key).expect("Failed to create ecdsa public key");
@@ -459,7 +457,7 @@ pub(crate) mod tests {
                     &StacksPublicKey::from_slice(ecdsa_public_key.to_bytes().as_slice())
                         .expect("Failed to create stacks public key"),
                 );
-                signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+                signer_slot_ids.push(SignerSlotID(signer_id));
                 signer_ids.insert(address, signer_id);
 
                 continue;
@@ -486,23 +484,23 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
-            signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+            signer_slot_ids.push(SignerSlotID(signer_id));
             signer_ids.insert(address, signer_id);
             start_key_id = end_key_id;
         }
         SignerConfig {
             reward_cycle,
             signer_id: 0,
-            signer_slot_id: 0,
+            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            registered_signers: RegisteredSignersInfo {
-                signer_slot_ids,
+            signer_entries: ParsedSignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,
                 signer_ids,
                 signer_public_keys,
             },
+            signer_slot_ids,
             ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
             node_host: config.node_host,

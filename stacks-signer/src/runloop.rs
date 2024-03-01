@@ -18,17 +18,21 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
-use hashbrown::HashMap;
+use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use blockstack_lib::util_lib::boot::boot_code_id;
+use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
 use stacks_common::{debug, error, info, warn};
+use wsts::curve::ecdsa;
+use wsts::curve::point::{Compressed, Point};
 use wsts::state_machine::coordinator::State as CoordinatorState;
-use wsts::state_machine::OperationResult;
+use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
-use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, State as SignerState};
+use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+use crate::signer::{Command as SignerCommand, Signer, SignerSlotID, State as SignerState};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -78,27 +82,118 @@ impl From<GlobalConfig> for RunLoop {
 }
 
 impl RunLoop {
+    /// Parse Nakamoto signer entries into relevant signer information
+    pub fn parse_nakamoto_signer_entries(
+        signers: &[NakamotoSignerEntry],
+        is_mainnet: bool,
+    ) -> ParsedSignerEntries {
+        let mut weight_end = 1;
+        let mut coordinator_key_ids = HashMap::with_capacity(4000);
+        let mut signer_key_ids = HashMap::with_capacity(signers.len());
+        let mut signer_ids = HashMap::with_capacity(signers.len());
+        let mut public_keys = PublicKeys {
+            signers: HashMap::with_capacity(signers.len()),
+            key_ids: HashMap::with_capacity(4000),
+        };
+        let mut signer_public_keys = HashMap::with_capacity(signers.len());
+        for (i, entry) in signers.iter().enumerate() {
+            // TODO: track these signer ids as non participating if any of the conversions fail
+            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
+            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice())
+                .expect("FATAL: corrupted signing key");
+            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
+                .expect("FATAL: corrupted signing key");
+            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
+                .expect("FATAL: Corrupted signing key");
+
+            let stacks_address = StacksAddress::p2pkh(is_mainnet, &stacks_public_key);
+            signer_ids.insert(stacks_address, signer_id);
+            signer_public_keys.insert(signer_id, signer_public_key);
+            let weight_start = weight_end;
+            weight_end = weight_start + entry.weight;
+            for key_id in weight_start..weight_end {
+                public_keys.key_ids.insert(key_id, ecdsa_public_key);
+                public_keys.signers.insert(signer_id, ecdsa_public_key);
+                coordinator_key_ids
+                    .entry(signer_id)
+                    .or_insert(HashSet::with_capacity(entry.weight as usize))
+                    .insert(key_id);
+                signer_key_ids
+                    .entry(signer_id)
+                    .or_insert(Vec::with_capacity(entry.weight as usize))
+                    .push(key_id);
+            }
+        }
+        ParsedSignerEntries {
+            signer_ids,
+            public_keys,
+            signer_key_ids,
+            signer_public_keys,
+            coordinator_key_ids,
+        }
+    }
+
+    /// Get the registered signers for a specific reward cycle
+    /// Returns None if no signers are registered or its not Nakamoto cycle
+    pub fn get_parsed_reward_set(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<ParsedSignerEntries>, ClientError> {
+        debug!("Getting registered signers for reward cycle {reward_cycle}...");
+        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
+            warn!("No reward set signers found for reward cycle {reward_cycle}.");
+            return Ok(None);
+        };
+        if signers.is_empty() {
+            warn!("No registered signers found for reward cycle {reward_cycle}.");
+            return Ok(None);
+        }
+        Ok(Some(Self::parse_nakamoto_signer_entries(
+            &signers,
+            self.config.network.is_mainnet(),
+        )))
+    }
+
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
+        &self,
+        stacks_client: &StacksClient,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id =
+            boot_code_id(SIGNERS_NAME, self.config.network.is_mainnet());
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            stacks_client.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
+        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
+            signer_slot_ids.insert(
+                address,
+                SignerSlotID(
+                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                ),
+            );
+        }
+        Ok(signer_slot_ids)
+    }
     /// Get a signer configuration for a specific reward cycle from the stacks node
     fn get_signer_config(&mut self, reward_cycle: u64) -> Option<SignerConfig> {
         // We can only register for a reward cycle if a reward set exists.
-        let registered_signers = self
-            .stacks_client
-            .get_registered_signers_info(reward_cycle).map_err(|e| {
-                error!(
-                    "Failed to retrieve registered signers info for reward cycle {reward_cycle}: {e}"
-                );
-                e
-            }).ok()??;
-
+        let signer_entries = self.get_parsed_reward_set(reward_cycle).ok()??;
+        let signer_slot_ids = self
+            .get_parsed_signer_slots(&self.stacks_client, reward_cycle)
+            .ok()?;
         let current_addr = self.stacks_client.get_signer_address();
 
-        let Some(signer_slot_id) = registered_signers.signer_slot_ids.get(current_addr) else {
+        let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
             warn!(
                     "Signer {current_addr} was not found in stacker db. Must not be registered for this reward cycle {reward_cycle}."
                 );
             return None;
         };
-        let Some(signer_id) = registered_signers.signer_ids.get(current_addr) else {
+        let Some(signer_id) = signer_entries.signer_ids.get(current_addr) else {
             warn!(
                 "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
             );
@@ -107,7 +202,7 @@ impl RunLoop {
         info!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = registered_signers
+        let key_ids = signer_entries
             .signer_key_ids
             .get(signer_id)
             .cloned()
@@ -117,7 +212,8 @@ impl RunLoop {
             signer_id: *signer_id,
             signer_slot_id: *signer_slot_id,
             key_ids,
-            registered_signers,
+            signer_entries,
+            signer_slot_ids: signer_slot_ids.into_values().collect(),
             ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host,
@@ -156,20 +252,13 @@ impl RunLoop {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
                         debug!("Signer #{}: Next reward cycle ({reward_cycle}) signer set calculated. Updating current reward cycle ({prior_reward_cycle}) signer.", signer.signer_id);
-                        signer.next_signers = new_signer_config
-                            .registered_signers
+                        signer.next_signer_addresses = new_signer_config
+                            .signer_entries
                             .signer_ids
                             .keys()
                             .copied()
                             .collect();
-                        signer.next_signer_ids = new_signer_config
-                            .registered_signers
-                            .signer_ids
-                            .values()
-                            .copied()
-                            .collect();
-                        signer.next_signer_slot_ids =
-                            new_signer_config.registered_signers.signer_slot_ids.clone();
+                        signer.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
                     }
                 }
                 self.stacks_signers
@@ -299,5 +388,38 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             signer.process_next_command(&self.stacks_client);
         }
         None
+    }
+}
+#[cfg(test)]
+mod tests {
+    use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
+    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+    use super::RunLoop;
+
+    #[test]
+    fn parse_nakamoto_signer_entries_test() {
+        let nmb_signers = 10;
+        let weight = 10;
+        let mut signer_entries = Vec::with_capacity(nmb_signers);
+        for _ in 0..nmb_signers {
+            let key = StacksPublicKey::from_private(&StacksPrivateKey::new()).to_bytes_compressed();
+            let mut signing_key = [0u8; 33];
+            signing_key.copy_from_slice(&key);
+            signer_entries.push(NakamotoSignerEntry {
+                signing_key,
+                stacked_amt: 0,
+                weight,
+            });
+        }
+
+        let parsed_entries = RunLoop::parse_nakamoto_signer_entries(&signer_entries, false);
+        assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
+        let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
+        signer_ids.sort();
+        assert_eq!(
+            signer_ids,
+            (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
+        );
     }
 }
