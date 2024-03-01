@@ -99,6 +99,13 @@ pub struct SignerCalculation {
     pub events: Vec<StacksTransactionEvent>,
 }
 
+pub struct AggregateKeyVoteParams {
+    pub signer_index: u64,
+    pub aggregate_key: Point,
+    pub voting_round: u64,
+    pub reward_cycle: u64,
+}
+
 impl RawRewardSetEntry {
     pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
@@ -515,7 +522,7 @@ impl NakamotoSigners {
 
     pub fn parse_vote_for_aggregate_public_key(
         transaction: &StacksTransaction,
-    ) -> Option<(u64, Point, u64, u64)> {
+    ) -> Option<AggregateKeyVoteParams> {
         let TransactionPayload::ContractCall(payload) = &transaction.payload else {
             // Not a contract call so not a special cased vote for aggregate public key transaction
             return None;
@@ -535,12 +542,17 @@ impl NakamotoSigners {
         let point_value = payload.function_args.get(1)?;
         let point_bytes = point_value.clone().expect_buff(33).ok()?;
         let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
-        let point = Point::try_from(&compressed_data).ok()?;
+        let aggregate_key = Point::try_from(&compressed_data).ok()?;
         let round_value = payload.function_args.get(2)?;
-        let round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
+        let voting_round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
         let reward_cycle =
             u64::try_from(payload.function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
-        Some((signer_index, point, round, reward_cycle))
+        Some(AggregateKeyVoteParams {
+            signer_index,
+            aggregate_key,
+            voting_round,
+            reward_cycle,
+        })
     }
 
     /// Update the map of filtered valid transactions, selecting one per address based first on lowest nonce, then txid

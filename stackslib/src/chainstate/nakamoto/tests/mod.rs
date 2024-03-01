@@ -2122,12 +2122,11 @@ fn parse_vote_for_aggregate_public_key_valid() {
             function_args: valid_function_args,
         }),
     };
-    let (res_signer_index, res_point, res_round, res_reward_cycle) =
-        NakamotoSigners::parse_vote_for_aggregate_public_key(&valid_tx).unwrap();
-    assert_eq!(res_signer_index, signer_index);
-    assert_eq!(res_point, point);
-    assert_eq!(res_round, round);
-    assert_eq!(res_reward_cycle, reward_cycle);
+    let params = NakamotoSigners::parse_vote_for_aggregate_public_key(&valid_tx).unwrap();
+    assert_eq!(params.signer_index, signer_index);
+    assert_eq!(params.aggregate_key, point);
+    assert_eq!(params.voting_round, round);
+    assert_eq!(params.reward_cycle, reward_cycle);
 }
 
 #[test]

@@ -1131,22 +1131,22 @@ impl Signer {
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
             let signer_address = stacks_client.get_signer_address();
-            let account_nonces = self.get_account_nonces(stacks_client, &[signer_address.clone()]);
+            let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
             let old_transactions = self.get_signer_transactions(&account_nonces).map_err(|e| {
                 warn!("Signer #{}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily", self.signer_id);
             }).unwrap_or_default();
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
-                let (_index, dkg_public_key, round, reward_cycle) =
-                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).expect(&format!("BUG: Signer #{}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}", self.signer_id));
-                if Some(dkg_public_key) == self.coordinator.aggregate_public_key
-                    && round == self.coordinator.current_dkg_id
+                let params =
+                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).unwrap_or_else(|| panic!("BUG: Signer #{}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}", self.signer_id));
+                if Some(params.aggregate_key) == self.coordinator.aggregate_public_key
+                    && params.voting_round == self.coordinator.current_dkg_id
                     && reward_cycle == self.reward_cycle
                 {
                     debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.signer_id;
                         "txid" => %transaction.txid(),
-                        "dkg_public_key" => %dkg_public_key,
-                        "round" => round
+                        "aggregate_key" => %params.aggregate_key,
+                        "voting_round" => params.voting_round
                     );
                     return Ok(());
                 }
