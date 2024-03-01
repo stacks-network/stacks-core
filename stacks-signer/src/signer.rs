@@ -659,7 +659,7 @@ impl Signer {
                         );
                         Some(tx)
                     } else {
-                        debug!(
+                        warn!(
                             "Signer #{}: missing expected txid {}",
                             self.signer_id,
                             &tx.txid()
@@ -670,7 +670,7 @@ impl Signer {
                 .collect::<Vec<_>>();
             let is_valid = missing_transactions.is_empty();
             if !is_valid {
-                debug!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
+                warn!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
                 let block_rejection = BlockRejection::new(
                     block.header.signer_signature_hash(),
                     RejectCode::MissingTransactions(missing_transactions),
