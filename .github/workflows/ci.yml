@@ -79,7 +79,7 @@ jobs:
         id: rustfmt
         uses: BowTiedDevOps/actions/rustfmt@feat/rustfmt-alias
         with:
-          alias: "fmt-stacks"
+          alias: "stacks"
 
   ######################################################################################
   ## Create a tagged github release
