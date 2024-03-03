@@ -1074,7 +1074,7 @@
           (passed-signer-key (get signer-key data)))
     (if (> first-cycle reward-cycle)
         ;; not at first cycle to process yet
-        (some { first-cycle: first-cycle, reward-cycle: (+ u1 reward-cycle), stacker: (get stacker data), add-amount: (get add-amount data) })
+        (some { first-cycle: first-cycle, reward-cycle: (+ u1 reward-cycle), stacker: (get stacker data), add-amount: (get add-amount data), signer-key: (get signer-key data) })
         (let ((existing-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })))
               (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
               (existing-signer-key (get signer existing-entry))
@@ -1099,7 +1099,8 @@
             (some { first-cycle: first-cycle,
                     reward-cycle: (+ u1 reward-cycle),
                     stacker: (get stacker data),
-                    add-amount: (get add-amount data) })))))
+                    add-amount: (get add-amount data),
+                    signer-key: passed-signer-key })))))
 
 ;; Increase the number of STX locked.
 ;; *New in Stacks 2.1*
