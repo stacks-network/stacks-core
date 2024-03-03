@@ -1,9 +1,9 @@
 use std::collections::HashSet;
-use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -1927,7 +1927,42 @@ impl NodeConfig {
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
         debug!("Resolve '{}'", &hostport);
-        let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
+
+        let mut attempts = 0;
+        let max_attempts = 5;
+        let mut delay = Duration::from_secs(2);
+
+        let sockaddr = loop {
+            match hostport.to_socket_addrs() {
+                Ok(mut addrs) => {
+                    if let Some(addr) = addrs.next() {
+                        break addr;
+                    } else {
+                        panic!("No addresses found for '{}'", hostport);
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        panic!(
+                            "Failed to resolve '{}' after {} attempts: {}",
+                            hostport, max_attempts, e
+                        );
+                    } else {
+                        error!(
+                            "Attempt {} - Failed to resolve '{}': {}. Retrying in {:?}...",
+                            attempts + 1,
+                            hostport,
+                            e,
+                            delay
+                        );
+                        thread::sleep(delay);
+                        attempts += 1;
+                        delay *= 2;
+                    }
+                }
+            }
+        };
+
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
     }

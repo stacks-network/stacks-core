@@ -682,6 +682,8 @@ pub enum Error {
     UnknownBlock(BurnchainHeaderHash),
     NonCanonicalPoxId(PoxId, PoxId),
     CoordinatorClosed,
+    /// Graceful shutdown error
+    ShutdownInitiated,
 }
 
 impl fmt::Display for Error {
@@ -706,6 +708,7 @@ impl fmt::Display for Error {
                 parent, child
             ),
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
+            Error::ShutdownInitiated => write!(f, "Graceful shutdown was initiated"),
         }
     }
 }
@@ -728,6 +731,7 @@ impl error::Error for Error {
             Error::UnknownBlock(_) => None,
             Error::NonCanonicalPoxId(_, _) => None,
             Error::CoordinatorClosed => None,
+            Error::ShutdownInitiated => None,
         }
     }
 }
