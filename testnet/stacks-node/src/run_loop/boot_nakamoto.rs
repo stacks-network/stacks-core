@@ -24,11 +24,11 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::core::StacksEpochExtension;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
-use stacks_node::config::Config;
 
 use crate::neon::Counters;
 use crate::run_loop::nakamoto::RunLoop as NakaRunLoop;
 use crate::run_loop::neon::RunLoop as NeonRunLoop;
+use crate::Config;
 
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.

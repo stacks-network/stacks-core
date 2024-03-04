@@ -39,7 +39,8 @@ use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::util::hash::bytes_to_hex;
-use stacks_node::config::{EventKeyType, EventObserverConfig};
+
+use super::config::{EventKeyType, EventObserverConfig};
 
 #[derive(Debug, Clone)]
 struct EventObserver {

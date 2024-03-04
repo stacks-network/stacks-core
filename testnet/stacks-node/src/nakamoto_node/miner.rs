@@ -46,15 +46,14 @@ use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
-use stacks_node::config::Config;
 use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
-use super::{Error as NakamotoNodeError, Keychain};
+use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
-use crate::{neon_node, ChainTip, EventDispatcher};
+use crate::{neon_node, ChainTip};
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?

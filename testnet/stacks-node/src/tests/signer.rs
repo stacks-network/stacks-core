@@ -39,9 +39,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_node::config::{
-    Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance,
-};
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
@@ -55,6 +52,7 @@ use wsts::curve::scalar::Scalar;
 use wsts::state_machine::OperationResult;
 use wsts::taproot::SchnorrProof;
 
+use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -105,7 +103,7 @@ impl SignerTest {
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
 
-        let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
+        let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(

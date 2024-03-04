@@ -50,9 +50,11 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
-use stacks_node::config::Config;
 
-use super::{BlockCommits, Error as NakamotoNodeError, Keychain, BLOCK_PROCESSOR_STACK_SIZE};
+use super::{
+    BlockCommits, Config, Error as NakamotoNodeError, EventDispatcher, Keychain,
+    BLOCK_PROCESSOR_STACK_SIZE,
+};
 use crate::burnchains::BurnchainController;
 use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
 use crate::neon_node::{
@@ -60,7 +62,7 @@ use crate::neon_node::{
 };
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
-use crate::{BitcoinRegtestController, EventDispatcher};
+use crate::BitcoinRegtestController;
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 pub enum RelayerDirective {

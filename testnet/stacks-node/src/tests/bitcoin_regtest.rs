@@ -9,9 +9,9 @@ use stacks::chainstate::burn::operations::BlockstackOperationType::{
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
-use stacks_node::config::InitialBalance;
 
 use super::PUBLISH_CONTRACT;
+use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;

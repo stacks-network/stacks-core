@@ -17,7 +17,6 @@
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 
-use serde::{Deserialize, Serialize};
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
 use stacks::burnchains::{Burnchain, BurnchainSigner, Error as BurnchainError, Txid};

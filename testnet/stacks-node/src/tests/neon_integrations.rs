@@ -61,8 +61,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
-use stacks_node::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
-use stacks_node::utils::{get_account, submit_tx};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
@@ -71,6 +69,7 @@ use super::{
     SK_2, SK_3,
 };
 use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
+use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -698,6 +697,32 @@ pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64
     return true;
 }
 
+/// returns Txid string
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/transactions", http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+        return res;
+    } else {
+        eprintln!("Submit tx error: {}", res.text().unwrap());
+        panic!("");
+    }
+}
+
 pub fn get_unconfirmed_tx(http_origin: &str, txid: &Txid) -> Option<String> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions/unconfirmed/{}", http_origin, txid);
@@ -1169,6 +1194,30 @@ fn most_recent_utxo_integration_test() {
 
 pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
     get_account(http_origin, account).balance
+}
+
+#[derive(Debug)]
+pub struct Account {
+    pub balance: u128,
+    pub locked: u128,
+    pub nonce: u64,
+}
+
+pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<AccountEntryResponse>()
+        .unwrap();
+    info!("Account response: {:#?}", res);
+    Account {
+        balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+        locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
+        nonce: res.nonce,
+    }
 }
 
 pub fn get_pox_info(http_origin: &str) -> Option<RPCPoxInfoData> {

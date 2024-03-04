@@ -30,11 +30,11 @@ use stacks::net::stackerdb::StackerDBs;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
 
+use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::addr2str;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
-use crate::Keychain;
 
 pub mod miner;
 pub mod peer;

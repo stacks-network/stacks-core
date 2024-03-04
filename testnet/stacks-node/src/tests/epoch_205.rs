@@ -24,9 +24,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::sleep_ms;
-use stacks_node::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use stacks_node::utils::{get_account, submit_tx};
 
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::{

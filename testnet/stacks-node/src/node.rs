@@ -44,9 +44,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
-use stacks_node::config::Config;
 
-use super::{BurnchainController, BurnchainTip, EventDispatcher, Keychain, Tenure};
+use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
 use crate::run_loop;

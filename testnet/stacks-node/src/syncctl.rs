@@ -5,9 +5,9 @@ use std::sync::Arc;
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use stacks_node::config::Config;
 
 use crate::burnchains::BurnchainTip;
+use crate::Config;
 
 // amount of time to wait for an inv or download sync to complete.
 // These _really should_ complete before the PoX sync watchdog permits processing the next reward

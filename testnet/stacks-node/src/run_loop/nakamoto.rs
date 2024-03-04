@@ -33,7 +33,6 @@ use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
-use stacks_node::config::Config;
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
@@ -47,7 +46,9 @@ use crate::node::{
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{run_loop, BitcoinRegtestController, BurnchainController, EventDispatcher, Keychain};
+use crate::{
+    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+};
 
 pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;

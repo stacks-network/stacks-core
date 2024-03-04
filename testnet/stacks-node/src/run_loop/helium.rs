@@ -1,10 +1,11 @@
 use stacks::chainstate::stacks::db::ClarityTx;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_node::config::Config;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::Error as BurnchainControllerError;
-use crate::{BitcoinRegtestController, BurnchainController, ChainTip, MocknetController, Node};
+use crate::{
+    BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
+};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.

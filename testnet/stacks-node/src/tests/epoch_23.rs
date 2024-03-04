@@ -21,9 +21,8 @@ use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks_common::util::sleep_ms;
-use stacks_node::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use stacks_node::utils::submit_tx;
 
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;

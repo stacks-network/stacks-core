@@ -10,13 +10,11 @@ members = [
     "contrib/tools/relay-server",
     "libsigner",
     "stacks-signer",
-    "testnet/stacks-node",
-    "blind-signer",
-]
+    "testnet/stacks-node"]
 
 # Dependencies we want to keep the same between workspace members
-[workspace.dependencies]
-ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] }
+[workspace.dependencies]  
+ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] } 
 hashbrown = "0.14.3"
 rand_core = "0.6"
 rand = "0.8"

@@ -31,13 +31,12 @@ use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::RPCHandlerArgs;
 use stacks_common::util::hash::Sha256Sum;
-use stacks_node::config::Config;
 
 use crate::burnchains::make_bitcoin_indexer;
 use crate::nakamoto_node::relayer::RelayerDirective;
 use crate::neon_node::open_chainstate_with_faults;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
-use crate::EventDispatcher;
+use crate::{Config, EventDispatcher};
 
 /// Thread that runs the network state machine, handling both p2p and http requests.
 pub struct PeerThread {
