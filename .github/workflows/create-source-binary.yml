@@ -9,18 +9,6 @@ on:
         description: "Tag name of this release (x.y.z)"
         required: true
         type: string
-      arch:
-        description: "Stringified JSON object listing of platform matrix"
-        required: false
-        type: string
-        default: >-
-          ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-glibc-armv7", "linux-musl-arm64", "linux-musl-armv7", "macos-x64", "macos-arm64", "windows-x64"]
-      cpu:
-        description: "Stringified JSON object listing of target CPU matrix (for x86_64 builds)"
-        required: false
-        type: string
-        default: >-
-          ["x86-64", "x86-64-v3"]
 
 ## change the display name to the tag being built
 run-name: ${{ inputs.tag }}
@@ -36,29 +24,40 @@ jobs:
   ##  - workflow is building default branch (master)
   artifact:
     if: |
-      inputs.tag != '' && 
+      inputs.tag != '' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     name: Build Binaries
     runs-on: ubuntu-latest
     strategy:
-      ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
-      max-parallel: 10
+      ## Run a maximum of 13 builds concurrently, using the matrixes defined bellow
+      max-parallel: 13
       matrix:
-        platform: ${{ fromJson(inputs.arch) }}
-        cpu: ${{ fromJson(inputs.cpu) }}
+        arch:
+          - linux-musl
+          - linux-glibc
+          - macos
+          - windows
+        cpu:
+          - arm64
+          - armv7
+          - x86-64
+          - x86-64-v3
+        exclude:
+          - arch: windows # excludes windows-arm64
+            cpu: arm64
+          - arch: windows # excludes windows-armv7
+            cpu: armv7
+          - arch: macos # excludes macos-armv7
+            cpu: armv7
     env:
       TEST_TIMEOUT: 30
     steps:
       ## Call composite action
       - name: Build Binary
-        if: |
-          !(
-            contains(matrix.platform, 'arm') && 
-            contains(matrix.cpu, 'v3')
-          )
         id: build_binary
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: BowTiedDevOps/actions/stacks-core/create-source-binary@feat/update-release-dockerfiles
+        uses: BowTiedDevOps/actions/stacks-core/create-source-binary@feat/update-release-build-dockerfiles
         with:
-          arch: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
           cpu: ${{ matrix.cpu }}
+          tag: ${{ inputs.tag }}
