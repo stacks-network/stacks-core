@@ -137,6 +137,7 @@ pub(crate) mod tests {
     };
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
     use rand::distributions::Standard;
@@ -331,11 +332,18 @@ pub(crate) mod tests {
     /// Build a response for the get_approved_aggregate_key request
     pub fn build_get_approved_aggregate_key_response(point: Option<Point>) -> String {
         let clarity_value = if let Some(point) = point {
-            ClarityValue::some(
-                ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                    .expect("BUG: Failed to create clarity value from point"),
-            )
-            .expect("BUG: Failed to create clarity value from point")
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "aggregate-public-key".into(),
+                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                            .expect("BUG: Failed to create clarity value from point"),
+                    ),
+                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
         } else {
             ClarityValue::none()
         };
