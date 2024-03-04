@@ -2642,7 +2642,10 @@ fn test_set_signer_key_auth() {
     let mut signer_nonce = 0;
     let signer_key = &keys[1];
     let signer_public_key = StacksPublicKey::from_private(signer_key);
+    let signer_addr = key_to_stacks_addr(&signer_key);
     let pox_addr = pox_addr_from(&signer_key);
+
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
 
     // Only the address associated with `signer-key` can enable auth for that key
     let invalid_enable_nonce = alice_nonce;
@@ -2657,21 +2660,55 @@ fn test_set_signer_key_auth() {
         Some(&alice_key),
     );
 
-    // Disable auth for `signer-key`
-    let disable_auth_nonce = signer_nonce;
-    let disable_auth_tx: StacksTransaction = make_pox_4_set_signer_key_auth(
+    // Test that period is at least u1
+    let signer_invalid_period_nonce = signer_nonce;
+    signer_nonce += 1;
+    let invalid_tx_period: StacksTransaction = make_pox_4_set_signer_key_auth(
+        &pox_addr,
+        &signer_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        0,
+        false,
+        signer_invalid_period_nonce,
+        Some(&signer_key),
+    );
+
+    let signer_invalid_cycle_nonce = signer_nonce;
+    signer_nonce += 1;
+    // Test that confirmed reward cycle is at least current reward cycle
+    let invalid_tx_cycle: StacksTransaction = make_pox_4_set_signer_key_auth(
         &pox_addr,
         &signer_key,
         1,
         &Pox4SignatureTopic::StackStx,
+        1,
+        false,
+        signer_invalid_cycle_nonce,
+        Some(&signer_key),
+    );
+
+    // Disable auth for `signer-key`
+    let disable_auth_tx: StacksTransaction = make_pox_4_set_signer_key_auth(
+        &pox_addr,
+        &signer_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
         lock_period,
         false,
-        disable_auth_nonce,
+        signer_nonce,
         None,
     );
 
-    let latest_block =
-        peer.tenure_with_txs(&[invalid_enable_tx, disable_auth_tx], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(
+        &[
+            invalid_enable_tx,
+            invalid_tx_period,
+            invalid_tx_cycle,
+            disable_auth_tx,
+        ],
+        &mut coinbase_nonce,
+    );
 
     let alice_txs = get_last_block_sender_transactions(&observer, alice_addr);
     let invalid_enable_tx_result = alice_txs
@@ -2682,11 +2719,39 @@ fn test_set_signer_key_auth() {
     let expected_error = Value::error(Value::Int(19)).unwrap();
     assert_eq!(invalid_enable_tx_result, expected_error);
 
+    let signer_txs = get_last_block_sender_transactions(&observer, signer_addr);
+
+    let invalid_tx_period_result = signer_txs
+        .clone()
+        .get(signer_invalid_period_nonce as usize)
+        .unwrap()
+        .result
+        .clone();
+
+    // Check for invalid lock period err
+    assert_eq!(
+        invalid_tx_period_result,
+        Value::error(Value::Int(2)).unwrap()
+    );
+
+    let invalid_tx_cycle_result = signer_txs
+        .clone()
+        .get(signer_invalid_cycle_nonce as usize)
+        .unwrap()
+        .result
+        .clone();
+
+    // Check for invalid cycle err
+    assert_eq!(
+        invalid_tx_cycle_result,
+        Value::error(Value::Int(37)).unwrap()
+    );
+
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
         &latest_block,
         &pox_addr,
-        1,
+        current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period.try_into().unwrap(),
         &signer_public_key,
@@ -2700,7 +2765,7 @@ fn test_set_signer_key_auth() {
     let enable_auth_tx = make_pox_4_set_signer_key_auth(
         &pox_addr,
         &signer_key,
-        1,
+        current_reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         true,
@@ -2714,7 +2779,7 @@ fn test_set_signer_key_auth() {
         &mut peer,
         &latest_block,
         &pox_addr,
-        1,
+        current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period.try_into().unwrap(),
         &signer_public_key,
@@ -2728,7 +2793,7 @@ fn test_set_signer_key_auth() {
     let disable_auth_tx = make_pox_4_set_signer_key_auth(
         &pox_addr,
         &signer_key,
-        1,
+        current_reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         false,
@@ -2742,7 +2807,7 @@ fn test_set_signer_key_auth() {
         &mut peer,
         &latest_block,
         &pox_addr,
-        1,
+        current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period.try_into().unwrap(),
         &signer_public_key,

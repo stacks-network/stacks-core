@@ -32,6 +32,7 @@
 (define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
 (define-constant ERR_INVALID_SIGNATURE_PUBKEY 35)
 (define-constant ERR_INVALID_SIGNATURE_RECOVER 36)
+(define-constant ERR_INVALID_REWARD_CYCLE 37)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -1368,6 +1369,10 @@
     (asserts! (is-eq
       (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
       tx-sender) (err ERR_NOT_ALLOWED))
+    ;; Must be called with positive period
+    (asserts! (>= period u1) (err ERR_STACKING_INVALID_LOCK_PERIOD))
+    ;; Must be current or future reward cycle
+    (asserts! (>= reward-cycle (current-pox-reward-cycle)) (err ERR_INVALID_REWARD_CYCLE))
     (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key } allowed)
     (ok allowed)))
 

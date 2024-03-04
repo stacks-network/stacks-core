@@ -33,6 +33,7 @@ use stacks_common::{debug, warn};
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
 use crate::config::SignerConfig;
+use crate::signer::SignerSlotID;
 
 /// The StackerDB client for communicating with the .signers contract
 pub struct StackerDB {
@@ -42,9 +43,9 @@ pub struct StackerDB {
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
-    slot_versions: HashMap<u32, HashMap<u32, u32>>,
+    slot_versions: HashMap<u32, HashMap<SignerSlotID, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
-    signer_slot_id: u32,
+    signer_slot_id: SignerSlotID,
     /// The reward cycle of the connecting signer
     reward_cycle: u64,
     /// The stacker-db transaction msg session for the NEXT reward cycle
@@ -69,7 +70,7 @@ impl StackerDB {
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
         reward_cycle: u64,
-        signer_slot_id: u32,
+        signer_slot_id: SignerSlotID,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
         let stackerdb_issuer = boot_code_addr(is_mainnet);
@@ -134,7 +135,7 @@ impl StackerDB {
                 1
             };
 
-            let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
+            let mut chunk = StackerDBChunkData::new(slot_id.0, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
 
             let Some(session) = self.signers_message_stackerdb_sessions.get_mut(&msg_id) else {
@@ -184,11 +185,11 @@ impl StackerDB {
     /// Get the transactions from stackerdb for the signers
     fn get_transactions(
         transactions_session: &mut StackerDBSession,
-        signer_ids: &[u32],
+        signer_ids: &[SignerSlotID],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let send_request = || {
             transactions_session
-                .get_latest_chunks(signer_ids)
+                .get_latest_chunks(&signer_ids.iter().map(|id| id.0).collect::<Vec<_>>())
                 .map_err(backoff::Error::transient)
         };
         let chunk_ack = retry_with_exponential_backoff(send_request)?;
@@ -225,25 +226,23 @@ impl StackerDB {
         Ok(transactions)
     }
 
-    /// Get the latest signer transactions from signer ids for the current reward cycle
+    /// Get this signer's latest transactions from stackerdb
     pub fn get_current_transactions_with_retry(
         &mut self,
-        signer_id: u32,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        debug!("Signer #{signer_id}: Getting latest transactions from stacker db",);
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
             .get_mut(&TRANSACTIONS_MSG_ID)
         else {
             return Err(ClientError::NotConnected);
         };
-        Self::get_transactions(transactions_session, &[signer_id])
+        Self::get_transactions(transactions_session, &[self.signer_slot_id])
     }
 
     /// Get the latest signer transactions from signer ids for the next reward cycle
     pub fn get_next_transactions_with_retry(
         &mut self,
-        signer_ids: &[u32],
+        signer_ids: &[SignerSlotID],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
         Self::get_transactions(&mut self.next_transaction_session, signer_ids)
@@ -255,7 +254,7 @@ impl StackerDB {
     }
 
     /// Retrieve the signer slot ID
-    pub fn get_signer_slot_id(&mut self) -> u32 {
+    pub fn get_signer_slot_id(&mut self) -> SignerSlotID {
         self.signer_slot_id
     }
 }
@@ -270,14 +269,12 @@ mod tests {
         TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
-    use serial_test::serial;
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
     use crate::config::GlobalConfig;
 
     #[test]
-    #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
@@ -302,8 +299,8 @@ mod tests {
         let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
         let message = signer_message.serialize_to_vec();
 
-        let signer_ids = vec![0, 1];
-        let h = spawn(move || stackerdb.get_next_transactions_with_retry(&signer_ids));
+        let signer_slot_ids = vec![SignerSlotID(0), SignerSlotID(1)];
+        let h = spawn(move || stackerdb.get_next_transactions_with_retry(&signer_slot_ids));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let mock_server = mock_server_from_config(&config);
@@ -321,9 +318,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn send_signer_message_with_retry_should_succeed() {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
 
