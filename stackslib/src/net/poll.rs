@@ -156,11 +156,12 @@ impl NetworkState {
             server_event: mio::Token(next_server_event),
         };
 
-        let event_map_contains_key = if let Entry::Occupied(_) = self.event_map.entry(next_server_event) {
-            true
-        } else {
-            false
-        };
+        let event_map_contains_key =
+            if let Entry::Occupied(_) = self.event_map.entry(next_server_event) {
+                true
+            } else {
+                false
+            };
 
         assert!(
             !event_map_contains_key,
@@ -249,11 +250,7 @@ impl NetworkState {
             false
         };
 
-        assert!(
-            event_map_contains_key,
-            "BUG: no such socket {}",
-            event_id
-        );
+        assert!(event_map_contains_key, "BUG: no such socket {}", event_id);
         self.event_map.remove(&event_id);
 
         if let Err(e) = self.poll.deregister(sock) {

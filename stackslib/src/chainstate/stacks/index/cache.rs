@@ -138,7 +138,9 @@ impl<T: MarfTrieId> TrieCacheState<T> {
 
     /// Cache a block hash, given its ID
     pub fn store_block_hash(&mut self, block_id: u32, block_hash: T) {
-        let contains_key = if let std::collections::hash_map::Entry::Occupied(_) = self.block_hash_cache.entry(block_id) {
+        let contains_key = if let std::collections::hash_map::Entry::Occupied(_) =
+            self.block_hash_cache.entry(block_id)
+        {
             true
         } else {
             false

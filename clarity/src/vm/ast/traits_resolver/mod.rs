@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::{HashMap, HashSet, hash_map::Entry};
+use hashbrown::hash_map::Entry;
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
@@ -65,7 +66,9 @@ impl TraitsResolver {
                     match (&args[0].pre_expr, &args[1].pre_expr) {
                         (Atom(trait_name), List(trait_definition)) => {
                             // Check for collisions
-                            if let Entry::Occupied(_) = contract_ast.referenced_traits.entry(trait_name.to_owned()) {
+                            if let Entry::Occupied(_) =
+                                contract_ast.referenced_traits.entry(trait_name.to_owned())
+                            {
                                 return Err(
                                     ParseErrors::NameAlreadyUsed(trait_name.to_string()).into()
                                 );
@@ -96,7 +99,9 @@ impl TraitsResolver {
 
                     if let Some(trait_name) = args[0].match_atom() {
                         // Check for collisions
-                        if let Entry::Occupied(_) = contract_ast.referenced_traits.entry(trait_name.to_owned()) {
+                        if let Entry::Occupied(_) =
+                            contract_ast.referenced_traits.entry(trait_name.to_owned())
+                        {
                             return Err(ParseErrors::NameAlreadyUsed(trait_name.to_string()).into());
                         }
 
@@ -161,7 +166,10 @@ impl TraitsResolver {
         }
 
         for (trait_reference, expr) in referenced_traits {
-            if let Entry::Vacant(_) = contract_ast.referenced_traits.entry(trait_reference.to_owned()) {
+            if let Entry::Vacant(_) = contract_ast
+                .referenced_traits
+                .entry(trait_reference.to_owned())
+            {
                 let mut err = ParseError::new(ParseErrors::TraitReferenceUnknown(
                     trait_reference.to_string(),
                 ));

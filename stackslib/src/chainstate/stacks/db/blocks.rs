@@ -3087,7 +3087,9 @@ impl StacksChainState {
         let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
         for i in 0..signed_microblocks.len() {
             let signed_microblock = &signed_microblocks[i];
-            if let std::collections::hash_map::Entry::Occupied(_) = parent_hashes.entry(signed_microblock.header.prev_block.to_owned()) {
+            if let std::collections::hash_map::Entry::Occupied(_) =
+                parent_hashes.entry(signed_microblock.header.prev_block.to_owned())
+            {
                 debug!(
                     "Deliberate microblock fork: duplicate parent {}",
                     signed_microblock.header.prev_block

@@ -42,9 +42,9 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
+
 // #[cfg(not(target_env = "msvc"))]
 // use tikv_jemallocator::Jemalloc;
-
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };

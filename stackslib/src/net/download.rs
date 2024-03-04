@@ -1755,7 +1755,9 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        if let Entry::Occupied(_) = downloader.microblocks_to_try.entry(mblock_height) {
+                        if let Entry::Occupied(_) =
+                            downloader.microblocks_to_try.entry(mblock_height)
+                        {
                             mblock_height += 1;
                             debug!(
                                 "Microblocks download already in-flight for {}",
