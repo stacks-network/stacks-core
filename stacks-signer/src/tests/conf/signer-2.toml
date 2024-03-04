@@ -1,5 +1,0 @@
-
-stacks_private_key = "b169d0d1408f66d16beb321857f525f9014dfc289f1aeedbcf96e78afeb8eb4001"
-node_host = "127.0.0.1:20443"
-endpoint = "localhost:30002"
-network = "testnet"
