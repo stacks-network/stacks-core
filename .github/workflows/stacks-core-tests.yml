@@ -160,9 +160,10 @@ jobs:
         id: codecov
         uses: stacks-network/actions/codecov@main
         with:
+          fail_ci_if_error: true
           test-name: ${{ matrix.test-name }}
           upload-only: true
-          filename: ./lcov.info
+          filename: ./contrib/core-contract-tests/lcov.info
 
   # Core contract tests on Clarinet v1
   # Check for false positives/negatives

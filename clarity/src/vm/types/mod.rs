@@ -20,7 +20,6 @@ pub mod serialization;
 pub mod signatures;
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::{char, cmp, fmt, str};
 
 use regex::Regex;

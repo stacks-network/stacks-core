@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::default::Default;
 use std::marker::PhantomData;
 use std::{error, fmt, io};
 

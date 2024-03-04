@@ -16,7 +16,6 @@
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
