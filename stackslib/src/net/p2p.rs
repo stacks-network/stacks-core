@@ -56,6 +56,7 @@ use crate::net::atlas::{AtlasDB, AttachmentInstance, AttachmentsDownloader};
 use crate::net::chat::{ConversationP2P, NeighborStats};
 use crate::net::connection::{ConnectionOptions, NetworkReplyHandle, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::StacksHttpRequest;
@@ -70,6 +71,7 @@ use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, Stacker
 use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use wsts::curve::point::Point;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -219,9 +221,22 @@ pub struct PeerNetwork {
     // refreshed whenever the burnchain advances
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
-    pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
+
+    // Current Stacks tip -- the highest block's consensus hash, block hash, and height
+    pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
+    // Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
+    // In epoch 2.x, this is the parent block.
+    // In nakamoto, this is the last block in the parent tenure
+    pub parent_stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
+    // The block id of the first block in this tenure.
+    // In epoch 2.x, this is the same as the tip block ID
+    // In nakamoto, this is the block ID of the first block in the current tenure
+    pub tenure_start_block_id: StacksBlockId,
+    // The aggregate public key of the ongoing reward cycle.
+    // Only active during epoch 3.x and beyond
+    pub aggregate_public_key: Option<Point>,
 
     // information about the state of the network's anchor blocks
     pub heaviest_affirmation_map: AffirmationMap,
@@ -290,8 +305,10 @@ pub struct PeerNetwork {
     // (maintained by the downloader state machine)
     pub header_cache: BlockHeaderCache,
 
-    // peer block download state
+    /// Epoch 2.x peer block download state
     pub block_downloader: Option<BlockDownloader>,
+    /// Epoch 3.x (nakamoto) peer block download state
+    pub block_downloader_nakamoto: Option<NakamotoDownloadStateMachine>,
 
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
@@ -427,6 +444,9 @@ impl PeerNetwork {
                 first_burn_header_ts as u64,
             ),
             stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
+            parent_stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
+            tenure_start_block_id: StacksBlockId([0x00; 32]),
+            aggregate_public_key: None,
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -469,6 +489,7 @@ impl PeerNetwork {
             header_cache: BlockHeaderCache::new(),
 
             block_downloader: None,
+            block_downloader_nakamoto: None,
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
@@ -542,13 +563,25 @@ impl PeerNetwork {
 
     /// Get the current epoch
     pub fn get_current_epoch(&self) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
-            .unwrap_or_else(|| {
-                panic!(
-                    "BUG: block {} is not in a known epoch",
-                    &self.chain_view.burn_block_height
-                )
-            });
+        self.get_epoch_at_burn_height(self.chain_view.burn_block_height)
+    }
+
+    /// Get an epoch at a burn block height
+    pub fn get_epoch_at_burn_height(&self, burn_height: u64) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", burn_height,));
+        let epoch = self
+            .epochs
+            .get(epoch_index)
+            .expect("BUG: no epoch at found index")
+            .clone();
+        epoch
+    }
+
+    /// Get an epoch by epoch ID
+    pub fn get_epoch_by_epoch_id(&self, epoch_id: StacksEpochId) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch_by_id(&self.epochs, epoch_id)
+            .unwrap_or_else(|| panic!("BUG: epoch {} is not in a known epoch", epoch_id,));
         let epoch = self
             .epochs
             .get(epoch_index)
@@ -693,6 +726,11 @@ impl PeerNetwork {
     /// Get an iterator over all of the event ids for all peer connections
     pub fn iter_peer_event_ids(&self) -> impl Iterator<Item = &usize> {
         self.peers.keys()
+    }
+
+    /// Get an iterator over all of the conversations
+    pub fn iter_peer_convos(&self) -> impl Iterator<Item = (&usize, &ConversationP2P)> {
+        self.peers.iter()
     }
 
     /// Get the PoX ID
@@ -3869,6 +3907,7 @@ impl PeerNetwork {
     /// This will call the epoch-appropriate network worker
     fn do_network_work(
         &mut self,
+        burnchain_tip: u64,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3881,7 +3920,13 @@ impl PeerNetwork {
             debug!("{:?}: run Nakamoto work loop", self.get_local_peer());
 
             // in Nakamoto epoch, so do Nakamoto things
-            let prune = self.do_network_work_nakamoto(sortdb, ibd);
+            let prune = self.do_network_work_nakamoto(
+                burnchain_tip,
+                sortdb,
+                chainstate,
+                ibd,
+                network_result,
+            );
 
             // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
             // not begin on a reward cycle boundary.
@@ -3928,7 +3973,14 @@ impl PeerNetwork {
     /// Return true if we need to prune connections.
     /// Used only for nakamoto.
     /// TODO: put this into a separate file for nakamoto p2p code paths
-    fn do_network_work_nakamoto(&mut self, sortdb: &SortitionDB, ibd: bool) -> bool {
+    fn do_network_work_nakamoto(
+        &mut self,
+        burnchain_tip: u64,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        ibd: bool,
+        network_result: &mut NetworkResult,
+    ) -> bool {
         // do some Actual Work(tm)
         let mut do_prune = false;
         let mut did_cycle = false;
@@ -3942,6 +3994,22 @@ impl PeerNetwork {
                 &self.nakamoto_work_state;
                 "learned_new_blocks?" => learned
             );
+
+            // always do block download
+            let new_blocks = self
+                .do_network_block_sync_nakamoto(burnchain_tip, sortdb, chainstate, ibd)
+                .map_err(|e| {
+                    warn!(
+                        "{:?}: Failed to perform Nakamoto block sync: {:?}",
+                        &self.get_local_peer(),
+                        &e
+                    );
+                    e
+                })
+                .unwrap_or(HashMap::new());
+
+            network_result.consume_nakamoto_blocks(new_blocks);
+
             let cur_state = self.nakamoto_work_state;
             match self.nakamoto_work_state {
                 PeerNetworkWorkState::GetPublicIP => {
@@ -3960,10 +4028,7 @@ impl PeerNetwork {
                     self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
                 }
                 PeerNetworkWorkState::BlockDownload => {
-                    debug!(
-                        "{:?}: Block download for Nakamoto is not yet implemented",
-                        self.get_local_peer()
-                    );
+                    // this state is useless in Nakamoto since we're always doing download-syncs
                     self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
                 }
                 PeerNetworkWorkState::AntiEntropy => {
@@ -5224,6 +5289,69 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Load up the parent stacks tip.
+    /// For epoch 2.x, this is the pointer to the parent block of the current stacks tip
+    /// For epoch 3.x, this is the pointer to the tenure-start block of the parent tenure of the
+    /// current stacks tip.
+    /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
+    /// that it builds atop.
+    pub(crate) fn get_parent_stacks_tip(
+        cur_epoch: StacksEpochId,
+        chainstate: &StacksChainState,
+        stacks_tip_block_id: &StacksBlockId,
+    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), net_error> {
+        let header = NakamotoChainState::get_block_header(chainstate.db(), stacks_tip_block_id)?
+            .ok_or(net_error::DBError(db_error::NotFoundError))?;
+
+        let parent_header = if cur_epoch < StacksEpochId::Epoch30 {
+            // prior to epoch 3.0, the self.prev_stacks_tip field is just the parent block
+            let parent_block_id =
+                StacksChainState::get_parent_block_id(chainstate.db(), &header.index_block_hash())?
+                    .ok_or(net_error::DBError(db_error::NotFoundError))?;
+
+            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?
+                .ok_or(net_error::DBError(db_error::NotFoundError))?
+        } else {
+            // in epoch 3.0 and later, self.prev_stacks_tip is the first tenure block of the
+            // current tip's parent tenure.
+            match NakamotoChainState::get_nakamoto_parent_tenure_id_consensus_hash(
+                chainstate.db(),
+                &header.consensus_hash,
+            )? {
+                Some(ch) => NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                    chainstate.db(),
+                    &ch,
+                )?
+                .ok_or(net_error::DBError(db_error::NotFoundError))?,
+                None => {
+                    // parent in epoch 2
+                    let tenure_start_block_header =
+                        NakamotoChainState::get_block_header_by_consensus_hash(
+                            chainstate.db(),
+                            &header.consensus_hash,
+                        )?
+                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+
+                    let nakamoto_header = tenure_start_block_header
+                        .anchored_header
+                        .as_stacks_nakamoto()
+                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+
+                    NakamotoChainState::get_block_header(
+                        chainstate.db(),
+                        &nakamoto_header.parent_block_id,
+                    )?
+                    .ok_or(net_error::DBError(db_error::NotFoundError))?
+                }
+            }
+        };
+        Ok((
+            parent_header.consensus_hash,
+            parent_header.anchored_header.block_hash(),
+            parent_header.anchored_header.height(),
+        ))
+    }
+
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5245,7 +5373,59 @@ impl PeerNetwork {
 
         let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
+        let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
+
+        let (parent_stacks_tip, aggregate_public_key, tenure_start_block_id) = if stacks_tip_changed
+        {
+            let ih = sortdb.index_handle(&sn.sortition_id);
+            let agg_pubkey = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
+                None
+            } else {
+                NakamotoChainState::load_aggregate_public_key(
+                    sortdb,
+                    &ih,
+                    chainstate,
+                    sn.block_height,
+                    &new_stacks_tip_block_id,
+                )
+                .ok()
+            };
+            let tenure_start_block_id =
+                if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
+                    new_stacks_tip_block_id.clone()
+                } else {
+                    let hdr = NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                        chainstate.db(),
+                        &stacks_tip.0,
+                    )?
+                    .ok_or(net_error::DBError(db_error::NotFoundError))?;
+                    hdr.index_block_hash()
+                };
+            let parent_tip_id = match Self::get_parent_stacks_tip(
+                self.get_current_epoch().epoch_id,
+                chainstate,
+                &new_stacks_tip_block_id,
+            ) {
+                Ok(tip_id) => tip_id,
+                Err(net_error::DBError(db_error::NotFoundError)) => {
+                    // this is the first block
+                    (
+                        FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        FIRST_STACKS_BLOCK_HASH.clone(),
+                        0,
+                    )
+                }
+                Err(e) => return Err(e),
+            };
+            (parent_tip_id, agg_pubkey, tenure_start_block_id)
+        } else {
+            (
+                self.parent_stacks_tip.clone(),
+                self.aggregate_public_key.clone(),
+                self.tenure_start_block_id.clone(),
+            )
+        };
 
         if burnchain_tip_changed || stacks_tip_changed {
             // only do the needful depending on what changed
@@ -5291,34 +5471,36 @@ impl PeerNetwork {
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
 
-            // update heaviest affirmation map view
-            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+            if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
+                // update heaviest affirmation map view
+                let burnchain_db = self.burnchain.open_burnchain_db(false)?;
 
-            self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
-                &self.burnchain,
-                indexer,
-                &burnchain_db,
-                sortdb,
-                &sn.sortition_id,
-            )
-            .map_err(|_| {
-                net_error::Transient("Unable to query heaviest affirmation map".to_string())
-            })?;
+                self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
+                    &self.burnchain,
+                    indexer,
+                    &burnchain_db,
+                    sortdb,
+                    &sn.sortition_id,
+                )
+                .map_err(|_| {
+                    net_error::Transient("Unable to query heaviest affirmation map".to_string())
+                })?;
 
-            self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
-                &self.burnchain,
-                indexer,
-                &burnchain_db,
-                sortdb,
-                chainstate,
-                &sn.sortition_id,
-            )
-            .map_err(|_| {
-                net_error::Transient("Unable to query canonical affirmation map".to_string())
-            })?;
+                self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
+                    &self.burnchain,
+                    indexer,
+                    &burnchain_db,
+                    sortdb,
+                    chainstate,
+                    &sn.sortition_id,
+                )
+                .map_err(|_| {
+                    net_error::Transient("Unable to query canonical affirmation map".to_string())
+                })?;
 
-            self.sortition_tip_affirmation_map =
-                SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id)?;
+                self.sortition_tip_affirmation_map =
+                    SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id)?;
+            }
 
             // update last anchor data
             let ih = sortdb.index_handle(&sn.sortition_id);
@@ -5335,17 +5517,20 @@ impl PeerNetwork {
 
         if stacks_tip_changed {
             // update stacks tip affirmation map view
-            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-                &burnchain_db,
-                sortdb,
-                &sn.sortition_id,
-                &sn.canonical_stacks_tip_consensus_hash,
-                &sn.canonical_stacks_tip_hash,
-            )
-            .map_err(|_| {
-                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
-            })?;
+            // (NOTE: this check has to happen _after_ self.chain_view gets updated!)
+            if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
+                let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+                self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
+                    &burnchain_db,
+                    sortdb,
+                    &sn.sortition_id,
+                    &sn.canonical_stacks_tip_consensus_hash,
+                    &sn.canonical_stacks_tip_hash,
+                )
+                .map_err(|_| {
+                    net_error::Transient("Unable to query stacks tip affirmation map".to_string())
+                })?;
+            }
         }
 
         // can't fail after this point
@@ -5357,9 +5542,13 @@ impl PeerNetwork {
                 self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
         }
 
-        // update cached stacks chain view for /v2/info
+        // update cached stacks chain view for /v2/info and /v3/tenures/info
         self.burnchain_tip = sn;
         self.stacks_tip = stacks_tip;
+        self.parent_stacks_tip = parent_stacks_tip;
+        self.aggregate_public_key = aggregate_public_key;
+        self.tenure_start_block_id = tenure_start_block_id;
+
         Ok(ret)
     }
 
@@ -5371,6 +5560,7 @@ impl PeerNetwork {
     fn dispatch_network(
         &mut self,
         network_result: &mut NetworkResult,
+        burnchain_height: u64,
         sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
@@ -5414,6 +5604,7 @@ impl PeerNetwork {
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
         // an already-used network ID.
         let do_prune = self.do_network_work(
+            burnchain_height,
             sortdb,
             chainstate,
             &mut dns_client_opt,
@@ -5735,8 +5926,13 @@ impl PeerNetwork {
         })
         .expect("FATAL: with_network_state should be infallable (not connected)");
 
+        let burnchain_height = indexer
+            .get_burnchain_headers_height()
+            .unwrap_or(self.burnchain_tip.block_height);
+
         self.dispatch_network(
             &mut network_result,
+            burnchain_height,
             sortdb,
             mempool,
             chainstate,
