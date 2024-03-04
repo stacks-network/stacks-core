@@ -587,6 +587,7 @@ impl TestStacksNode {
                 &mut sort_handle,
                 chainstate,
                 nakamoto_block.clone(),
+                None,
             ) {
                 Ok(accepted) => accepted,
                 Err(e) => {
@@ -1090,6 +1091,7 @@ impl<'a> TestPeer<'a> {
                 &mut sort_handle,
                 &mut node.chainstate,
                 block,
+                None,
             )
             .unwrap();
             if accepted {
