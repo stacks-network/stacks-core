@@ -19,7 +19,7 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::{fmt, mem};
 
-use faster_hex::{hex_decode, hex_string};
+use crate::util::faster_hex::{hex_decode, hex_string};
 use ripemd::Ripemd160;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
@@ -589,16 +589,9 @@ where
     }
 }
 
-pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
+pub fn hex_bytes(s: &str) -> Result<Vec<u8>, faster_hex::Error> {
     let mut bytes = vec![0u8; s.len() / 2];
-    match hex_decode(s.as_bytes(), &mut bytes) {
-        Ok(()) => {},
-        Err(e) => match e {
-            faster_hex::Error::InvalidChar => return Err(HexError::BadCharacter(' ')),
-            faster_hex::Error::InvalidLength(length) => return Err(HexError::BadLength(length)),
-            faster_hex::Error::Overflow => return Err(HexError::Overflow),
-        },
-    }
+    hex_decode(s.as_bytes(), &mut bytes)?;
     Ok(bytes)
 }
 

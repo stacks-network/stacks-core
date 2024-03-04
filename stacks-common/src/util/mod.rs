@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub extern crate faster_hex;
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -58,8 +60,6 @@ pub enum HexError {
     BadLength(usize),
     /// Non-hex character in string
     BadCharacter(char),
-    /// Overflow
-    Overflow,
 }
 
 impl fmt::Display for HexError {
@@ -67,7 +67,6 @@ impl fmt::Display for HexError {
         match *self {
             HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
             HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
-            HexError::Overflow => write!(f, "Overflow while decoding hex string"),
         }
     }
 }
@@ -80,7 +79,6 @@ impl error::Error for HexError {
         match *self {
             HexError::BadLength(_) => "hex string non-64 length",
             HexError::BadCharacter(_) => "bad hex character",
-            HexError::Overflow => "overflow while decoding hex"
         }
     }
 }

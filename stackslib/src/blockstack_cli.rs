@@ -257,6 +257,12 @@ impl From<stacks_common::util::HexError> for CliError {
     }
 }
 
+impl From<stacks_common::util::faster_hex::Error> for CliError {
+    fn from(value: stacks_common::util::faster_hex::Error) -> Self {
+        CliError::Message(format!("Bad hex string supplied: {}", value))
+    }
+}
+
 impl From<clarity::vm::types::serialization::SerializationError> for CliError {
     fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
         CliError::Message(format!("Failed to deserialize: {}", value))
