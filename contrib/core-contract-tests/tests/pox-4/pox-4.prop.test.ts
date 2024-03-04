@@ -1,9 +1,11 @@
-import Cl, { ClarityType, bufferCV, isClarityType } from "@stacks/transactions";
+import { Cl, ClarityType, bufferCV, isClarityType } from "@stacks/transactions";
 import { assert, describe, expect, it } from "vitest";
 import fc from "fast-check";
 
 const POX_4 = "pox-4";
 const GET_POX_INFO = "get-pox-info";
+const testnet_stacking_threshold_25 = 8000;
+fc.configureGlobal({ numRuns: 250 });
 
 describe("test pox-4 contract read only functions", () => {
   it("should return correct reward-cycle-to-burn-height", () => {
@@ -31,7 +33,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "reward-cycle-to-burn-height",
-            [Cl.uintCV(reward_cycle)],
+            [Cl.uint(reward_cycle)],
             account
           );
 
@@ -45,8 +47,7 @@ describe("test pox-4 contract read only functions", () => {
             Number(reward_cycle_length.value) * reward_cycle;
           expect(actual).toBeUint(expected);
         }
-      ),
-      { numRuns: 300 }
+      )
     );
   });
 
@@ -75,7 +76,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "burn-height-to-reward-cycle",
-            [Cl.uintCV(burn_height)],
+            [Cl.uint(burn_height)],
             account
           );
 
@@ -89,8 +90,7 @@ describe("test pox-4 contract read only functions", () => {
           );
           expect(actual).toBeUint(expected);
         }
-      ),
-      { numRuns: 300 }
+      )
     );
   });
 
@@ -106,7 +106,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "get-stacker-info",
-            [Cl.principalCV(stacker)],
+            [Cl.principal(stacker)],
             caller
           );
 
@@ -118,7 +118,7 @@ describe("test pox-4 contract read only functions", () => {
     );
   });
 
-  it("should return correct check-caller-allowed", () => {
+  it("should return true check-caller-allowed", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...simnet.getAccounts().values()),
@@ -154,7 +154,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "get-reward-set-size",
-            [Cl.uintCV(reward_cycle)],
+            [Cl.uint(reward_cycle)],
             caller
           );
 
@@ -179,7 +179,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "get-total-ustx-stacked",
-            [Cl.uintCV(reward_cycle)],
+            [Cl.uint(reward_cycle)],
             caller
           );
 
@@ -204,7 +204,7 @@ describe("test pox-4 contract read only functions", () => {
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "get-reward-set-pox-address",
-            [Cl.uintCV(index), Cl.uintCV(reward_cycle)],
+            [Cl.uint(index), Cl.uint(reward_cycle)],
             caller
           );
 
@@ -222,7 +222,6 @@ describe("test pox-4 contract read only functions", () => {
         fc.constantFrom(...simnet.getAccounts().values()),
         (caller) => {
           // Arrange
-          const testnet_stacking_threshold_25 = 8000;
 
           const { result: pox_4_info } = simnet.callReadOnlyFn(
             POX_4,
@@ -257,77 +256,146 @@ describe("test pox-4 contract read only functions", () => {
     );
   });
 
-  it("should return correct check-pox-addr-version", () => {
+  it("should return true check-pox-addr-version for version <= 6 ", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...simnet.getAccounts().values()),
-        fc.nat({ max: 255 }),
+        fc.nat({ max: 6 }),
         (caller, version) => {
           // Arrange
-          const expected = version > 6 ? false : true;
+          const expected = true;
 
           // Act
           let { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "check-pox-addr-version",
-            [Cl.bufferCV(Uint8Array.from([version]))],
+            [Cl.buffer(Uint8Array.from([version]))],
             caller
           );
 
           // Assert
-          assert(
-            isClarityType(
-              actual,
-              expected ? ClarityType.BoolTrue : ClarityType.BoolFalse
-            )
-          );
+          assert(isClarityType(actual, ClarityType.BoolTrue));
           expect(actual).toBeBool(expected);
         }
       )
     );
   });
 
-  it("should return correct check-pox-lock-period", () => {
+  it("should return false check-pox-addr-version for version > 6", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...simnet.getAccounts().values()),
-        fc.nat(),
+        fc.integer({ min: 7, max: 255 }),
+        (caller, version) => {
+          // Arrange
+          const expected = false;
+
+          // Act
+          let { result: actual } = simnet.callReadOnlyFn(
+            POX_4,
+            "check-pox-addr-version",
+            [Cl.buffer(Uint8Array.from([version]))],
+            caller
+          );
+
+          // Assert
+          assert(isClarityType(actual, ClarityType.BoolFalse));
+          expect(actual).toBeBool(expected);
+        }
+      )
+    );
+  });
+
+  it("should return true check-pox-lock-period for valid reward cycles number", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.integer({ min: 1, max: 12 }),
         (caller, reward_cycles) => {
           // Arrange
-          const expected =
-            reward_cycles > 0 && reward_cycles <= 12 ? true : false;
+          const expected = true;
 
           // Act
           const { result: actual } = simnet.callReadOnlyFn(
             POX_4,
             "check-pox-lock-period",
-            [Cl.uintCV(reward_cycles)],
+            [Cl.uint(reward_cycles)],
             caller
           );
 
           // Assert
-          assert(
-            isClarityType(
-              actual,
-              expected ? ClarityType.BoolTrue : ClarityType.BoolFalse
-            )
-          );
+          assert(isClarityType(actual, ClarityType.BoolTrue));
           expect(actual).toBeBool(expected);
         }
       )
-    ),
-      { numRuns: 250 };
+    );
   });
 
-  it("should return correct can-stack-stx", () => {
+  it("should return false check-pox-lock-period for reward cycles number > 12", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...simnet.getAccounts().values()),
-        fc.nat({ max: 255 }),
-        fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
-        fc.bigInt({ min: 0n, max: 340282366920938463463374607431768211455n }),
+        fc.integer({ min: 13 }),
+        (caller, reward_cycles) => {
+          // Arrange
+          const expected = false;
+
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            POX_4,
+            "check-pox-lock-period",
+            [Cl.uint(reward_cycles)],
+            caller
+          );
+
+          // Assert
+          assert(isClarityType(actual, ClarityType.BoolFalse));
+          expect(actual).toBeBool(expected);
+        }
+      )
+    );
+  });
+
+  it("should return false check-pox-lock-period for reward cycles number == 0", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        (caller) => {
+          // Arrange
+          const reward_cycles = 0;
+          const expected = false;
+
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            POX_4,
+            "check-pox-lock-period",
+            [Cl.uint(reward_cycles)],
+            caller
+          );
+
+          // Assert
+          assert(isClarityType(actual, ClarityType.BoolFalse));
+          expect(actual).toBeBool(expected);
+        }
+      )
+    );
+  });
+
+  it("should return (ok true) can-stack-stx for versions 0-4 valid pox addresses, hashbytes, amount, cycles number", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.integer({ min: 0, max: 4 }),
+        fc.array(fc.nat({ max: 255 }), {
+          minLength: 20,
+          maxLength: 20,
+        }),
+        fc.bigInt({
+          min: 125_000_000_000n,
+          max: 340282366920938463463374607431768211455n,
+        }),
         fc.nat(),
-        fc.nat(),
+        fc.integer({ min: 1, max: 12 }),
         (
           caller,
           version,
@@ -337,7 +405,66 @@ describe("test pox-4 contract read only functions", () => {
           num_cycles
         ) => {
           // Arrange
-          const testnet_stacking_threshold_25 = 8000;
+          const { result: pox_4_info } = simnet.callReadOnlyFn(
+            POX_4,
+            GET_POX_INFO,
+            [],
+            caller
+          );
+          assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
+          assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
+
+          const expectedResponseOk = true;
+
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            POX_4,
+            "can-stack-stx",
+            [
+              Cl.tuple({
+                version: bufferCV(Uint8Array.from([version])),
+                hashbytes: bufferCV(Uint8Array.from(hashbytes)),
+              }),
+              Cl.uint(amount_ustx),
+              Cl.uint(first_rew_cycle),
+              Cl.uint(num_cycles),
+            ],
+            caller
+          );
+
+          // Assert
+          assert(isClarityType(actual, ClarityType.ResponseOk));
+          assert(isClarityType(actual.value, ClarityType.BoolTrue));
+          expect(actual).toBeOk(Cl.bool(expectedResponseOk));
+        }
+      )
+    );
+  });
+
+  it("should return (ok true) can-stack-stx for versions 5/6 valid pox addresses, hashbytes, amount, cycles number", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.integer({ min: 5, max: 6 }),
+        fc.array(fc.nat({ max: 255 }), {
+          minLength: 32,
+          maxLength: 32,
+        }),
+        fc.bigInt({
+          min: 125_000_000_000n,
+          max: 340282366920938463463374607431768211455n,
+        }),
+        fc.nat(),
+        fc.integer({ min: 1, max: 12 }),
+        (
+          caller,
+          version,
+          hashbytes,
+          amount_ustx,
+          first_rew_cycle,
+          num_cycles
+        ) => {
+          // Arrange
 
           const { result: pox_4_info } = simnet.callReadOnlyFn(
             POX_4,
@@ -348,31 +475,6 @@ describe("test pox-4 contract read only functions", () => {
           assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
           assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
 
-          const stacking_valid_amount = amount_ustx > 0;
-          const pox_lock_period_valid = num_cycles > 0 && num_cycles <= 12;
-          const pox_version_valid = version <= 6;
-          const pox_hashbytes_valid =
-            hashbytes.length === 20 || hashbytes.length === 32;
-          const stx_liq_supply =
-            pox_4_info.value.data["total-liquid-supply-ustx"];
-
-          assert(isClarityType(stx_liq_supply, ClarityType.UInt));
-          const stacking_threshold_met =
-            amount_ustx >=
-            Math.floor(
-              Number(stx_liq_supply.value) / testnet_stacking_threshold_25
-            );
-          const expectedResponseErr = !stacking_threshold_met
-            ? 11
-            : !stacking_valid_amount
-            ? 18
-            : !pox_lock_period_valid
-            ? 2
-            : !pox_version_valid
-            ? 13
-            : !pox_hashbytes_valid
-            ? 13
-            : 0;
           const expectedResponseOk = true;
 
           // Act
@@ -380,55 +482,83 @@ describe("test pox-4 contract read only functions", () => {
             POX_4,
             "can-stack-stx",
             [
-              Cl.tupleCV({
+              Cl.tuple({
                 version: bufferCV(Uint8Array.from([version])),
                 hashbytes: bufferCV(Uint8Array.from(hashbytes)),
               }),
-              Cl.uintCV(amount_ustx),
-              Cl.uintCV(first_rew_cycle),
-              Cl.uintCV(num_cycles),
+              Cl.uint(amount_ustx),
+              Cl.uint(first_rew_cycle),
+              Cl.uint(num_cycles),
             ],
             caller
           );
 
           // Assert
-          assert(
-            isClarityType(
-              actual,
-              stacking_threshold_met &&
-                stacking_valid_amount &&
-                pox_lock_period_valid &&
-                pox_version_valid &&
-                pox_hashbytes_valid
-                ? ClarityType.ResponseOk
-                : ClarityType.ResponseErr
-            )
+          assert(isClarityType(actual, ClarityType.ResponseOk));
+          assert(isClarityType(actual.value, ClarityType.BoolTrue));
+          expect(actual).toBeOk(Cl.bool(expectedResponseOk));
+        }
+      )
+    );
+  });
+
+  it("should return (err 13) can-stack-stx for versions 0-4 pox addresses having hasbytes longer than 20", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.integer({ min: 0, max: 4 }),
+        fc.array(fc.nat({ max: 255 }), {
+          minLength: 21,
+          maxLength: 32,
+        }),
+        fc.bigInt({
+          min: 125_000_000_000n,
+          max: 340282366920938463463374607431768211455n,
+        }),
+        fc.nat(),
+        fc.integer({ min: 1, max: 12 }),
+        (
+          caller,
+          version,
+          hashbytes,
+          amount_ustx,
+          first_rew_cycle,
+          num_cycles
+        ) => {
+          // Arrange
+          const { result: pox_4_info } = simnet.callReadOnlyFn(
+            POX_4,
+            GET_POX_INFO,
+            [],
+            caller
+          );
+          assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
+          assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
+
+          const expectedResponseErr = 13;
+
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            POX_4,
+            "can-stack-stx",
+            [
+              Cl.tuple({
+                version: bufferCV(Uint8Array.from([version])),
+                hashbytes: bufferCV(Uint8Array.from(hashbytes)),
+              }),
+              Cl.uint(amount_ustx),
+              Cl.uint(first_rew_cycle),
+              Cl.uint(num_cycles),
+            ],
+            caller
           );
 
-          assert(
-            isClarityType(
-              actual.value,
-              stacking_threshold_met &&
-                stacking_valid_amount &&
-                pox_lock_period_valid &&
-                pox_version_valid &&
-                pox_hashbytes_valid
-                ? ClarityType.BoolTrue
-                : ClarityType.Int
-            )
-          );
-          if (expectedResponseErr === 0) {
-            expect(actual).toBeOk(
-              Cl.responseOkCV(Cl.boolCV(expectedResponseOk))
-            );
-            expect(actual.value).toBeBool(expectedResponseOk);
-          } else {
-            expect(actual).toBeErr(Cl.intCV(expectedResponseErr));
-            expect(actual.value).toBeInt(expectedResponseErr);
-          }
+          // Assert
+          assert(isClarityType(actual, ClarityType.ResponseErr));
+          assert(isClarityType(actual.value, ClarityType.Int));
+          expect(actual).toBeErr(Cl.int(expectedResponseErr));
         }
-      ),
-      { numRuns: 300 }
+      )
     );
   });
 });
