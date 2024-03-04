@@ -97,6 +97,8 @@ use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
 
+use crate::chainstate::nakamoto::NakamotoBlock;
+
 /// Implements RPC API
 pub mod api;
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
@@ -967,6 +969,10 @@ impl NeighborAddress {
             public_key_hash: pkh,
         }
     }
+
+    pub fn to_socketaddr(&self) -> SocketAddr {
+        self.addrbytes.to_socketaddr(self.port)
+    }
 }
 
 /// A descriptor of a list of known peers
@@ -1337,6 +1343,10 @@ impl NeighborKey {
             port: na.port,
         }
     }
+
+    pub fn to_socketaddr(&self) -> SocketAddr {
+        self.addrbytes.to_socketaddr(self.port)
+    }
 }
 
 /// Entry in the neighbor set
@@ -1409,25 +1419,47 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
 pub struct NetworkResult {
-    pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
+    /// PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
+    pub download_pox_id: Option<PoxId>,
+    /// Network messages we received but did not handle
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
-    pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
-    pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
-    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
-    pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
-    pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
-    pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
-    pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>, // chunks we received from the HTTP server
+    /// Stacks 2.x blocks we downloaded, and time taken
+    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>,
+    /// Stacks 2.x confiremd microblocks we downloaded, and time taken
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+    /// Nakamoto blocks we downloaded
+    pub nakamoto_blocks: HashMap<StacksBlockId, NakamotoBlock>,
+    /// all transactions pushed to us and their message relay hints
+    pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>,
+    /// all Stacks 2.x blocks pushed to us
+    pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
+    /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
+    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
+    /// transactions sent to us by the http server
+    pub uploaded_transactions: Vec<StacksTransaction>,
+    /// blocks sent to us via the http server
+    pub uploaded_blocks: Vec<BlocksData>,
+    /// microblocks sent to us by the http server
+    pub uploaded_microblocks: Vec<MicroblocksData>,
+    /// chunks we received from the HTTP server
+    pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
-    pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
-    pub stacker_db_sync_results: Vec<StackerDBSyncResult>, // chunks for stacker DBs we downloaded
+    /// transactions we downloaded via a mempool sync
+    pub synced_transactions: Vec<StacksTransaction>,
+    /// chunks for stacker DBs we downloaded
+    pub stacker_db_sync_results: Vec<StackerDBSyncResult>,
+    /// Number of times the network state machine has completed one pass
     pub num_state_machine_passes: u64,
+    /// Number of times the Stacks 2.x inventory synchronization has completed one pass
     pub num_inv_sync_passes: u64,
+    /// Number of times the Stacks 2.x block downloader has completed one pass
     pub num_download_passes: u64,
+    /// The observed burnchain height
     pub burn_height: u64,
+    /// The consensus hash of the start of this reward cycle
     pub rc_consensus_hash: ConsensusHash,
+    /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
 }
 
@@ -1445,6 +1477,7 @@ impl NetworkResult {
             download_pox_id: None,
             blocks: vec![],
             confirmed_microblocks: vec![],
+            nakamoto_blocks: HashMap::new(),
             pushed_transactions: HashMap::new(),
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
@@ -1472,6 +1505,10 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
+    }
+
+    pub fn has_nakamoto_blocks(&self) -> bool {
+        self.nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1504,6 +1541,7 @@ impl NetworkResult {
     pub fn has_data_to_store(&self) -> bool {
         self.has_blocks()
             || self.has_microblocks()
+            || self.has_nakamoto_blocks()
             || self.has_transactions()
             || self.has_attachments()
             || self.has_stackerdb_chunks()
@@ -1581,6 +1619,19 @@ impl NetworkResult {
 
     pub fn consume_stacker_db_sync_results(&mut self, mut msgs: Vec<StackerDBSyncResult>) {
         self.stacker_db_sync_results.append(&mut msgs);
+    }
+
+    // TODO: dedup and clean up
+    pub fn consume_nakamoto_blocks(&mut self, blocks: HashMap<ConsensusHash, Vec<NakamotoBlock>>) {
+        for (_ch, blocks) in blocks.into_iter() {
+            for block in blocks.into_iter() {
+                let block_id = block.block_id();
+                if self.nakamoto_blocks.contains_key(&block_id) {
+                    continue;
+                }
+                self.nakamoto_blocks.insert(block_id, block);
+            }
+        }
     }
 }
 
@@ -2214,6 +2265,28 @@ pub mod test {
             stacker_db_syncs
         }
 
+        pub fn neighbor_with_observer(
+            seed: &TestPeer<'_>,
+            privkey: StacksPrivateKey,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
+            let mut config = seed.config.clone();
+            config.private_key = privkey;
+            config.test_name = format!(
+                "{}.neighbor-{}",
+                &seed.config.test_name,
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                    &seed.config.private_key
+                ))
+            );
+            config.server_port = 0;
+            config.http_port = 0;
+            config.test_stackers = seed.config.test_stackers.clone();
+
+            let peer = TestPeer::new_with_observer(config, observer);
+            peer
+        }
+
         pub fn new_with_observer(
             mut config: TestPeerConfig,
             observer: Option<&'a TestEventObserver>,
@@ -2635,6 +2708,36 @@ pub mod test {
             self.indexer = Some(indexer);
 
             ret
+        }
+
+        fn run_with_ibd(&mut self, ibd: bool) -> Result<ProcessedNetReceipts, net_error> {
+            let mut net_result = self.step_with_ibd(ibd)?;
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+            let indexer = self.indexer.take().unwrap();
+
+            let receipts_res = self.relayer.process_network_result(
+                self.network.get_local_peer(),
+                &mut net_result,
+                &mut sortdb,
+                &mut stacks_node.chainstate,
+                &mut mempool,
+                ibd,
+                None,
+                None,
+            );
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+            self.mempool = Some(mempool);
+            self.indexer = Some(indexer);
+
+            self.coord.handle_new_burnchain_block().unwrap();
+
+            self.coord.handle_new_stacks_block().unwrap();
+
+            receipts_res
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
