@@ -34,6 +34,7 @@ use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 pub mod comms;
 pub mod db;
 pub mod neighbor;
+pub mod rpc;
 pub mod walk;
 
 pub use comms::{
