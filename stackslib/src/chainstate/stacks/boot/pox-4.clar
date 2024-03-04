@@ -32,8 +32,6 @@
 (define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
 (define-constant ERR_INVALID_SIGNATURE_PUBKEY 35)
 (define-constant ERR_INVALID_SIGNATURE_RECOVER 36)
-(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH 37)
-(define-constant ERR_SIGNER_AUTH_USED 38)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -1461,7 +1459,7 @@
     (asserts! (is-eq
       (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
       tx-sender) (err ERR_NOT_ALLOWED))
-    (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key, auth-id: auth-id, max-amount: max-amount } allowed)
+    (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key } allowed)
     (ok allowed)))
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information

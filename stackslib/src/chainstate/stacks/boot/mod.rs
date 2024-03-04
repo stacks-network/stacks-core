@@ -78,6 +78,7 @@ pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
 pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
+pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -1937,7 +1938,7 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
-            "vote-for-aggregate-public-key",
+            SIGNERS_VOTING_FUNCTION_NAME,
             vec![
                 Value::UInt(signer_index),
                 aggregate_public_key,
