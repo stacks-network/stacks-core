@@ -1774,7 +1774,7 @@ fn verify_signer_key_signatures() {
         1,
     );
     // Different error code
-    assert_eq!(result, Value::error(Value::Int(37)).unwrap());
+    assert_eq!(result, Value::error(Value::Int(38)).unwrap());
 
     // Test using a valid signature
 
@@ -2086,7 +2086,7 @@ fn stack_stx_verify_signer_sig() {
     assert_eq!(tx_result(invalid_max_amount_nonce), expected_error);
     assert_eq!(
         tx_result(invalid_amount_nonce),
-        Value::error(Value::Int(37)).unwrap()
+        Value::error(Value::Int(38)).unwrap()
     );
 
     // valid tx should succeed
@@ -2108,7 +2108,7 @@ fn stack_stx_verify_signer_sig() {
         u128::MAX,
         1,
     );
-    let expected_error = Value::error(Value::Int(38)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
     assert_eq!(result, expected_error);
 
     // Ensure the authorization is stored as used
@@ -2360,7 +2360,7 @@ fn stack_extend_verify_sig() {
         u128::MAX,
         1,
     );
-    let expected_error = Value::error(Value::Int(38)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
     assert_eq!(result, expected_error);
 
     // Ensure the authorization is stored as used
@@ -2662,7 +2662,7 @@ fn stack_agg_commit_verify_sig() {
     let tx_result = |nonce: u64| -> Value { txs.get(nonce as usize).unwrap().result.clone() };
 
     let expected_error = Value::error(Value::Int(35)).unwrap();
-    let amount_too_high_error = Value::error(Value::Int(37)).unwrap();
+    let amount_too_high_error = Value::error(Value::Int(38)).unwrap();
 
     tx_result(delegate_stack_stx_nonce)
         .expect_result_ok()
@@ -2693,7 +2693,7 @@ fn stack_agg_commit_verify_sig() {
         u128::MAX,
         1,
     );
-    let expected_error = Value::error(Value::Int(38)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
     assert_eq!(result, expected_error);
 
     // Ensure the authorization is stored as used
@@ -3254,6 +3254,8 @@ fn test_set_signer_key_auth() {
         false,
         signer_invalid_period_nonce,
         Some(&signer_key),
+        u128::MAX,
+        1,
     );
 
     let signer_invalid_cycle_nonce = signer_nonce;
@@ -3268,6 +3270,8 @@ fn test_set_signer_key_auth() {
         false,
         signer_invalid_cycle_nonce,
         Some(&signer_key),
+        u128::MAX,
+        1,
     );
 
     // Disable auth for `signer-key`
