@@ -612,7 +612,7 @@ mod test {
 
                 for expr in ast.iter() {
                     depth_traverse::<_, _, ()>(expr, |x| {
-                        assert!(!visited.contains_key(&x.id));
+                        assert!(!visited.raw_entry().from_key(&x.id).is_some());
                         visited.insert(x.id, true);
                         Ok(())
                     })

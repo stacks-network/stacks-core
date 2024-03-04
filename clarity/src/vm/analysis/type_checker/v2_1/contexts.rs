@@ -51,7 +51,7 @@ impl TraitContext {
 
     pub fn is_name_used(&self, name: &str) -> bool {
         match self {
-            Self::Clarity1(map) => map.contains_key(name),
+            Self::Clarity1(map) => map.raw_entry().from_key(name).is_some(),
             Self::Clarity2 { defined, all: _ } => defined.contains(name),
         }
     }
@@ -168,14 +168,14 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
-        if self.variable_types.contains_key(name)
-            || self.persisted_variable_types.contains_key(name)
-            || self.private_function_types.contains_key(name)
-            || self.public_function_types.contains_key(name)
+        if self.variable_types.raw_entry().from_key(name).is_some()
+            || self.persisted_variable_types.raw_entry().from_key(name).is_some()
+            || self.private_function_types.raw_entry().from_key(name).is_some()
+            || self.public_function_types.raw_entry().from_key(name).is_some()
             || self.fungible_tokens.contains(name)
-            || self.non_fungible_tokens.contains_key(name)
+            || self.non_fungible_tokens.raw_entry().from_key(name).is_some()
             || self.traits.is_name_used(name)
-            || self.map_types.contains_key(name)
+            || self.map_types.raw_entry().from_key(name).is_some()
         {
             Err(CheckError::new(CheckErrors::NameAlreadyUsed(
                 name.to_string(),

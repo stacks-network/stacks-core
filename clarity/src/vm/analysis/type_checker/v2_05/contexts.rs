@@ -61,14 +61,14 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
-        if self.variable_types.contains_key(name)
-            || self.persisted_variable_types.contains_key(name)
-            || self.private_function_types.contains_key(name)
-            || self.public_function_types.contains_key(name)
+        if self.variable_types.raw_entry().from_key(name).is_some()
+            || self.persisted_variable_types.raw_entry().from_key(name).is_some()
+            || self.private_function_types.raw_entry().from_key(name).is_some()
+            || self.public_function_types.raw_entry().from_key(name).is_some()
             || self.fungible_tokens.contains(name)
-            || self.non_fungible_tokens.contains_key(name)
-            || self.traits.contains_key(name)
-            || self.map_types.contains_key(name)
+            || self.non_fungible_tokens.raw_entry().from_key(name).is_some()
+            || self.traits.raw_entry().from_key(name).is_some()
+            || self.map_types.raw_entry().from_key(name).is_some()
         {
             Err(CheckError::new(CheckErrors::NameAlreadyUsed(
                 name.to_string(),
