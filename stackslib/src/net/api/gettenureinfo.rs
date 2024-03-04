@@ -57,7 +57,13 @@ impl RPCNakamotoTenureInfoRequestHandler {
 pub struct RPCGetTenureInfo {
     /// The highest known consensus hash (identifies the current tenure)
     pub consensus_hash: ConsensusHash,
-    /// The highest Stacks block ID
+    /// The tenure-start block ID of the current tenure
+    pub tenure_start_block_id: StacksBlockId,
+    /// The consensus hash of the parent tenure
+    pub parent_consensus_hash: ConsensusHash,
+    /// The block hash of the parent tenure's start block
+    pub parent_tenure_start_block_id: StacksBlockId,
+    /// The highest Stacks block ID in the current tenure
     pub tip_block_id: StacksBlockId,
     /// The height of this tip
     pub tip_height: u64,
@@ -107,6 +113,12 @@ impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
         let info = node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             RPCGetTenureInfo {
                 consensus_hash: network.stacks_tip.0.clone(),
+                tenure_start_block_id: network.tenure_start_block_id.clone(),
+                parent_consensus_hash: network.parent_stacks_tip.0.clone(),
+                parent_tenure_start_block_id: StacksBlockId::new(
+                    &network.parent_stacks_tip.0,
+                    &network.parent_stacks_tip.1,
+                ),
                 tip_block_id: StacksBlockId::new(&network.stacks_tip.0, &network.stacks_tip.1),
                 tip_height: network.stacks_tip.2,
                 reward_cycle: network
