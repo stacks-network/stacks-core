@@ -35,6 +35,7 @@
 (define-constant ERR_INVALID_REWARD_CYCLE 37)
 (define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH 38)
 (define-constant ERR_SIGNER_AUTH_USED 39)
+(define-constant ERR_INVALID_INCREASE 40)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -1158,7 +1159,7 @@
                     stacker: tx-sender,
                     add-amount: increase-by,
                     signer-key: signer-key })))
-            (err ERR_STACKING_UNREACHABLE))
+            (err ERR_INVALID_INCREASE))
       ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-4
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 

@@ -2710,6 +2710,124 @@ fn stack_agg_commit_verify_sig() {
     );
 }
 
+#[test]
+/// Verify that when calling `stack-increase`, the function
+/// fails if the signer key for each cycle being updated is not the same
+/// as the provided `signer-key` argument
+fn stack_increase_different_signer_keys() {
+    let lock_period = 1;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let mut coinbase_nonce = coinbase_nonce;
+
+    let mut stacker_nonce = 0;
+    let stacker_key = &keys[0];
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let stacker_addr = key_to_stacks_addr(&stacker_key);
+    let signer_sk = &keys[1];
+    let signer_pk = StacksPublicKey::from_private(signer_sk);
+    let pox_addr = pox_addr_from(&signer_sk);
+
+    // Second key is used in `stack-extend`
+    let second_signer_sk = &keys[2];
+    let second_signer_pk = StacksPublicKey::from_private(second_signer_sk);
+
+    let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+
+    // Setup: stack-stx
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let stack_nonce = stacker_nonce;
+    let stack_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        &pox_addr,
+        lock_period,
+        &signer_pk,
+        block_height,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
+
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &second_signer_sk,
+        reward_cycle,
+        &Pox4SignatureTopic::StackExtend,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let extend_nonce = stacker_nonce;
+    let extend_tx = make_pox_4_extend(
+        &stacker_key,
+        stacker_nonce,
+        pox_addr.clone(),
+        lock_period,
+        second_signer_pk.clone(),
+        Some(signature.clone()),
+        u128::MAX,
+        1,
+    );
+
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle,
+        &Pox4SignatureTopic::StackIncrease,
+        2, // 2 cycles total (1 from stack-stx, 1 from extend)
+        u128::MAX,
+        1,
+    );
+    let increase_nonce = stacker_nonce;
+    let stack_increase = make_pox_4_stack_increase(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        &signer_pk,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
+
+    let latest_block =
+        peer.tenure_with_txs(&[stack_tx, extend_tx, stack_increase], &mut coinbase_nonce);
+
+    let txs = get_last_block_sender_transactions(&observer, stacker_addr.clone());
+
+    let tx_result = |nonce: u64| -> Value { txs.get(nonce as usize).unwrap().result.clone() };
+
+    // stack-stx should work
+    tx_result(stack_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
+    // `stack-extend` should work
+    tx_result(extend_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
+    let increase_result = tx_result(increase_nonce);
+
+    // Validate that the error is not due to the signature
+    assert_ne!(
+        tx_result(increase_nonce),
+        Value::error(Value::Int(35)).unwrap()
+    );
+    assert_eq!(increase_result, Value::error(Value::Int(40)).unwrap())
+}
+
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
