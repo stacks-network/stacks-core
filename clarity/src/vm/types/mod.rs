@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::{char, cmp, fmt, str};
 
 use regex::Regex;
+use speedy::{Readable, Writable};
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
@@ -31,6 +32,8 @@ use stacks_common::util::hash;
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
+#[cfg(test)]
+use crate::vm::fakes::*;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
@@ -50,26 +53,31 @@ pub const MAX_TYPE_DEPTH: u8 = 32;
 // this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct TupleData {
     // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct BuffData {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct ListData {
     pub data: Vec<Value>,
     // todo: remove type_signature
     pub type_signature: ListTypeData,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord, Readable, Writable,
+)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -81,7 +89,10 @@ impl StandardPrincipalData {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord, Readable, Writable,
+)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ContractName,
@@ -127,35 +138,43 @@ impl fmt::Display for QualifiedContractIdentifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub enum PrincipalData {
     Standard(StandardPrincipalData),
     Contract(QualifiedContractIdentifier),
 }
 
+#[derive(Readable, Writable, PartialEq)]
 pub enum ContractIdentifier {
     Relative(ContractName),
     Qualified(QualifiedContractIdentifier),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
     pub trait_identifier: Option<TraitIdentifier>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord, Readable, Writable,
+)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct TraitIdentifier {
     pub name: ClarityName,
     pub contract_identifier: QualifiedContractIdentifier,
@@ -220,7 +239,7 @@ impl TraitIdentifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Readable, Writable)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -236,7 +255,8 @@ pub enum Value {
     //  must be handled in the value sanitization routine!
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub enum SequenceData {
     Buffer(BuffData),
     List(ListData),
@@ -535,7 +555,8 @@ impl SequenceData {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum CharType {
     UTF8(UTF8Data),
     ASCII(ASCIIData),
@@ -556,7 +577,7 @@ impl fmt::Debug for CharType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub struct ASCIIData {
     pub data: Vec<u8>,
 }
@@ -572,7 +593,7 @@ impl fmt::Display for ASCIIData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub struct UTF8Data {
     pub data: Vec<Vec<u8>>,
 }

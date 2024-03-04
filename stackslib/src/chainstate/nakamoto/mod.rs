@@ -3202,7 +3202,7 @@ impl NakamotoChainState {
                     |_, _| false,
                 )
                 .unwrap();
-            clarity.save_analysis(&contract_id, &analysis).unwrap();
+            clarity.save_analysis(&analysis).unwrap();
         })
     }
 }

@@ -138,7 +138,7 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|db| {
-                        let source = db.get_contract_src(&contract_identifier)?;
+                        let source = db.get_contract_src(&contract_identifier).ok()??;
                         let contract_commit_key = make_contract_hash_key(&contract_identifier);
                         let (contract_commit, proof) = if with_proof {
                             db.get_with_proof::<ContractCommitment>(&contract_commit_key)
@@ -146,7 +146,7 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                         } else {
-                            db.get::<ContractCommitment>(&contract_commit_key)
+                            db.get_data::<ContractCommitment>(&contract_commit_key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))?

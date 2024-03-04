@@ -229,7 +229,7 @@ pub mod pox4 {
                         )
                         .unwrap();
                     clarity_db
-                        .save_analysis(&pox_contract_id, &analysis)
+                        .save_analysis(&analysis)
                         .expect("FATAL: failed to store contract analysis");
                 });
             });

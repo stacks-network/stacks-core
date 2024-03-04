@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
+use crate::vm::analysis::{CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -100,10 +100,8 @@ pub trait ClarityConnection {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R;
 
+    /// Get the current epoch for this [ClarityConnection].
     fn get_epoch(&self) -> StacksEpochId;
 
     fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
@@ -151,12 +149,15 @@ pub trait ClarityConnection {
 
 pub trait TransactionConnection: ClarityConnection {
     /// Do something with this connection's Clarity environment that can be aborted
-    ///  with `abort_call_back`.
+    /// with `abort_call_back`.
+    ///
     /// This returns the return value of `to_do`:
-    ///  * the generic term `R`
-    ///  * the asset changes during `to_do` in an `AssetMap`
-    ///  * the Stacks events during the transaction
-    /// and a `bool` value which is `true` if the `abort_call_back` caused the changes to abort
+    ///  * the generic term `R`,
+    ///  * the asset changes during `to_do` in an [`AssetMap`],
+    ///  * the Stacks events during the transaction,
+    ///  * and a `bool` value which is `true` if the `abort_call_back` caused
+    ///    the changes to abort.
+    ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
     fn with_abort_callback<F, A, R, E>(
         &mut self,
@@ -168,16 +169,14 @@ pub trait TransactionConnection: ClarityConnection {
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>;
 
-    /// Do something with the analysis database and cost tracker
-    ///  instance of this transaction connection. This is a low-level
-    ///  method that in most cases should not be used except in
-    ///  implementing structs of `TransactionConnection`, and the auto
-    ///  implemented methods of the `TransactionConnection` trait
-    fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
+    /// Execute `to_do` with access to the underlying [`ClarityDatabase`] and a
+    /// [`LimitedCostTracker`] instance, returning the result of `to_do`: `R`.
+    fn with_clarity_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
+        F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
-    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
+    /// Analyze a provided smart contract, but do not write the resulting
+    /// [`ContractAnalysis`] to the Clarity non-consensus database.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
@@ -187,7 +186,7 @@ pub trait TransactionConnection: ClarityConnection {
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let epoch_id = self.get_epoch();
 
-        self.with_analysis_db(|db, mut cost_track| {
+        self.with_clarity_db(|db, mut cost_track| {
             let ast_result = ast::build_ast_with_rules(
                 identifier,
                 contract_content,
@@ -222,17 +221,14 @@ pub trait TransactionConnection: ClarityConnection {
         })
     }
 
-    /// Save a contract analysis output to the AnalysisDatabase
-    /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
-    ///   the caller should likely abort the whole block or panic
-    fn save_analysis(
-        &mut self,
-        identifier: &QualifiedContractIdentifier,
-        contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
-        self.with_analysis_db(|db, cost_tracker| {
+    /// Saves a [`ContractAnalysis`] to the Clarity non-consensus database.
+    /// This will fail if the [`Contract`] has not already been inserted, and
+    /// in general a failure here indicates a more serious problem with in
+    /// the process for inserting contracts.
+    fn save_analysis(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
+        self.with_clarity_db(|db, cost_tracker| {
             db.begin();
-            let result = db.insert_contract(identifier, contract_analysis);
+            let result = db.insert_contract_analysis(&contract_analysis);
             match result {
                 Ok(_) => {
                     let result = db
@@ -251,6 +247,11 @@ pub trait TransactionConnection: ClarityConnection {
                     }
                 }
             }
+        })
+        .map_err(|_| {
+            CheckError::new(CheckErrors::Expects(
+                "Failed to save contract analysis".into(),
+            ))
         })
     }
 
@@ -275,9 +276,13 @@ pub trait TransactionConnection: ClarityConnection {
     }
 
     /// Execute a contract call in the current block.
-    ///  If an error occurs while processing the transaction, its modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
+    ///
+    /// If an error occurs while processing the transaction, its modifications
+    /// will be rolled back.
+    ///
+    /// `abort_call_back` is called with an AssetMap and a ClarityDatabase reference,
+    ///  where if the callback returns true, all modifications from this transaction
+    ///will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     fn run_contract_call<F>(
         &mut self,
@@ -320,10 +325,14 @@ pub trait TransactionConnection: ClarityConnection {
     }
 
     /// Initialize a contract in the current block.
-    ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    ///
+    /// If an error occurs while processing the initialization, it's modifications
+    /// will be rolled back.
+    ///
+    /// `abort_call_back` is called with an [AssetMap] and a [ClarityDatabase]
+    /// reference and if the callback returns true, all modifications from this
+    /// transaction will be rolled back. Otherwise, they will be committed
+    /// (though they may later be rolled back if the block itself is rolled back).
     fn initialize_smart_contract<F>(
         &mut self,
         identifier: &QualifiedContractIdentifier,

@@ -17,11 +17,16 @@
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{BuildHasher, Hash};
 use std::io::{Read, Write};
-use std::ops::Deref;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
+#[cfg(test)]
+use fake::Faker;
 use lazy_static::lazy_static;
 use regex::Regex;
+use speedy::{Endianness, Readable, Writable};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
 };
@@ -74,6 +79,7 @@ guarded_string!(
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
+
 guarded_string!(
     ContractName,
     "ContractName",
@@ -166,7 +172,7 @@ impl StacksMessageCodec for ContractName {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -180,7 +186,7 @@ pub enum PreSymbolicExpressionType {
     Placeholder(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
     pub id: u64,
@@ -408,17 +414,18 @@ impl PreSymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[SymbolicExpression]>),
+    List(Vec<SymbolicExpression>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum TraitDefinition {
     Defined(TraitIdentifier),
     Imported(TraitIdentifier),
@@ -443,7 +450,7 @@ where
     Ok(last)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Readable, Writable)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -544,7 +551,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()
@@ -651,7 +658,10 @@ impl fmt::Display for SymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Readable, Writable,
+)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,

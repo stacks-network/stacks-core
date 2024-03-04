@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::convert::{TryFrom, TryInto};
+use std::num::NonZeroUsize;
+
 use serde_json;
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::{
@@ -30,33 +34,40 @@ use stacks_common::types::{
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
+use super::cache::with_clarity_cache;
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
-use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use super::structures::{ContractData, GetContractResult, StoredContract};
+use crate::vm::analysis::{CheckResult, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::structures::{
-    ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
-    STXBalanceSnapshot, SimmedBlock,
+    ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
+    FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot, SimmedBlock,
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
+    self, CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::{SerializationError, NONE_SERIALIZATION_LEN};
 use crate::vm::types::{
-    byte_len_of_serialization, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+    byte_len_of_serialization, FunctionSignature, FunctionType, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
+use crate::vm::{ClarityVersion, ContractContext};
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
+/// The `StoreType` enum represents the different types of data that can be
+/// stored in the Clarity VM's backing store. The variants are used to
+/// create keys for the backing store, and to determine how to deserialize
+/// the data when it is retrieved.
 #[repr(u8)]
 pub enum StoreType {
     DataMap = 0x00,
@@ -77,12 +88,38 @@ pub enum StoreType {
     PoxUnlockHeight = 0x15,
 }
 
+/// The `ClarityDatabase` struct represents the primary entry point for
+/// modifications to the Clarity VM's state. It is a wrapper around the
+/// [`RollbackWrapper`] type, which is used as a transaction manager for the
+/// underlying persistent data store.
+///
+/// The [`RollbackWrapper`] manages a stack of "stack frames", one for each call
+/// to [`Self::begin`], which can be [`committed`](Self::commit) or
+/// [`rolled back`](Self::roll_back). This allows for a nested structure of
+/// transactions, where the innermost transaction can be rolled back without
+/// affecting the outer transactions.
+///
+/// Please note that operations on this struct _do not guarantee_ that the data
+/// will be persisted to disk. It is only guaranteed to be added to the backing
+/// [`RollbackWrapper`] instance's current context (i.e. stack frame) as a pending
+/// edit. To persist the metadata to disk, the caller must call [`Self::commit`]
+/// until there are no remaining nested context's are exhausted, triggering it to
+/// be written to the backing store.
 pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
 }
 
+/// Represents a read-only view of a database that can be queried for block
+/// information. This is typically going to be the main chainstate "index"
+/// database, which is (as of this writing) located at `~/chainstate/vm/index.sqlite`
+/// in the node's directory structure.
+///
+/// This trait is also mocked during testing, generally using an in-memory
+/// database, and for cases where a [`ClarityDatabase`] instance needs to be
+/// created but without the need for a [`HeadersDB`] implementation, the
+/// [`NULL_HEADER_DB`] may be used.
 pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
@@ -100,6 +137,15 @@ pub trait HeadersDB {
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
 }
 
+/// Represents a read-only view of a database that can be queried for burnchain
+/// and sortition information. This is typically going to be the "sortition"
+/// database, which is (as of this writing) located at
+/// `~/burnchain/sortition/marf.sqlite` in the node's directory structure.
+///
+/// This trait is also mocked during testing, generally using an in-memory
+/// database, and for cases where a [`ClarityDatabase`] instance needs to be
+/// created but without the need for a [`BurnStateDB`] implementation, the
+/// [`NULL_BURN_STATE_DB`] may be used.
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
     fn get_v2_unlock_height(&self) -> u32;
@@ -135,10 +181,13 @@ pub trait BurnStateDB {
     ) -> Option<SortitionId>;
 
     /// The epoch is defined as by a start and end height. This returns
-    /// the epoch enclosing `height`.
+    /// the [`StacksEpoch`] active at the given Stacks block height.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
+
+    /// Returns the [`StacksEpoch`] which maps to the given [`StacksEpochId`].
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 
+    /// Returns the AST rules active at the given Stacks block height.
     fn get_ast_rules(&self, height: u32) -> ASTRules;
 
     /// Get the PoX payout addresses for a given burnchain block
@@ -261,12 +310,26 @@ impl BurnStateDB for &dyn BurnStateDB {
     }
 }
 
+/// A "null" implementation of the [`HeadersDB`] trait, which is used for testing
+/// and for cases where a [`ClarityDatabase`] instance needs to be created but
+/// without the need for a functional [`HeadersDB`] implementation.
 pub struct NullHeadersDB {}
+
+/// A "null" implementation of the [`BurnStateDB`] trait, which is used for testing
+/// and for cases where a [`ClarityDatabase`] instance needs to be created but
+/// without the need for a functional [`BurnStateDB`] implementation.
 pub struct NullBurnStateDB {
     epoch: StacksEpochId,
 }
 
+/// A global instance of the [`NullHeadersDB`] struct, which implements
+/// the [`HeadersDB`] trait and can be used where a functional [`HeadersDB`]
+/// implementation is not required.
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
+
+/// A global instance of the [`NullBurnStateDB`] struct, which implements
+/// the [`BurnStateDB`] trait and can be used where a functional [`BurnStateDB`]
+/// implementation is not required.
 pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {
     epoch: StacksEpochId::Epoch20,
 };
@@ -445,25 +508,77 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn initialize(&mut self) {}
 
+    /// Executes the provided closure within a new nested [`RollbackWrapper`]
+    /// transaction. If the closure returns an error, the transaction will be
+    /// rolled back, otherwise it will be committed.
+    ///
+    /// If the closure returns an [`Err`], the error will be converted into a
+    /// [`CheckErrors::Expects`] error and returned. If the closure returns
+    /// [`Ok`], the result of the closure will be returned.
+    pub fn execute<F, T, E>(&mut self, f: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<T, E>,
+        E: From<CheckErrors>,
+    {
+        // Begin a new "transaction" (roll-back context).
+        self.begin();
+
+        // Execute the provided closure.
+        let result = f(self).or_else(|e| {
+            // Roll-back the transaction if the closure returned an error.
+            self.roll_back()
+                .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+            Err(e)
+        })?;
+
+        // Commit the transaction if the closure returned Ok.
+        self.commit()
+            .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+
+        // Return the result of the closure.
+        Ok(result)
+    }
+
+    /// Gets whether or not the backing [`RollbackWrapper`] instance's stack is
+    /// empty. If the stack is empty, [`RollbackWrapper::nest`] must be called
+    /// prior to any write operations.
     pub fn is_stack_empty(&self) -> bool {
         self.store.depth() == 0
     }
 
-    /// Nest the key-value wrapper instance
+    /// Create a new nested roll-back context in the backing [`RollbackWrapper`]
+    /// instance, i.e. a new "nested transaction", and enter that context.
     pub fn begin(&mut self) {
         self.store.nest();
     }
 
-    /// Commit current key-value wrapper layer
+    /// Commit the currently active nested context in the backing [`RollbackWrapper`].
+    /// The behavior of this method depends on the current `depth` of the
+    /// [`RollbackWrapper`]:
+    /// - If the `depth` of the [`RollbackWrapper`] is > 1, this will bubble all
+    /// pending changes in the current context to its parent.
+    /// - If the `depth` is 1, this will commit the changes to the backing store.
+    /// - If the stack is empty, this will return an error.
     pub fn commit(&mut self) -> Result<()> {
         self.store.commit().map_err(|e| e.into())
     }
 
-    /// Drop current key-value wrapper layer
+    /// Roll-back the currently active nested context in the backing [`RollbackWrapper`].
+    /// The behavior of this method depends on the current `depth` of the
+    /// [`RollbackWrapper`]:
+    /// - If the `depth` of the [`RollbackWrapper`] is > 1, this will discard all
+    /// pending changes in the current context and set its parent as the active
+    /// context.
+    /// - If the `depth` is 1, this will discard all pending changes and there
+    /// will no longer be an active context, requiring a new call to [`Self::begin`].
+    /// - If the stack is empty, this will return an error.
     pub fn roll_back(&mut self) -> Result<()> {
         self.store.rollback().map_err(|e| e.into())
     }
 
+    /// Updates the current block hash in the backing store to the provided
+    /// [`StacksBlockId`] and also configure whether or not the [`RollbackWrapper`]
+    /// instance should query pending data for future reads or not.
     pub fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
@@ -472,22 +587,87 @@ impl<'a> ClarityDatabase<'a> {
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
-    pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
-        self.store.put(&key, &value.serialize())
+    /// Used by tests to ensure that the contract -> contract hash key exists in
+    /// the marf even if the contract isn't published.
+    #[cfg(test)]
+    #[deprecated(
+        note = "Prefer the `test_insert_contract` and `test_insert_contract_with_analysis` methods instead."
+    )]
+    pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
+        use stacks_common::util::hash::Sha512Trunc256Sum;
+        self.store
+            .prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]))
+            .unwrap();
     }
 
-    /// Like `put()`, but returns the serialized byte size of the stored value
+    #[cfg(test)]
+    /// Used by tests to ensure that the contract -> contract hash key exists in
+    /// the consensus-critical store and that the contract exists in the
+    /// non-consensus-critical store, even if the contract hasn't been published.
+    ///
+    /// NOTE: This method _does not_ populate the stored [`ContractContext`] with
+    /// information required to execute the contract such as functions, variables,
+    /// maps, etc.. It only ensures that the contract data exists in its most
+    /// basic form.
+    pub fn test_insert_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        src: &str,
+    ) {
+        let ctx = ContractContext::new(contract_identifier.clone(), ClarityVersion::Clarity2);
+        self.insert_contract(
+            Contract {
+                contract_context: ctx,
+            },
+            src,
+        )
+        .expect("failed to insert contract");
+    }
+
+    #[cfg(test)]
+    /// Used by tests to ensure that the contract -> contract hash key exists in
+    /// the consensus-critical store and that both the contract and its analysis
+    /// exist in the non-consensus-critical store, even if the contract hasn't
+    /// been published.
+    ///
+    /// NOTE: This method _does not_ populate the stored [`ContractContext`] with
+    /// information required to execute the contract such as functions, variables,
+    /// maps, etc.. It only ensures that the contract data exists in its most
+    /// basic form.
+    pub fn test_insert_contract_with_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        src: &str,
+        analysis: &ContractAnalysis,
+    ) {
+        self.test_insert_contract(contract_identifier, src);
+        self.insert_contract_analysis(analysis)
+            .expect("failed to insert contract analysis");
+    }
+
+    /// Adds the provided `value` to the backing [`RollbackWrapper`] at the
+    /// specified `key` as a pending edit. `value` will be serialized
+    /// using its [`ClaritySerializable`] implementation.
+    pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
+        self.store.put_data(&key, &value.serialize())
+    }
+
+    /// Like [`put_data`](Self::put_data), but returns the serialized byte size
+    /// of the stored value.
     pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<u64> {
         let serialized = value.serialize();
-        self.store.put(&key, &serialized)?;
+        self.store.put_data(key, &serialized)?;
         Ok(byte_len_of_serialization(&serialized))
     }
 
-    pub fn get<T>(&mut self, key: &str) -> Result<Option<T>>
+    /// Attempts to retrieve the consensus-critical value for the provided `key`
+    /// and deserialize it into the type `T` using `T`'s [`ClarityDeserializable`]
+    /// implementation. If the value is not found, this method will return [`None`].
+    pub fn get_data<T>(&mut self, key: &str) -> Result<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
-        self.store.get::<T>(key)
+        self.store.get_data::<T>(key)
     }
 
     pub fn put_value(&mut self, key: &str, value: Value, epoch: &StacksEpochId) -> Result<()> {
@@ -495,6 +675,11 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    /// Attempts to add a [`Value`] to the backing store at the specified `key`.
+    /// The `value` will be sanitized if the provided `epoch` requires it, and
+    /// then serialized and stored in the backing store in hexidecimal form.
+    /// Upon success, this method will return the pre-sanitized, pre-encoded
+    /// byte length of the serialized value.
     pub fn put_value_with_size(
         &mut self,
         key: &str,
@@ -524,11 +709,18 @@ impl<'a> ClarityDatabase<'a> {
 
         let size = serialized.len() as u64;
         let hex_serialized = to_hex(serialized.as_slice());
-        self.store.put(&key, &hex_serialized)?;
+        self.store.put_data(key, &hex_serialized)?;
 
         Ok(pre_sanitized_size.unwrap_or(size))
     }
 
+    /// Attempts to retrieve a consensus-critical value for the provided `key`
+    /// from the backing store. If the key is found the value will be deserialized
+    /// into the [`Value`] type specified by `expected`. The original serialized
+    /// byte length of the value is also returned which can be used in cost-tracking.
+    ///
+    /// Returns an error if the value could not be deserialized into the
+    /// specified type. Returns [`None`] if the key is not found.
     pub fn get_value(
         &mut self,
         key: &str,
@@ -540,6 +732,14 @@ impl<'a> ClarityDatabase<'a> {
             .map_err(|e| InterpreterError::DBError(e.to_string()).into())
     }
 
+    /// Attempts to retrieve a consensus-critical value for the provided `key`
+    /// from the backing store along with its proof, and deserialize it into
+    /// the type `T` using `T`'s [`ClarityDeserializable`] implementation.
+    ///
+    /// Note that this method will only find values which have already been
+    /// committed to the backing store.
+    ///
+    /// Returns [`None`] if the key is not found.
     pub fn get_with_proof<T>(&mut self, key: &str) -> Result<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
@@ -547,6 +747,12 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_with_proof(key)
     }
 
+    /// Formats a KV-key which contains three dynamic parts:
+    /// - the contract identifier,
+    /// - the data type,
+    /// - and the 'key' name.
+    ///
+    /// The resulting key will be in the format: _`vm::<contract-identifier>::<data-type>::<key>`_
     pub fn make_key_for_trip(
         contract_identifier: &QualifiedContractIdentifier,
         data: StoreType,
@@ -555,14 +761,34 @@ impl<'a> ClarityDatabase<'a> {
         format!("vm::{}::{}::{}", contract_identifier, data as u8, var_name)
     }
 
+    /// Formats a VM-metadata-key which contains two dynamic parts:
+    /// - the data type,
+    /// - and the 'key' name.
+    ///
+    /// The resulting key will be in the format: _`vm-metadata::<data-type>::<key>`_
     pub fn make_metadata_key(data: StoreType, var_name: &str) -> String {
         format!("vm-metadata::{}::{}", data as u8, var_name)
     }
 
+    /// Retrieves the consensus-critical `epoch-version` key, which is used to
+    /// store the current Clarity [StacksEpochId].
+    ///
+    /// The key is statically-formatted as `vm-epoch::epoch-version`.
     fn clarity_state_epoch_key() -> &'static str {
         "vm-epoch::epoch-version"
     }
 
+    /// Formats a KV-key which contains four dynamic parts:
+    /// - the contract identifier,
+    /// - the data type,
+    /// - the 'key' name,
+    /// - and the 'key' value.
+    ///
+    /// This key type is used for storing data that is indexed by a unique
+    /// key-value pair.
+    ///
+    /// The resulting key will be in the format:
+    /// _`vm::<contract-identifier>::<data-type>::<key>::<key-value>`_
     pub fn make_key_for_quad(
         contract_identifier: &QualifiedContractIdentifier,
         data: StoreType,
@@ -573,36 +799,6 @@ impl<'a> ClarityDatabase<'a> {
             "vm::{}::{}::{}::{}",
             contract_identifier, data as u8, var_name, key_value
         )
-    }
-
-    pub fn insert_contract_hash(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        contract_content: &str,
-    ) -> Result<()> {
-        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
-        self.store
-            .prepare_for_contract_metadata(contract_identifier, hash)?;
-        // insert contract-size
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        self.insert_metadata(contract_identifier, &key, &(contract_content.len() as u64))?;
-
-        // insert contract-src
-        if STORE_CONTRACT_SRC_INTERFACE {
-            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
-            self.insert_metadata(contract_identifier, &key, &contract_content.to_string())?;
-        }
-        Ok(())
-    }
-
-    pub fn get_contract_src(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Option<String> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
-        self.fetch_metadata(contract_identifier, &key)
-            .ok()
-            .flatten()
     }
 
     pub fn set_metadata(
@@ -617,8 +813,8 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Set a metadata entry if it hasn't already been set, yielding
-    ///  a runtime error if it was. This should only be called by post-nakamoto
-    ///  contexts.
+    /// a runtime error if it was. This should only be called by post-nakamoto
+    /// contexts.
     pub fn try_set_metadata(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -632,6 +828,12 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// Inserts a non-consensus-critical metadata entry for a contract by its
+    /// [QualifiedContractIdentifier] and the provided key.
+    ///
+    /// The `data` is serialized using its [`ClaritySerializable`] implementation.
+    ///
+    /// If the metadata entry already exists, this method will return an error.
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -651,6 +853,13 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// Attempts to retrieve a non-consensus-critical metadata entry for
+    /// a contract by its [`QualifiedContractIdentifier`] and the provided key,
+    /// using the current block height.
+    ///
+    /// If the metadata entry is found, it will be deserialized using its
+    /// [`ClarityDeserializable`] implementation into the type `T`. Otherwise,
+    /// this method will return [`None`].
     fn fetch_metadata<T>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -666,6 +875,13 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// Attempts to retrieve a non-consensus-critical metadata entry for
+    /// a contract by its [`QualifiedContractIdentifier`] and the provided key,
+    /// at the specific Stacks block height.
+    ///
+    /// If the metadata entry is found, it will be deserialized using its
+    /// [`ClarityDeserializable`] implementation into the type `T`. Otherwise,
+    /// this method will return [`None`].
     pub fn fetch_metadata_manual<T>(
         &mut self,
         at_height: u32,
@@ -678,106 +894,135 @@ impl<'a> ClarityDatabase<'a> {
         let x_opt = self
             .store
             .get_metadata_manual(at_height, contract_identifier, key)?;
+
         match x_opt {
             None => Ok(None),
             Some(x) => T::deserialize(&x).map(|out| Some(out)),
         }
     }
 
-    // load contract analysis stored by an analysis_db instance.
-    //   in unit testing, where the interpreter is invoked without
-    //   an analysis pass, this function will fail to find contract
-    //   analysis data
-    pub fn load_contract_analysis(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractAnalysis>> {
-        let x_opt = self
-            .store
-            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
-            // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a CheckError anyways.
-            .ok();
-        match x_opt.flatten() {
-            None => Ok(None),
-            Some(x) => ContractAnalysis::deserialize(&x).map(|out| Some(out)),
-        }
-    }
+    /// Inserts a [`Contract`] into the backing [`RollbackWrapper`].
+    pub fn insert_contract(&mut self, contract: Contract, src: &str) -> Result<()> {
+        let ctx = contract.contract_context;
 
-    pub fn get_contract_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<u64> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let contract_size: u64 =
-            self.fetch_metadata(contract_identifier, &key)?
-                .ok_or_else(|| {
-                    InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-                })?;
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
-        let data_size: u64 = self
-            .fetch_metadata(contract_identifier, &key)?
-            .ok_or_else(|| {
-                InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-            })?;
+        self.store.put_contract(src, ctx.clone())?;
 
-        // u64 overflow is _checked_ on insert into contract-data-size
-        Ok(data_size + contract_size)
-    }
-
-    /// used for adding the memory usage of `define-constant` variables.
-    pub fn set_contract_data_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        data_size: u64,
-    ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let contract_size: u64 =
-            self.fetch_metadata(contract_identifier, &key)?
-                .ok_or_else(|| {
-                    InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-                })?;
-        contract_size.cost_overflow_add(data_size)?;
-
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
-        self.insert_metadata(contract_identifier, &key, &data_size)?;
         Ok(())
     }
 
-    pub fn insert_contract(
+    /// Attempts to retrieve a contract's source code by its [`QualifiedContractIdentifier`].
+    /// This method will first check the global in-memory cache (if enabled), and if
+    /// not found it will then query the underlying [`RollbackWrapper`].
+    ///
+    /// This function will return [`None`] if no contract with the specified
+    /// identifier could be found.
+    pub fn get_contract_src(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-        contract: Contract,
-    ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        self.insert_metadata(contract_identifier, &key, &contract)?;
-        Ok(())
+    ) -> Result<Option<String>> {
+        Ok(with_clarity_cache(|cache| {
+            cache
+                .try_get_contract(contract_identifier, None)
+                .map(|x| x.source.clone())
+                .or_else(|| {
+                    let ctx = self.store.get_contract(contract_identifier).ok()?;
+                    match ctx {
+                        GetContractResult::Pending(pending) => Some(pending.source),
+                        GetContractResult::Stored(stored) => {
+                            let src = stored.source.clone();
+                            cache.push_contract(contract_identifier.clone(), None, stored);
+                            Some(src)
+                        }
+                        GetContractResult::NotFound => None,
+                    }
+                })
+        }))
     }
 
-    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        self.store.has_metadata_entry(contract_identifier, &key)
-    }
-
+    /// Attempts to retrieve a [`Contract`] by its [`QualifiedContractIdentifier`].
+    /// This method will first check the global in-memory cache (if enabled), and if
+    /// not found it will then query the underlying [`RollbackWrapper`].
+    ///
+    /// This method canonicalizes the contract's types based on the current
+    /// Clarity [`StacksEpochId`] prior to returning.
+    ///
+    /// If no contract is found, this method will return a [`CheckErrors::NoSuchContract`]
+    /// error.
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?
-            .ok_or_else(|| InterpreterError::Expect(
-                "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-                .into()))?;
-        data.canonicalize_types(&self.get_clarity_epoch_version()?);
-        Ok(data)
+        let epoch = self
+            .get_clarity_epoch_version()
+            .expect("FATAL: failed to determine current clarity epoch version");
+
+        with_clarity_cache(|cache| {
+            cache
+                .try_get_contract(contract_identifier, Some(epoch))
+                .map(|x| {
+                    let mut context = x.contract.clone();
+                    context.canonicalize_types(&epoch);
+                    context
+                })
+                .or_else(|| {
+                    let ctx = self.store.get_contract(contract_identifier).ok()?;
+                    match ctx {
+                        GetContractResult::Pending(pending) => {
+                            let mut context = pending.contract.clone();
+                            context.canonicalize_types(&epoch);
+                            Some(context)
+                        }
+                        GetContractResult::Stored(stored) => {
+                            let mut context = stored.contract.clone();
+                            context.canonicalize_types(&epoch);
+                            cache.push_contract(contract_identifier.clone(), Some(epoch), stored);
+                            Some(context)
+                        }
+                        GetContractResult::NotFound => None,
+                    }
+                })
+                .ok_or(Error::Unchecked(CheckErrors::NoSuchContract(
+                    contract_identifier.to_string(),
+                )))
+                .map(|ctx| Contract {
+                    contract_context: ctx,
+                })
+        })
     }
 
+    /// Checks for a contract's existence based on its [QualifiedContractIdentifier].
+    ///
+    /// This method first checks the global in-memory cache (if enabled), and if
+    /// not found it will then query the underlying [RollbackWrapper].
+    pub fn has_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<bool> {
+        let exists_in_cache = with_clarity_cache(|cache| cache.has_contract(contract_identifier));
+
+        if !exists_in_cache {
+            Ok(self.store.has_contract(contract_identifier)?)
+        } else {
+            Ok(true)
+        }
+    }
+
+    /// Attempts to retrieve a contract's size by its [QualifiedContractIdentifier]
+    /// from the backing [RollbackWrapper].
+    ///
+    /// The `contract size` is defined as its `source code size` in bytes + its
+    /// `data size` in bytes.
+    ///
+    /// This method will return an error if no contract with the specified
+    /// identifier could be found.
+    pub fn get_contract_size(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<u32> {
+        self.store.get_contract_size(contract_identifier)
+    }
+
+    /// Gets the consensus-critical KV-key which stores the USTX liquid supply.
     pub fn ustx_liquid_supply_key() -> &'static str {
         "_stx-data::ustx_liquid_supply"
     }
@@ -787,7 +1032,7 @@ impl<'a> ClarityDatabase<'a> {
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId> {
-        let out = match self.get(Self::clarity_state_epoch_key())? {
+        let out = match self.get_data(Self::clarity_state_epoch_key())? {
             Some(x) => u32::try_into(x).map_err(|_| {
                 InterpreterError::Expect("Bad Clarity epoch version in stored Clarity state".into())
             })?,
@@ -796,12 +1041,17 @@ impl<'a> ClarityDatabase<'a> {
         Ok(out)
     }
 
-    /// Should be called _after_ all of the epoch's initialization has been invoked
+    /// Sets the Clarity VM's current [StacksEpochId] in the consensus-critical
+    /// data store.
+    ///
+    /// This should only be called _after_ all of the epoch initializations
+    /// have been invoked.
     pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
-        self.put(Self::clarity_state_epoch_key(), &(epoch as u32))
+        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
-    /// Returns the _current_ total liquid ustx
+    /// Retrieves the _current_ (i.e. the cmost recently written value) total
+    /// liquid USTX from the consensus-critical data store.
     pub fn get_total_liquid_ustx(&mut self) -> Result<u128> {
         Ok(self
             .get_value(
@@ -819,6 +1069,8 @@ impl<'a> ClarityDatabase<'a> {
             .unwrap_or(0))
     }
 
+    /// Sets the _current_ total liquid USTX supply in the consensus-critical
+    /// data store at the current block.
     fn set_ustx_liquid_supply(&mut self, set_to: u128) -> Result<()> {
         self.put_value(
             ClarityDatabase::ustx_liquid_supply_key(),
@@ -831,6 +1083,10 @@ impl<'a> ClarityDatabase<'a> {
         })
     }
 
+    /// Increments the total liquid USTX supply in the consensus-critical data store
+    /// by the specified amount. This method retrieves the _current_ (i.e. most
+    /// recently recorded) value, increments it by `incr_by`, and then stores the
+    /// new value back in the data store at the current block.
     pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) -> Result<()> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_add(incr_by).ok_or_else(|| {
@@ -841,6 +1097,10 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    /// Decrements the total liquid USTX supply in the consensus-critical data store
+    /// by the specified amount. This method retrieves the _current_ (i.e. most
+    /// recently recorded) value, decrements it by `decr_by`, and then stores the
+    /// new value back in the data store at the current block.
     pub fn decrement_ustx_liquid_supply(&mut self, decr_by: u128) -> Result<()> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_sub(decr_by).ok_or_else(|| {
@@ -851,10 +1111,13 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    /// Consumes this [ClarityDatabase] instance and returns its underlying
+    /// [RollbackWrapper].
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
 
+    /// Returns whether or not the current rust build profile is `test`.
     pub fn is_in_regtest(&self) -> bool {
         cfg!(test)
     }
@@ -863,7 +1126,7 @@ impl<'a> ClarityDatabase<'a> {
 // Get block information
 
 impl<'a> ClarityDatabase<'a> {
-    /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
+    /// Returns the id of a *Stacks* block, by a *Stacks* block height.
     ///
     /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> Result<StacksBlockId> {
@@ -949,6 +1212,11 @@ impl<'a> ClarityDatabase<'a> {
             })
     }
 
+    /// Attempts to retrieve the Stacks block header hash for a given Stacks
+    /// block height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
+    /// could be found.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
@@ -956,6 +1224,12 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
+    /// Attempts to retrieve the timestamp from the burnchain (i.e. Bitcoin)
+    /// block header which generated the consensus hash for the given Stacks
+    /// block height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
+    ///
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
@@ -963,6 +1237,11 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
+    /// Attempts to retrieve the burnchain (i.e. Bitcoin) block header hash
+    /// corresponding to the Stacks block at the given height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
+    /// could be found.
     pub fn get_burnchain_block_header_hash(
         &mut self,
         block_height: u32,
@@ -1050,6 +1329,8 @@ impl<'a> ClarityDatabase<'a> {
             .get_pox_payout_addrs(burnchain_block_height, &sortition_id))
     }
 
+    /// Attempts to retrieve the burnchain (i.e. Bitcoin) block height for the
+    /// Stacks block with the given index block hash.
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
         self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
@@ -1131,12 +1412,12 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_stx_btc_ops_processed(&mut self) -> Result<u64> {
         Ok(self
-            .get("vm_pox::stx_btc_ops::processed_blocks")?
+            .get_data("vm_pox::stx_btc_ops::processed_blocks")?
             .unwrap_or(0))
     }
 
     pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> Result<()> {
-        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed)
+        self.put_data("vm_pox::stx_btc_ops::processed_blocks", &processed)
     }
 }
 
@@ -1158,7 +1439,7 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
         let value = format!("{}", &height);
-        self.put(&key, &value)
+        self.put_data(&key, &value)
     }
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -1195,7 +1476,7 @@ impl<'a> ClarityDatabase<'a> {
         })?;
 
         let value_str = to_hex(&value_bytes);
-        self.put(&key, &value_str)
+        self.put_data(&key, &value_str)
     }
 
     pub fn get_microblock_pubkey_hash_height(
@@ -1203,7 +1484,7 @@ impl<'a> ClarityDatabase<'a> {
         pubkey_hash: &Hash160,
     ) -> Result<Option<u32>> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        self.get(&key)?
+        self.get_data(&key)?
             .map(|height_str: String| {
                 height_str.parse::<u32>().map_err(|_| {
                     InterpreterError::Expect(
@@ -1221,7 +1502,7 @@ impl<'a> ClarityDatabase<'a> {
         height: u32,
     ) -> Result<Option<(StandardPrincipalData, u16)>> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
-        self.get(&key)?
+        self.get_data(&key)?
             .map(|reporter_hex_str: String| {
                 let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str)
                     .map_err(|_| {
@@ -1776,7 +2057,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        self.put(&supply_key, &(0_u128))?;
+        self.put_data(&supply_key, &(0_u128))?;
 
         Ok(data)
     }
@@ -1830,7 +2111,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let current_supply: u128 = self.get(&key)?.ok_or_else(|| {
+        let current_supply: u128 = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
 
@@ -1844,7 +2125,7 @@ impl<'a> ClarityDatabase<'a> {
             }
         }
 
-        self.put(&key, &new_supply)
+        self.put_data(&key, &new_supply)
     }
 
     pub fn checked_decrease_token_supply(
@@ -1858,7 +2139,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let current_supply: u128 = self.get(&key)?.ok_or_else(|| {
+        let current_supply: u128 = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
 
@@ -1868,7 +2149,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let new_supply = current_supply - amount;
 
-        self.put(&key, &new_supply)
+        self.put_data(&key, &new_supply)
     }
 
     pub fn get_ft_balance(
@@ -1889,7 +2170,7 @@ impl<'a> ClarityDatabase<'a> {
             &principal.serialize(),
         );
 
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         match result {
             None => Ok(0),
             Some(balance) => Ok(balance),
@@ -1909,7 +2190,7 @@ impl<'a> ClarityDatabase<'a> {
             token_name,
             &principal.serialize(),
         );
-        self.put(&key, &balance)
+        self.put_data(&key, &balance)
     }
 
     pub fn get_ft_supply(
@@ -1922,7 +2203,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let supply = self.get(&key)?.ok_or_else(|| {
+        let supply = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
         Ok(supply)
@@ -2098,7 +2379,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> Result<STXBalance> {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         debug!("Fetching account balance"; "principal" => %principal.to_string());
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         Ok(match result {
             None => STXBalance::zero(),
             Some(balance) => balance,
@@ -2107,7 +2388,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> Result<u64> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         Ok(match result {
             None => 0,
             Some(nonce) => nonce,
@@ -2116,7 +2397,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) -> Result<()> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        self.put(&key, &nonce)
+        self.put_data(&key, &nonce)
     }
 }
 
@@ -2130,5 +2411,133 @@ impl<'a> ClarityDatabase<'a> {
     /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
+    }
+}
+
+// contract analysis
+impl<'a> ClarityDatabase<'a> {
+    pub fn insert_contract_analysis(&mut self, analysis: &ContractAnalysis) -> Result<()> {
+        Ok(with_clarity_cache(|cache| {
+            self.store.put_contract_analysis(&analysis);
+
+            cache.push_contract_analysis(
+                analysis.contract_identifier.clone(),
+                None,
+                analysis.clone(),
+            );
+        }))
+    }
+
+    pub fn get_contract_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        epoch: Option<StacksEpochId>,
+    ) -> Result<Option<ContractAnalysis>> {
+        Ok(
+            with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier, epoch))
+                .map(|x| x.clone())
+                .or_else(|| {
+                    self.store
+                        .get_contract_analysis(contract_identifier)
+                        .ok()?
+                        .map(|mut analysis| {
+                            if let Some(epoch) = epoch {
+                                //let mut analysis = analysis.clone();
+                                analysis.canonicalize_types(&epoch);
+                                with_clarity_cache(|cache| {
+                                    cache.push_contract_analysis(
+                                        contract_identifier.clone(),
+                                        Some(epoch),
+                                        analysis.clone(),
+                                    )
+                                });
+                                analysis
+                            } else {
+                                analysis
+                            }
+                        })
+                }),
+        )
+    }
+
+    pub fn get_public_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: Option<StacksEpochId>,
+    ) -> Result<Option<FunctionType>> {
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+        Ok(analysis
+            .get_public_function_type(function_name)
+            .map(|func| {
+                if let Some(epoch) = epoch {
+                    func.canonicalize(&epoch)
+                } else {
+                    func.clone()
+                }
+            }))
+    }
+
+    pub fn get_read_only_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: Option<StacksEpochId>,
+    ) -> Result<Option<FunctionType>> {
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+        Ok(analysis
+            .get_read_only_function_type(function_name)
+            .map(|func| {
+                if let Some(epoch) = epoch {
+                    func.canonicalize(&epoch)
+                } else {
+                    func.clone()
+                }
+            }))
+    }
+
+    pub fn get_defined_trait(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        trait_name: &str,
+        epoch: Option<StacksEpochId>,
+    ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+        let defined_trait = analysis.get_defined_trait(trait_name).map(|trait_map| {
+            trait_map
+                .iter()
+                .map(|(name, sig)| {
+                    (
+                        name.clone(),
+                        if let Some(epoch) = epoch {
+                            sig.canonicalize(&epoch)
+                        } else {
+                            sig.clone()
+                        },
+                    )
+                })
+                .collect()
+        });
+
+        Ok(defined_trait)
+    }
+
+    pub fn get_clarity_version(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<ClarityVersion> {
+        let contract = self
+            .get_contract_analysis(contract_identifier, None)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.clarity_version)
     }
 }

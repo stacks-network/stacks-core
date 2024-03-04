@@ -1630,14 +1630,14 @@ impl StacksChainState {
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
             &u64_to_sql(block.header.total_work.work)?,
-            &attachable,
-            &0,
-            &0,
+            &attachable as &dyn ToSql,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
             &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
-            &0,
+            &0 as &dyn ToSql,
             &u64_to_sql(download_time)?,
         ];
 
@@ -1702,8 +1702,8 @@ impl StacksChainState {
             &microblock.header.prev_block,
             &index_microblock_hash,
             &microblock.header.sequence,
-            &0,
-            &0,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
         ];
 
         tx.execute(&sql, args)
@@ -4863,6 +4863,7 @@ impl StacksChainState {
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
+        test_debug!("setup_block: {chain_tip:?}");
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = burn_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
@@ -6564,9 +6565,9 @@ impl StacksChainState {
                 let contract_identifier =
                     QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
                 let epoch = clarity_connection.get_epoch().clone();
-                clarity_connection.with_analysis_db_readonly(|db| {
+                clarity_connection.with_clarity_db_readonly(|db| {
                     let function_type = db
-                        .get_public_function_type(&contract_identifier, &function_name, &epoch)
+                        .get_public_function_type(&contract_identifier, &function_name, Some(epoch))
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
                     let clarity_version = db
@@ -6590,7 +6591,7 @@ impl StacksChainState {
                     QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
 
                 let exists = clarity_connection
-                    .with_analysis_db_readonly(|db| db.has_contract(&contract_identifier));
+                    .with_clarity_db_readonly(|db| db.has_contract(&contract_identifier))?;
 
                 if exists {
                     return Err(MemPoolRejection::ContractAlreadyExists(contract_identifier));

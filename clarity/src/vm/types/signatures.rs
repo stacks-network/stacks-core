@@ -19,9 +19,12 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
+#[cfg(test)]
+use fake::Faker;
 // TypeSignatures
 use hashbrown::HashSet;
 use lazy_static::lazy_static;
+use speedy::{Readable, Writable};
 use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
@@ -40,7 +43,9 @@ use crate::vm::types::{
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash, Readable, Writable,
+)]
 pub struct AssetIdentifier {
     pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: ClarityName,
@@ -74,16 +79,21 @@ impl AssetIdentifier {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct TupleTypeSignature {
-    type_map: BTreeMap<ClarityName, TypeSignature>,
+    pub(crate) type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct BufferLength(u32);
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Readable, Writable,
+)]
+#[cfg_attr(test, derive(fake::Dummy))]
+pub struct BufferLength(pub(crate) u32);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StringUTF8Length(u32);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
+pub struct StringUTF8Length(pub(crate) u32);
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -92,7 +102,7 @@ pub struct StringUTF8Length(u32);
 //   2. The only methods which may be called on TypeSignatures that are too large
 //        (i.e., the only function that can be called by the constructor before
 //         it fails) is the `.size()` method, which may be used to check the size.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub enum TypeSignature {
     NoType,
     IntType,
@@ -120,7 +130,8 @@ pub enum TypeSignature {
     TraitReferenceType(TraitIdentifier),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum SequenceSubtype {
     BufferType(BufferLength),
     ListType(ListTypeData),
@@ -144,13 +155,15 @@ impl SequenceSubtype {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum StringSubtype {
     ASCII(BufferLength),
     UTF8(StringUTF8Length),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
@@ -219,37 +232,39 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
     StringUTF8Length(40),
 )));
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct ListTypeData {
-    max_len: u32,
-    entry_type: Box<TypeSignature>,
+    pub max_len: u32,
+    pub entry_type: Box<TypeSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub struct FunctionSignature {
     pub args: Vec<TypeSignature>,
     pub returns: TypeSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub struct FixedFunction {
     pub args: Vec<FunctionArg>,
     pub returns: TypeSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub enum FunctionArgSignature {
     Union(Vec<TypeSignature>),
     Single(TypeSignature),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum FunctionReturnsSignature {
     TypeOfArgAtPosition(usize),
     Fixed(TypeSignature),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
     Fixed(FixedFunction),
@@ -338,7 +353,7 @@ impl FunctionType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
 pub struct FunctionArg {
     pub signature: TypeSignature,
     pub name: ClarityName,
@@ -545,7 +560,8 @@ impl TypeSignature {
 
     pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool> {
         let x_type = TypeSignature::type_of(x)?;
-        self.admits_type(epoch, &x_type)
+        let result = self.admits_type(epoch, &x_type)?;
+        Ok(result)
     }
 
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {

@@ -193,7 +193,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
                                 })
                         } else {
                             clarity_db
-                                .get(&key)
+                                .get_data(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))

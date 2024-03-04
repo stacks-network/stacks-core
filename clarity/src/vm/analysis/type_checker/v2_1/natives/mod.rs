@@ -25,7 +25,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
-use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
+use crate::vm::errors::{self, Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
@@ -377,14 +377,14 @@ fn check_contract_call(
                 if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(
                     contract_identifier,
                     func_name,
-                    &StacksEpochId::Epoch21,
+                    Some(StacksEpochId::Epoch21),
                 )? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
                         contract_identifier,
                         func_name,
-                        &StacksEpochId::Epoch21,
+                        Some(StacksEpochId::Epoch21),
                     )?
                 {
                     Ok(function)
@@ -450,7 +450,7 @@ fn check_contract_call(
                                 checker.db.get_public_function_type(
                                     contract_identifier,
                                     func_name,
-                                    &StacksEpochId::Epoch21,
+                                    Some(StacksEpochId::Epoch21),
                                 )?
                             {
                                 Ok(function)
@@ -458,7 +458,7 @@ fn check_contract_call(
                                 checker.db.get_read_only_function_type(
                                     contract_identifier,
                                     func_name,
-                                    &StacksEpochId::Epoch21,
+                                    Some(StacksEpochId::Epoch21),
                                 )?
                             {
                                 Ok(function)

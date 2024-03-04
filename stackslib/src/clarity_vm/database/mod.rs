@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -717,10 +716,6 @@ impl MemoryBackingStore {
     ) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
-
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(self)
-    }
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
@@ -728,12 +723,12 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
-        SqliteConnection::get(self.get_side_store(), key)
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+        SqliteConnection::get_data(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
-        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+        Ok(SqliteConnection::get_data(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
     fn get_side_store(&mut self) -> &Connection {
@@ -764,9 +759,9 @@ impl ClarityBackingStore for MemoryBackingStore {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
         for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value)?;
+            SqliteConnection::put_data(self.get_side_store(), &key, &value)?;
         }
         Ok(())
     }

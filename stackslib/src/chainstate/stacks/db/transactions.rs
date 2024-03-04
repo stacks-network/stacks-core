@@ -1012,6 +1012,7 @@ impl StacksChainState {
                 // if on the other hand the contract being called has a runtime error, then the
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
+
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
@@ -1161,7 +1162,12 @@ impl StacksChainState {
 
                 // can't be instantiated already -- if this fails, then the transaction is invalid
                 // (because this can be checked statically by the miner before mining the block).
-                if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
+                let exists = clarity_tx.with_clarity_db(|db| {
+                    let has_contract = db.has_contract(&contract_id).is_ok_and(|x| x == true);
+                    Ok(has_contract)
+                })?;
+                //if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
+                if exists {
                     let msg = format!("Duplicate contract '{}'", &contract_id);
                     warn!("{}", &msg);
 
@@ -1278,7 +1284,7 @@ impl StacksChainState {
                     Ok(x) => {
                         // store analysis -- if this fails, then the have some pretty bad problems
                         clarity_tx
-                            .save_analysis(&contract_id, &contract_analysis)
+                            .save_analysis(&contract_analysis)
                             .expect("FATAL: failed to store contract analysis");
                         x
                     }
@@ -1401,6 +1407,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::Coinbase(..) => {
+                test_debug!("coinbase");
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
@@ -1408,6 +1415,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::TenureChange(ref payload) => {
+                test_debug!("tenure_change: {:?}", payload);
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1563,10 +1571,12 @@ impl StacksChainState {
 pub mod test {
     use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;
+    use clarity::vm::database::NULL_HEADER_DB;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
     use clarity::vm::types::*;
+    use clarity::vm::ContractContext;
     use rand::Rng;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;

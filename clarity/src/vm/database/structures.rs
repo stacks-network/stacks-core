@@ -17,17 +17,22 @@
 use std::io::Write;
 
 use serde::Deserialize;
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use speedy::{Readable, Writable};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
 use crate::vm::analysis::ContractAnalysis;
+use crate::vm::ast::ContractAST;
 use crate::vm::contracts::Contract;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::types::{
-    OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, TupleTypeSignature, TypeSignature,
+    Value, NONE,
 };
+use crate::vm::ContractContext;
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -73,21 +78,111 @@ macro_rules! clarity_serializable {
     };
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+pub struct StoredContract {
+    pub id: u32,
+    pub issuer: String,
+    pub name: String,
+    pub source: String,
+    pub contract: ContractContext,
+    pub block_hash: StacksBlockId,
+    pub contract_hash: Sha512Trunc256Sum,
+    /// The size of the contract's plain-text source in bytes.
+    pub source_size: u32,
+    /// The contract's in-memory footprint in bytes.
+    pub data_size: u32,
+}
+
+impl StoredContract {
+    pub fn contract_size(&self) -> u32 {
+        self.source_size + self.data_size
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingContract {
+    /// The raw, compressed contract source code as binary data.
+    pub source: String,
+    /// The serialized contract as binary data.
+    pub contract: ContractContext,
+}
+
+#[derive(Debug, Clone)]
+pub enum ContractId<'a> {
+    Id(u32),
+    QualifiedContractIdentifier(&'a QualifiedContractIdentifier),
+}
+
+#[derive(Debug, Clone)]
+pub enum GetContractResult {
+    Stored(StoredContract),
+    Pending(PendingContract),
+    NotFound,
+}
+
+#[derive(Debug, Clone, Readable, Writable)]
+pub struct ContractSizeData {
+    pub contract_size: u32,
+    pub data_size: u32,
+    pub source_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Readable, Writable)]
+pub struct ContractData {
+    pub id: u32,
+    /// The issuing principal of the contract.
+    pub issuer: String,
+    /// The name of the contract, unique to the contract issuer.
+    pub name: String,
+    /// The raw, compressed contract source code as binary data.
+    pub source: Vec<u8>,
+    /// The size of the plain-text contract source code in bytes.
+    pub source_size: u32,
+    /// The size of the contract's memory footprint in bytes.
+    pub data_size: u32,
+    /// The serialized contract AST as binary data.
+    pub contract: Vec<u8>,
+    /// The size of the serialized contract AST in bytes.
+    pub contract_size: u32,
+    /// The 32-byte hash of the contract.
+    pub contract_hash: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Readable, Writable)]
+pub struct ContractAnalysisData {
+    pub contract_id: u32,
+    /// The serialized contract analysis as binary data.
+    pub analysis: Vec<u8>,
+    /// The size of the serialized contract analysis in bytes.
+    pub analysis_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Readable, Writable)]
+pub struct BlockData {
+    /// The 32-byte block hash as binary data.
+    pub block_hash: Vec<u8>,
+    /// The height of the block in which the contract was issued.
+    pub block_height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct FungibleTokenMetadata {
     pub total_supply: Option<u128>,
 }
 
 clarity_serializable!(FungibleTokenMetadata);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct NonFungibleTokenMetadata {
     pub key_type: TypeSignature,
 }
 
 clarity_serializable!(NonFungibleTokenMetadata);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataMapMetadata {
     pub key_type: TypeSignature,
     pub value_type: TypeSignature,
@@ -95,21 +190,15 @@ pub struct DataMapMetadata {
 
 clarity_serializable!(DataMapMetadata);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Readable, Writable)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataVariableMetadata {
     pub value_type: TypeSignature,
 }
 
 clarity_serializable!(DataVariableMetadata);
 
-#[derive(Serialize, Deserialize)]
-pub struct ContractMetadata {
-    pub contract: Contract,
-}
-
-clarity_serializable!(ContractMetadata);
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Readable, Writable)]
 pub struct SimmedBlock {
     pub block_height: u64,
     pub block_time: u64,
@@ -127,7 +216,7 @@ clarity_serializable!(u64);
 clarity_serializable!(Contract);
 clarity_serializable!(ContractAnalysis);
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Readable, Writable)]
 pub enum STXBalance {
     Unlocked {
         amount: u128,
@@ -375,7 +464,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
     pub fn save(self) -> Result<()> {
         let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
-        self.db_ref.put(&key, &self.balance)
+        self.db_ref.put_data(&key, &self.balance)
     }
 
     pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
@@ -386,7 +475,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
         let mut recipient_balance = self
             .db_ref
-            .get(&recipient_key)?
+            .get_data(&recipient_key)?
             .unwrap_or(STXBalance::zero());
 
         recipient_balance
@@ -394,7 +483,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
         self.debit(amount)?;
-        self.db_ref.put(&recipient_key, &recipient_balance)?;
+        self.db_ref.put_data(&recipient_key, &recipient_balance)?;
         self.save()?;
         Ok(())
     }

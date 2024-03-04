@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{mem_type_check, AnalysisDatabase};
+use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{
@@ -125,9 +125,11 @@ fn test_names_tokens_contracts() {
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&tokens_contract_id, FIRST_CLASS_TOKENS);
+        db.test_insert_contract(&names_contract_id, ASSET_NAMES);
         type_check(
             &tokens_contract_id,
             &mut tokens_contract,

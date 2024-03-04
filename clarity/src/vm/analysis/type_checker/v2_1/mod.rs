@@ -30,13 +30,13 @@ pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
     CheckErrors, CheckResult,
 };
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::database::ClarityDatabase;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
@@ -78,7 +78,7 @@ pub struct TypeChecker<'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    db: &'a mut ClarityDatabase<'b>,
     pub cost_track: LimitedCostTracker,
     clarity_version: ClarityVersion,
 }
@@ -119,11 +119,12 @@ impl AnalysisPass for TypeChecker<'_, '_> {
     fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        clarity_db: &mut ClarityDatabase,
     ) -> CheckResult<()> {
+        test_debug!("Running type-checking pass (2.1+)");
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
-            analysis_db,
+            clarity_db,
             cost_track,
             &contract_analysis.contract_identifier,
             &contract_analysis.clarity_version,
@@ -409,7 +410,7 @@ impl FunctionType {
     ///          called from consensus-critical code.
     pub fn check_args_by_allowing_trait_cast_2_1(
         &self,
-        db: &mut AnalysisDatabase,
+        db: &mut ClarityDatabase,
         clarity_version: ClarityVersion,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
@@ -427,7 +428,10 @@ impl FunctionType {
                         Value::Principal(PrincipalData::Contract(contract)),
                     ) => {
                         let contract_to_check = db
-                            .load_contract(contract, &StacksEpochId::Epoch21)?
+                            .get_contract_analysis(contract, Some(StacksEpochId::Epoch21))
+                            .map_err(|_| {
+                                CheckErrors::Expects("Failed to load contract analysis".into())
+                            })?
                             .ok_or_else(|| {
                                 CheckErrors::NoSuchContract(contract.name.to_string())
                             })?;
@@ -435,7 +439,7 @@ impl FunctionType {
                             .get_defined_trait(
                                 &trait_id.contract_identifier,
                                 &trait_id.name,
-                                &StacksEpochId::Epoch21,
+                                Some(StacksEpochId::Epoch21),
                             )
                             .map_err(|_| CheckErrors::Expects("Failed to get trait".into()))?
                             .ok_or(CheckErrors::NoSuchContract(
@@ -517,7 +521,7 @@ fn check_function_arg_signature<T: CostTracker>(
 /// Used to check if a function signature is compatible with the function
 /// signature required for a trait.
 fn clarity2_check_functions_compatible<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     contract_context: Option<&ContractContext>,
     expected_sig: &FunctionSignature,
     actual_sig: &FunctionSignature,
@@ -561,7 +565,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
 /// with compatible functions, and may optionally include other functions not
 /// included in expected_trait.
 pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
@@ -603,7 +607,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
 /// Check if `expected_type` admits `actual_type`, handling traits and callable types
 /// through invoking trait compliance checks.
 fn clarity2_inner_type_check_type<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
@@ -726,7 +730,8 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             let contract_to_check = match db
-                .load_contract(&contract_identifier, &StacksEpochId::Epoch21)?
+                .get_contract_analysis(&contract_identifier, Some(StacksEpochId::Epoch21))
+                .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
             {
                 Some(contract) => {
                     runtime_cost(
@@ -778,7 +783,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
 }
 
 fn clarity2_lookup_trait<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
     tracker: &mut T,
@@ -802,7 +807,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
     match db.get_defined_trait(
         &trait_id.contract_identifier,
         &trait_id.name,
-        &StacksEpochId::Epoch21,
+        Some(StacksEpochId::Epoch21),
     ) {
         Ok(Some(trait_sig)) => {
             let type_size = trait_type_size(&trait_sig)?;
@@ -821,9 +826,9 @@ fn clarity2_lookup_trait<T: CostTracker>(
             )
             .into())
         }
-        Err(e) => {
+        Err(_) => {
             runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
-            Err(e)
+            Err(CheckErrors::Expects("Failed to retrieve defined trait".into()).into())
         }
     }
 }
@@ -876,7 +881,7 @@ pub fn no_type() -> TypeSignature {
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
-        db: &'a mut AnalysisDatabase<'b>,
+        db: &'a mut ClarityDatabase<'b>,
         cost_track: LimitedCostTracker,
         contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
@@ -1246,15 +1251,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             ) => {
                 let contract_to_check = self
                     .db
-                    .load_contract(&contract_identifier, &StacksEpochId::Epoch21)?
+                    .get_contract_analysis(&contract_identifier, Some(StacksEpochId::Epoch21))
+                    .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 let contract_defining_trait = self
                     .db
-                    .load_contract(
+                    .get_contract_analysis(
                         &trait_identifier.contract_identifier,
-                        &StacksEpochId::Epoch21,
-                    )?
+                        Some(StacksEpochId::Epoch21),
+                    )
+                    .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
                     ))?;
@@ -1552,7 +1559,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
-                        &StacksEpochId::Epoch21,
+                        Some(StacksEpochId::Epoch21),
                     )?;
                     match result {
                         Some(trait_sig) => {

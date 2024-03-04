@@ -30,13 +30,13 @@ use super::{AnalysisPass, ContractAnalysis};
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::InterpreterError;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
@@ -75,7 +75,7 @@ pub struct TypeChecker<'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    db: &'a mut ClarityDatabase<'b>,
     pub cost_track: LimitedCostTracker,
 }
 
@@ -115,10 +115,10 @@ impl AnalysisPass for TypeChecker<'_, '_> {
     fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        clarity_db: &mut ClarityDatabase,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command = TypeChecker::new(analysis_db, cost_track);
+        let mut command = TypeChecker::new(clarity_db, cost_track);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -248,7 +248,7 @@ impl FunctionType {
 
     pub fn check_args_by_allowing_trait_cast_2_05(
         &self,
-        db: &mut AnalysisDatabase,
+        db: &mut ClarityDatabase,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
@@ -264,13 +264,16 @@ impl FunctionType {
                     Value::Principal(PrincipalData::Contract(contract)),
                 ) => {
                     let contract_to_check = db
-                        .load_contract(contract, &StacksEpochId::Epoch2_05)?
+                        .get_contract_analysis(contract, Some(StacksEpochId::Epoch2_05))
+                        .map_err(|_| {
+                            CheckErrors::Expects("Failed to load contract analysis".into())
+                        })?
                         .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
                     let trait_definition = db
                         .get_defined_trait(
                             &trait_id.contract_identifier,
                             &trait_id.name,
-                            &StacksEpochId::Epoch2_05,
+                            Some(StacksEpochId::Epoch2_05),
                         )
                         .map_err(|_| {
                             CheckErrors::NoSuchContract(trait_id.contract_identifier.to_string())
@@ -340,10 +343,7 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
-    fn new(
-        db: &'a mut AnalysisDatabase<'b>,
-        cost_track: LimitedCostTracker,
-    ) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a mut ClarityDatabase<'b>, cost_track: LimitedCostTracker) -> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
@@ -443,14 +443,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             ) => {
                 let contract_to_check = self
                     .db
-                    .load_contract(&contract_identifier, &StacksEpochId::Epoch2_05)?
+                    .get_contract_analysis(contract_identifier, Some(StacksEpochId::Epoch2_05))?
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 let contract_defining_trait = self
                     .db
-                    .load_contract(
+                    .get_contract_analysis(
                         &trait_identifier.contract_identifier,
-                        &StacksEpochId::Epoch2_05,
+                        Some(StacksEpochId::Epoch2_05),
                     )?
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
@@ -949,7 +949,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
-                        &StacksEpochId::Epoch2_05,
+                        Some(StacksEpochId::Epoch2_05),
                     )?;
                     match result {
                         Some(trait_sig) => {

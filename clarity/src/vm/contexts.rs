@@ -18,12 +18,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 
-use hashbrown::{HashMap, HashSet};
+#[cfg(test)]
+use fake::{Dummy, Faker};
 use serde::Serialize;
 use serde_json::json;
+use speedy::{Readable, Writable};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hashmap::{self, StacksHashMap};
+use stacks_common::util::hashset::{self, StacksHashSet};
 
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
@@ -92,10 +96,10 @@ during the execution of a transaction.
 */
 #[derive(Debug, Clone)]
 pub struct AssetMap {
-    stx_map: HashMap<PrincipalData, u128>,
-    burn_map: HashMap<PrincipalData, u128>,
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
-    asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
+    stx_map: StacksHashMap<PrincipalData, u128>,
+    burn_map: StacksHashMap<PrincipalData, u128>,
+    token_map: StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, u128>>,
+    asset_map: StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, Vec<Value>>>,
 }
 
 impl AssetMap {
@@ -205,21 +209,22 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Readable, Writable)]
+#[cfg_attr(test, derive(Dummy))]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub variables: HashMap<ClarityName, Value>,
-    pub functions: HashMap<ClarityName, DefinedFunction>,
-    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: HashSet<TraitIdentifier>,
+    pub variables: StacksHashMap<ClarityName, Value>,
+    pub functions: StacksHashMap<ClarityName, DefinedFunction>,
+    pub defined_traits: StacksHashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: StacksHashSet<TraitIdentifier>,
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
     //  used for ensuring that they never are defined twice.
-    pub persisted_names: HashSet<ClarityName>,
+    pub persisted_names: StacksHashSet<ClarityName>,
     // track metadata for contract defined storage
-    pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
-    pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
-    pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
-    pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
+    pub meta_data_map: StacksHashMap<ClarityName, DataMapMetadata>,
+    pub meta_data_var: StacksHashMap<ClarityName, DataVariableMetadata>,
+    pub meta_nft: StacksHashMap<ClarityName, NonFungibleTokenMetadata>,
+    pub meta_ft: StacksHashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
     /// track the clarity version of the contract
     clarity_version: ClarityVersion,
@@ -228,14 +233,14 @@ pub struct ContractContext {
 pub struct LocalContext<'a> {
     pub function_context: Option<&'a LocalContext<'a>>,
     pub parent: Option<&'a LocalContext<'a>>,
-    pub variables: HashMap<ClarityName, Value>,
-    pub callable_contracts: HashMap<ClarityName, CallableData>,
+    pub variables: StacksHashMap<ClarityName, Value>,
+    pub callable_contracts: StacksHashMap<ClarityName, CallableData>,
     depth: u16,
 }
 
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
-    set: HashSet<FunctionIdentifier>,
+    set: StacksHashSet<FunctionIdentifier>,
     apply_depth: usize,
 }
 
@@ -246,10 +251,10 @@ pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
-            stx_map: HashMap::new(),
-            burn_map: HashMap::new(),
-            token_map: HashMap::new(),
-            asset_map: HashMap::new(),
+            stx_map: StacksHashMap::new(),
+            burn_map: StacksHashMap::new(),
+            token_map: StacksHashMap::new(),
+            asset_map: StacksHashMap::new(),
         }
     }
 
@@ -309,7 +314,7 @@ impl AssetMap {
         let principal_map = self
             .asset_map
             .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+            .or_insert_with(|| StacksHashMap::new());
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
             map_entry.push(transfered);
@@ -329,7 +334,7 @@ impl AssetMap {
         let principal_map = self
             .token_map
             .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+            .or_insert_with(|| StacksHashMap::new());
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -365,7 +370,7 @@ impl AssetMap {
                 let landing_map = self
                     .asset_map
                     .entry(principal.clone())
-                    .or_insert_with(|| HashMap::new());
+                    .or_insert_with(|| StacksHashMap::new());
                 if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 } else {
@@ -386,17 +391,19 @@ impl AssetMap {
             let principal_map = self
                 .token_map
                 .entry(principal)
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             principal_map.insert(asset, amount);
         }
 
         Ok(())
     }
 
-    pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::new();
+    pub fn to_table(
+        mut self,
+    ) -> StacksHashMap<PrincipalData, StacksHashMap<AssetIdentifier, AssetMapEntry>> {
+        let mut map = StacksHashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::new();
+            let mut output_map = StacksHashMap::new();
             for (asset, amount) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
@@ -406,7 +413,7 @@ impl AssetMap {
         for (principal, stx_amount) in self.stx_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             output_map.insert(
                 AssetIdentifier::STX(),
                 AssetMapEntry::STX(stx_amount as u128),
@@ -416,7 +423,7 @@ impl AssetMap {
         for (principal, stx_burned_amount) in self.burn_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount as u128),
@@ -426,7 +433,7 @@ impl AssetMap {
         for (principal, mut principal_map) in self.asset_map.drain() {
             let output_map = map
                 .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_insert_with(|| StacksHashMap::new());
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -997,6 +1004,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let contract = self
             .global_context
             .database
+            //    .get_contract(contract_identifier)?;
             .get_contract(contract_identifier)?;
 
         let result = {
@@ -1119,16 +1127,22 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
         allow_private: bool,
     ) -> Result<Value> {
-        let contract_size = self
+        let contract_size: u64 = self
             .global_context
             .database
-            .get_contract_size(contract_identifier)?;
+            .get_contract_size(contract_identifier)?
+            .into();
+
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
 
         finally_drop_memory!(self.global_context, contract_size; {
-            let contract = self.global_context.database.get_contract(contract_identifier)?;
+            let contract = self
+                .global_context
+                .database
+                //.get_contract(contract_identifier)?;
+                .get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
@@ -1299,7 +1313,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             if self
                 .global_context
                 .database
-                .has_contract(&contract_identifier)
+                .has_contract(&contract_identifier)?
             {
                 return Err(
                     CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
@@ -1309,9 +1323,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             // first, store the contract _content hash_ in the data store.
             //    this is necessary before creating and accessing metadata fields in the data store,
             //      --or-- storing any analysis metadata in the data store.
-            self.global_context
-                .database
-                .insert_contract_hash(&contract_identifier, contract_string)?;
+            //self.global_context
+            //    .database
+            //    .insert_contract_hash(&contract_identifier, contract_string)?;
             let memory_use = contract_string.len() as u64;
             self.add_memory(memory_use)?;
 
@@ -1328,13 +1342,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
         match result {
             Ok(contract) => {
-                let data_size = contract.contract_context.data_size;
+                //let data_size = contract.contract_context.data_size;
+                //self.global_context
+                //    .database
+                //    .insert_contract(&contract_identifier, contract.clone())?;
                 self.global_context
                     .database
-                    .insert_contract(&contract_identifier, contract)?;
-                self.global_context
-                    .database
-                    .set_contract_data_size(&contract_identifier, data_size)?;
+                    .insert_contract(contract, contract_string)?;
+                //self.global_context
+                //    .database
+                //    .set_contract_data_size(&contract_identifier, data_size)?;
 
                 self.global_context.commit()?;
                 Ok(())
@@ -1790,16 +1807,16 @@ impl ContractContext {
     ) -> Self {
         Self {
             contract_identifier,
-            variables: HashMap::new(),
-            functions: HashMap::new(),
-            defined_traits: HashMap::new(),
-            implemented_traits: HashSet::new(),
-            persisted_names: HashSet::new(),
+            variables: StacksHashMap::new(),
+            functions: StacksHashMap::new(),
+            defined_traits: StacksHashMap::new(),
+            implemented_traits: StacksHashSet::new(),
+            persisted_names: StacksHashSet::new(),
             data_size: 0,
-            meta_data_map: HashMap::new(),
-            meta_data_var: HashMap::new(),
-            meta_nft: HashMap::new(),
-            meta_ft: HashMap::new(),
+            meta_data_map: StacksHashMap::new(),
+            meta_data_var: StacksHashMap::new(),
+            meta_nft: StacksHashMap::new(),
+            meta_ft: StacksHashMap::new(),
             clarity_version,
         }
     }
@@ -1856,8 +1873,8 @@ impl<'a> LocalContext<'a> {
         LocalContext {
             function_context: Option::None,
             parent: Option::None,
-            callable_contracts: HashMap::new(),
-            variables: HashMap::new(),
+            callable_contracts: StacksHashMap::new(),
+            variables: StacksHashMap::new(),
             depth: 0,
         }
     }
@@ -1880,8 +1897,8 @@ impl<'a> LocalContext<'a> {
             Ok(LocalContext {
                 function_context: Some(self.function_context()),
                 parent: Some(self),
-                callable_contracts: HashMap::new(),
-                variables: HashMap::new(),
+                callable_contracts: StacksHashMap::new(),
+                variables: StacksHashMap::new(),
                 depth: self.depth + 1,
             })
         }
@@ -1912,7 +1929,7 @@ impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
             stack: Vec::new(),
-            set: HashSet::new(),
+            set: StacksHashSet::new(),
             apply_depth: 0,
         }
     }

@@ -392,7 +392,7 @@ impl NakamotoSigners {
 
         // are we the first block in the prepare phase in our fork?
         let needs_update: Result<_, ChainstateError>  = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
-            if !clarity_db.has_contract(signers_contract) {
+            if !clarity_db.has_contract(signers_contract)? {
                 // if there's no signers contract, no need to update anything.
                 return Ok(false)
             }

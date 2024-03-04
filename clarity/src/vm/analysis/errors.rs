@@ -18,6 +18,7 @@ use std::{error, fmt};
 
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
+use crate::vm::errors::{self, InterpreterError};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
@@ -255,6 +256,18 @@ impl fmt::Display for CheckError {
 impl From<CostErrors> for CheckError {
     fn from(err: CostErrors) -> Self {
         CheckError::from(CheckErrors::from(err))
+    }
+}
+
+impl From<InterpreterError> for CheckError {
+    fn from(err: InterpreterError) -> Self {
+        CheckError::new(CheckErrors::from(err))
+    }
+}
+
+impl From<InterpreterError> for CheckErrors {
+    fn from(err: InterpreterError) -> Self {
+        CheckErrors::Expects(format!("Interpreter error: {}", err.to_string()))
     }
 }
 

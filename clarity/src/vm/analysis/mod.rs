@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 #[allow(clippy::result_large_err)]
@@ -26,7 +25,6 @@ pub mod types;
 
 use stacks_common::types::StacksEpochId;
 
-pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -35,6 +33,7 @@ use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
+use super::database::ClarityDatabase;
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
@@ -42,7 +41,7 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
-/// Used by CLI tools like the docs generator. Not used in production
+/// Used by CLI tools like the docs generator. Not used in production.
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
@@ -61,12 +60,12 @@ pub fn mem_type_check(
     .expressions;
 
     let mut marf = MemoryBackingStore::new();
-    let mut analysis_db = marf.as_analysis_db();
+    let mut clarity_db = marf.as_clarity_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
-        &mut analysis_db,
+        &mut clarity_db,
         false,
         cost_tracker,
         epoch,
@@ -96,7 +95,7 @@ pub fn mem_type_check(
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
@@ -104,7 +103,7 @@ pub fn type_check(
     run_analysis(
         contract_identifier,
         expressions,
-        analysis_db,
+        clarity_db,
         insert_contract,
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
@@ -115,10 +114,17 @@ pub fn type_check(
     .map_err(|(e, _cost_tracker)| e)
 }
 
+/// Performs a full analysis of a contract, including type checking, trait
+/// checking, and private/read-only checking, optionally storing the result
+/// in the [`ClarityDatabase`].
+///
+/// Note that if `save_contract` is `true`, the [`Contract`] must already
+/// be present in the [`ClarityDatabase`], and if the contract makes use of
+/// any other contracts, those must also be present in the database.
 pub fn run_analysis(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &[SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
     epoch: StacksEpochId,
@@ -131,10 +137,12 @@ pub fn run_analysis(
         epoch,
         version,
     );
-    let result = analysis_db.execute(|db| {
+
+    let result = clarity_db.execute(|db| {
         ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                test_debug!("Running type checker for epoch 2.0");
                 TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch21
@@ -143,6 +151,7 @@ pub fn run_analysis(
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
+                test_debug!("Running type checker for epoch 2.1+");
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch10 => {
@@ -159,9 +168,11 @@ pub fn run_analysis(
             let interface = build_contract_interface(&contract_analysis)?;
             contract_analysis.contract_interface = Some(interface);
         }
+
         if save_contract {
-            db.insert_contract(contract_identifier, &contract_analysis)?;
+            db.insert_contract_analysis(&contract_analysis)?;
         }
+
         Ok(())
     });
     match result {

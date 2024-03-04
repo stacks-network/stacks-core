@@ -20,6 +20,8 @@ pub mod log;
 pub mod macros;
 pub mod chunked_encoding;
 pub mod hash;
+pub mod hashmap;
+pub mod hashset;
 pub mod pair;
 pub mod pipe;
 pub mod retry;

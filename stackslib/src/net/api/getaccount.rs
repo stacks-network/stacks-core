@@ -159,7 +159,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                 .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                         } else {
                             clarity_db
-                                .get::<STXBalance>(&key)
+                                .get_data::<STXBalance>(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))
@@ -176,7 +176,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                 .unwrap_or_else(|| (0, Some("".into())))
                         } else {
                             clarity_db
-                                .get(&key)
+                                .get_data(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))

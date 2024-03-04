@@ -501,7 +501,7 @@ impl StackerDBConfig {
             clarity_tx.with_clarity_db_readonly(|db| {
                 // contract must exist or this errors out
                 let analysis = db
-                    .load_contract_analysis(contract_id)?
+                    .get_contract_analysis(contract_id, None)?
                     .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                 // contract must be consistent with StackerDB control interface

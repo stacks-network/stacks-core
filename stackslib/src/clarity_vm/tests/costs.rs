@@ -24,7 +24,7 @@ use clarity::vm::contexts::{
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
+use clarity::vm::database::{disable_clarity_cache, ClarityDatabase, MemoryBackingStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -439,6 +439,8 @@ fn epoch205_eq_input_size_testnet() {
 // Capture the cost of just the concat operation by measuring the cost of contracts that do everything but concat, and
 //  ones that do the same and concat.
 fn epoch205_concat(use_mainnet: bool) {
+    disable_clarity_cache();
+
     let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
         (define-public (execute)
                (begin (var-get db) (var-get db) (ok 1)))";
@@ -460,6 +462,7 @@ fn epoch205_concat(use_mainnet: bool) {
                 StacksEpochId::Epoch20,
             )
             .runtime;
+
     let small_cost_epoch_205 = exec_cost(
         small_exec_with_concat,
         use_mainnet,
@@ -472,6 +475,7 @@ fn epoch205_concat(use_mainnet: bool) {
             StacksEpochId::Epoch2_05,
         )
         .runtime;
+
     let large_cost_epoch_200 =
         exec_cost(large_exec_with_concat, use_mainnet, StacksEpochId::Epoch20).runtime
             - exec_cost(
@@ -480,6 +484,7 @@ fn epoch205_concat(use_mainnet: bool) {
                 StacksEpochId::Epoch20,
             )
             .runtime;
+
     let large_cost_epoch_205 = exec_cost(
         large_exec_with_concat,
         use_mainnet,
@@ -1100,7 +1105,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
+                tx.save_analysis(&analysis).unwrap();
             });
         }
 
@@ -1385,7 +1390,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     |_, _| false,
                 )
                 .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
+                tx.save_analysis(&analysis).unwrap();
             });
         }
 
@@ -1653,7 +1658,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         assert_eq!(circuit2.unwrap().function_name, "cost-definition-multi-arg");
 
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
-            if target == &ClarityCostFunction::Le {
+            if target == ClarityCostFunction::Le {
                 assert_eq!(&referenced_function.contract_id, &cost_definer);
                 assert_eq!(&referenced_function.function_name, "cost-definition-le");
             } else {

@@ -15,12 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::error::Error as ErrorTrait;
+use std::string::FromUtf8Error;
 use std::{error, fmt};
 
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
+use super::analysis::CheckError;
 use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
@@ -68,6 +70,43 @@ pub enum InterpreterError {
     Expect(String),
 }
 
+impl fmt::Display for InterpreterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InterpreterError::BadSender(x) => write!(f, "Bad sender: {}", x),
+            InterpreterError::BadSymbolicRepresentation(x) => {
+                write!(f, "Bad symbolic representation: {}", x)
+            }
+            InterpreterError::InterpreterError(x) => write!(f, "Interpreter error: {}", x),
+            InterpreterError::UninitializedPersistedVariable => {
+                write!(f, "Uninitialized persisted variable")
+            }
+            InterpreterError::FailedToConstructAssetTable => {
+                write!(f, "Failed to construct asset table")
+            }
+            InterpreterError::FailedToConstructEventBatch => {
+                write!(f, "Failed to construct event batch")
+            }
+            InterpreterError::BadFileName => write!(f, "Bad file name"),
+            InterpreterError::FailedToCreateDataDirectory => {
+                write!(f, "Failed to create data directory")
+            }
+            InterpreterError::MarfFailure(x) => write!(f, "Marf failure: {}", x),
+            InterpreterError::FailureConstructingTupleWithType => {
+                write!(f, "Failure constructing tuple with type")
+            }
+            InterpreterError::FailureConstructingListWithType => {
+                write!(f, "Failure constructing list with type")
+            }
+            InterpreterError::InsufficientBalance => write!(f, "Insufficient balance"),
+            InterpreterError::CostContractLoadFailure => write!(f, "Cost contract load failure"),
+            InterpreterError::DBError(x) => write!(f, "DB error: {}", x),
+            InterpreterError::Expect(x) => write!(f, "Expect: {}", x),
+            InterpreterError::SqliteError(e) => write!(f, "SqliteError: {}", e.err),
+        }
+    }
+}
+
 /// RuntimeErrors are errors that smart contracts are expected
 ///   to be able to trigger during execution (e.g., arithmetic errors)
 #[derive(Debug, PartialEq)]
@@ -113,9 +152,57 @@ pub enum ShortReturnType {
 
 pub type InterpreterResult<R> = Result<R, Error>;
 
+impl From<Error> for CheckError {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Unchecked(e) => e.into(),
+            Error::Interpreter(e) => e.into(),
+            Error::ShortReturn(e) => {
+                panic!("We should not be converting from ShortReturn errors to CheckErrors ({e:?})")
+            }
+            Error::Runtime(e, f) => panic!(
+                "We should not be converting from Runtime errors to CheckErrors ({e:?}) ({f:?})"
+            ),
+        }
+    }
+}
+
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
         return false;
+    }
+}
+
+impl From<lz4_flex::block::CompressError> for Error {
+    fn from(err: lz4_flex::block::CompressError) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Compression failed: {}",
+            err
+        )))
+    }
+}
+
+impl From<lz4_flex::block::DecompressError> for Error {
+    fn from(err: lz4_flex::block::DecompressError) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Decompression failed: {}",
+            err
+        )))
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(err: FromUtf8Error) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Failed to convert bytes to string: {}",
+            err
+        )))
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        Error::Interpreter(InterpreterError::SqliteError(IncomparableError { err }))
     }
 }
 
