@@ -168,7 +168,7 @@ pub(crate) mod tests {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
-            config.node_host = mock_server_addr;
+            config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
             Self {

@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-use std::net::SocketAddr;
-
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::util_lib::boot::boot_code_addr;
@@ -55,7 +53,7 @@ pub struct StackerDB {
 impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
         StackerDB::new(
-            config.node_host,
+            config.node_host.to_string(),
             config.stacks_private_key,
             config.mainnet,
             config.reward_cycle,
@@ -66,7 +64,7 @@ impl From<&SignerConfig> for StackerDB {
 impl StackerDB {
     /// Create a new StackerDB client
     pub fn new(
-        host: SocketAddr,
+        host: String,
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
         reward_cycle: u64,
@@ -78,7 +76,7 @@ impl StackerDB {
             signers_message_stackerdb_sessions.insert(
                 msg_id,
                 StackerDBSession::new(
-                    host,
+                    host.to_string(),
                     QualifiedContractIdentifier::new(
                         stackerdb_issuer.into(),
                         ContractName::from(

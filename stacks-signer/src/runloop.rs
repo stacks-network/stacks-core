@@ -216,7 +216,7 @@ impl RunLoop {
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
-            node_host: self.config.node_host,
+            node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
             dkg_end_timeout: self.config.dkg_end_timeout,
             dkg_private_timeout: self.config.dkg_private_timeout,
