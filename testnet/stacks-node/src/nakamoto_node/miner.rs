@@ -200,10 +200,8 @@ impl BlockMinerThread {
                     Ok(Some(chunk)) => {
                         // Propose the block to the observing signers through the .miners stackerdb instance
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-                        let mut miners_stackerdb = StackerDBSession::new(
-                            self.config.node.rpc_bind.to_string(),
-                            miner_contract_id,
-                        );
+                        let mut miners_stackerdb =
+                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
                         match miners_stackerdb.put_chunk(&chunk) {
                             Ok(ack) => {
                                 info!("Proposed block to stackerdb: {ack:?}");

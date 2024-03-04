@@ -62,9 +62,9 @@ struct SpawnedSigner {
 }
 
 /// Create a new stacker db session
-fn stackerdb_session(host: String, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host.to_string(), contract.clone());
-    session.connect(host, contract).unwrap();
+fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
+    let mut session = StackerDBSession::new(host, contract.clone());
+    session.connect(&host, contract).unwrap();
     session
 }
 
@@ -159,28 +159,28 @@ fn process_sign_result(sign_res: &[OperationResult]) {
 
 fn handle_get_chunk(args: GetChunkArgs) {
     debug!("Getting chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let chunk_opt = session.get_chunk(args.slot_id, args.slot_version).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_get_latest_chunk(args: GetLatestChunkArgs) {
     debug!("Getting latest chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let chunk_opt = session.get_latest_chunk(args.slot_id).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
-    let mut session = stackerdb_session(args.host, args.contract);
+    let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
     println!("{}", serde_json::to_string(&chunk_list).unwrap());
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(&chunk).unwrap();

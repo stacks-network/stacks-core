@@ -31,7 +31,7 @@ pub trait SignerSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: String,
+        host: &str,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError>;
     /// query the replica for a list of chunks
@@ -75,12 +75,9 @@ pub struct StackerDBSession {
 
 impl StackerDBSession {
     /// instantiate but don't connect
-    pub fn new(
-        host: String,
-        stackerdb_contract_id: QualifiedContractIdentifier,
-    ) -> StackerDBSession {
+    pub fn new(host: &str, stackerdb_contract_id: QualifiedContractIdentifier) -> StackerDBSession {
         StackerDBSession {
-            host,
+            host: host.to_owned(),
             stackerdb_contract_id,
             sock: None,
         }
@@ -134,10 +131,10 @@ impl SignerSession for StackerDBSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: String,
+        host: &str,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError> {
-        self.host = host;
+        self.host = host.to_owned();
         self.stackerdb_contract_id = stackerdb_contract_id;
         self.connect_or_reconnect()
     }

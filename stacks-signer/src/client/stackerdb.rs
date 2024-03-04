@@ -53,7 +53,7 @@ pub struct StackerDB {
 impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
         StackerDB::new(
-            config.node_host.to_string(),
+            &config.node_host,
             config.stacks_private_key,
             config.mainnet,
             config.reward_cycle,
@@ -64,7 +64,7 @@ impl From<&SignerConfig> for StackerDB {
 impl StackerDB {
     /// Create a new StackerDB client
     pub fn new(
-        host: String,
+        host: &str,
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
         reward_cycle: u64,
@@ -76,7 +76,7 @@ impl StackerDB {
             signers_message_stackerdb_sessions.insert(
                 msg_id,
                 StackerDBSession::new(
-                    host.to_string(),
+                    host,
                     QualifiedContractIdentifier::new(
                         stackerdb_issuer.into(),
                         ContractName::from(
