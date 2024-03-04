@@ -38,7 +38,7 @@ use wsts::state_machine::PublicKeys;
 /// List of key_ids for each signer_id
 pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
 
-const EVENT_TIMEOUT_MS: u64 = 5000;
+const EVENT_TIMEOUT_MS: u64 = 128;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration

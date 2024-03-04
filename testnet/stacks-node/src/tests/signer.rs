@@ -370,7 +370,7 @@ fn stackerdb_dkg_sign() {
     let mut msg = block.header.signer_signature_hash().0.to_vec();
     msg.push(b'n');
 
-    let signer_test = SignerTest::new(10, 400);
+    let signer_test = SignerTest::new(16, 4000);
 
     info!("------------------------- Test DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
@@ -384,7 +384,7 @@ fn stackerdb_dkg_sign() {
         let mut aggregate_public_key = None;
         loop {
             let results = recv
-                .recv_timeout(Duration::from_secs(30))
+                .recv_timeout(Duration::from_secs(300))
                 .expect("failed to recv dkg results");
             for result in results {
                 match result {
@@ -438,7 +438,7 @@ fn stackerdb_dkg_sign() {
         let mut schnorr_proof = None;
         loop {
             let results = recv
-                .recv_timeout(Duration::from_secs(30))
+                .recv_timeout(Duration::from_secs(300))
                 .expect("failed to recv signature results");
             for result in results {
                 match result {
@@ -462,7 +462,7 @@ fn stackerdb_dkg_sign() {
                 }
             }
             if (frost_signature.is_some() && schnorr_proof.is_some())
-                || sign_now.elapsed() > Duration::from_secs(100)
+                || sign_now.elapsed() > Duration::from_secs(300)
             {
                 break;
             }
