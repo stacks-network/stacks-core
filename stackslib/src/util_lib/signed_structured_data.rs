@@ -91,6 +91,7 @@ pub mod pox4 {
         make_structured_data_domain("pox-4-signer", "1.0.0", chain_id)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_pox_4_signer_key_message_hash(
         pox_addr: &PoxAddress,
         reward_cycle: u128,
