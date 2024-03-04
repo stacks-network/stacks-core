@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod download;
 pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
@@ -220,6 +221,7 @@ impl NakamotoBootPlan {
         for (i, peer) in other_peers.iter_mut().enumerate() {
             peer.next_burnchain_block(burn_ops.to_vec());
 
+            peer.refresh_burnchain_view();
             let sortdb = peer.sortdb.take().unwrap();
             let mut node = peer.stacks_node.take().unwrap();
 
@@ -233,6 +235,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     block.clone(),
+                    None,
                 )
                 .unwrap();
                 if accepted {
@@ -248,6 +251,7 @@ impl NakamotoBootPlan {
 
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
+            peer.refresh_burnchain_view();
         }
     }
 
@@ -355,11 +359,15 @@ impl NakamotoBootPlan {
                 .pox_4_activation_height
                 .into()
         {
+            peer.refresh_burnchain_view();
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.refresh_burnchain_view();
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
+                other_peer.refresh_burnchain_view();
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.refresh_burnchain_view();
             }
 
             let tip = {
@@ -410,11 +418,15 @@ impl NakamotoBootPlan {
             })
             .collect();
 
+        peer.refresh_burnchain_view();
         let mut stacks_block = peer.tenure_with_txs(&stack_txs, &mut peer_nonce);
+        peer.refresh_burnchain_view();
         for (other_peer, other_peer_nonce) in
             other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
         {
+            other_peer.refresh_burnchain_view();
             other_peer.tenure_with_txs(&stack_txs, other_peer_nonce);
+            other_peer.refresh_burnchain_view();
         }
 
         debug!("\n\n======================");
@@ -425,12 +437,16 @@ impl NakamotoBootPlan {
             .burnchain
             .is_in_prepare_phase(sortition_height.into())
         {
+            peer.refresh_burnchain_view();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
+            peer.refresh_burnchain_view();
             other_peers
                 .iter_mut()
                 .zip(other_peer_nonces.iter_mut())
                 .for_each(|(peer, nonce)| {
+                    peer.refresh_burnchain_view();
                     peer.tenure_with_txs(&[], nonce);
+                    peer.refresh_burnchain_view();
                 });
             let tip = {
                 let sort_db = peer.sortdb.as_mut().unwrap();
@@ -461,11 +477,14 @@ impl NakamotoBootPlan {
             )
         });
 
+        peer.refresh_burnchain_view();
         peer.tenure_with_txs(&vote_txs, &mut peer_nonce);
         for (other_peer, other_peer_nonce) in
             other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
         {
+            other_peer.refresh_burnchain_view();
             other_peer.tenure_with_txs(&vote_txs, other_peer_nonce);
+            other_peer.refresh_burnchain_view();
         }
 
         debug!("\n\n======================");
@@ -476,11 +495,14 @@ impl NakamotoBootPlan {
         while sortition_height
             < Self::nakamoto_start_burn_height(&peer.config.burnchain.pox_constants)
         {
+            peer.refresh_burnchain_view();
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
+                other_peer.refresh_burnchain_view();
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.refresh_burnchain_view();
             }
             let tip = {
                 let sort_db = peer.sortdb.as_mut().unwrap();
@@ -544,6 +566,7 @@ impl NakamotoBootPlan {
                     let mut i = 0;
                     let mut num_expected_transactions = 1; // expect tenure-extension
 
+                    peer.refresh_burnchain_view();
                     let blocks_and_sizes = peer.make_nakamoto_tenure_extension(
                         tenure_change_tx,
                         &mut test_signers.clone(),
@@ -590,6 +613,7 @@ impl NakamotoBootPlan {
                             txs
                         });
 
+                    peer.refresh_burnchain_view();
                     consensus_hashes.push(next_consensus_hash);
 
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
@@ -631,6 +655,7 @@ impl NakamotoBootPlan {
 
                     let first_burn_ht = peer.sortdb().first_block_height;
 
+                    peer.refresh_burnchain_view();
                     let blocks_and_sizes = peer.make_nakamoto_tenure(
                         tenure_change_tx,
                         coinbase_tx,
@@ -703,6 +728,7 @@ impl NakamotoBootPlan {
                             blocks_since_last_tenure += 1;
                             txs
                         });
+                    peer.refresh_burnchain_view();
 
                     consensus_hashes.push(consensus_hash);
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
