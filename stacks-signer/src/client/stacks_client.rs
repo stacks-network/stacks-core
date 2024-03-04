@@ -596,7 +596,6 @@ mod tests {
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use rand::thread_rng;
     use rand_core::RngCore;
-    use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
@@ -837,7 +836,6 @@ mod tests {
 
     #[ignore]
     #[test]
-    #[serial]
     fn build_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
@@ -861,7 +859,6 @@ mod tests {
 
     #[ignore]
     #[test]
-    #[serial]
     fn broadcast_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
