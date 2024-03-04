@@ -27,6 +27,7 @@ pub mod secp256k1;
 pub mod uint;
 pub mod vrf;
 
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
@@ -66,6 +67,48 @@ impl fmt::Display for HexError {
             HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
             HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
         }
+    }
+}
+
+pub struct HashMapDisplay<'a, K: std::hash::Hash, V>(pub &'a HashMap<K, V>);
+
+impl<'a, K, V> fmt::Display for HashMapDisplay<'a, K, V>
+where
+    K: fmt::Display + std::hash::Hash,
+    V: fmt::Display,
+    K: Ord,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut keys: Vec<_> = self.0.keys().collect();
+        keys.sort();
+        write!(f, "{{")?;
+        for key in keys.into_iter() {
+            let Some(value) = self.0.get(key) else {
+                continue;
+            };
+            write!(f, "{key}: {value}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<'a, K, V> fmt::Debug for HashMapDisplay<'a, K, V>
+where
+    K: fmt::Display + std::hash::Hash,
+    V: fmt::Debug,
+    K: Ord,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut keys: Vec<_> = self.0.keys().collect();
+        keys.sort();
+        write!(f, "{{")?;
+        for key in keys.into_iter() {
+            let Some(value) = self.0.get(key) else {
+                continue;
+            };
+            write!(f, "{key}: {value:?}")?;
+        }
+        write!(f, "}}")
     }
 }
 

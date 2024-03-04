@@ -2110,7 +2110,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         let mut miners_stackerdb =
             StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
-            .get_latest(slot_id)
+            .get_latest(slot_id.0)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
     };

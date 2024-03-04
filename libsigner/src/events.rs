@@ -36,6 +36,7 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
@@ -53,8 +54,12 @@ use crate::{EventError, SignerMessage};
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
-    /// The miner proposed blocks for signers to observe and sign
-    ProposedBlocks(Vec<NakamotoBlock>),
+    /// The miner sent proposed blocks or messages for signers to observe and sign
+    ProposedBlocks(
+        Vec<NakamotoBlock>,
+        Vec<SignerMessage>,
+        Option<StacksPublicKey>,
+    ),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<SignerMessage>),
@@ -220,7 +225,7 @@ impl EventReceiver for SignerEventReceiver {
     /// Errors are recoverable -- the caller should call this method again even if it returns an
     /// error.
     fn next_event(&mut self) -> Result<SignerEvent, EventError> {
-        self.with_server(|event_receiver, http_server, is_mainnet| {
+        self.with_server(|event_receiver, http_server, _is_mainnet| {
             // were we asked to terminate?
             if event_receiver.is_stopped() {
                 return Err(EventError::Terminated);
@@ -241,21 +246,22 @@ impl EventReceiver for SignerEventReceiver {
                 )));
             }
             if request.url() == "/stackerdb_chunks" {
-                process_stackerdb_event(event_receiver.local_addr, request, is_mainnet)
+                process_stackerdb_event(event_receiver.local_addr, request)
+                    .map_err(|e| {
+                        error!("Error processing stackerdb_chunks message"; "err" => ?e);
+                        e
+                    })
             } else if request.url() == "/proposal_response" {
                 process_proposal_response(request)
             } else {
                 let url = request.url().to_string();
 
-                info!(
+                debug!(
                     "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
                     event_receiver.local_addr,
                     request.url()
                 );
-
-                if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-                    error!("Failed to respond to request: {:?}", &e);
-                }
+                ack_dispatcher(request);
                 Err(EventError::UnrecognizedEvent(url))
             }
         })?
@@ -311,20 +317,22 @@ impl EventReceiver for SignerEventReceiver {
     }
 }
 
+fn ack_dispatcher(request: HttpRequest) {
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    };
+}
+
 /// Process a stackerdb event from the node
 fn process_stackerdb_event(
     local_addr: Option<SocketAddr>,
     mut request: HttpRequest,
-    is_mainnet: bool,
 ) -> Result<SignerEvent, EventError> {
     debug!("Got stackerdb_chunks event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
-
-        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-            error!("Failed to respond to request: {:?}", &e);
-        };
+        ack_dispatcher(request);
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
             &e
@@ -334,45 +342,84 @@ fn process_stackerdb_event(
     let event: StackerDBChunksEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
-    let signer_event = if event.contract_id == boot_code_id(MINERS_NAME, is_mainnet) {
-        let blocks: Vec<NakamotoBlock> = event
-            .modified_slots
-            .iter()
-            .filter_map(|chunk| read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok())
-            .collect();
-        SignerEvent::ProposedBlocks(blocks)
-    } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
-        && event.contract_id.issuer.1 == [0u8; 20]
-    {
-        let Some((signer_set, _)) =
-            get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
-        else {
-            return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
-        };
-        // signer-XXX-YYY boot contract
-        let signer_messages: Vec<SignerMessage> = event
-            .modified_slots
-            .iter()
-            .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
-            .collect();
-        SignerEvent::SignerMessages(signer_set, signer_messages)
-    } else {
-        info!(
-            "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
-            local_addr,
-            event.contract_id
-        );
-        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-            error!("Failed to respond to request: {:?}", &e);
+    let event_contract_id = event.contract_id.clone();
+
+    let signer_event = match SignerEvent::try_from(event) {
+        Err(e) => {
+            info!(
+                "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
+                local_addr,
+                event_contract_id
+            );
+            ack_dispatcher(request);
+            return Err(e.into());
         }
-        return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+        Ok(x) => x,
     };
 
-    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-        error!("Failed to respond to request: {:?}", &e);
-    }
+    ack_dispatcher(request);
 
     Ok(signer_event)
+}
+
+impl TryFrom<StackerDBChunksEvent> for SignerEvent {
+    type Error = EventError;
+
+    fn try_from(event: StackerDBChunksEvent) -> Result<Self, Self::Error> {
+        let signer_event = if event.contract_id.name.as_str() == MINERS_NAME
+            && event.contract_id.issuer.1 == [0; 20]
+        {
+            let mut blocks = vec![];
+            let mut messages = vec![];
+            let mut miner_pk = None;
+            for chunk in event.modified_slots {
+                miner_pk = Some(chunk.recover_pk().map_err(|e| {
+                    EventError::MalformedRequest(format!(
+                        "Failed to recover PK from StackerDB chunk: {e}"
+                    ))
+                })?);
+                if chunk.slot_id % 2 == 0 {
+                    // block
+                    let Ok(block) =
+                        NakamotoBlock::consensus_deserialize(&mut chunk.data.as_slice())
+                    else {
+                        continue;
+                    };
+                    blocks.push(block);
+                } else if chunk.slot_id % 2 == 1 {
+                    // message
+                    let Ok(msg) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    else {
+                        continue;
+                    };
+                    messages.push(msg);
+                } else {
+                    return Err(EventError::UnrecognizedEvent(
+                        "Unrecognized slot_id for miners contract".into(),
+                    ));
+                };
+            }
+            SignerEvent::ProposedBlocks(blocks, messages, miner_pk)
+        } else if event.contract_id.name.starts_with(SIGNERS_NAME)
+            && event.contract_id.issuer.1 == [0u8; 20]
+        {
+            let Some((signer_set, _)) =
+                get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
+            else {
+                return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+            };
+            // signer-XXX-YYY boot contract
+            let signer_messages: Vec<SignerMessage> = event
+                .modified_slots
+                .iter()
+                .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
+                .collect();
+            SignerEvent::SignerMessages(signer_set, signer_messages)
+        } else {
+            return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+        };
+        Ok(signer_event)
+    }
 }
 
 /// Process a proposal response from the node
@@ -401,7 +448,7 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     Ok(SignerEvent::BlockValidationResponse(event))
 }
 
-fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
+pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
     // Splitting the string by '-'
     let parts: Vec<&str> = name.split('-').collect();
     if parts.len() != 3 {

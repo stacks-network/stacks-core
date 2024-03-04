@@ -39,6 +39,7 @@ use crate::run_loop::RegisteredKey;
 pub mod miner;
 pub mod peer;
 pub mod relayer;
+pub mod sign_coordinator;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};

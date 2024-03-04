@@ -154,6 +154,42 @@ pub struct Signer {
     pub coordinator_selector: CoordinatorSelector,
     /// The approved key registered to the contract
     pub approved_aggregate_public_key: Option<Point>,
+    /// This is the signer's current view of the burn chain
+    pub current_burn_block_info: Option<BurnBlockInfo>,
+    /// The current active miner's key (if we know it!)
+    pub miner_key: Option<PublicKey>,
+}
+
+/// The signer's view of the current burn block
+pub struct BurnBlockInfo {
+    /// The burn block height
+    pub burn_block_height: u32,
+    /// The active miner
+    pub active_miner: PublicKey,
+    /// The reward cycle
+    pub reward_cycle: u64,
+}
+
+impl Signer {
+    /// Return the current coordinator. If in the active reward cycle, this is the miner,
+    ///  so the first element of the tuple will be None (because the miner does not have a signer index).
+    fn get_coordinator(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
+        if self.reward_cycle == current_reward_cycle {
+            let Some(ref cur_miner) = self.miner_key else {
+                error!(
+                    "Signer #{}: Could not lookup current miner while in active reward cycle",
+                    self.signer_id
+                );
+                let selected = self.coordinator_selector.get_coordinator();
+                return (Some(selected.0), selected.1);
+            };
+            // coordinator is the current miner.
+            (None, cur_miner.clone())
+        } else {
+            let selected = self.coordinator_selector.get_coordinator();
+            return (Some(selected.0), selected.1);
+        }
+    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -182,6 +218,16 @@ impl From<SignerConfig> for Signer {
             signer_public_keys: signer_config.signer_entries.signer_public_keys,
         };
 
+        info!(
+            "Initializing signer";
+            "num_signers" => num_signers,
+            "num_keys" => num_keys,
+            "threshold" => threshold,
+            "signer_key_ids" => ?coordinator_config.signer_key_ids,
+            "signer_public_keys" => ?coordinator_config.signer_public_keys,
+            "wsts_public_keys" => ?signer_config.signer_entries.public_keys
+        );
+
         let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = WSTSSigner::new(
             threshold,
@@ -194,12 +240,6 @@ impl From<SignerConfig> for Signer {
         );
         let coordinator_selector =
             CoordinatorSelector::from(signer_config.signer_entries.public_keys);
-
-        debug!(
-            "Signer #{}: initial coordinator is signer {}",
-            signer_config.signer_id,
-            coordinator_selector.get_coordinator().0
-        );
 
         Self {
             coordinator,
@@ -222,6 +262,8 @@ impl From<SignerConfig> for Signer {
             tx_fee_ustx: signer_config.tx_fee_ustx,
             coordinator_selector,
             approved_aggregate_public_key: None,
+            current_burn_block_info: None,
+            miner_key: None,
         }
     }
 }
@@ -324,11 +366,15 @@ impl Signer {
     }
 
     /// Attempt to process the next command in the queue, and update state accordingly
-    pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
-        let coordinator_id = self.coordinator_selector.get_coordinator().0;
+    pub fn process_next_command(
+        &mut self,
+        stacks_client: &StacksClient,
+        current_reward_cycle: u64,
+    ) {
+        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         match &self.state {
             State::Idle => {
-                if coordinator_id != self.signer_id {
+                if coordinator_id != Some(self.signer_id) {
                     debug!(
                         "Signer #{}: Coordinator is {coordinator_id:?}. Will not process any commands...",
                         self.signer_id
@@ -360,7 +406,9 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
         res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
     ) {
+        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -417,10 +465,9 @@ impl Signer {
             };
             self.handle_packets(stacks_client, res, &[packet]);
         } else {
-            let coordinator_id = self.coordinator_selector.get_coordinator().0;
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
-                && coordinator_id == self.signer_id
+                && coordinator_id == Some(self.signer_id)
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
@@ -451,8 +498,9 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
+        current_reward_cycle: u64,
     ) {
-        let coordinator_pubkey = self.coordinator_selector.get_coordinator().1;
+        let coordinator_pubkey = self.get_coordinator(current_reward_cycle).1;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -1010,7 +1058,7 @@ impl Signer {
         };
 
         // Submit signature result to miners to observe
-        debug!(
+        info!(
             "Signer #{}: submit block response {block_submission:?}",
             self.signer_id
         );
@@ -1103,7 +1151,11 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
+    pub fn update_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(reward_cycle)?;
@@ -1120,8 +1172,8 @@ impl Signer {
             );
             return Ok(());
         };
-        let coordinator_id = self.coordinator_selector.get_coordinator().0;
-        if self.signer_id == coordinator_id && self.state == State::Idle {
+        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
+        if Some(self.signer_id) == coordinator_id && self.state == State::Idle {
             debug!(
                 "Signer #{}: Checking if old vote transaction exists in StackerDB...",
                 self.signer_id
@@ -1185,7 +1237,12 @@ impl Signer {
                     "Signer #{}: Received a block proposal result from the stacks node...",
                     self.signer_id
                 );
-                self.handle_block_validate_response(stacks_client, block_validate_response, res)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    res,
+                    current_reward_cycle,
+                )
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
                 if *signer_set != self.stackerdb.get_signer_set() {
@@ -1197,19 +1254,26 @@ impl Signer {
                     self.signer_id,
                     messages.len()
                 );
-                self.handle_signer_messages(stacks_client, res, messages);
+                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::ProposedBlocks(blocks)) => {
+            Some(SignerEvent::ProposedBlocks(blocks, messages, miner_key)) => {
+                if let Some(miner_key) = miner_key {
+                    let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
+                        .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
+                    self.miner_key = Some(miner_key);
+                };
                 if current_reward_cycle != self.reward_cycle {
                     // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
                     debug!("Signer #{}: Received a proposed block, but this signer's reward cycle ({}) is not the current one ({}). Ignoring...", self.signer_id, self.reward_cycle, current_reward_cycle);
                     return Ok(());
                 }
                 debug!(
-                    "Signer #{}: Received {} block proposals from the miners...",
+                    "Signer #{}: Received {} block proposals and {} messages from the miners...",
                     self.signer_id,
-                    blocks.len()
+                    blocks.len(),
+                    messages.len(),
                 );
+                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
                 self.handle_proposed_blocks(stacks_client, blocks);
             }
             Some(SignerEvent::StatusCheck) => {

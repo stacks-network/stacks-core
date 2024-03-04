@@ -1,5 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -10,6 +12,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
+use lazy_static::lazy_static;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -73,6 +76,21 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
+lazy_static! {
+    pub static ref STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
+}
+
+/// This struct receives StackerDB event callbacks without registering
+/// over the JSON/RPC interface. To ensure that any event observer
+/// uses the same channel, we use a lazy_static global for the channel.
+///
+/// This channel (currently) only supports receiving events on the
+/// boot .signers-* contracts.
+pub struct StackerDBChannel {
+    pub receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
+    pub sender: Sender<StackerDBChunksEvent>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
     pub target_burn_height: u64,
@@ -102,6 +120,40 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
+}
+
+impl StackerDBChannel {
+    pub fn new() -> Self {
+        let (sender, recv_channel) = std::sync::mpsc::channel();
+        Self {
+            receiver: Mutex::new(Some(recv_channel)),
+            sender,
+        }
+    }
+
+    pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
+        let mut guard = self
+            .receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        guard.replace(receiver);
+    }
+
+    pub fn take_receiver(&self) -> Option<Receiver<StackerDBChunksEvent>> {
+        self.receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock")
+            .take()
+    }
+
+    /// Is there a thread holding the receiver?
+    pub fn is_active(&self) -> bool {
+        // if the receiver field is empty (i.e., None), then a thread must have taken it.
+        self.receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock")
+            .is_none()
+    }
 }
 
 impl EventObserver {
@@ -1044,19 +1096,30 @@ impl EventDispatcher {
     pub fn process_new_stackerdb_chunks(
         &self,
         contract_id: QualifiedContractIdentifier,
-        new_chunks: Vec<StackerDBChunkData>,
+        modified_slots: Vec<StackerDBChunkData>,
     ) {
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        if interested_observers.len() < 1 {
+        let interested_receiver = STACKER_DB_CHANNEL.is_active();
+        if interested_observers.is_empty() && !interested_receiver {
             return;
         }
 
-        let payload = serde_json::to_value(StackerDBChunksEvent {
+        let event = StackerDBChunksEvent {
             contract_id,
-            modified_slots: new_chunks,
-        })
-        .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+            modified_slots,
+        };
+        let payload = serde_json::to_value(&event)
+            .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+
+        if interested_receiver {
+            if let Err(send_err) = STACKER_DB_CHANNEL.sender.send(event) {
+                error!(
+                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have crashed.";
+                    "err" => ?send_err
+                );
+            }
+        }
 
         for observer in interested_observers.iter() {
             observer.send_stackerdb_chunks(&payload);

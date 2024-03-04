@@ -3416,6 +3416,96 @@ impl SortitionDB {
         Ok(())
     }
 
+    pub fn find_first_prepare_phase_sortition(
+        &self,
+        from_tip: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
+        let from_tip =
+            SortitionDB::get_block_snapshot(self.conn(), &from_tip)?.ok_or_else(|| {
+                error!(
+                    "Could not find snapshot for sortition";
+                    "sortition_id" => %from_tip,
+                );
+                db_error::NotFoundError
+            })?;
+        let mut cursor = from_tip;
+        let mut last = None;
+        while self
+            .pox_constants
+            .is_in_prepare_phase(self.first_block_height, cursor.block_height)
+        {
+            let parent = cursor.parent_sortition_id;
+            last = Some(cursor.sortition_id);
+            cursor = SortitionDB::get_block_snapshot(self.conn(), &parent)?.ok_or_else(|| {
+                error!(
+                    "Could not find snapshot for sortition";
+                    "sortition_id" => %parent,
+                );
+                db_error::NotFoundError
+            })?;
+        }
+        Ok(last)
+    }
+
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    ///  reward set (if it exists) for the active reward cycle during `tip`
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
+            error!(
+                "Could not find snapshot for sortition while fetching reward set";
+                "tip_sortition_id" => %tip,
+            );
+            db_error::NotFoundError
+        })?;
+
+        let reward_cycle_id = self
+            .pox_constants
+            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
+            .expect("FATAL: stored snapshot with block height < first_block_height");
+
+        let prepare_phase_end = self
+            .pox_constants
+            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
+            .saturating_sub(1);
+
+        // find the sortition at height
+        let prepare_phase_end =
+            get_ancestor_sort_id(&self.index_conn(), prepare_phase_end, &tip_sn.sortition_id)?
+                .ok_or_else(|| {
+                    error!(
+                        "Could not find prepare phase end ancestor while fetching reward set";
+                        "tip_sortition_id" => %tip,
+                        "reward_cycle_id" => reward_cycle_id,
+                        "prepare_phase_end_height" => prepare_phase_end
+                    );
+                    db_error::NotFoundError
+                })?;
+
+        let first_sortition = self
+            .find_first_prepare_phase_sortition(&prepare_phase_end)?
+            .ok_or_else(|| {
+                error!(
+                    "Could not find the first prepare phase sortition for the active reward cycle";
+                    "tip_sortition_id" => %tip,
+                    "reward_cycle_id" => reward_cycle_id,
+                    "prepare_phase_end_sortition_id" => %prepare_phase_end,
+                );
+                db_error::NotFoundError
+            })?;
+
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_end_sortition_id" => %prepare_phase_end,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+    }
+
     /// Get a pre-processed reawrd set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
     pub fn get_preprocessed_reward_set(

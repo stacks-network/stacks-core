@@ -693,6 +693,13 @@ impl FromSql for ThresholdSignature {
     }
 }
 
+impl std::fmt::Display for ThresholdSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = self.serialize_to_vec();
+        write!(f, "{}", &to_hex(&bytes))
+    }
+}
+
 impl ToSql for ThresholdSignature {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
         let bytes = self.serialize_to_vec();

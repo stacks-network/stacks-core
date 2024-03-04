@@ -20,7 +20,8 @@ rand_core = "0.6"
 rand = "0.8"
 rand_chacha = "0.3.1"
 tikv-jemallocator = "0.5.4"
-wsts = { version = "8.1", default-features = false }
+# wsts = { version = "8.1", default-features = false }
+wsts = { path = "/Users/aaron/devel/wsts" }
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution

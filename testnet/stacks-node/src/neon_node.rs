@@ -1543,7 +1543,7 @@ impl BlockMinerThread {
             Self::find_inflight_mined_blocks(self.burn_block.block_height, &self.last_mined_blocks);
 
         // has the tip changed from our previously-mined block for this epoch?
-        let (attempt, max_txs) = if last_mined_blocks.len() <= 1 {
+        let (attempt, max_txs) = if last_mined_blocks.len() < 1 {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we
             // can use `subsequent_miner_time_ms` in this attempt)
