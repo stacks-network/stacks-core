@@ -3133,7 +3133,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch23 => {
                 version == "3"
@@ -3150,7 +3149,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
-                    || version == "9"
             }
             StacksEpochId::Epoch25 => {
                 version == "3"
