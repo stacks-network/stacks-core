@@ -678,7 +678,30 @@ impl MockamotoNode {
             .unwrap_or_else(|| VRFProof::empty());
 
             let vrf_seed = VRFSeed::from_proof(&parent_vrf_proof);
-            let parent_block_id = parent_snapshot.get_canonical_stacks_block_id();
+            let (stacks_tip_ch, stacks_tip_bhh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())?;
+            let parent_block_id = if stacks_tip_ch != ConsensusHash([0x00; 20]) {
+                let parent_tenure_start_header =
+                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                        self.chainstate.db(),
+                        &stacks_tip_ch,
+                    )
+                    .map_err(|e| {
+                        warn!(
+                            "Failed to load parent block header for {}: {:?}",
+                            &stacks_tip_ch, &e
+                        );
+                        BurnchainError::MissingParentBlock
+                    })?
+                    .ok_or_else(|| {
+                        warn!("No parent block header for {}", &stacks_tip_ch);
+                        BurnchainError::MissingParentBlock
+                    })?;
+                parent_tenure_start_header.index_block_hash()
+            } else {
+                // first-ever block
+                parent_snapshot.get_canonical_stacks_block_id()
+            };
 
             let block_commit = LeaderBlockCommitOp {
                 block_header_hash: BlockHeaderHash(parent_block_id.0),
