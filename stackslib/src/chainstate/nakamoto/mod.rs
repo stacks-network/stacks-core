@@ -645,7 +645,7 @@ impl NakamotoBlock {
     /// Try to get the first transaction in the block as a tenure-change
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
-    fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
+    pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
         if self.txs.len() == 0 {
             return None;
         }
@@ -1621,11 +1621,18 @@ impl NakamotoChainState {
         burn_attachable: bool,
     ) -> Result<(), ChainstateError> {
         let block_id = block.block_id();
+        let Ok(tenure_start) = block.is_wellformed_tenure_start_block() else {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Tried to store a tenure-start block that is not well-formed".into(),
+            ));
+        };
+
         staging_db_tx.execute(
             "INSERT INTO nakamoto_staging_blocks (
                      block_hash,
                      consensus_hash,
                      parent_block_id,
+                     is_tenure_start,
                      burn_attachable,
                      orphaned,
                      processed,
@@ -1636,11 +1643,12 @@ impl NakamotoChainState {
                      arrival_time,
                      processed_time,
                      data
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &block.header.block_hash(),
                 &block.header.consensus_hash,
                 &block.header.parent_block_id,
+                &tenure_start,
                 if burn_attachable { 1 } else { 0 },
                 0,
                 0,
@@ -1748,7 +1756,7 @@ impl NakamotoChainState {
     }
 
     /// Get the aggregate public key for the given block from the signers-voting contract
-    fn load_aggregate_public_key<SH: SortitionHandle>(
+    pub(crate) fn load_aggregate_public_key<SH: SortitionHandle>(
         sortdb: &SortitionDB,
         sort_handle: &SH,
         chainstate: &mut StacksChainState,
@@ -1929,12 +1937,8 @@ impl NakamotoChainState {
         chainstate_conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
-            "FATAL: multiple rows for the same block hash".to_string()
-        })?;
-        if result.is_some() {
-            return Ok(result);
+        if let Some(header) = Self::get_block_header_nakamoto(chainstate_conn, index_block_hash)? {
+            return Ok(Some(header));
         }
 
         Self::get_block_header_epoch2(chainstate_conn, index_block_hash)
