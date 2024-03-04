@@ -34,6 +34,7 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use reqwest::header::AUTHORIZATION;
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
@@ -63,6 +64,8 @@ pub struct StacksClient {
     mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
+    /// the auth password for the stacks node
+    auth_password: String,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -75,13 +78,19 @@ impl From<&GlobalConfig> for StacksClient {
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet: config.network.is_mainnet(),
+            auth_password: config.auth_password.clone(),
         }
     }
 }
 
 impl StacksClient {
-    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, and version
-    pub fn new(stacks_private_key: StacksPrivateKey, node_host: SocketAddr, mainnet: bool) -> Self {
+    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
+    pub fn new(
+        stacks_private_key: StacksPrivateKey,
+        node_host: SocketAddr,
+        auth_password: String,
+        mainnet: bool,
+    ) -> Self {
         let pubkey = StacksPublicKey::from_private(&stacks_private_key);
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
@@ -102,6 +111,7 @@ impl StacksClient {
             chain_id,
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet,
+            auth_password,
         }
     }
 
@@ -214,6 +224,7 @@ impl StacksClient {
             self.stacks_node_client
                 .post(self.block_proposal_path())
                 .header("Content-Type", "application/json")
+                .header(AUTHORIZATION, self.auth_password.clone())
                 .json(&block_proposal)
                 .send()
                 .map_err(backoff::Error::transient)

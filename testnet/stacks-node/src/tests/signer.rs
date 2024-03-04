@@ -105,6 +105,10 @@ impl SignerTest {
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
         naka_conf.miner.self_signing_key = None;
+        // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
+        // That's the kind of thing an idiot would have on his luggage!
+        let password = "12345";
+        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
@@ -112,6 +116,7 @@ impl SignerTest {
             &naka_conf.node.rpc_bind,
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
+            password,
         );
 
         let mut running_signers = Vec::new();
@@ -726,7 +731,12 @@ impl SignerTest {
         )
         .unwrap();
 
-        let invalid_stacks_client = StacksClient::new(StacksPrivateKey::new(), host, false);
+        let invalid_stacks_client = StacksClient::new(
+            StacksPrivateKey::new(),
+            host,
+            "12345".to_string(), // That's amazing. I've got the same combination on my luggage!
+            false,
+        );
         let invalid_signer_tx = invalid_stacks_client
             .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
             .expect("FATAL: failed to build vote for aggregate public key");

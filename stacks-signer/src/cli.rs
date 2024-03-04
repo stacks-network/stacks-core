@@ -173,6 +173,9 @@ pub struct GenerateFilesArgs {
     /// The number of milliseconds to wait when polling for events from the stacker-db instance.
     #[arg(long)]
     pub timeout: Option<u64>,
+    #[arg(long)]
+    /// The authorization password to use to connect to the validate block proposal node endpoint
+    pub password: String,
 }
 
 #[derive(Clone, Debug)]
