@@ -30,7 +30,9 @@ use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_VOTING_NAME};
+use stacks::chainstate::stacks::boot::{
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -455,7 +457,7 @@ pub fn boot_to_epoch_3(
                 300,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
-                "vote-for-aggregate-public-key",
+                SIGNERS_VOTING_FUNCTION_NAME,
                 &[
                     clarity::vm::Value::UInt(i as u128),
                     aggregate_public_key.clone(),
@@ -564,7 +566,7 @@ fn signer_vote_if_needed(
                     300,
                     &StacksAddress::burn_address(false),
                     SIGNERS_VOTING_NAME,
-                    "vote-for-aggregate-public-key",
+                    SIGNERS_VOTING_FUNCTION_NAME,
                     &[
                         clarity::vm::Value::UInt(i as u128),
                         aggregate_public_key.clone(),
