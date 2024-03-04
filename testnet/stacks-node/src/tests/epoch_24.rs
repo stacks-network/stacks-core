@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::{env, thread};
 
@@ -489,7 +490,7 @@ fn fix_to_pox_contract() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
+        if let Entry::Vacant(_) = reward_cycle_pox_addrs.entry(reward_cycle) {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
@@ -1209,7 +1210,7 @@ fn verify_auto_unlock_behavior() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
+        if let Entry::Vacant(_) = reward_cycle_pox_addrs.entry(reward_cycle) {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 

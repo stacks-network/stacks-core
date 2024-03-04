@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
+
 use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
 use rand::prelude::*;
 use rand::thread_rng;
@@ -2583,7 +2585,7 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
             }
         }
         for inbound in inbound_neighbor_index.iter() {
-            if inbound_hist.contains_key(inbound) {
+            if let Entry::Occupied(_) = inbound_hist.entry(*inbound) {
                 let c = inbound_hist.get(inbound).unwrap().to_owned();
                 inbound_hist.insert(*inbound, c + 1);
             } else {
@@ -2591,7 +2593,7 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
             }
         }
         for outbound in outbound_neighbor_index.iter() {
-            if outbound_hist.contains_key(outbound) {
+            if let Entry::Occupied(_) = outbound_hist.entry(*outbound) {
                 let c = outbound_hist.get(outbound).unwrap().to_owned();
                 outbound_hist.insert(*outbound, c + 1);
             } else {
@@ -2599,7 +2601,7 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
             }
         }
         for n in neighbor_index.iter() {
-            if all_hist.contains_key(n) {
+            if let Entry::Occupied(_) = all_hist.entry(*n) {
                 let c = all_hist.get(n).unwrap().to_owned();
                 all_hist.insert(*n, c + 1);
             } else {
@@ -2648,7 +2650,7 @@ where
         for j in 0..peers[i].config.initial_neighbors.len() {
             let initial = &peers[i].config.initial_neighbors[j];
             if initial.allowed < 0 {
-                if !initial_allowed.contains_key(&nk) {
+                if let Entry::Vacant(_) = initial_allowed.entry(nk.to_owned()) {
                     initial_allowed.insert(nk.clone(), vec![]);
                 }
                 initial_allowed
@@ -2657,7 +2659,7 @@ where
                     .push(initial.addr.clone());
             }
             if initial.denied < 0 {
-                if !initial_denied.contains_key(&nk) {
+                if let Entry::Vacant(_) = initial_denied.entry(nk.to_owned()) {
                     initial_denied.insert(nk.clone(), vec![]);
                 }
                 initial_denied
@@ -2695,7 +2697,7 @@ where
             match initial_allowed.get(&nk) {
                 Some(ref peer_list) => {
                     for pnk in peer_list.iter() {
-                        if !peers[i].network.events.contains_key(&pnk.clone()) {
+                        if let Entry::Vacant(_) = peers[i].network.events.entry(pnk.clone()) {
                             error!(
                                 "{:?}: Perma-allowed peer {:?} not connected anymore",
                                 &nk, &pnk
@@ -2711,7 +2713,7 @@ where
             match initial_denied.get(&nk) {
                 Some(ref peer_list) => {
                     for pnk in peer_list.iter() {
-                        if peers[i].network.events.contains_key(&pnk.clone()) {
+                        if let Entry::Occupied(_) = peers[i].network.events.entry(pnk.clone()) {
                             error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
                             assert!(false);
                         }

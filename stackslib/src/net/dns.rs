@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -292,7 +293,7 @@ impl DNSClient {
         loop {
             match self.requests_rx.try_recv() {
                 Ok(resp) => {
-                    if self.requests.contains_key(&resp.request) {
+                    if let Entry::Occupied(_) = self.requests.entry(resp.request.to_owned()) {
                         if !resp.request.is_timed_out() {
                             self.requests.insert(resp.request.clone(), Some(resp));
                             num_recved += 1;
@@ -324,7 +325,7 @@ impl DNSClient {
 
     pub fn poll_lookup(&mut self, host: &str, port: u16) -> Result<Option<DNSResponse>, net_error> {
         let req = DNSRequest::new(host.to_string(), port, 0);
-        if !self.requests.contains_key(&req) {
+        if let Entry::Vacant(_) = self.requests.entry(req.to_owned()) {
             return Err(net_error::LookupError(format!(
                 "No such pending lookup: {}:{}",
                 host, port
@@ -357,6 +358,7 @@ impl DNSClient {
 
 #[cfg(test)]
 mod test {
+    use std::collections::hash_map::Entry;
     use std::collections::HashMap;
     use std::error::Error;
 
@@ -423,7 +425,7 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if resolved_addrs.contains_key(&name.to_string()) {
+                if let Entry::Occupied(_) = resolved_addrs.entry(name.to_string()) {
                     continue;
                 }
                 match client.poll_lookup(name, 80).unwrap() {

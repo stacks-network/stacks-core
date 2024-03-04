@@ -16,6 +16,7 @@
 
 use std::hash::Hash;
 
+use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
@@ -541,7 +542,14 @@ impl<'a> RollbackWrapper<'a> {
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
             )
         })?;
-        if self.query_pending_data && self.lookup_map.contains_key(key) {
+
+        let contains_key = if let Entry::Occupied(_) = self.lookup_map.entry(key.to_owned()) {
+            true
+        } else {
+            false
+        };
+
+        if self.query_pending_data && contains_key {
             Ok(true)
         } else {
             self.store.has_entry(key)

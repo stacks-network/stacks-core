@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::mpsc::{
@@ -1691,8 +1692,20 @@ impl PeerNetwork {
             &self.local_peer, &client_addr, event_id, &neighbor_key, outbound
         );
 
-        assert!(!self.sockets.contains_key(&event_id));
-        assert!(!self.peers.contains_key(&event_id));
+        let sockets_contains_key = if let Entry::Occupied(_) = self.sockets.entry(event_id) {
+            true
+        } else {
+            false
+        };
+
+        let peers_contains_key = if let Entry::Occupied(_) = self.sockets.entry(event_id) {
+            true
+        } else {
+            false
+        };
+
+        assert!(!sockets_contains_key);
+        assert!(!peers_contains_key);
 
         self.sockets.insert(event_id, socket);
         self.peers.insert(event_id, new_convo);
@@ -1903,7 +1916,7 @@ impl PeerNetwork {
                     };
 
                     // event ID already used?
-                    if self.peers.contains_key(&event_id) {
+                    if let Entry::Occupied(_) = self.peers.entry(event_id) {
                         warn!(
                             "Already have an event {}: {:?}",
                             event_id,
@@ -2042,7 +2055,7 @@ impl PeerNetwork {
     /// Process any newly-connecting sockets
     fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) {
         for event_id in poll_state.ready.iter() {
-            if self.connecting.contains_key(event_id) {
+            if let Entry::Occupied(_) = self.connecting.entry(*event_id) {
                 let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
                 let sock_str = format!("{:?}", &socket);
                 if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
@@ -3234,9 +3247,9 @@ impl PeerNetwork {
 
                                     local_blocks.push(BlocksDatum(consensus_hash, block));
 
-                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                    if let Entry::Vacant(_) = lowest_reward_cycle_with_missing_block.entry(nk) {
                                         lowest_reward_cycle_with_missing_block
-                                            .insert(nk.clone(), reward_cycle);
+                                            .insert(nk, reward_cycle);
                                     }
 
                                     total_blocks_to_broadcast += 1;
@@ -3295,9 +3308,9 @@ impl PeerNetwork {
 
                                     local_microblocks.push((index_block_hash, microblocks));
 
-                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                    if let Entry::Vacant(_) = lowest_reward_cycle_with_missing_block.entry(nk) {
                                         lowest_reward_cycle_with_missing_block
-                                            .insert(nk.clone(), reward_cycle);
+                                            .insert(nk, reward_cycle);
                                     }
 
                                     total_microblocks_to_broadcast += 1;

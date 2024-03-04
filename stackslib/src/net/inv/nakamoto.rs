@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
 use stacks_common::bitvec::BitVec;
@@ -546,7 +547,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .expect("FATAL: snapshot occurred before system start");
 
         for rc in highest_rc..=tip_rc {
-            if self.reward_cycle_consensus_hashes.contains_key(&rc) {
+            if let Entry::Occupied(_) = self.reward_cycle_consensus_hashes.entry(rc) {
                 continue;
             }
             let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {

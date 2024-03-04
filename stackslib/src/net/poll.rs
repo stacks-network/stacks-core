@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::{Error as io_error, ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr};
@@ -155,8 +156,14 @@ impl NetworkState {
             server_event: mio::Token(next_server_event),
         };
 
+        let event_map_contains_key = if let Entry::Occupied(_) = self.event_map.entry(next_server_event) {
+            true
+        } else {
+            false
+        };
+
         assert!(
-            !self.event_map.contains_key(&next_server_event),
+            !event_map_contains_key,
             "BUG: failed to generate an unused server event ID"
         );
 
@@ -192,7 +199,7 @@ impl NetworkState {
         }
 
         // if the event ID is in use, then find another one
-        let event_id = if self.event_map.contains_key(&hint_event_id) {
+        let event_id = if let Entry::Occupied(_) = self.event_map.entry(hint_event_id) {
             self.next_event_id()?
         } else {
             hint_event_id
@@ -236,8 +243,14 @@ impl NetworkState {
         event_id: usize,
         sock: &mio_net::TcpStream,
     ) -> Result<(), net_error> {
+        let event_map_contains_key = if let Entry::Occupied(_) = self.event_map.entry(event_id) {
+            true
+        } else {
+            false
+        };
+
         assert!(
-            self.event_map.contains_key(&event_id),
+            event_map_contains_key,
             "BUG: no such socket {}",
             event_id
         );

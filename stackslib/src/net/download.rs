@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -1690,12 +1691,12 @@ impl PeerNetwork {
                         && (downloader.blocks_to_try.len() as u64)
                             < downloader.max_inflight_requests
                     {
-                        if !next_blocks_to_try.contains_key(&height) {
+                        if let Entry::Vacant(_) = next_blocks_to_try.entry(height) {
                             height += 1;
                             continue;
                         }
 
-                        if downloader.blocks_to_try.contains_key(&height) {
+                        if let Entry::Occupied(_) = downloader.blocks_to_try.entry(height) {
                             debug!("Block download already in-flight for {}", height);
                             height += 1;
                             continue;
@@ -1749,12 +1750,12 @@ impl PeerNetwork {
                         && (downloader.microblocks_to_try.len() as u64)
                             < downloader.max_inflight_requests
                     {
-                        if !next_microblocks_to_try.contains_key(&mblock_height) {
+                        if let Entry::Vacant(_) = next_microblocks_to_try.entry(mblock_height) {
                             mblock_height += 1;
                             continue;
                         }
 
-                        if downloader.microblocks_to_try.contains_key(&mblock_height) {
+                        if let Entry::Occupied(_) = downloader.microblocks_to_try.entry(mblock_height) {
                             mblock_height += 1;
                             debug!(
                                 "Microblocks download already in-flight for {}",

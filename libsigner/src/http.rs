@@ -18,6 +18,7 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
+use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::deps_common::httparse;
@@ -179,7 +180,7 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
                 }
 
                 let key = resp.headers[i].name.to_string().to_lowercase();
-                if headers.contains_key(&key) {
+                if let Entry::Occupied(_) = headers.entry(key.to_owned()) {
                     return Err(RPCError::MalformedResponse(format!(
                         "Invalid HTTP respuest: duplicate header \"{}\"",
                         key
