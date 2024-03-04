@@ -45,7 +45,6 @@ rand = { workspace = true }
 url = "2.1.0"
 
 [dev-dependencies]
-serial_test = "3.0.0"
 clarity = { path = "../clarity", features = ["testing"] }
 
 [dependencies.serde_json]
