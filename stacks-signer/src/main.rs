@@ -28,7 +28,6 @@ extern crate toml;
 
 use std::fs::File;
 use std::io::{self, BufRead, Write};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
@@ -63,8 +62,8 @@ struct SpawnedSigner {
 }
 
 /// Create a new stacker db session
-fn stackerdb_session(host: SocketAddr, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
+fn stackerdb_session(host: String, contract: QualifiedContractIdentifier) -> StackerDBSession {
+    let mut session = StackerDBSession::new(host.to_string(), contract.clone());
     session.connect(host, contract).unwrap();
     session
 }

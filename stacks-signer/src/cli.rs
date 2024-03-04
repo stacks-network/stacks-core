@@ -67,7 +67,7 @@ pub enum Command {
 pub struct StackerDBArgs {
     /// The Stacks node to connect to
     #[arg(long)]
-    pub host: SocketAddr,
+    pub host: String,
     /// The stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub contract: QualifiedContractIdentifier,
