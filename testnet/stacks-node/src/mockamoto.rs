@@ -732,6 +732,7 @@ impl MockamotoNode {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn mine_stacks_block(&mut self) -> Result<NakamotoBlock, ChainstateError> {
         let miner_principal = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,

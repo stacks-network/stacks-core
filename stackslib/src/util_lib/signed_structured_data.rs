@@ -122,6 +122,7 @@ pub mod pox4 {
     }
 
     impl Into<Pox4SignatureTopic> for &'static str {
+        #[cfg_attr(test, mutants::skip)]
         fn into(self) -> Pox4SignatureTopic {
             match self {
                 "stack-stx" => Pox4SignatureTopic::StackStx,
@@ -133,6 +134,7 @@ pub mod pox4 {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_pox_4_signer_key_signature(
         pox_addr: &PoxAddress,
         signer_key: &StacksPrivateKey,
