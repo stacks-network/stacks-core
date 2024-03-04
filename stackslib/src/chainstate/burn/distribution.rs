@@ -16,7 +16,6 @@
 
 use std::cmp;
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
 
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;

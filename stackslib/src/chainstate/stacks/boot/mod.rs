@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::boxed::Box;
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::{TryFrom, TryInto};
+use std::collections::BTreeMap;
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -80,6 +78,7 @@ pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
 pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
+pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -1326,7 +1325,6 @@ pub mod signers_voting_tests;
 #[cfg(test)]
 pub mod test {
     use std::collections::{HashMap, HashSet};
-    use std::convert::From;
     use std::fs;
 
     use clarity::boot_util::boot_code_addr;
@@ -1936,7 +1934,7 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
-            "vote-for-aggregate-public-key",
+            SIGNERS_VOTING_FUNCTION_NAME,
             vec![
                 Value::UInt(signer_index),
                 aggregate_public_key,

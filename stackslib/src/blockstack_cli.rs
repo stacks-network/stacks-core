@@ -23,7 +23,6 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
-use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};

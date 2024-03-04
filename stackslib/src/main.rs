@@ -34,7 +34,6 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;

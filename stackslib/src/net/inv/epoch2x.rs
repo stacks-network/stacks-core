@@ -16,7 +16,6 @@
 
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 

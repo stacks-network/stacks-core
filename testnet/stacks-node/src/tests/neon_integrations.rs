@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};

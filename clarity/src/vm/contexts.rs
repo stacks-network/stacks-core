@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
