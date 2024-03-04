@@ -812,8 +812,9 @@ impl TrackerData {
         self.contract_call_circuits = contract_call_circuits;
 
         let iter = ClarityCostFunction::ALL.iter();
-        let mut cost_contracts = HashMap::with_capacity(iter.len());
-        let mut m = HashMap::with_capacity(iter.len());
+        let iter_len = iter.len();
+        let mut cost_contracts = HashMap::with_capacity(iter_len);
+        let mut m = HashMap::with_capacity(iter_len);
         for f in iter {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
