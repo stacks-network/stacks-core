@@ -286,6 +286,9 @@ impl RPCPoxInfoData {
             return Err(NetError::DBError(DBError::Corruption));
         }
 
+        // Manually calculate `reward_cycle_id` so that clients don't get an "off by one" view at
+        //  reward cycle boundaries (because if the reward cycle is loaded from clarity, its
+        //  evaluated in the last mined Stacks block, not the most recent burn block).
         let reward_cycle_id = burnchain
             .block_height_to_reward_cycle(burnchain_tip.block_height)
             .ok_or_else(|| {
