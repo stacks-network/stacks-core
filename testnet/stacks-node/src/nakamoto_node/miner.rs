@@ -335,9 +335,13 @@ impl BlockMinerThread {
             return Ok(vec![]);
         }
 
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+
         // Get all nonces for the signers from clarity DB to use to validate transactions
         let account_nonces = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &self.parent_tenure_id, |clarity_tx| {
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     addresses
                         .iter()
