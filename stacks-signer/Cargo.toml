@@ -44,7 +44,6 @@ wsts = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
-serial_test = "3.0.0"
 clarity = { path = "../clarity", features = ["testing"] }
 
 [dependencies.serde_json]

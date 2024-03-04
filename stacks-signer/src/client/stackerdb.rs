@@ -269,14 +269,12 @@ mod tests {
         TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
-    use serial_test::serial;
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
     use crate::config::GlobalConfig;
 
     #[test]
-    #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
@@ -320,9 +318,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn send_signer_message_with_retry_should_succeed() {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
 
