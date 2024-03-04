@@ -233,7 +233,7 @@
         ;; this refers to `extend-count`. For `stack-aggregation-commit`, this is `u1`.
         period: uint,
         ;; A string representing the function where this authorization is valid. Either
-        ;; `stack-stx`, `stack-extend`, or `agg-commit`.
+        ;; `stack-stx`, `stack-extend`, `stack-increase` or `agg-commit`.
         topic: (string-ascii 14),
         ;; The PoX address that can be used with this signer key
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
@@ -620,6 +620,10 @@
 ;; * The Stacker will receive rewards in the reward cycle following `start-burn-ht`.
 ;; Importantly, `start-burn-ht` may not be further into the future than the next reward cycle,
 ;; and in most cases should be set to the current burn block height.
+;; 
+;; To ensure that the Stacker is authorized to use the provided `signer-key`, the stacker
+;; must provide either a signature have an authorization already saved. Refer to
+;; `verify-signer-key-sig` for more information.
 ;;
 ;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
 (define-public (stack-stx (amount-ustx uint)
@@ -764,6 +768,10 @@
 ;; the lock period are inflexible, which means that the stacker must confirm their transaction
 ;; during the exact reward cycle and with the exact period that the signature or authorization was
 ;; generated for.
+;; 
+;; The `amount` field is checked to ensure it is not larger than `max-amount`, which is
+;; a field in the authorization. `auth-id` is a random uint to prevent authorization
+;; replays.
 ;;
 ;; This function does not verify the payload of the authorization. The caller of
 ;; this function must ensure that the payload (reward cycle, period, topic, and pox-addr)
@@ -772,6 +780,10 @@
 ;; When `signer-sig` is present, the public key is recovered from the signature
 ;; and compared to `signer-key`. If `signer-sig` is `none`, the function verifies that an authorization was previously
 ;; added for this key.
+;; 
+;; This function checks to ensure that the authorization hasn't been used yet, but it
+;; does _not_ store the authorization as used. The function `consume-signer-key-authorization`
+;; handles that, and this read-only function is exposed for client-side verification.
 (define-read-only (verify-signer-key-sig (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                          (reward-cycle uint)
                                          (topic (string-ascii 14))
@@ -1109,6 +1121,8 @@
 ;; This method locks up an additional amount of STX from `tx-sender`'s, indicated
 ;; by `increase-by`.  The `tx-sender` must already be Stacking & must not be
 ;; straddling more than one signer-key for the cycles effected. 
+;; Refer to `verify-signer-key-sig` for more information on the authorization parameters
+;; included here.
 (define-public (stack-increase 
   (increase-by uint)
   (signer-sig (optional (buff 65)))
@@ -1168,6 +1182,9 @@
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards, The `signer-key` will be the key
 ;;    used for signing. The `tx-sender` can thus decide to change the key when extending.
+;; 
+;; Because no additional STX are locked in this function, the `amount` field used
+;; to verify the signer key authorization is zero. Refer to `verify-signer-key-sig` for more information.
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                              (signer-sig (optional (buff 65)))
@@ -1447,7 +1464,9 @@
 ;; in `stack-stx` and `stack-extend`, the `reward-cycle` refers to the reward cycle
 ;; where the transaction is confirmed, **not** the reward cycle where stacking begins.
 ;; The `period` parameter must match the exact lock period (or extend count) used
-;; in the stacking transaction.
+;; in the stacking transaction. The `max-amount` parameter specifies the maximum amount
+;; of STX that can be locked in an individual stacking transaction. `auth-id` is a
+;; random uint to prevent replays.
 ;;
 ;; *New in Stacks 3.0*
 (define-public (set-signer-key-authorization (pox-addr { version: (buff 1), hashbytes: (buff 32)})
