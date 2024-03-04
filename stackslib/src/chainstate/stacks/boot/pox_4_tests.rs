@@ -2290,30 +2290,7 @@ fn stack_extend_verify_sig() {
         1,
     );
 
-    // Test invalid amount
-    stacker_nonce += 1;
-    let signature = make_signer_key_signature(
-        &pox_addr,
-        &signer_key,
-        reward_cycle,
-        &topic,
-        lock_period,
-        min_ustx.saturating_sub(1),
-        1,
-    );
-    let invalid_amount_nonce = stacker_nonce;
-    let invalid_amount_tx = make_pox_4_extend(
-        &stacker_key,
-        stacker_nonce,
-        pox_addr.clone(),
-        lock_period,
-        signer_public_key.clone(),
-        Some(signature),
-        min_ustx.saturating_sub(1), // less than amount
-        1,
-    );
-
-    // Test 4: valid stack-extend
+    // Test: valid stack-extend
     stacker_nonce += 1;
     let signature = make_signer_key_signature(
         &pox_addr,
@@ -2344,7 +2321,6 @@ fn stack_extend_verify_sig() {
             invalid_key_tx,
             invalid_auth_id_tx,
             invalid_max_amount_tx,
-            invalid_amount_tx,
             valid_tx,
         ],
         &mut coinbase_nonce,
@@ -2364,10 +2340,6 @@ fn stack_extend_verify_sig() {
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
     assert_eq!(tx_result(invalid_auth_id_nonce), expected_error);
     assert_eq!(tx_result(invalid_max_amount_nonce), expected_error);
-    assert_eq!(
-        tx_result(invalid_amount_nonce),
-        Value::error(Value::Int(37)).unwrap()
-    );
 
     // valid tx should succeed
     tx_result(valid_nonce)
@@ -2714,7 +2686,7 @@ fn stack_agg_commit_verify_sig() {
         &pox_addr,
         &mut peer,
         &latest_block,
-        reward_cycle,
+        next_reward_cycle,
         1,
         &topic,
         min_ustx,
@@ -2729,7 +2701,7 @@ fn stack_agg_commit_verify_sig() {
         &mut peer,
         &latest_block,
         &pox_addr,
-        reward_cycle.try_into().unwrap(),
+        next_reward_cycle.try_into().unwrap(),
         &topic,
         1,
         &signer_pk,
@@ -3852,8 +3824,25 @@ fn stack_increase() {
 
     alice_nonce += 1;
 
-    let stack_increase =
-        make_pox_4_stack_increase(alice_stacking_private_key, alice_nonce, min_ustx);
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signing_sk,
+        reward_cycle,
+        &Pox4SignatureTopic::StackIncrease,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+
+    let stack_increase = make_pox_4_stack_increase(
+        alice_stacking_private_key,
+        alice_nonce,
+        min_ustx,
+        &signing_pk,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
     // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);

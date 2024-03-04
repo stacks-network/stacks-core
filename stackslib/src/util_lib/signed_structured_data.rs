@@ -84,6 +84,7 @@ pub mod pox4 {
         StackStx("stack-stx"),
         AggregationCommit("agg-commit"),
         StackExtend("stack-extend"),
+        StackIncrease("stack-increase"),
     });
 
     pub fn make_pox_4_signed_data_domain(chain_id: u32) -> Value {
@@ -126,6 +127,7 @@ pub mod pox4 {
                 "stack-stx" => Pox4SignatureTopic::StackStx,
                 "agg-commit" => Pox4SignatureTopic::AggregationCommit,
                 "stack-extend" => Pox4SignatureTopic::StackExtend,
+                "stack-increase" => Pox4SignatureTopic::StackIncrease,
                 _ => panic!("Invalid pox-4 signature topic"),
             }
         }

@@ -2152,17 +2152,25 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
-        // signer_key: &Secp256k1PublicKey,
-        // signature_opt: Option<Vec<u8>>,
-        // max_amount: u128,
-        // auth_id: u128,
+        signer_key: &Secp256k1PublicKey,
+        signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
+        let signature = signature_opt
+            .map(|sig| Value::some(Value::buff_from(sig).unwrap()).unwrap())
+            .unwrap_or_else(|| Value::none());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
-            // Need to add/create signature
             "stack-increase",
-            vec![Value::UInt(amount)],
+            vec![
+                Value::UInt(amount),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
         )
         .unwrap();
 
