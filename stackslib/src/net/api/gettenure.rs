@@ -48,11 +48,17 @@ pub struct RPCNakamotoTenureRequestHandler {
     /// * we reach the first block in the tenure
     /// * we would exceed MAX_MESSAGE_LEN bytes transmitted if we started sending the next block
     pub block_id: Option<StacksBlockId>,
+    /// What's the final block ID to stream from?
+    /// Passed as `stop=` query parameter
+    pub last_block_id: Option<StacksBlockId>,
 }
 
 impl RPCNakamotoTenureRequestHandler {
     pub fn new() -> Self {
-        Self { block_id: None }
+        Self {
+            block_id: None,
+            last_block_id: None,
+        }
     }
 }
 
@@ -63,6 +69,8 @@ pub struct NakamotoTenureStream {
     pub headers_conn: DBConn,
     /// total bytess sent so far
     pub total_sent: u64,
+    /// stop streaming if we reach this block
+    pub last_block_id: Option<StacksBlockId>,
 }
 
 impl NakamotoTenureStream {
@@ -71,6 +79,7 @@ impl NakamotoTenureStream {
         block_id: StacksBlockId,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
+        last_block_id: Option<StacksBlockId>,
     ) -> Result<Self, ChainError> {
         let block_stream =
             NakamotoBlockStream::new(chainstate, block_id, consensus_hash, parent_block_id)?;
@@ -79,6 +88,7 @@ impl NakamotoTenureStream {
             block_stream,
             headers_conn,
             total_sent: 0,
+            last_block_id,
         })
     }
 
@@ -99,6 +109,13 @@ impl NakamotoTenureStream {
         else {
             return Ok(false);
         };
+
+        if let Some(last_block_id) = self.last_block_id.as_ref() {
+            if &parent_nakamoto_header.block_id() == last_block_id {
+                // asked to stop
+                return Ok(false);
+            }
+        }
 
         // stop sending if the parent is in a different tenure
         if parent_nakamoto_header.consensus_hash != self.block_stream.consensus_hash {
@@ -163,9 +180,20 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
         let block_id = StacksBlockId::from_hex(block_id_str).map_err(|_| {
             Error::DecodeError("Invalid path: unparseable consensus hash".to_string())
         })?;
+
+        let req_contents = HttpRequestContents::new().query_string(query);
+        let last_block_id = req_contents
+            .get_query_arg("stop")
+            .map(|last_block_id_hex| StacksBlockId::from_hex(&last_block_id_hex))
+            .transpose()
+            .map_err(|e| {
+                Error::DecodeError(format!("Failed to parse stop= query parameter: {:?}", &e))
+            })?;
+
+        self.last_block_id = last_block_id;
         self.block_id = Some(block_id);
 
-        Ok(HttpRequestContents::new().query_string(query))
+        Ok(req_contents)
     }
 }
 
@@ -173,6 +201,7 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
+        self.last_block_id = None;
     }
 
     /// Make the response
@@ -202,6 +231,7 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
                     block_id,
                     nakamoto_header.consensus_hash.clone(),
                     nakamoto_header.parent_block_id.clone(),
+                    self.last_block_id.clone(),
                 )
             });
 
@@ -291,11 +321,21 @@ impl HttpChunkGenerator for NakamotoTenureStream {
 }
 
 impl StacksHttpRequest {
-    pub fn new_get_nakamoto_tenure(host: PeerHost, block_id: StacksBlockId) -> StacksHttpRequest {
+    pub fn new_get_nakamoto_tenure(
+        host: PeerHost,
+        block_id: StacksBlockId,
+        last_block_id: Option<StacksBlockId>,
+    ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/tenures/{}", &block_id),
+            format!(
+                "/v3/tenures/{}{}",
+                &block_id,
+                last_block_id
+                    .map(|block_id| format!("?stop={}", &block_id))
+                    .unwrap_or("".to_string())
+            ),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
