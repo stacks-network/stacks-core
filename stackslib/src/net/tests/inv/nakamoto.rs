@@ -54,7 +54,7 @@ use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
-fn peer_get_nakamoto_invs<'a>(
+pub fn peer_get_nakamoto_invs<'a>(
     mut peer: TestPeer<'a>,
     reward_cycles: &[u64],
 ) -> (TestPeer<'a>, Vec<StacksMessageType>) {
