@@ -423,7 +423,7 @@ pub struct PeerNetworkComms {
     dead_connections: HashSet<NeighborKey>,
     /// Set of neighbors who misbehaved during our comms session
     broken_connections: HashSet<NeighborKey>,
-    /// Ongoing batch of requests.  Will be `None` if there are no inflight requests.
+    /// Ongoing batch of p2p requests.  Will be `None` if there are no inflight requests.
     ongoing_batch_request: Option<NeighborCommsRequest>,
 }
 
