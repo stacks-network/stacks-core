@@ -168,7 +168,7 @@ pub(crate) mod tests {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
-            config.node_host = mock_server_addr;
+            config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
             Self {
@@ -202,7 +202,7 @@ pub(crate) mod tests {
 
     /// Create a mock server on a same port as in the config
     pub fn mock_server_from_config(config: &GlobalConfig) -> TcpListener {
-        TcpListener::bind(config.node_host).unwrap()
+        TcpListener::bind(config.node_host.to_string()).unwrap()
     }
 
     /// Write a response to the mock server and return the request bytes
@@ -503,7 +503,7 @@ pub(crate) mod tests {
             signer_slot_ids,
             ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
-            node_host: config.node_host,
+            node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             dkg_end_timeout: config.dkg_end_timeout,
             dkg_private_timeout: config.dkg_private_timeout,

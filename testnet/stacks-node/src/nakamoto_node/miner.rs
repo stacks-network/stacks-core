@@ -151,10 +151,6 @@ impl BlockMinerThread {
         let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
-        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.rpc_bind
-        ));
         let Some(miner_privkey) = self.config.miner.mining_key else {
             warn!("No mining key configured, cannot mine");
             return;
@@ -205,7 +201,7 @@ impl BlockMinerThread {
                         // Propose the block to the observing signers through the .miners stackerdb instance
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
                         let mut miners_stackerdb =
-                            StackerDBSession::new(rpc_sock, miner_contract_id);
+                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
                         match miners_stackerdb.put_chunk(&chunk) {
                             Ok(ack) => {
                                 info!("Proposed block to stackerdb: {ack:?}");
