@@ -254,16 +254,10 @@ pub fn read_and_sign_block_proposal(
     let reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
-    let rpc_sock = conf
-        .node
-        .rpc_bind
-        .clone()
-        .parse()
-        .expect("Failed to parse socket");
 
     let mut proposed_block: NakamotoBlock = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
+        let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
             .get_latest(miner_slot_id)
             .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
@@ -304,7 +298,7 @@ pub fn read_and_sign_block_proposal(
     let next_version = get_stackerdb_slot_version(&http_origin, &signers_contract_id, signer_index)
         .map(|x| x + 1)
         .unwrap_or(0);
-    let mut signers_contract_sess = StackerDBSession::new(rpc_sock, signers_contract_id);
+    let mut signers_contract_sess = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
     let mut chunk_to_put = StackerDBChunkData::new(
         u32::try_from(signer_index).unwrap(),
         next_version,

@@ -103,7 +103,7 @@ impl SignerTest {
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
 
-        let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+        let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
