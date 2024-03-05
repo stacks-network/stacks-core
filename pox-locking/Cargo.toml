@@ -19,7 +19,7 @@ name = "pox_locking"
 path = "src/lib.rs"
 
 [dependencies]
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", rev = "d1ce196b2640fd94485800b67cac3abd55ad9eaf", default-features = false, optional = true }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", rev = "eaa7c95f6f9e14615074d5b6a23c20a86c0a5e2b", default-features = false, optional = true }
 stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next", default-features = false, optional = true  }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 

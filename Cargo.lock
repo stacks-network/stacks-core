@@ -892,6 +892,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity"
+version = "2.3.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=eaa7c95f6f9e14615074d5b6a23c20a86c0a5e2b#eaa7c95f6f9e14615074d5b6a23c20a86c0a5e2b"
+dependencies = [
+ "getrandom 0.2.12",
+ "hashbrown 0.14.3",
+ "integer-sqrt",
+ "lazy_static",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2-asm 0.5.5",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "wasmtime",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3109,7 +3132,7 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?rev=d1ce196b2640fd94485800b67cac3abd55ad9eaf)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?rev=eaa7c95f6f9e14615074d5b6a23c20a86c0a5e2b)",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
 ]
