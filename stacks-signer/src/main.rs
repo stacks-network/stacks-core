@@ -64,7 +64,7 @@ struct SpawnedSigner {
 /// Create a new stacker db session
 fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
     let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(&host, contract).unwrap();
+    session.connect(host.to_string(), contract).unwrap();
     session
 }
 

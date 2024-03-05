@@ -31,7 +31,7 @@ pub trait SignerSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: &str,
+        host: String,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError>;
     /// query the replica for a list of chunks
@@ -131,10 +131,10 @@ impl SignerSession for StackerDBSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: &str,
+        host: String,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError> {
-        self.host = host.to_owned();
+        self.host = host;
         self.stackerdb_contract_id = stackerdb_contract_id;
         self.connect_or_reconnect()
     }
