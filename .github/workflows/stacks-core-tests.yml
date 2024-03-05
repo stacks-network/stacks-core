@@ -160,7 +160,8 @@ jobs:
         id: codecov
         uses: stacks-network/actions/codecov@main
         with:
-          fail_ci_if_error: true
+          # We'd like to uncomment the below line once the codecov upload is working
+          # fail_ci_if_error: true
           test-name: ${{ matrix.test-name }}
           upload-only: true
           filename: ./contrib/core-contract-tests/lcov.info
