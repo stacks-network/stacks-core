@@ -67,7 +67,7 @@ pub enum Command {
 pub struct StackerDBArgs {
     /// The Stacks node to connect to
     #[arg(long)]
-    pub host: SocketAddr,
+    pub host: String,
     /// The stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub contract: QualifiedContractIdentifier,
@@ -173,6 +173,9 @@ pub struct GenerateFilesArgs {
     /// The number of milliseconds to wait when polling for events from the stacker-db instance.
     #[arg(long)]
     pub timeout: Option<u64>,
+    #[arg(long)]
+    /// The authorization password to use to connect to the validate block proposal node endpoint
+    pub password: String,
 }
 
 #[derive(Clone, Debug)]

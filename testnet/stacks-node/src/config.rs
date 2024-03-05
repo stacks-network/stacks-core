@@ -1,9 +1,9 @@
 use std::collections::HashSet;
-use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -178,6 +178,25 @@ mod tests {
         assert_eq!(
             balances[3].address,
             "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+        );
+    }
+
+    #[test]
+    fn should_load_block_proposal_token() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [connection_options]
+                block_proposal_token = "password"
+                "#,
+            )
+            .unwrap(),
+        )
+        .expect("Expected to be able to parse block proposal token from file");
+
+        assert_eq!(
+            config.connection_options.block_proposal_token,
+            Some("password".to_string())
         );
     }
 }
@@ -1927,7 +1946,42 @@ impl NodeConfig {
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
         debug!("Resolve '{}'", &hostport);
-        let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
+
+        let mut attempts = 0;
+        let max_attempts = 5;
+        let mut delay = Duration::from_secs(2);
+
+        let sockaddr = loop {
+            match hostport.to_socket_addrs() {
+                Ok(mut addrs) => {
+                    if let Some(addr) = addrs.next() {
+                        break addr;
+                    } else {
+                        panic!("No addresses found for '{}'", hostport);
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        panic!(
+                            "Failed to resolve '{}' after {} attempts: {}",
+                            hostport, max_attempts, e
+                        );
+                    } else {
+                        error!(
+                            "Attempt {} - Failed to resolve '{}': {}. Retrying in {:?}...",
+                            attempts + 1,
+                            hostport,
+                            e,
+                            delay
+                        );
+                        thread::sleep(delay);
+                        attempts += 1;
+                        delay *= 2;
+                    }
+                }
+            }
+        };
+
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
     }
@@ -2106,6 +2160,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
+    pub block_proposal_token: Option<String>,
 }
 
 impl ConnectionOptionsFile {
@@ -2229,6 +2284,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
+            block_proposal_token: self.block_proposal_token,
             ..ConnectionOptions::default()
         })
     }
