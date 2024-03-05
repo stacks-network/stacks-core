@@ -81,6 +81,13 @@
 (define-read-only (get-approved-aggregate-key (reward-cycle uint))
     (map-get? aggregate-public-keys reward-cycle))
 
+;; get the weight required for consensus threshold
+(define-private (get-threshold-weight (reward-cycle uint))
+    (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
+        (ok (/ (+ (* total-weight threshold-consensus) u999) u1000))
+    )
+)
+
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
         (and (is-eq last-cycle reward-cycle)
@@ -134,7 +141,7 @@
             ;; vote by signer weight
             (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
-            (total-weight (try! (get-and-cache-total-weight reward-cycle))))
+            (threshold-weight (try! (get-threshold-weight reward-cycle))))
         ;; Check that the key has not yet been set for this reward cycle
         (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is the correct length
@@ -158,7 +165,7 @@
             new-total: new-total,
         })
         ;; If the new total weight is greater than or equal to the threshold consensus
-        (if (>= (/ (* new-total u1000) total-weight) threshold-consensus)
+        (if (>= new-total threshold-weight)
             ;; Save this approved aggregate public key for this reward cycle.
             ;; If there is not already a key for this cycle, the insert will
             ;; return true and an event will be created.
