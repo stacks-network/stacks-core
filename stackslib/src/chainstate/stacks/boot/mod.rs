@@ -91,7 +91,7 @@ const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
-const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
+pub const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -120,7 +120,6 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
-    pub static ref SIGNER_VOTING_CODE: String = format!("{}", SIGNERS_VOTING_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),

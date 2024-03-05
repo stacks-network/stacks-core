@@ -104,7 +104,6 @@ impl SignerTest {
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-        naka_conf.miner.self_signing_key = None;
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
@@ -891,9 +890,9 @@ fn setup_stx_btc_node(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
-        vrfs_submitted,
-        commits_submitted,
-        blocks_processed,
+        vrfs_submitted: vrfs_submitted.0,
+        commits_submitted: commits_submitted.0,
+        blocks_processed: blocks_processed.0,
         coord_channel,
         conf: naka_conf,
     }
