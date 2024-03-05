@@ -1285,15 +1285,6 @@ fn stackerdb_filter_bad_transactions() {
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
     info!("------------------------- Submit Invalid Transactions -------------------------");
-    let host = signer_test
-        .running_nodes
-        .conf
-        .node
-        .rpc_bind
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap();
 
     let signer_private_key = signer_test
         .signer_stacks_private_keys
@@ -1308,7 +1299,7 @@ fn stackerdb_filter_bad_transactions() {
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
     let mut stackerdb = StackerDB::new(
-        host,
+        &signer_test.running_nodes.conf.node.rpc_bind,
         signer_private_key,
         false,
         next_reward_cycle,

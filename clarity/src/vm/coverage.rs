@@ -72,8 +72,9 @@ impl CoverageReporter {
 
     pub fn to_file<P: AsRef<std::path::Path> + Copy>(&self, filename: P) -> std::io::Result<()> {
         let f = File::create(filename)?;
-        let mut coverage = HashMap::new();
-        for (contract, execution_map) in self.executed_lines.iter() {
+        let iter = self.executed_lines.iter();
+        let mut coverage = HashMap::with_capacity(iter.len());
+        for (contract, execution_map) in iter {
             let mut executed_lines = execution_map
                 .iter()
                 .map(|(line, count)| (*line, *count))

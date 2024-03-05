@@ -47,14 +47,12 @@ impl TraitsResolver {
     }
 
     pub fn run(&mut self, contract_ast: &mut ContractAST) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
         let mut referenced_traits = HashMap::new();
 
-        for exp in exprs.iter() {
+        for exp in contract_ast.pre_expressions.iter() {
             // Top-level comment nodes have been filtered from `args` by `try_parse_pre_expr`.
-            let (define_type, args) = match self.try_parse_pre_expr(exp) {
-                Some(x) => x,
-                None => continue,
+            let Some((define_type, args)) = self.try_parse_pre_expr(exp) else {
+                continue;
             };
 
             match define_type {

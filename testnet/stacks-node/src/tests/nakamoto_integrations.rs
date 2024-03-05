@@ -1827,13 +1827,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     )
     .unwrap();
 
-    let rpc_sock = naka_conf
-        .node
-        .rpc_bind
-        .clone()
-        .parse()
-        .expect("Failed to parse socket");
-
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let miner_pubkey =
@@ -1844,7 +1837,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
 
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
+        let mut miners_stackerdb =
+            StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
             .get_latest_chunk(slot_id)
             .expect("Failed to get latest chunk from the miner slot ID")

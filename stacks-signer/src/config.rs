@@ -148,7 +148,7 @@ pub struct SignerConfig {
     /// The private key for this signer
     pub stacks_private_key: StacksPrivateKey,
     /// The node host for this signer
-    pub node_host: SocketAddr,
+    pub node_host: String,
     /// Whether this signer is running on mainnet or not
     pub mainnet: bool,
     /// timeout to gather DkgPublicShares messages
@@ -169,7 +169,7 @@ pub struct SignerConfig {
 #[derive(Clone, Debug)]
 pub struct GlobalConfig {
     /// endpoint to the stacks node
-    pub node_host: SocketAddr,
+    pub node_host: String,
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
     /// The Scalar representation of the private key for signer communication
@@ -254,17 +254,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
     /// Attempt to decode the raw config file's primitive types into our types.
     /// NOTE: network access is required for this to work
     fn try_from(raw_data: RawConfigFile) -> Result<Self, Self::Error> {
-        let node_host = raw_data
-            .node_host
-            .to_socket_addrs()
-            .map_err(|_| {
-                ConfigError::BadField("node_host".to_string(), raw_data.node_host.clone())
-            })?
-            .next()
-            .ok_or(ConfigError::BadField(
-                "node_host".to_string(),
-                raw_data.node_host.clone(),
-            ))?;
+        url::Url::parse(&format!("http://{}", raw_data.node_host)).map_err(|_| {
+            ConfigError::BadField("node_host".to_string(), raw_data.node_host.clone())
+        })?;
 
         let endpoint = raw_data
             .endpoint
@@ -307,7 +299,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         Ok(Self {
-            node_host,
+            node_host: raw_data.node_host,
             endpoint,
             stacks_private_key,
             ecdsa_private_key,
