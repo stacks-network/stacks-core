@@ -33,7 +33,9 @@ stacks_common = { package = "stacks-common", git = "https://github.com/stacks-ne
 rstest = { version = "0.17.0", optional = true }
 rstest_reuse = { version = "0.5.0", optional = true }
 wasmtime = { version = "15.0.0", optional = true }
-hashbrown = { workspace = true }
+hashbrown = { workspace = true, features = ["serde"]}
+
+getrandom = { version = "0.2", features = ["js"], optional = true}
 
 [dependencies.serde_json]
 version = "1.0"
@@ -57,7 +59,7 @@ default = ["canonical", "log"]
 canonical = ["sqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
 log = ["slog", "stacks_common/log"]
 sqlite = ["rusqlite"]
-wasm = ["stacks_common/wasm", "developer-mode", "log"]
+wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 testing = ["canonical", "rstest", "rstest_reuse"]

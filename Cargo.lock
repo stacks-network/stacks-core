@@ -825,6 +825,7 @@ name = "clarity"
 version = "2.3.0"
 dependencies = [
  "assert-json-diff",
+ "getrandom 0.2.12",
  "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
@@ -2079,7 +2080,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.6",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
