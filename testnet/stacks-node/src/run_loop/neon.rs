@@ -8,7 +8,7 @@ use std::{cmp, thread};
 
 use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -31,7 +31,7 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
-use crate::burnchains::make_bitcoin_indexer;
+use crate::burnchains::{make_bitcoin_indexer, Error};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
@@ -393,13 +393,13 @@ impl RunLoop {
         should_keep_running: Arc<AtomicBool>,
         burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> BitcoinRegtestController {
+    ) -> Result<BitcoinRegtestController, burnchain_error> {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
-            Some(should_keep_running),
+            Some(should_keep_running.clone()),
         );
 
         let burnchain = burnchain_controller.get_burnchain();
@@ -448,13 +448,21 @@ impl RunLoop {
             }
         };
 
-        match burnchain_controller.start(Some(target_burnchain_block_height)) {
-            Ok(_) => {}
-            Err(e) => {
+        burnchain_controller
+            .start(Some(target_burnchain_block_height))
+            .map_err(|e| {
+                match e {
+                    Error::CoordinatorClosed => {
+                        if !should_keep_running.load(Ordering::SeqCst) {
+                            info!("Shutdown initiated during burnchain initialization: {}", e);
+                            return burnchain_error::ShutdownInitiated;
+                        }
+                    }
+                    Error::IndexerError(_) => {}
+                }
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
-            }
-        };
+            })?;
 
         // if the chainstate DBs don't exist, this will instantiate them
         if let Err(e) = burnchain_controller.connect_dbs() {
@@ -464,7 +472,7 @@ impl RunLoop {
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let _ = burnchain_controller.sortdb_mut();
-        burnchain_controller
+        Ok(burnchain_controller)
     }
 
     /// Boot up the stacks chainstate.
@@ -514,6 +522,7 @@ impl RunLoop {
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
+        info!("About to call open_and_exec");
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
@@ -1007,12 +1016,26 @@ impl RunLoop {
             .expect("Run loop already started, can only start once after initialization.");
 
         Self::setup_termination_handler(self.should_keep_running.clone(), false);
-        let mut burnchain = Self::instantiate_burnchain_state(
+
+        let burnchain_result = Self::instantiate_burnchain_state(
             &self.config,
             self.should_keep_running.clone(),
             burnchain_opt,
             coordinator_senders.clone(),
         );
+
+        let mut burnchain = match burnchain_result {
+            Ok(burnchain_controller) => burnchain_controller,
+            Err(burnchain_error::ShutdownInitiated) => {
+                info!("Exiting stacks-node");
+                return;
+            }
+            Err(e) => {
+                error!("Error initializing burnchain: {}", e);
+                info!("Exiting stacks-node");
+                return;
+            }
+        };
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());

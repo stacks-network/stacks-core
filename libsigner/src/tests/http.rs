@@ -264,7 +264,7 @@ fn test_run_http_request_with_body() {
 
         let result_chunked = run_http_request(
             &mut msock_chunked,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -275,7 +275,7 @@ fn test_run_http_request_with_body() {
 
         let result_plain = run_http_request(
             &mut msock_plain,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -321,7 +321,7 @@ fn test_run_http_request_no_body() {
 
         let result_chunked = run_http_request(
             &mut msock_chunked,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -330,7 +330,7 @@ fn test_run_http_request_no_body() {
         .unwrap();
         let result_plain = run_http_request(
             &mut msock_plain,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,

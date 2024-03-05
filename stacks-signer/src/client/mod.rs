@@ -137,6 +137,7 @@ pub(crate) mod tests {
     };
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
     use rand::distributions::Standard;
@@ -168,7 +169,7 @@ pub(crate) mod tests {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
-            config.node_host = mock_server_addr;
+            config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
             Self {
@@ -202,7 +203,7 @@ pub(crate) mod tests {
 
     /// Create a mock server on a same port as in the config
     pub fn mock_server_from_config(config: &GlobalConfig) -> TcpListener {
-        TcpListener::bind(config.node_host).unwrap()
+        TcpListener::bind(config.node_host.to_string()).unwrap()
     }
 
     /// Write a response to the mock server and return the request bytes
@@ -336,6 +337,27 @@ pub(crate) mod tests {
                     .expect("BUG: Failed to create clarity value from point"),
             )
             .expect("BUG: Failed to create clarity value from point")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
+    /// Build a response for the get_approved_aggregate_key request
+    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
+        let clarity_value = if let Some(point) = point {
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "aggregate-public-key".into(),
+                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                            .expect("BUG: Failed to create clarity value from point"),
+                    ),
+                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
         } else {
             ClarityValue::none()
         };
@@ -503,7 +525,7 @@ pub(crate) mod tests {
             signer_slot_ids,
             ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
-            node_host: config.node_host,
+            node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             dkg_end_timeout: config.dkg_end_timeout,
             dkg_private_timeout: config.dkg_private_timeout,
