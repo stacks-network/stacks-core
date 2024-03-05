@@ -32,6 +32,7 @@ pub mod address;
 
 pub mod deps_common;
 
+#[cfg(not(feature = "wasm"))]
 pub mod bitvec;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
