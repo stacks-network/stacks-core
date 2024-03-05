@@ -646,8 +646,7 @@ mod tests {
     #[test]
     fn test_parse_stack_stx_signer_key_is_none() {
         // Set the option flag for `signer_key` to None
-        let mut data = vec![1; 80];
-        data[17] = 0;
+        let data = vec![1; 17];
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
