@@ -1228,7 +1228,7 @@ impl BitcoinRegtestController {
         increment_btc_ops_sent_counter();
 
         info!(
-            "Miner node: submitting stacks delegate op - {}",
+            "Miner node: submitting stack-stx op - {}",
             public_key.to_hex()
         );
 
