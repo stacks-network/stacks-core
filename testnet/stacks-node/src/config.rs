@@ -180,6 +180,25 @@ mod tests {
             "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
         );
     }
+
+    #[test]
+    fn should_load_block_proposal_token() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [connection_options]
+                block_proposal_token = "password"
+                "#,
+            )
+            .unwrap(),
+        )
+        .expect("Expected to be able to parse block proposal token from file");
+
+        assert_eq!(
+            config.connection_options.block_proposal_token,
+            Some("password".to_string())
+        );
+    }
 }
 
 impl ConfigFile {
@@ -2141,6 +2160,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
+    pub block_proposal_token: Option<String>,
 }
 
 impl ConnectionOptionsFile {
@@ -2264,6 +2284,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
+            block_proposal_token: self.block_proposal_token,
             ..ConnectionOptions::default()
         })
     }

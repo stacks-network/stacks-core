@@ -21,6 +21,7 @@ use std::{env, thread};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
+use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::{MagicBytes, Txid};
@@ -1405,6 +1406,8 @@ fn block_proposal_api_endpoint() {
     }
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.block_proposal_token = Some(password.clone());
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
     let sender_signer_sk = Secp256k1PrivateKey::new();
@@ -1596,6 +1599,7 @@ fn block_proposal_api_endpoint() {
 
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
+    const HTTP_NOT_AUTHORIZED: u16 = 401;
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
@@ -1634,6 +1638,12 @@ fn block_proposal_api_endpoint() {
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
+        (
+            "Not authorized",
+            sign(proposal.clone()),
+            HTTP_NOT_AUTHORIZED,
+            None,
+        ),
     ];
 
     // Build HTTP client
@@ -1650,12 +1660,18 @@ fn block_proposal_api_endpoint() {
         test_cases.iter().enumerate()
     {
         // Send POST request
-        let mut response = client
+        let request_builder = client
             .post(&path)
             .header("Content-Type", "application/json")
-            .json(block_proposal)
-            .send()
-            .expect("Failed to POST");
+            .json(block_proposal);
+        let mut response = if expected_http_code == &HTTP_NOT_AUTHORIZED {
+            request_builder.send().expect("Failed to POST")
+        } else {
+            request_builder
+                .header(AUTHORIZATION.to_string(), password.to_string())
+                .send()
+                .expect("Failed to POST")
+        };
         let start_time = Instant::now();
         while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
             if start_time.elapsed() > Duration::from_secs(30) {
@@ -1664,20 +1680,29 @@ fn block_proposal_api_endpoint() {
             }
             info!("Waiting for prior request to finish processing, and then resubmitting");
             thread::sleep(Duration::from_secs(5));
-            response = client
+            let request_builder = client
                 .post(&path)
                 .header("Content-Type", "application/json")
-                .json(block_proposal)
-                .send()
-                .expect("Failed to POST");
+                .json(block_proposal);
+            response = if expected_http_code == &HTTP_NOT_AUTHORIZED {
+                request_builder.send().expect("Failed to POST")
+            } else {
+                request_builder
+                    .header(AUTHORIZATION.to_string(), password.to_string())
+                    .send()
+                    .expect("Failed to POST")
+            };
         }
 
         let response_code = response.status().as_u16();
-        let response_json = response.json::<serde_json::Value>();
-
+        let response_json = if expected_http_code != &HTTP_NOT_AUTHORIZED {
+            response.json::<serde_json::Value>().unwrap().to_string()
+        } else {
+            "No json response".to_string()
+        };
         info!(
             "Block proposal submitted and checked for HTTP response";
-            "response_json" => %response_json.unwrap(),
+            "response_json" => response_json,
             "request_json" => serde_json::to_string(block_proposal).unwrap(),
             "response_code" => response_code,
             "test_description" => test_description,
@@ -1830,13 +1855,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     )
     .unwrap();
 
-    let rpc_sock = naka_conf
-        .node
-        .rpc_bind
-        .clone()
-        .parse()
-        .expect("Failed to parse socket");
-
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let miner_pubkey =
@@ -1847,7 +1865,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
 
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
+        let mut miners_stackerdb =
+            StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
             .get_latest_chunk(slot_id)
             .expect("Failed to get latest chunk from the miner slot ID")

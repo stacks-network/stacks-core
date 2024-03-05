@@ -342,11 +342,15 @@ impl NakamotoBlockProposal {
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
     pub block_proposal: Option<NakamotoBlockProposal>,
+    pub auth: Option<String>,
 }
 
 impl RPCBlockProposalRequestHandler {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            block_proposal: None,
+            auth,
+        }
     }
 
     /// Decode a JSON-encoded block proposal
@@ -375,24 +379,22 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        // Only accept requests from localhost
-        let is_loopback = match preamble.host {
-            // Should never be DNS
-            PeerHost::DNS(..) => false,
-            PeerHost::IP(addr, ..) => addr.is_loopback(),
+        // If no authorization is set, then the block proposal endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
         };
-
-        if !is_loopback {
-            return Err(Error::Http(403, "Forbidden".into()));
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
         }
-
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected non-zero-length body for block proposal endpoint"
                     .to_string(),
             ));
         }
-
         if preamble.get_content_length() > MAX_PAYLOAD_LEN {
             return Err(Error::DecodeError(
                 "Invalid Http request: BlockProposal body is too big".to_string(),
