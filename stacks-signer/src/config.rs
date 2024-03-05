@@ -194,6 +194,8 @@ pub struct GlobalConfig {
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: u64,
+    /// the authorization password for the block proposal endpoint
+    pub auth_password: String,
 }
 
 /// Internal struct for loading up the config file
@@ -222,6 +224,8 @@ struct RawConfigFile {
     pub sign_timeout_ms: Option<u64>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: Option<u64>,
+    /// The authorization password for the block proposal endpoint
+    pub auth_password: String,
 }
 
 impl RawConfigFile {
@@ -312,6 +316,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             nonce_timeout,
             sign_timeout,
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
+            auth_password: raw_data.auth_password,
         })
     }
 }
@@ -342,6 +347,7 @@ pub fn build_signer_config_tomls(
     node_host: &str,
     timeout: Option<Duration>,
     network: &Network,
+    password: &str,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -356,6 +362,7 @@ stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
+auth_password = "{password}"
 "#
         );
 
