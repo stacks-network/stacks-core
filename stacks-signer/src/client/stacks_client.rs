@@ -171,7 +171,18 @@ impl StacksClient {
             &function_name,
             function_args,
         )?;
-        self.parse_aggregate_public_key(value)
+        // Return value is of type:
+        // ```clarity
+        // (option { aggregate-public-key: (buff 33), signer-weight: uint })
+        // ```
+        let inner_data = value.expect_optional()?;
+        if let Some(inner_data) = inner_data {
+            let tuple = inner_data.expect_tuple()?;
+            let key_value = tuple.get_owned("aggregate-public-key")?;
+            self.parse_aggregate_public_key(key_value)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Determine the stacks node current epoch
@@ -240,7 +251,12 @@ impl StacksClient {
             &function_name,
             function_args,
         )?;
-        self.parse_aggregate_public_key(value)
+        let inner_data = value.expect_optional()?;
+        if let Some(key_value) = inner_data {
+            self.parse_aggregate_public_key(key_value)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Retrieve the current account nonce for the provided address
@@ -374,11 +390,7 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Option<Point>, ClientError> {
         debug!("Parsing aggregate public key...");
-        let opt = value.clone().expect_optional()?;
-        let Some(inner_data) = opt else {
-            return Ok(None);
-        };
-        let data = inner_data.expect_buff(33)?;
+        let data = value.expect_buff(33)?;
         // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
         // Pass up this error if the conversions fail.
         let compressed_data = Compressed::try_from(data.as_slice()).map_err(|e| {
@@ -607,7 +619,8 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_vote_for_aggregate_key_response, build_read_only_response, write_response,
+        MockServerClient,
     };
 
     #[test]
@@ -758,20 +771,13 @@ mod tests {
     fn parse_valid_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let clarity_value = ClarityValue::some(
-            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
-                .expect("BUG: Failed to create clarity value from point"),
-        )
-        .expect("BUG: Failed to create clarity value from point");
+        let clarity_value = ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+            .expect("BUG: Failed to create clarity value from point");
         let result = mock
             .client
             .parse_aggregate_public_key(clarity_value)
             .unwrap();
         assert_eq!(result, Some(orig_point));
-
-        let value = ClarityValue::none();
-        let result = mock.client.parse_aggregate_public_key(value).unwrap();
-        assert!(result.is_none());
     }
 
     #[test]
@@ -1144,7 +1150,7 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(Some(point));
+        let key_response = build_get_vote_for_aggregate_key_response(Some(point));
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
@@ -1154,7 +1160,7 @@ mod tests {
 
         let mock = MockServerClient::new();
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(None);
+        let key_response = build_get_vote_for_aggregate_key_response(None);
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
