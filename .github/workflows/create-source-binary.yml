@@ -40,8 +40,10 @@ jobs:
         cpu:
           - arm64
           - armv7
-          - x86-64
-          - x86-64-v3
+          - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
+          # - x86-64-v2 ## intel nehalem (2008) and newer
+          # - x86-64-v3 ## intel haswell (2013) and newer
+          # - x86-64-v4 ## intel skylake (2017) and newer
         exclude:
           - arch: windows # excludes windows-arm64
             cpu: arm64
@@ -57,18 +59,32 @@ jobs:
         uses: stacks-network/actions/docker@main
 
       - name: Set Local env vars
-        id: set_envars
+        id: set_env
         run: |
           case ${{ matrix.cpu }} in
               x86-64)
-                  TARGET_CPU="${{ matrix.cpu }}"
+                  ## default x64 builds to use v3 variant. TARGET_CPU is required to build for v3 via RUSTFLAGS
+                  TARGET_CPU="${{ matrix.cpu }}-v3"
                   DOCKERFILE_CPU="x64"
                   ARCHIVE_NAME="x64"
                   ;;
+              x86-64-v2)
+                  ## intel nehalem (2008) and newer
+                  TARGET_CPU="${{ matrix.cpu }}"
+                  DOCKERFILE_CPU="x64"
+                  ARCHIVE_NAME="x64-v2"
+                  ;;
               x86-64-v3)
+                  ## intel haswell (2013) and newer
                   TARGET_CPU="${{ matrix.cpu }}"
                   DOCKERFILE_CPU="x64"
                   ARCHIVE_NAME="x64-v3"
+                  ;;
+              x86-64-v4)
+                  ## intel skylake (2017) and newer
+                  TARGET_CPU="${{ matrix.cpu }}"
+                  DOCKERFILE_CPU="x64"
+                  ARCHIVE_NAME="x64-v4"
                   ;;
               *)
                   TARGET_CPU=""
@@ -79,9 +95,6 @@ jobs:
           echo "DOCKERFILE=Dockerfile.${{ matrix.arch }}-${DOCKERFILE_CPU}" >> "$GITHUB_ENV"
           echo "ZIPFILE=${{ matrix.arch }}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
           echo "TARGET_CPU=${TARGET_CPU}" >> "$GITHUB_ENV"
-          echo "DOCKERFILE: ${DOCKERFILE}"
-          echo "ZIPFILE: ${ZIPFILE}"
-          echo "TARGET_CPU: ${TARGET_CPU}"
 
       ## Build the binaries using defined dockerfiles
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})

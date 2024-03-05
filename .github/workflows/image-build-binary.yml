@@ -12,7 +12,7 @@ on:
 
 ## Define which docker arch to build for
 env:
-  docker_platforms: "linux/arm64, linux/arm/v7, linux/amd64, linux/amd64/v2, linux/amd64/v3"
+  docker_platforms: "linux/arm64, linux/arm/v7, linux/amd64, linux/amd64/v3"
   docker-org: blockstack
 
 concurrency:
@@ -52,7 +52,7 @@ jobs:
       ## if the repo owner is not `stacks-network`, default to a docker-org of the repo owner (i.e. github user id)
       ## this allows forks to run the docker push workflows without having to hardcode a dockerhub org (but it does require docker hub user to match github username)
       - name: Set Local env vars
-        id: set_envars
+        id: set_env
         if: |
           github.repository_owner != 'stacks-network'
         run: |
@@ -65,6 +65,7 @@ jobs:
         id: docker_metadata
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 #v5.0.0
         with:
+          ## tag images with current repo name `stacks-core` as well as legacy `stacks-blockchain`
           images: |
             ${{env.docker-org}}/${{ github.event.repository.name }}
             ${{env.docker-org}}/stacks-blockchain
