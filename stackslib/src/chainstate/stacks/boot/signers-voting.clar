@@ -84,9 +84,7 @@
 ;; get the weight required for consensus threshold
 (define-private (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
-        (ok (/ (+ (* total-weight threshold-consensus) u99) u100))
-    )
-)
+        (ok (/ (+ (* total-weight threshold-consensus) u99) u100))))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
