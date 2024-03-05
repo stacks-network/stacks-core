@@ -79,10 +79,7 @@ pub struct PreExpressionsDrain {
 
 impl PreExpressionsDrain {
     pub fn new(pre_exprs_drain: Drain<PreSymbolicExpression>, sorting: Option<Vec<usize>>) -> Self {
-        let mut pre_expressions = HashMap::new();
-        for (index, pre_expr) in pre_exprs_drain.enumerate() {
-            pre_expressions.insert(index, pre_expr);
-        }
+        let pre_expressions: HashMap<_, _> = pre_exprs_drain.enumerate().collect();
 
         let sorting = match sorting {
             Some(sorting) if !sorting.is_empty() => Some(sorting),
