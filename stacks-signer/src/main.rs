@@ -291,6 +291,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.host.to_string(),
         args.timeout.map(Duration::from_millis),
         &args.network,
+        &args.password,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
