@@ -1,6 +1,6 @@
 {
-    "lldb.adapterType": "native",
-    "lldb.launch.sourceLanguages": ["rust"],
-    "rust-analyzer.cargo.noDefaultFeatures": true,
-    "rust-analyzer.cargo.features": ["wasm"]
+  "lldb.adapterType": "native",
+  "lldb.launch.sourceLanguages": ["rust"]
+  // "rust-analyzer.cargo.noDefaultFeatures": true,
+  // "rust-analyzer.cargo.features": ["wasm"]
 }
