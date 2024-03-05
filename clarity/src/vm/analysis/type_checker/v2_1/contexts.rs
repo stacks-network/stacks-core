@@ -173,7 +173,7 @@ impl ContractContext {
             || self.private_function_types.contains_key(name)
             || self.public_function_types.contains_key(name)
             || self.fungible_tokens.contains(name)
-            || self.non_fungible_tokens.contains_key(name)            
+            || self.non_fungible_tokens.contains_key(name)
             || self.traits.is_name_used(name)
             || self.map_types.contains_key(name)
         {
