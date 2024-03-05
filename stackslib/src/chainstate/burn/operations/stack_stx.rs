@@ -177,53 +177,34 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19           20    21                 54
-            |------|--|-----------------------------|------------|-----|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8) option     signer key
-                                                                  marker
+            0      2  3                             19           20                  53
+            |------|--|-----------------------------|------------|-------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)     signer key
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
              The values ustx to lock and cycles are in big-endian order.
 
              parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
-
-             "signer key" is encoded as follows: the first byte is an option marker
-               - if it is set to 1, the parse function attempts to parse the next 33 bytes as a StacksPublicKeyBuffer
-               - if it is set to 0, the value is interpreted as None
         */
 
-        if data.len() < 18 {
+        if data.len() < 17 {
             // too short
             warn!(
                 "StacksStxOp payload is malformed ({} bytes, expected {} or more)",
                 data.len(),
-                18
+                17
             );
             return None;
         }
 
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
         let num_cycles = data[16];
-        let signer_key = {
-            if data[17] == 1 {
-                if data.len() < 51 {
-                    // too short to have required data for signer key
-                    warn!(
-                        "StacksStxOp payload is malformed ({} bytes, expected {})",
-                        data.len(),
-                        51
-                    );
-                    return None;
-                }
-                let key = StacksPublicKeyBuffer::from(&data[18..51]);
-                Some(key)
-            } else if data[17] == 0 {
-                None
-            } else {
-                warn!("StacksStxOp payload is malformed (invalid byte value for signer_key option flag)");
-                return None;
-            }
+
+        let signer_key = if data.len() >= 50 {
+            Some(StacksPublicKeyBuffer::from(&data[17..50]))
+        } else {
+            None
         };
 
         Some(ParsedData {
@@ -334,7 +315,7 @@ impl StackStxOp {
             reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
-            signer_key: data.signer_key, // QUESTION: is retrieving the signer_key correct in this way or should it get retrieved from tx?
+            signer_key: data.signer_key,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -357,10 +338,9 @@ impl StacksMessageCodec for PreStxOp {
 
 impl StacksMessageCodec for StackStxOp {
     /*
-            0      2  3                             19           20    21                 54
-            |------|--|-----------------------------|------------|-----|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8) option     signer key
-                                                                  marker
+            0      2  3                             19           20                  53
+            |------|--|-----------------------------|------------|-------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)      signer key
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
@@ -368,14 +348,9 @@ impl StacksMessageCodec for StackStxOp {
             .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
 
-        if let Some(signer_key) = self.signer_key {
-            fd.write_all(&(1 as u8).to_be_bytes())
-                .map_err(|e| codec_error::WriteError(e))?;
+        if let Some(signer_key) = &self.signer_key {
             fd.write_all(&signer_key.as_bytes()[..])
                 .map_err(codec_error::WriteError)?;
-        } else {
-            fd.write_all(&(0 as u8).to_be_bytes())
-                .map_err(|e| codec_error::WriteError(e))?;
         }
         Ok(())
     }
