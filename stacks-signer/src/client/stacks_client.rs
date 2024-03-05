@@ -619,7 +619,8 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_vote_for_aggregate_key_response, build_read_only_response, write_response,
+        MockServerClient,
     };
 
     #[test]
@@ -1149,7 +1150,7 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(Some(point));
+        let key_response = build_get_vote_for_aggregate_key_response(Some(point));
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
@@ -1159,7 +1160,7 @@ mod tests {
 
         let mock = MockServerClient::new();
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(None);
+        let key_response = build_get_vote_for_aggregate_key_response(None);
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)

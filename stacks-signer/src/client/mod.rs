@@ -332,6 +332,20 @@ pub(crate) mod tests {
     /// Build a response for the get_approved_aggregate_key request
     pub fn build_get_approved_aggregate_key_response(point: Option<Point>) -> String {
         let clarity_value = if let Some(point) = point {
+            ClarityValue::some(
+                ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                    .expect("BUG: Failed to create clarity value from point"),
+            )
+            .expect("BUG: Failed to create clarity value from point")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
+    /// Build a response for the get_approved_aggregate_key request
+    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
+        let clarity_value = if let Some(point) = point {
             ClarityValue::some(ClarityValue::Tuple(
                 TupleData::from_data(vec![
                     (
