@@ -224,7 +224,7 @@ pub fn decode_http_body(headers: &HashMap<String, String>, mut buf: &[u8]) -> io
 /// Return the HTTP reply, decoded if it was chunked
 pub fn run_http_request<S: Read + Write>(
     sock: &mut S,
-    host: &SocketAddr,
+    host: &str,
     verb: &str,
     path: &str,
     content_type: Option<&str>,

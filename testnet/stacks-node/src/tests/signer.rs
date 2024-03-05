@@ -42,7 +42,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::Command as SignerCommand;
+use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::common::Signature;
@@ -530,7 +530,7 @@ impl SignerTest {
             .unwrap()
     }
 
-    fn get_signer_index(&self, reward_cycle: u64) -> u32 {
+    fn get_signer_index(&self, reward_cycle: u64) -> SignerSlotID {
         let valid_signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
@@ -540,7 +540,9 @@ impl SignerTest {
             .expect("FATAL: failed to get signer slots from stackerdb")
             .iter()
             .position(|(address, _)| address == self.stacks_client.get_signer_address())
-            .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            })
             .expect("FATAL: signer not registered")
     }
 
@@ -1282,15 +1284,6 @@ fn stackerdb_filter_bad_transactions() {
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
     info!("------------------------- Submit Invalid Transactions -------------------------");
-    let host = signer_test
-        .running_nodes
-        .conf
-        .node
-        .rpc_bind
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap();
 
     let signer_private_key = signer_test
         .signer_stacks_private_keys
@@ -1305,7 +1298,7 @@ fn stackerdb_filter_bad_transactions() {
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
     let mut stackerdb = StackerDB::new(
-        host,
+        &signer_test.running_nodes.conf.node.rpc_bind,
         signer_private_key,
         false,
         next_reward_cycle,

@@ -150,10 +150,6 @@ impl BlockMinerThread {
         let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
-        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.rpc_bind
-        ));
         let Some(miner_privkey) = self.config.miner.mining_key else {
             warn!("No mining key configured, cannot mine");
             return;
@@ -204,7 +200,7 @@ impl BlockMinerThread {
                         // Propose the block to the observing signers through the .miners stackerdb instance
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
                         let mut miners_stackerdb =
-                            StackerDBSession::new(rpc_sock, miner_contract_id);
+                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
                         match miners_stackerdb.put_chunk(&chunk) {
                             Ok(ack) => {
                                 info!("Proposed block to stackerdb: {ack:?}");
@@ -327,9 +323,13 @@ impl BlockMinerThread {
             return Ok(vec![]);
         }
 
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+
         // Get all nonces for the signers from clarity DB to use to validate transactions
         let account_nonces = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &self.parent_tenure_id, |clarity_tx| {
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     addresses
                         .iter()

@@ -32,7 +32,7 @@ pub trait SignerSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: SocketAddr,
+        host: String,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError>;
     /// query the replica for a list of chunks
@@ -96,7 +96,7 @@ pub trait SignerSession {
 /// signer session for a stackerdb instance
 pub struct StackerDBSession {
     /// host we're talking to
-    pub host: SocketAddr,
+    pub host: String,
     /// contract we're talking to
     pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// connection to the replica
@@ -105,12 +105,9 @@ pub struct StackerDBSession {
 
 impl StackerDBSession {
     /// instantiate but don't connect
-    pub fn new(
-        host: SocketAddr,
-        stackerdb_contract_id: QualifiedContractIdentifier,
-    ) -> StackerDBSession {
+    pub fn new(host: &str, stackerdb_contract_id: QualifiedContractIdentifier) -> StackerDBSession {
         StackerDBSession {
-            host,
+            host: host.to_owned(),
             stackerdb_contract_id,
             sock: None,
         }
@@ -119,7 +116,7 @@ impl StackerDBSession {
     /// connect or reconnect to the node
     fn connect_or_reconnect(&mut self) -> Result<(), RPCError> {
         debug!("connect to {}", &self.host);
-        self.sock = Some(TcpStream::connect(self.host)?);
+        self.sock = Some(TcpStream::connect(&self.host)?);
         Ok(())
     }
 
@@ -164,7 +161,7 @@ impl SignerSession for StackerDBSession {
     /// connect to the replica
     fn connect(
         &mut self,
-        host: SocketAddr,
+        host: String,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError> {
         self.host = host;
