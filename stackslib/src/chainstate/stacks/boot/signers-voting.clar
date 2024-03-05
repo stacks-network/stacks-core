@@ -26,7 +26,7 @@
 
 ;; Threshold consensus, expressed as parts-per-thousand to allow for integer
 ;; division with higher precision (e.g. 700 for 70%).
-(define-constant threshold-consensus u700)
+(define-constant threshold-consensus u70)
 
 ;; Maps reward-cycle ids to last round
 (define-map rounds uint uint)
@@ -84,7 +84,7 @@
 ;; get the weight required for consensus threshold
 (define-private (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
-        (ok (/ (+ (* total-weight threshold-consensus) u999) u1000))
+        (ok (/ (+ (* total-weight threshold-consensus) u99) u100))
     )
 )
 
