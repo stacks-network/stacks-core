@@ -1825,10 +1825,10 @@ impl ContractContext {
 
     pub fn is_name_used(&self, name: &str) -> bool {
         is_reserved(name, self.get_clarity_version())
-            || self.variables.raw_entry().from_key(name).is_some()
-            || self.functions.raw_entry().from_key(name).is_some()
+            || self.variables.contains_key(name)
+            || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
-            || self.defined_traits.raw_entry().from_key(name).is_some()
+            || self.defined_traits.contains_key(name)
     }
 
     pub fn get_clarity_version(&self) -> &ClarityVersion {
