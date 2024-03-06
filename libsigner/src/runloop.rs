@@ -93,12 +93,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
 }
 
 /// The top-level signer implementation
-pub struct Signer<
-    CMD: Send,
-    R: Send,
-    SL: SignerRunLoop<R, CMD> + Send + Sync,
-    EV: EventReceiver + Send,
-> {
+pub struct Signer<CMD, R, SL, EV> {
     /// the runloop itself
     signer_loop: Option<SL>,
     /// the event receiver to use
@@ -107,8 +102,6 @@ pub struct Signer<
     command_receiver: Option<Receiver<CMD>>,
     /// the result sender to use
     result_sender: Option<Sender<R>>,
-    /// marker to permit the R type
-    _phantom: PhantomData<R>,
 }
 
 /// The running signer implementation
@@ -215,7 +208,6 @@ impl<
             event_receiver: Some(event_receiver),
             command_receiver: Some(command_receiver),
             result_sender: Some(result_sender),
-            _phantom: PhantomData,
         }
     }
 
