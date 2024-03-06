@@ -176,9 +176,7 @@ mod tests {
         format!("/tmp/stacks-signer-test-{}.sqlite", rand::random::<u64>()).into()
     }
 
-    #[test]
-    fn test_basic_signer_db() {
-        let db_path = tmp_db_path();
+    fn test_basic_signer_db_with_path(db_path: impl AsRef<Path>) {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block) = create_block();
         db.insert_block(&block_info)
@@ -190,6 +188,17 @@ mod tests {
             .expect("Unable to get block from db");
 
         assert_eq!(BlockInfo::new(block.clone()), block_info);
+    }
+
+    #[test]
+    fn test_basic_signer_db() {
+        let db_path = tmp_db_path();
+        test_basic_signer_db_with_path(db_path)
+    }
+
+    #[test]
+    fn test_basic_signer_db_in_memory() {
+        test_basic_signer_db_with_path(":memory:")
     }
 
     #[test]
