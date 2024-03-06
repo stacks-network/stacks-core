@@ -33,8 +33,7 @@ pub struct SignerDb {
     /// The SQLite database path
     pub db_path: Option<PathBuf>,
     // /// Connection to the DB
-    // /// TODO: Figure out how to manage this connection
-    // connection: Option<Connection>,
+    connection: Option<Connection>,
 }
 
 const CREATE_BLOCKS_TABLE: &'static str = "
@@ -50,6 +49,7 @@ impl SignerDb {
     pub fn new(db_path: &Option<PathBuf>) -> Result<SignerDb, DBError> {
         let signer_db = SignerDb {
             db_path: db_path.clone(),
+            connection: None,
         };
         let mut connection = signer_db.get_connection()?;
         connection.pragma_update(None, "journal_mode", &"WAL".to_sql().unwrap())?;
@@ -63,6 +63,7 @@ impl SignerDb {
         tx.commit().expect("Unable to commit tx");
         Ok(SignerDb {
             db_path: db_path.clone(),
+            connection: None,
         })
     }
 
@@ -148,6 +149,7 @@ impl SignerDb {
     pub fn memory_db() -> SignerDb {
         SignerDb {
             db_path: Some(PathBuf::from(":memory:")),
+            connection: None,
         }
     }
 
