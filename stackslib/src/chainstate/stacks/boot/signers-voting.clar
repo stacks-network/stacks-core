@@ -58,8 +58,8 @@
 (define-read-only (get-vote (reward-cycle uint) (round uint) (signer principal))
     (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
 
-(define-read-only (get-current-round-info)
-    (map-get? round-data {reward-cycle: (current-reward-cycle), round: (default-to u0 (get-last-round (current-reward-cycle)))}))
+(define-read-only (get-round-info (reward-cycle uint) (round uint))
+    (map-get? round-data {reward-cycle: reward-cycle, round: round}))
 
 (define-read-only (get-candidate-info (reward-cycle uint) (round uint) (candidate (buff 33)))
     {candidate-weight: (default-to u0 (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: candidate})),
@@ -92,10 +92,6 @@
 (define-read-only (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (default-to u0 (map-get? cycle-total-weight reward-cycle))))
         (/ (+ (* total-weight threshold-consensus) u99) u100)))
-
-;; get the voting data for specific reward cycle and round
-(define-private (get-voting-data (reward-cycle uint) (round uint))
-    (map-get? round-data {reward-cycle: reward-cycle, round: round}))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
