@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -114,7 +112,9 @@ impl StacksHttp {
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
-        self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new());
+        self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
+            self.block_proposal_token.clone(),
+        ));
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());

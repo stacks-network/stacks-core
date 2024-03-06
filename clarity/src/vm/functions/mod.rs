@@ -701,7 +701,7 @@ pub fn parse_eval_bindings(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;

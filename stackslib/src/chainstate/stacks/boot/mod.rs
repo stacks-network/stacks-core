@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::boxed::Box;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -80,6 +78,7 @@ pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
 pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
+pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -92,7 +91,7 @@ const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
-const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
+pub const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -121,7 +120,6 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
-    pub static ref SIGNER_VOTING_CODE: String = format!("{}", SIGNERS_VOTING_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -1340,7 +1338,6 @@ pub mod signers_voting_tests;
 #[cfg(test)]
 pub mod test {
     use std::collections::{HashMap, HashSet};
-    use std::convert::From;
     use std::fs;
 
     use clarity::boot_util::boot_code_addr;
@@ -1950,7 +1947,7 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
-            "vote-for-aggregate-public-key",
+            SIGNERS_VOTING_FUNCTION_NAME,
             vec![
                 Value::UInt(signer_index),
                 aggregate_public_key,

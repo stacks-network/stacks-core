@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -108,15 +107,6 @@ pub struct StagingBlock {
     pub commit_burn: u64,
     pub sortition_burn: u64,
     pub block_data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StagingUserBurnSupport {
-    pub consensus_hash: ConsensusHash,
-    pub anchored_block_hash: BlockHeaderHash,
-    pub address: StacksAddress,
-    pub burn_amount: u64,
-    pub vtxindex: u32,
 }
 
 #[derive(Debug)]
@@ -412,25 +402,6 @@ impl FromRow<StagingBlock> for StagingBlock {
             commit_burn,
             sortition_burn,
             block_data,
-        })
-    }
-}
-
-impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
-    fn from_row<'a>(row: &'a Row) -> Result<StagingUserBurnSupport, db_error> {
-        let anchored_block_hash: BlockHeaderHash =
-            BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-        let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let address: StacksAddress = StacksAddress::from_column(row, "address")?;
-        let burn_amount = u64::from_column(row, "burn_amount")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
-
-        Ok(StagingUserBurnSupport {
-            anchored_block_hash,
-            consensus_hash,
-            address,
-            burn_amount,
-            vtxindex,
         })
     }
 }
@@ -1072,19 +1043,6 @@ impl StacksChainState {
             }
             None => Ok(None),
         }
-    }
-
-    /// Load up the list of users who burned for an unprocessed block.
-    fn load_staging_block_user_supports(
-        block_conn: &DBConn,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> Result<Vec<StagingUserBurnSupport>, Error> {
-        let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND consensus_hash = ?2".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
-        let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, args)
-            .map_err(Error::DBError)?;
-        Ok(rows)
     }
 
     /// Load up a queued block's queued pubkey hash
@@ -1748,34 +1706,6 @@ impl StacksChainState {
 
         tx.execute(&block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
-    }
-
-    /// Store users who burned in support of a block
-    fn store_staging_block_user_burn_supports<'a>(
-        tx: &mut DBTx<'a>,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        burn_supports: &[UserBurnSupportOp],
-    ) -> Result<(), Error> {
-        for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < u64::try_from(i64::MAX).expect("unreachable"));
-        }
-
-        for burn_support in burn_supports.iter() {
-            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, consensus_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[
-                &consensus_hash,
-                &block_hash,
-                &burn_support.address.to_string(),
-                &u64_to_sql(burn_support.burn_fee)?,
-                &burn_support.vtxindex,
-            ];
-
-            tx.execute(&sql, args)
-                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
 
         Ok(())
     }
@@ -3484,9 +3414,6 @@ impl StacksChainState {
             return Ok(false);
         }
 
-        // find all user burns that supported this block
-        let user_burns = sort_handle.get_winning_user_burns_by_block()?;
-
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
             &block_tx,
@@ -3539,14 +3466,6 @@ impl StacksChainState {
             commit_burn,
             sortition_burn,
             download_time,
-        )?;
-
-        // store users who burned for this block so they'll get rewarded if we process it
-        StacksChainState::store_staging_block_user_burn_supports(
-            &mut block_tx,
-            consensus_hash,
-            &block.block_hash(),
-            &user_burns,
         )?;
 
         block_tx.commit()?;
@@ -5277,7 +5196,6 @@ impl StacksChainState {
         microblocks: &Vec<StacksMicroblock>, // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
         do_not_advance: bool,
     ) -> Result<
@@ -5693,7 +5611,6 @@ impl StacksChainState {
             chain_tip_burn_header_timestamp,
             microblock_tail_opt,
             &scheduled_miner_reward,
-            user_burns,
             miner_payouts_opt,
             &block_execution_cost,
             block_size,
@@ -6066,13 +5983,6 @@ impl StacksChainState {
             last_microblock_seq
         );
 
-        // find users that burned in support of this block, so we can calculate the miner reward
-        let user_supports = StacksChainState::load_staging_block_user_supports(
-            chainstate_tx.deref().deref(),
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )?;
-
         test_debug!(
             "About to load affirmation map for {}/{}",
             &next_staging_block.consensus_hash,
@@ -6110,7 +6020,6 @@ impl StacksChainState {
             &next_microblocks,
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
-            &user_supports,
             block_am.weight(),
             false,
         ) {

@@ -29,7 +29,7 @@ use stacks::burnchains::{
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    TransferStxOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -900,8 +900,7 @@ impl BitcoinRegtestController {
             BlockstackOperationType::LeaderBlockCommit(_)
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
-            | BlockstackOperationType::DelegateStx(_)
-            | BlockstackOperationType::UserBurnSupport(_) => {
+            | BlockstackOperationType::DelegateStx(_) => {
                 unimplemented!();
             }
             BlockstackOperationType::PreStx(payload) => {
@@ -1664,16 +1663,6 @@ impl BitcoinRegtestController {
         true
     }
 
-    fn build_user_burn_support_tx(
-        &mut self,
-        _epoch_id: StacksEpochId,
-        _payload: UserBurnSupportOp,
-        _signer: &mut BurnchainOpSigner,
-        _attempt: u64,
-    ) -> Option<Transaction> {
-        unimplemented!()
-    }
-
     /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on successful send; None on
     /// failure.
     pub fn send_transaction(&self, transaction: SerializedTx) -> Option<Txid> {
@@ -1829,9 +1818,6 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::LeaderKeyRegister(payload) => {
                 self.build_leader_key_register_tx(epoch_id, payload, op_signer, attempt)
-            }
-            BlockstackOperationType::UserBurnSupport(payload) => {
-                self.build_user_burn_support_tx(epoch_id, payload, op_signer, attempt)
             }
             BlockstackOperationType::PreStx(payload) => {
                 self.build_pre_stacks_tx(epoch_id, payload, op_signer)

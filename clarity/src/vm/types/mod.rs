@@ -20,7 +20,6 @@ pub mod serialization;
 pub mod signatures;
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::{char, cmp, fmt, str};
 
 use regex::Regex;
@@ -1034,12 +1033,14 @@ impl Value {
             Ok(string) => string,
             _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
         };
-        let mut data = vec![];
-        for char in validated_utf8_str.chars() {
-            let mut encoded_char: Vec<u8> = vec![0; char.len_utf8()];
-            char.encode_utf8(&mut encoded_char[..]);
-            data.push(encoded_char);
-        }
+        let data = validated_utf8_str
+            .chars()
+            .map(|char| {
+                let mut encoded_char = vec![0u8; char.len_utf8()];
+                char.encode_utf8(&mut encoded_char);
+                encoded_char
+            })
+            .collect::<Vec<_>>();
         // check the string size
         StringUTF8Length::try_from(data.len())?;
 

@@ -17,12 +17,13 @@
 use std::io::{Read, Write};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::ClarityVersion;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha256Sum;
 
 use crate::burnchains::Burnchain;
@@ -31,6 +32,7 @@ use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::mempool::MemPoolDB;
+use crate::core::StacksEpoch;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -80,6 +82,27 @@ pub struct RPCPoxContractVersion {
     pub first_reward_cycle_id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxEpoch {
+    pub epoch_id: StacksEpochId,
+    pub start_height: u64,
+    pub end_height: u64,
+    pub block_limit: ExecutionCost,
+    pub network_epoch: u8,
+}
+
+impl From<StacksEpoch> for RPCPoxEpoch {
+    fn from(epoch: StacksEpoch) -> Self {
+        Self {
+            epoch_id: epoch.epoch_id,
+            start_height: epoch.start_height,
+            end_height: epoch.end_height,
+            block_limit: epoch.block_limit,
+            network_epoch: epoch.network_epoch,
+        }
+    }
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
@@ -94,6 +117,7 @@ pub struct RPCPoxInfoData {
     pub total_liquid_supply_ustx: u64,
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
+    pub epochs: Vec<RPCPoxEpoch>,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
@@ -202,12 +226,6 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128()? as u64;
 
-        let reward_cycle_id = res
-            .get("reward-cycle-id")
-            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-id'"))
-            .to_owned()
-            .expect_u128()? as u64;
-
         let reward_cycle_length = res
             .get("reward-cycle-length")
             .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
@@ -268,7 +286,16 @@ impl RPCPoxInfoData {
             return Err(NetError::DBError(DBError::Corruption));
         }
 
+        // Manually calculate `reward_cycle_id` so that clients don't get an "off by one" view at
+        //  reward cycle boundaries (because if the reward cycle is loaded from clarity, its
+        //  evaluated in the last mined Stacks block, not the most recent burn block).
+        let reward_cycle_id = burnchain
+            .block_height_to_reward_cycle(burnchain_tip.block_height)
+            .ok_or_else(|| {
+                NetError::ChainstateError("Current burn block height is before stacks start".into())
+            })?;
         let effective_height = burnchain_tip.block_height - first_burnchain_block_height;
+
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
         let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
@@ -331,6 +358,10 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+        let epochs: Vec<_> = SortitionDB::get_stacks_epochs(sortdb.conn())?
+            .into_iter()
+            .map(|epoch| RPCPoxEpoch::from(epoch))
+            .collect();
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
@@ -359,6 +390,7 @@ impl RPCPoxInfoData {
                 blocks_until_reward_phase: next_reward_cycle_in,
                 ustx_until_pox_rejection: rejection_votes_left_required,
             },
+            epochs,
             min_amount_ustx: next_threshold,
             prepare_cycle_length,
             reward_cycle_id,

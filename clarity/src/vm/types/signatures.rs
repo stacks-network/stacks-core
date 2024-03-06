@@ -16,7 +16,6 @@
 
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
@@ -981,10 +980,12 @@ impl FunctionSignature {
     }
 
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionSignature {
-        let mut canonicalized_args = vec![];
-        for arg in &self.args {
-            canonicalized_args.push(arg.canonicalize(epoch));
-        }
+        let canonicalized_args = self
+            .args
+            .iter()
+            .map(|arg| arg.canonicalize(epoch))
+            .collect();
+
         FunctionSignature {
             args: canonicalized_args,
             returns: self.returns.canonicalize(epoch),
@@ -1644,8 +1645,8 @@ impl TypeSignature {
             let fn_args_exprs = args[1]
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            let mut fn_args = vec![];
-            for arg_type in fn_args_exprs.iter() {
+            let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
+            for arg_type in fn_args_exprs.into_iter() {
                 let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
                 fn_args.push(arg_t);
             }
@@ -2064,8 +2065,9 @@ mod test {
         //   set k = 4033
         let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version, epoch);
 
-        let mut keys = vec![];
-        for i in 0..4033 {
+        let len = 4033;
+        let mut keys = Vec::with_capacity(len);
+        for i in 0..len {
             let key_name = ClarityName::try_from(format!("a{:0127}", i)).unwrap();
             let key_val = first_tuple.clone();
             keys.push((key_name, key_val));

@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{From, TryFrom};
-
 use crate::vm::errors::{CheckErrors, Error, ShortReturnType};
 use crate::vm::types::{
     ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,

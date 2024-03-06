@@ -22,7 +22,6 @@ pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;
 pub mod keychain;
-pub mod mockamoto;
 pub mod nakamoto_node;
 pub mod neon_node;
 pub mod node;
@@ -32,7 +31,6 @@ pub mod syncctl;
 pub mod tenure;
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::{env, panic, process};
 
 use backtrace::Backtrace;
@@ -56,7 +54,6 @@ pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 use crate::chain_data::MinerStats;
-use crate::mockamoto::MockamotoNode;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
@@ -323,10 +320,6 @@ fn main() {
             args.finish();
             ConfigFile::mainnet()
         }
-        "mockamoto" => {
-            args.finish();
-            ConfigFile::mockamoto()
-        }
         "check-config" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
@@ -450,9 +443,6 @@ fn main() {
     {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
-    } else if conf.burnchain.mode == "mockamoto" {
-        let mut mockamoto = MockamotoNode::new(&conf).unwrap();
-        mockamoto.run();
     } else if conf.burnchain.mode == "nakamoto-neon" {
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);

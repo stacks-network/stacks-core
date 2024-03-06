@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
-use std::convert::TryInto;
 use std::fmt::Write;
 use std::{fmt, mem};
 
@@ -451,10 +450,10 @@ where
 
     /// Get a non-leaf hash
     pub fn get_node_hash(left: &H, right: &H) -> H {
-        let mut buf = vec![];
-        buf.extend_from_slice(left.bits());
-        buf.extend_from_slice(right.bits());
-        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf[..])
+        let iter = left.bits().iter();
+        let iter = iter.chain(right.bits().iter());
+        let buf = iter.copied().collect::<Vec<_>>();
+        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf)
     }
 
     /// Find a given hash in a merkle tree row

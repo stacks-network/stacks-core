@@ -13,24 +13,30 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_VOTING_NAME};
+use stacks::chainstate::stacks::boot::{
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -40,6 +46,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
+use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
@@ -55,8 +62,8 @@ use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -154,6 +161,32 @@ pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
     res
 }
 
+pub fn get_stackerdb_slot_version(
+    http_origin: &str,
+    contract: &QualifiedContractIdentifier,
+    slot_id: u64,
+) -> Option<u32> {
+    let client = reqwest::blocking::Client::new();
+    let path = format!(
+        "{http_origin}/v2/stackerdb/{}/{}",
+        &contract.issuer, &contract.name
+    );
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<Vec<SlotMetadata>>()
+        .unwrap();
+    debug!("StackerDB metadata response: {res:?}");
+    res.iter().find_map(|slot| {
+        if u64::from(slot.slot_id) == slot_id {
+            Some(slot.slot_version)
+        } else {
+            None
+        }
+    })
+}
+
 pub fn add_initial_balances(
     conf: &mut Config,
     accounts: usize,
@@ -169,6 +202,114 @@ pub fn add_initial_balances(
             privk
         })
         .collect()
+}
+
+/// Spawn a blind signing thread. `signer` is the private key
+///  of the individual signer who broadcasts the response to the StackerDB
+pub fn blind_signer(
+    conf: &Config,
+    signers: &TestSigners,
+    signer: &Secp256k1PrivateKey,
+    proposals_count: RunLoopCounter,
+) -> JoinHandle<()> {
+    let mut signed_blocks = HashSet::new();
+    let conf = conf.clone();
+    let signers = signers.clone();
+    let signer = signer.clone();
+    let mut last_count = proposals_count.load(Ordering::SeqCst);
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(100));
+        let cur_count = proposals_count.load(Ordering::SeqCst);
+        if cur_count <= last_count {
+            continue;
+        }
+        last_count = cur_count;
+        match read_and_sign_block_proposal(&conf, &signers, &signer, &signed_blocks) {
+            Ok(signed_block) => {
+                if signed_blocks.contains(&signed_block) {
+                    continue;
+                }
+                info!("Signed block"; "signer_sig_hash" => signed_block.to_hex());
+                signed_blocks.insert(signed_block);
+            }
+            Err(e) => {
+                warn!("Error reading and signing block proposal: {e}");
+            }
+        }
+    })
+}
+
+pub fn read_and_sign_block_proposal(
+    conf: &Config,
+    signers: &TestSigners,
+    signer: &Secp256k1PrivateKey,
+    signed_blocks: &HashSet<Sha512Trunc256Sum>,
+) -> Result<Sha512Trunc256Sum, String> {
+    let burnchain = conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let miner_pubkey = StacksPublicKey::from_private(&conf.get_miner_config().mining_key.unwrap());
+    let miner_slot_id = NakamotoChainState::get_miner_slot(&sortdb, &tip, &miner_pubkey)
+        .map_err(|_| "Unable to get miner slot")?
+        .ok_or("No miner slot exists")?;
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    let mut proposed_block: NakamotoBlock = {
+        let miner_contract_id = boot_code_id(MINERS_NAME, false);
+        let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
+        miners_stackerdb
+            .get_latest(miner_slot_id)
+            .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
+            .ok_or("No chunk found")?
+    };
+    let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
+    let signer_sig_hash = proposed_block.header.signer_signature_hash();
+    if signed_blocks.contains(&signer_sig_hash) {
+        // already signed off on this block, don't sign again.
+        return Ok(signer_sig_hash);
+    }
+
+    info!(
+        "Fetched proposed block from .miners StackerDB";
+        "proposed_block_hash" => &proposed_block_hash,
+        "signer_sig_hash" => &signer_sig_hash.to_hex(),
+    );
+
+    signers
+        .clone()
+        .sign_nakamoto_block(&mut proposed_block, reward_cycle);
+
+    let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted((
+        signer_sig_hash.clone(),
+        proposed_block.header.signer_signature.clone(),
+    )));
+
+    let signers_contract_id =
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, libsigner::BLOCK_MSG_ID, false);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let signers_info = get_stacker_set(&http_origin, reward_cycle);
+    let signer_index = get_signer_index(&signers_info, &Secp256k1PublicKey::from_private(signer))
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let next_version = get_stackerdb_slot_version(&http_origin, &signers_contract_id, signer_index)
+        .map(|x| x + 1)
+        .unwrap_or(0);
+    let mut signers_contract_sess = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
+    let mut chunk_to_put = StackerDBChunkData::new(
+        u32::try_from(signer_index).unwrap(),
+        next_version,
+        signer_message.serialize_to_vec(),
+    );
+    chunk_to_put.sign(signer).unwrap();
+    signers_contract_sess
+        .put_chunk(&chunk_to_put)
+        .map_err(|e| e.to_string())?;
+    Ok(signer_sig_hash)
 }
 
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
@@ -189,13 +330,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     let mining_key = Secp256k1PrivateKey::from_seed(&[1]);
     conf.miner.mining_key = Some(mining_key);
-    conf.miner.self_signing_key = Some(TestSigners::default());
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
-    conf.node
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -204,6 +341,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
+    conf.node.add_signers_stackerdbs(false);
+    conf.node.add_miner_stackerdb(false);
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
@@ -356,9 +495,10 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 ///   for pox-4 to activate
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
-    blocks_processed: &RunLoopCounter,
+    blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
+    self_signing: Option<&TestSigners>,
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
@@ -440,25 +580,29 @@ pub fn boot_to_epoch_3(
         &naka_conf,
     );
 
-    // If we are self-signing, then we need to vote on the aggregate public key
-    if let Some(mut signers) = naka_conf.self_signing() {
+    // We need to vote on the aggregate public key if this test is self signing
+    if let Some(signers) = self_signing {
         // Get the aggregate key
-        let aggregate_key = signers.generate_aggregate_key(reward_cycle + 1);
+        let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
         let aggregate_public_key =
             clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
                 .expect("Failed to serialize aggregate public key");
-
+        let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
+        let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
         // Vote on the aggregate public key
-        for (i, signer_sk) in signer_sks.iter().enumerate() {
+        for signer_sk in signer_sks_unique.values() {
+            let signer_index =
+                get_signer_index(&signer_set, &Secp256k1PublicKey::from_private(signer_sk))
+                    .unwrap();
             let voting_tx = tests::make_contract_call(
-                &signer_sk,
+                signer_sk,
                 0,
                 300,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
-                "vote-for-aggregate-public-key",
+                SIGNERS_VOTING_FUNCTION_NAME,
                 &[
-                    clarity::vm::Value::UInt(i as u128),
+                    clarity::vm::Value::UInt(u128::try_from(signer_index).unwrap()),
                     aggregate_public_key.clone(),
                     clarity::vm::Value::UInt(0),
                     clarity::vm::Value::UInt(reward_cycle as u128 + 1),
@@ -476,6 +620,32 @@ pub fn boot_to_epoch_3(
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+}
+
+fn get_signer_index(
+    stacker_set: &GetStackersResponse,
+    signer_key: &Secp256k1PublicKey,
+) -> Result<usize, String> {
+    let Some(ref signer_set) = stacker_set.stacker_set.signers else {
+        return Err("Empty signer set for reward cycle".into());
+    };
+    let signer_key_bytes = signer_key.to_bytes_compressed();
+    signer_set
+        .iter()
+        .enumerate()
+        .find_map(|(ix, entry)| {
+            if entry.signing_key.as_slice() == signer_key_bytes.as_slice() {
+                Some(ix)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            format!(
+                "Signing key not found. {} not found.",
+                to_hex(&signer_key_bytes)
+            )
+        })
 }
 
 fn is_key_set_for_cycle(
@@ -518,65 +688,163 @@ fn signer_vote_if_needed(
     btc_regtest_controller: &BitcoinRegtestController,
     naka_conf: &Config,
     signer_sks: &[StacksPrivateKey], // TODO: Is there some way to get this from the TestSigners?
+    signers: &TestSigners,
 ) {
-    if let Some(mut signers) = naka_conf.self_signing() {
-        // When we reach the next prepare phase, submit new voting transactions
-        let block_height = btc_regtest_controller.get_headers_height();
-        let reward_cycle = btc_regtest_controller
-            .get_burnchain()
-            .block_height_to_reward_cycle(block_height)
-            .unwrap();
-        let prepare_phase_start = btc_regtest_controller
-            .get_burnchain()
-            .pox_constants
-            .prepare_phase_start(
-                btc_regtest_controller.get_burnchain().first_block_height,
-                reward_cycle,
+    // When we reach the next prepare phase, submit new voting transactions
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    if block_height >= prepare_phase_start {
+        // If the key is already set, do nothing.
+        if is_key_set_for_cycle(
+            reward_cycle + 1,
+            naka_conf.is_mainnet(),
+            &naka_conf.node.rpc_bind,
+        )
+        .unwrap_or(false)
+        {
+            return;
+        }
+
+        // If we are self-signing, then we need to vote on the aggregate public key
+        let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+        // Get the aggregate key
+        let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
+        let aggregate_public_key =
+            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key");
+
+        for (i, signer_sk) in signer_sks.iter().enumerate() {
+            let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
+
+            // Vote on the aggregate public key
+            let voting_tx = tests::make_contract_call(
+                &signer_sk,
+                signer_nonce,
+                300,
+                &StacksAddress::burn_address(false),
+                SIGNERS_VOTING_NAME,
+                "vote-for-aggregate-public-key",
+                &[
+                    clarity::vm::Value::UInt(i as u128),
+                    aggregate_public_key.clone(),
+                    clarity::vm::Value::UInt(0),
+                    clarity::vm::Value::UInt(reward_cycle as u128 + 1),
+                ],
             );
-
-        if block_height >= prepare_phase_start {
-            // If the key is already set, do nothing.
-            if is_key_set_for_cycle(
-                reward_cycle + 1,
-                naka_conf.is_mainnet(),
-                &naka_conf.node.rpc_bind,
-            )
-            .unwrap_or(false)
-            {
-                return;
-            }
-
-            // If we are self-signing, then we need to vote on the aggregate public key
-            let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-
-            // Get the aggregate key
-            let aggregate_key = signers.generate_aggregate_key(reward_cycle + 1);
-            let aggregate_public_key =
-                clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                    .expect("Failed to serialize aggregate public key");
-
-            for (i, signer_sk) in signer_sks.iter().enumerate() {
-                let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
-
-                // Vote on the aggregate public key
-                let voting_tx = tests::make_contract_call(
-                    &signer_sk,
-                    signer_nonce,
-                    300,
-                    &StacksAddress::burn_address(false),
-                    SIGNERS_VOTING_NAME,
-                    "vote-for-aggregate-public-key",
-                    &[
-                        clarity::vm::Value::UInt(i as u128),
-                        aggregate_public_key.clone(),
-                        clarity::vm::Value::UInt(0),
-                        clarity::vm::Value::UInt(reward_cycle as u128 + 1),
-                    ],
-                );
-                submit_tx(&http_origin, &voting_tx);
-            }
+            submit_tx(&http_origin, &voting_tx);
         }
     }
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_3_reward_set(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    assert_eq!(stacker_sks.len(), signer_sks.len());
+
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_3_start_height = epoch_3.start_height;
+    assert!(
+        epoch_3_start_height > 0,
+        "Epoch 3.0 start height must be greater than 0"
+    );
+    let epoch_3_reward_cycle_boundary =
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
+    let epoch_3_reward_set_calculation_boundary =
+        epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // +2 to ensure we are at the second block of the prepare phase
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    // first mined stacks block
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+
+    // stack enough to activate pox-4
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let lock_period = 12;
+    debug!("Test Cycle Info";
+     "prepare_phase_len" => {prepare_phase_len},
+     "reward_cycle_len" => {reward_cycle_len},
+     "block_height" => {block_height},
+     "reward_cycle" => {reward_cycle},
+     "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
+     "epoch_3_reward_set_calculation" => {epoch_3_reward_set_calculation},
+     "epoch_3_start_height" => {epoch_3_start_height},
+    );
+    for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(&stacker_sk).bytes,
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            &signer_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            lock_period,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let signer_pk = StacksPublicKey::from_private(signer_sk);
+        let stacking_tx = tests::make_contract_call(
+            &stacker_sk,
+            0,
+            1000,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(block_height as u128),
+                clarity::vm::Value::UInt(lock_period),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            ],
+        );
+        submit_tx(&http_origin, &stacking_tx);
+    }
+
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        epoch_3_reward_set_calculation,
+        &naka_conf,
+    );
+
+    info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
 #[test]
@@ -594,6 +862,7 @@ fn simple_neon_integration() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -636,6 +905,7 @@ fn simple_neon_integration() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -648,6 +918,7 @@ fn simple_neon_integration() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
@@ -685,6 +956,8 @@ fn simple_neon_integration() {
     }
 
     info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -709,7 +982,12 @@ fn simple_neon_integration() {
         )
         .unwrap();
 
-        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+        signer_vote_if_needed(
+            &btc_regtest_controller,
+            &naka_conf,
+            &[sender_signer_sk],
+            &signers,
+        );
     }
 
     // Submit a TX
@@ -746,7 +1024,12 @@ fn simple_neon_integration() {
         )
         .unwrap();
 
-        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+        signer_vote_if_needed(
+            &btc_regtest_controller,
+            &naka_conf,
+            &[sender_signer_sk],
+            &signers,
+        );
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -818,6 +1101,7 @@ fn mine_multiple_per_tenure_integration() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -862,6 +1146,7 @@ fn mine_multiple_per_tenure_integration() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -877,6 +1162,7 @@ fn mine_multiple_per_tenure_integration() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
@@ -899,6 +1185,8 @@ fn mine_multiple_per_tenure_integration() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -995,6 +1283,7 @@ fn correct_burn_outs() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.pox_reward_length = Some(10);
     naka_conf.burnchain.pox_prepare_length = Some(3);
@@ -1051,6 +1340,7 @@ fn correct_burn_outs() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -1182,7 +1472,12 @@ fn correct_burn_outs() {
         &naka_conf,
     );
 
-    signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
 
     run_until_burnchain_height(
         &mut btc_regtest_controller,
@@ -1192,6 +1487,7 @@ fn correct_burn_outs() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
 
     // we should already be able to query the stacker set via RPC
     let burnchain = naka_conf.get_burnchain();
@@ -1255,7 +1551,12 @@ fn correct_burn_outs() {
             "The new burnchain tip must have been processed"
         );
 
-        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+        signer_vote_if_needed(
+            &btc_regtest_controller,
+            &naka_conf,
+            &[sender_signer_sk],
+            &signers,
+        );
     }
 
     coord_channel
@@ -1340,7 +1641,10 @@ fn block_proposal_api_endpoint() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.block_proposal_token = Some(password.clone());
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
     let sender_signer_sk = Secp256k1PrivateKey::new();
@@ -1371,6 +1675,7 @@ fn block_proposal_api_endpoint() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -1383,10 +1688,12 @@ fn block_proposal_api_endpoint() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    blind_signer(&conf, &signers, &sender_signer_sk, proposals_submitted);
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -1434,9 +1741,6 @@ fn block_proposal_api_endpoint() {
     // TODO (hack) instantiate the sortdb in the burnchain
     _ = btc_regtest_controller.sortdb_mut();
 
-    // Set up test signer
-    let signer = conf.miner.self_signing_key.as_mut().unwrap();
-
     // ----- Setup boilerplate finished, test block proposal API endpoint -----
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -1465,19 +1769,13 @@ fn block_proposal_api_endpoint() {
         _ => None,
     });
 
-    // Apply both miner/stacker signatures
-    let mut sign = |mut p: NakamotoBlockProposal| {
+    // Apply miner signature
+    let sign = |p: &NakamotoBlockProposal| {
+        let mut p = p.clone();
         p.block
             .header
             .sign_miner(&privk)
             .expect("Miner failed to sign");
-        let burn_height = burnchain
-            .get_highest_burnchain_block()
-            .unwrap()
-            .unwrap()
-            .block_height;
-        let cycle = burnchain.block_height_to_reward_cycle(burn_height).unwrap();
-        signer.sign_nakamoto_block(&mut p.block, cycle);
         p
     };
 
@@ -1532,18 +1830,19 @@ fn block_proposal_api_endpoint() {
 
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
+    const HTTP_NOT_AUTHORIZED: u16 = 401;
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
-            sign(proposal.clone()),
+            sign(&proposal),
             HTTP_ACCEPTED,
             Some(Ok(())),
         ),
-        ("Must wait", sign(proposal.clone()), HTTP_TOO_MANY, None),
+        ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
         (
             "Corrupted (bit flipped after signing)",
             (|| {
-                let mut sp = sign(proposal.clone());
+                let mut sp = sign(&proposal);
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
                 sp
             })(),
@@ -1555,7 +1854,7 @@ fn block_proposal_api_endpoint() {
             (|| {
                 let mut p = proposal.clone();
                 p.chain_id ^= 0xFFFFFFFF;
-                sign(p)
+                sign(&p)
             })(),
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::InvalidBlock)),
@@ -1563,13 +1862,14 @@ fn block_proposal_api_endpoint() {
         (
             "Invalid `miner_signature`",
             (|| {
-                let mut sp = sign(proposal.clone());
+                let mut sp = sign(&proposal);
                 sp.block.header.miner_signature.0[1] ^= 0x80;
                 sp
             })(),
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
+        ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
     ];
 
     // Build HTTP client
@@ -1586,12 +1886,18 @@ fn block_proposal_api_endpoint() {
         test_cases.iter().enumerate()
     {
         // Send POST request
-        let mut response = client
+        let request_builder = client
             .post(&path)
             .header("Content-Type", "application/json")
-            .json(block_proposal)
-            .send()
-            .expect("Failed to POST");
+            .json(block_proposal);
+        let mut response = if expected_http_code == &HTTP_NOT_AUTHORIZED {
+            request_builder.send().expect("Failed to POST")
+        } else {
+            request_builder
+                .header(AUTHORIZATION.to_string(), password.to_string())
+                .send()
+                .expect("Failed to POST")
+        };
         let start_time = Instant::now();
         while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
             if start_time.elapsed() > Duration::from_secs(30) {
@@ -1600,20 +1906,29 @@ fn block_proposal_api_endpoint() {
             }
             info!("Waiting for prior request to finish processing, and then resubmitting");
             thread::sleep(Duration::from_secs(5));
-            response = client
+            let request_builder = client
                 .post(&path)
                 .header("Content-Type", "application/json")
-                .json(block_proposal)
-                .send()
-                .expect("Failed to POST");
+                .json(block_proposal);
+            response = if expected_http_code == &HTTP_NOT_AUTHORIZED {
+                request_builder.send().expect("Failed to POST")
+            } else {
+                request_builder
+                    .header(AUTHORIZATION.to_string(), password.to_string())
+                    .send()
+                    .expect("Failed to POST")
+            };
         }
 
         let response_code = response.status().as_u16();
-        let response_json = response.json::<serde_json::Value>();
-
+        let response_json = if expected_http_code != &HTTP_NOT_AUTHORIZED {
+            response.json::<serde_json::Value>().unwrap().to_string()
+        } else {
+            "No json response".to_string()
+        };
         info!(
             "Block proposal submitted and checked for HTTP response";
-            "response_json" => %response_json.unwrap(),
+            "response_json" => response_json,
             "request_json" => serde_json::to_string(block_proposal).unwrap(),
             "response_code" => response_code,
             "test_description" => test_description,
@@ -1687,6 +2002,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -1727,6 +2043,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -1739,10 +2056,12 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
     info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -1766,13 +2085,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     )
     .unwrap();
 
-    let rpc_sock = naka_conf
-        .node
-        .rpc_bind
-        .clone()
-        .parse()
-        .expect("Failed to parse socket");
-
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let miner_pubkey =
@@ -1781,20 +2093,15 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .expect("Unable to get miner slot")
         .expect("No miner slot exists");
 
-    let chunk = std::thread::spawn(move || {
+    let proposed_block: NakamotoBlock = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
+        let mut miners_stackerdb =
+            StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
-            .get_latest_chunk(slot_id)
+            .get_latest(slot_id)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
-    })
-    .join()
-    .expect("Failed to join chunk handle");
-
-    // We should now successfully deserialize a chunk
-    let proposed_block = NakamotoBlock::consensus_deserialize(&mut &chunk[..])
-        .expect("Failed to deserialize chunk into block");
+    };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();

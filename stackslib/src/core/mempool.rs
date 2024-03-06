@@ -1197,6 +1197,7 @@ impl CandidateCache {
     }
 
     /// Total length of the cache.
+    #[cfg_attr(test, mutants::skip)]
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
     }
@@ -1301,6 +1302,7 @@ impl MemPoolDB {
     }
 
     /// Add indexes
+    #[cfg_attr(test, mutants::skip)]
     fn add_indexes(tx: &mut DBTx) -> Result<(), db_error> {
         for cmd in MEMPOOL_INDEXES {
             tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
@@ -1309,6 +1311,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the on-disk counting bloom filter
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_bloom_state(tx: &mut DBTx) -> Result<(), db_error> {
         let node_hasher = BloomNodeHasher::new_random();
         let _ = BloomCounter::new(
@@ -1326,6 +1329,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the cost estimator schema
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
             tx.execute_batch(sql_exec)?;
@@ -1344,6 +1348,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the tx blacklist schema
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_tx_blacklist(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_4_BLACKLIST {
             tx.execute_batch(sql_exec)?;
@@ -1353,6 +1358,7 @@ impl MemPoolDB {
     }
 
     /// Add the nonce table
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_nonces(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_6_NONCES {
             tx.execute_batch(sql_exec)?;
@@ -1361,6 +1367,7 @@ impl MemPoolDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
         let mut path = PathBuf::from(chainstate_root_path);
 
@@ -1468,6 +1475,7 @@ impl MemPoolDB {
         MemPoolDB::open_db(&db_path, cost_estimator, metric)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
