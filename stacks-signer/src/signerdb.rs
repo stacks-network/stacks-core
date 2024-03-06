@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use blockstack_lib::util_lib::db::{query_row, sqlite_open, table_exists, Error as DBError};
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
@@ -39,9 +39,9 @@ CREATE TABLE IF NOT EXISTS blocks (
 impl SignerDb {
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
-    /// if one doesn't exist.
-    pub fn new(db_path: Option<PathBuf>) -> Result<SignerDb, DBError> {
-        let connection = Self::connect(&db_path)?;
+    /// or an in-memory database if the path is ":memory:"
+    pub fn new(db_path: impl AsRef<Path>) -> Result<SignerDb, DBError> {
+        let connection = Self::connect(db_path)?;
 
         let signer_db = Self { db: connection };
 
@@ -58,16 +58,12 @@ impl SignerDb {
         Ok(())
     }
 
-    fn connect(db_path: &Option<PathBuf>) -> Result<Connection, SqliteError> {
-        if let Some(path) = db_path {
-            sqlite_open(
-                path,
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-                false,
-            )
-        } else {
-            Connection::open_in_memory()
-        }
+    fn connect(db_path: impl AsRef<Path>) -> Result<Connection, SqliteError> {
+        sqlite_open(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            false,
+        )
     }
 
     /// Fetch a block from the database using the block's
@@ -125,7 +121,7 @@ pub fn test_signer_db(db_path: &str) -> SignerDb {
     if fs::metadata(&db_path).is_ok() {
         fs::remove_file(&db_path).unwrap();
     }
-    SignerDb::new(Some(db_path.into())).expect("Failed to create signer db")
+    SignerDb::new(db_path).expect("Failed to create signer db")
 }
 
 #[cfg(test)]
@@ -141,7 +137,7 @@ mod tests {
     };
 
     use super::*;
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     fn _wipe_db(db_path: &PathBuf) {
         if fs::metadata(db_path).is_ok() {
@@ -176,8 +172,8 @@ mod tests {
         create_block_override(|_| {})
     }
 
-    fn tmp_db_path() -> Option<PathBuf> {
-        Some(format!("/tmp/stacks-signer-test-{}.sqlite", rand::random::<u64>()).into())
+    fn tmp_db_path() -> PathBuf {
+        format!("/tmp/stacks-signer-test-{}.sqlite", rand::random::<u64>()).into()
     }
 
     #[test]

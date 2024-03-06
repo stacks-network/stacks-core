@@ -161,7 +161,7 @@ pub struct Signer {
     /// The approved key registered to the contract
     pub approved_aggregate_public_key: Option<Point>,
     /// Signer DB path
-    pub db_path: Option<PathBuf>,
+    pub db_path: PathBuf,
     /// SignerDB for state management
     pub signer_db: SignerDb,
 }
@@ -211,7 +211,7 @@ impl From<SignerConfig> for Signer {
             coordinator_selector.get_coordinator().0
         );
         let signer_db =
-            SignerDb::new(signer_config.db_path.clone()).expect("Failed to connect to signer Db");
+            SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         Self {
             coordinator,
             signing_round,

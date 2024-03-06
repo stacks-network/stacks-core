@@ -164,7 +164,7 @@ pub struct SignerConfig {
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: u64,
     /// The path to the signer's database file
-    pub db_path: Option<PathBuf>,
+    pub db_path: PathBuf,
 }
 
 /// The parsed configuration for the signer
@@ -199,7 +199,7 @@ pub struct GlobalConfig {
     /// the authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file
-    pub db_path: Option<PathBuf>,
+    pub db_path: PathBuf,
 }
 
 /// Internal struct for loading up the config file
@@ -230,8 +230,8 @@ struct RawConfigFile {
     pub tx_fee_ustx: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
-    /// The path to the signer's database file
-    pub db_path: Option<String>,
+    /// The path to the signer's database file or :memory: for an in-memory database
+    pub db_path: String,
 }
 
 impl RawConfigFile {
@@ -308,11 +308,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
-        let db_path = if let Some(db_path) = raw_data.db_path {
-            Some(PathBuf::from(db_path))
-        } else {
-            None
-        };
+        let db_path = raw_data.db_path.into();
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
