@@ -20,6 +20,7 @@
 (define-constant ERR_DUPLICATE_VOTE u15)
 (define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u16)
 (define-constant ERR_INVALID_ROUND u17)
+(define-constant ERR_GET_SIGNER_WEIGHT u18)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
@@ -39,6 +40,9 @@
 ;; necessary to recalculate it on every vote.
 (define-map cycle-total-weight uint uint)
 
+;; Maps voting data (count, current weight) per reward cycle & round
+(define-map round-data {reward-cycle: uint, round: uint} {votes-count: uint, votes-weight: uint})
+
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
 
@@ -53,6 +57,9 @@
 
 (define-read-only (get-vote (reward-cycle uint) (round uint) (signer principal))
     (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
+
+(define-read-only (get-current-round-info)
+    (map-get? round-data {reward-cycle: (current-reward-cycle), round: (default-to u0 (get-last-round (current-reward-cycle)))}))
 
 (define-read-only (get-candidate-info (reward-cycle uint) (round uint) (candidate (buff 33)))
     {candidate-weight: (default-to u0 (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: candidate})),
@@ -82,7 +89,7 @@
     (map-get? aggregate-public-keys reward-cycle))
 
 ;; get the weight required for consensus threshold
-(define-private (get-threshold-weight (reward-cycle uint))
+(define-public (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
         (ok (/ (+ (* total-weight threshold-consensus) u99) u100))))
 
@@ -137,9 +144,13 @@
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
-            (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
+            (signer-weight (unwrap! (get-signer-weight signer-index reward-cycle) (err ERR_GET_SIGNER_WEIGHT)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
-            (threshold-weight (try! (get-threshold-weight reward-cycle))))
+            (threshold-weight (try! (get-threshold-weight reward-cycle)))
+            (current-round (default-to {
+                votes-count: u0, 
+                votes-weight: u0} (map-get? round-data {reward-cycle: reward-cycle, round: round})))
+                )
         ;; Check that the key has not yet been set for this reward cycle
         (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is the correct length
@@ -152,6 +163,10 @@
         (try! (update-last-round reward-cycle round))
         ;; Update the tally for this aggregate public key candidate
         (map-set tally tally-key new-total)
+        ;; Update the current round data
+        (map-set round-data {reward-cycle: reward-cycle, round: round} {
+            votes-count: (+ (get votes-count current-round) u1),
+            votes-weight: (+ (get votes-weight current-round) signer-weight)})
         ;; Update used aggregate public keys
         (map-set used-aggregate-public-keys key reward-cycle)
         (print {
