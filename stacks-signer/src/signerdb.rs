@@ -16,9 +16,7 @@
 
 use std::path::PathBuf;
 
-use blockstack_lib::util_lib::db::{
-    query_row, sqlite_open, table_exists, tx_begin_immediate, Error as DBError,
-};
+use blockstack_lib::util_lib::db::{query_row, sqlite_open, table_exists, Error as DBError};
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -95,30 +93,27 @@ impl SignerDb {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
-        let tx = tx_begin_immediate(&mut self.db).expect("Unable to begin tx");
-        tx.execute(
-            "INSERT OR REPLACE INTO blocks (signer_signature_hash, block_info) VALUES (?1, ?2)",
-            &[format!("{}", hash), block_json],
-        )
-        .map_err(|e| {
-            return DBError::Other(format!(
-                "Unable to insert block into db: {:?}",
-                e.to_string()
-            ));
-        })?;
-        tx.commit().expect("Unable to commit tx");
+        self.db
+            .execute(
+                "INSERT OR REPLACE INTO blocks (signer_signature_hash, block_info) VALUES (?1, ?2)",
+                &[format!("{}", hash), block_json],
+            )
+            .map_err(|e| {
+                return DBError::Other(format!(
+                    "Unable to insert block into db: {:?}",
+                    e.to_string()
+                ));
+            })?;
         Ok(())
     }
 
     /// Remove a block
     pub fn remove_block(&mut self, hash: &Sha512Trunc256Sum) -> Result<(), DBError> {
-        let tx = tx_begin_immediate(&mut self.db).expect("Unable to begin tx");
-        tx.execute(
+        self.db.execute(
             "DELETE FROM blocks WHERE signer_signature_hash = ?",
             &[format!("{}", hash)],
-        )
-        .map_err(|e| DBError::from(e))?;
-        tx.commit().map_err(|e| DBError::from(e))?;
+        )?;
+
         Ok(())
     }
 }
