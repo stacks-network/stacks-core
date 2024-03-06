@@ -7,10 +7,10 @@ members = [
     "clarity",
     "stx-genesis",
     "libstackerdb",
-    # "contrib/tools/relay-server",
+    "contrib/tools/relay-server",
     "libsigner",
     "stacks-signer",
-    # "testnet/stacks-node"
+    "testnet/stacks-node"
 ]
 
 # Dependencies we want to keep the same between workspace members
