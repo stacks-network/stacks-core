@@ -387,11 +387,14 @@ impl Signer {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                        debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
                         return;
                     }
                     Err(e) => {
-                        error!("Failed to lookup block in signer db: {:?}", e);
+                        error!(
+                            "Signer #{}: Failed to lookup block in signer db: {:?}",
+                            self.signer_id, e
+                        );
                         return;
                     }
                 };
@@ -414,11 +417,14 @@ impl Signer {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                        debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
                         return;
                     }
                     Err(e) => {
-                        error!("Failed to lookup block in signer db: {:?}", e);
+                        error!(
+                            "Signer #{}: Failed to lookup block in signer db: {:?}",
+                            self.signer_id, e
+                        );
                         return;
                     }
                 };
@@ -639,7 +645,7 @@ impl Signer {
         {
             Some(block_info) => block_info,
             None => {
-                debug!("We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
+                debug!("Signer #{}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...", self.signer_id);
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
                     .insert_block(&block_info)
@@ -1091,7 +1097,7 @@ impl Signer {
                 .expect("Failed to connect to signer DB")
             else {
                 debug!(
-                    "Received a signature result for a block we have not seen before. Ignoring..."
+                    "Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id
                 );
                 return;
             };
