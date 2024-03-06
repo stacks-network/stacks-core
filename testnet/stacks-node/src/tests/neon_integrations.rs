@@ -2224,9 +2224,13 @@ fn stack_stx_burn_op_test() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
+    let spender_sk_1 = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_stx_addr_1: StacksAddress = to_addr(&spender_sk_1);
+    let spender_addr_1: PrincipalData = spender_stx_addr_1.clone().into();
+
+    let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let spender_stx_addr_2: StacksAddress = to_addr(&spender_sk_2);
+    let spender_addr_2: PrincipalData = spender_stx_addr_2.clone().into();
 
     let recipient_sk = StacksPrivateKey::new();
     let recipient_addr = to_addr(&recipient_sk);
@@ -2237,7 +2241,7 @@ fn stack_stx_burn_op_test() {
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr_1.clone(),
         amount: first_bal,
     });
     conf.initial_balances.push(InitialBalance {
@@ -2360,37 +2364,59 @@ fn stack_stx_burn_op_test() {
 
     info!("Bootstrapped to 2.5, submitting stack-stx and pre-stx op...");
 
-    let signer_sk = spender_sk.clone();
-    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+    let signer_sk_1 = spender_sk_1.clone();
+    let signer_sk_2 = spender_sk_2.clone();
+    let signer_pk_1 = StacksPublicKey::from_private(&signer_sk_1);
 
-    let pox_addr = PoxAddress::Standard(spender_stx_addr, Some(AddressHashMode::SerializeP2PKH));
+    let pox_addr = PoxAddress::Standard(spender_stx_addr_1, Some(AddressHashMode::SerializeP2PKH));
 
     let mut block_height = channel.get_sortitions_processed();
 
-    let signer_pk_bytes = signer_pk.to_bytes_compressed();
+    let signer_pk_bytes = signer_pk_1.to_bytes_compressed();
 
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    let pre_stx_op = PreStxOp {
-        output: spender_stx_addr.clone(),
+    // Submitting 2 pre-stx operations
+    let mut miner_signer_1 = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let pre_stx_op_1 = PreStxOp {
+        output: spender_stx_addr_1,
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
-
     assert!(
         btc_regtest_controller
             .submit_operation(
                 StacksEpochId::Epoch25,
-                BlockstackOperationType::PreStx(pre_stx_op),
-                &mut miner_signer,
+                BlockstackOperationType::PreStx(pre_stx_op_1),
+                &mut miner_signer_1,
                 1
             )
             .is_some(),
         "Pre-stx operation should submit successfully"
     );
-    info!("Submitted pre-stx op at block {block_height}, mining a few blocks...");
+
+    let mut miner_signer_2 = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let pre_stx_op_2 = PreStxOp {
+        output: spender_stx_addr_2.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch25,
+                BlockstackOperationType::PreStx(pre_stx_op_2),
+                &mut miner_signer_2,
+                1
+            )
+            .is_some(),
+        "Pre-stx operation should submit successfully"
+    );
+    info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
 
     // Wait a few blocks to be registered
     for _i in 0..5 {
@@ -2410,9 +2436,9 @@ fn stack_stx_burn_op_test() {
         "reward_cycle" => reward_cycle,
     );
 
-    let stack_stx_op = BlockstackOperationType::StackStx(StackStxOp {
-        sender: spender_stx_addr.clone(),
-        reward_addr: pox_addr,
+    let stack_stx_op_with_some_signer_key = BlockstackOperationType::StackStx(StackStxOp {
+        sender: spender_stx_addr_1.clone(),
+        reward_addr: pox_addr.clone(),
         stacked_ustx: 100000,
         num_cycles: reward_cycle.try_into().unwrap(),
         signer_key: Some(signer_key),
@@ -2423,15 +2449,46 @@ fn stack_stx_burn_op_test() {
         burn_header_hash: BurnchainHeaderHash::zero(),
     });
 
-    let mut spender_signer = BurnchainOpSigner::new(signer_sk.clone(), false);
+    let mut spender_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
     assert!(
         btc_regtest_controller
-            .submit_operation(StacksEpochId::Epoch25, stack_stx_op, &mut spender_signer, 1)
+            .submit_operation(
+                StacksEpochId::Epoch25,
+                stack_stx_op_with_some_signer_key,
+                &mut spender_signer_1,
+                1
+            )
             .is_some(),
-        "Stack STX operation should submit successfully"
+        "Stack STX operation with some signer key should submit successfully"
     );
 
-    info!("Submitted stack STX op at height {block_height}, mining a few blocks...");
+    let stack_stx_op_with_no_signer_key = BlockstackOperationType::StackStx(StackStxOp {
+        sender: spender_stx_addr_2.clone(),
+        reward_addr: pox_addr.clone(),
+        stacked_ustx: 100000,
+        num_cycles: reward_cycle.try_into().unwrap(),
+        signer_key: None,
+        // to be filled in
+        vtxindex: 0,
+        txid: Txid([0u8; 32]),
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash::zero(),
+    });
+
+    let mut spender_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch25,
+                stack_stx_op_with_no_signer_key,
+                &mut spender_signer_2,
+                1
+            )
+            .is_some(),
+        "Stack STX operation with no signer key should submit successfully"
+    );
+
+    info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
     // the second block should process the vote, after which the balaces should be unchanged
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

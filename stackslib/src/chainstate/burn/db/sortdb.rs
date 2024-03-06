@@ -319,9 +319,11 @@ impl FromRow<StackStxOp> for StackStxOp {
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
-        let signer_key_str: String = row.get_unwrap("signer_key");
-        let signer_key = serde_json::from_str(&signer_key_str)
-            .expect("CORRUPTION: DB stored bad transition ops");
+        let signing_key_str_opt: Option<String> = row.get("signer_key")?;
+        let signer_key = match signing_key_str_opt {
+            Some(key_str) => serde_json::from_str(&key_str).ok(),
+            None => None,
+        };
 
         Ok(StackStxOp {
             txid,
