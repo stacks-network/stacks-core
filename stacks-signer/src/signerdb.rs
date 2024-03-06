@@ -19,9 +19,7 @@ use std::path::PathBuf;
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, tx_begin_immediate, Error as DBError,
 };
-use rusqlite::{
-    Connection, Error as SqliteError, OpenFlags, ToSql, Transaction as SqlTransaction, NO_PARAMS,
-};
+use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::signer::BlockInfo;
@@ -30,10 +28,8 @@ use crate::signer::BlockInfo;
 /// for the signer.
 #[derive(Debug)]
 pub struct SignerDb {
-    /// The SQLite database path
-    pub db_path: Option<PathBuf>,
-    // /// Connection to the DB
-    connection: Option<Connection>,
+    /// Connection to the SQLite database
+    db: Connection,
 }
 
 const CREATE_BLOCKS_TABLE: &'static str = "
@@ -46,58 +42,41 @@ impl SignerDb {
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
     /// if one doesn't exist.
-    pub fn new(db_path: &Option<PathBuf>) -> Result<SignerDb, DBError> {
-        let signer_db = SignerDb {
-            db_path: db_path.clone(),
-            connection: None,
-        };
-        let mut connection = signer_db.get_connection()?;
-        connection.pragma_update(None, "journal_mode", &"WAL".to_sql().unwrap())?;
-        connection.pragma_update(None, "synchronous", &"NORMAL".to_sql().unwrap())?;
-        let tx = tx_begin_immediate(&mut connection).expect("Unable to begin tx");
-        Self::instantiate_db(&tx).expect("Could not instantiate SignerDB");
-        tx.commit().expect("Unable to commit tx");
+    pub fn new(db_path: Option<PathBuf>) -> Result<SignerDb, DBError> {
+        let connection = Self::connect(&db_path)?;
 
-        let tx = tx_begin_immediate(&mut connection).expect("Unable to begin tx");
-        Self::instantiate_db(&tx).expect("Could not instantiate SignerDB");
-        tx.commit().expect("Unable to commit tx");
-        Ok(SignerDb {
-            db_path: db_path.clone(),
-            connection: None,
-        })
+        let signer_db = Self { db: connection };
+
+        signer_db.instantiate_db()?;
+
+        Ok(signer_db)
     }
 
-    fn db_already_instantiated(db: &SqlTransaction, table_name: &str) -> Result<bool, SqliteError> {
-        table_exists(db, table_name)
-    }
-
-    fn instantiate_db(db: &SqlTransaction) -> Result<(), SqliteError> {
-        if !Self::db_already_instantiated(db, "blocks")? {
-            db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
+    fn instantiate_db(&self) -> Result<(), DBError> {
+        if !table_exists(&self.db, "blocks")? {
+            self.db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
         }
 
         Ok(())
     }
 
-    fn get_connection(&self) -> Result<Connection, DBError> {
-        let db_path = self.db_path.clone().unwrap_or(PathBuf::from(":memory:"));
-        if &db_path == &PathBuf::from(":memory:") {
-            return Ok(self.memory_conn());
+    fn connect(db_path: &Option<PathBuf>) -> Result<Connection, SqliteError> {
+        if let Some(path) = db_path {
+            sqlite_open(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+                false,
+            )
+        } else {
+            Connection::open_in_memory()
         }
-        sqlite_open(
-            &db_path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-            false,
-        )
-        .map_err(|e| DBError::from(e))
     }
 
     /// Fetch a block from the database using the block's
     /// `signer_signature_hash`
     pub fn block_lookup(&self, hash: &Sha512Trunc256Sum) -> Result<Option<BlockInfo>, DBError> {
-        let conn = self.get_connection()?;
         let result: Option<String> = query_row(
-            &conn,
+            &self.db,
             "SELECT block_info FROM blocks WHERE signer_signature_hash = ?",
             &[format!("{}", hash)],
         )?;
@@ -113,11 +92,10 @@ impl SignerDb {
     /// Insert a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
-        let mut conn = self.get_connection()?;
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
-        let tx = tx_begin_immediate(&mut conn).expect("Unable to begin tx");
+        let tx = tx_begin_immediate(&mut self.db).expect("Unable to begin tx");
         tx.execute(
             "INSERT OR REPLACE INTO blocks (signer_signature_hash, block_info) VALUES (?1, ?2)",
             &[format!("{}", hash), block_json],
@@ -134,8 +112,7 @@ impl SignerDb {
 
     /// Remove a block
     pub fn remove_block(&mut self, hash: &Sha512Trunc256Sum) -> Result<(), DBError> {
-        let mut conn = self.get_connection()?;
-        let tx = tx_begin_immediate(&mut conn).expect("Unable to begin tx");
+        let tx = tx_begin_immediate(&mut self.db).expect("Unable to begin tx");
         tx.execute(
             "DELETE FROM blocks WHERE signer_signature_hash = ?",
             &[format!("{}", hash)],
@@ -143,20 +120,6 @@ impl SignerDb {
         .map_err(|e| DBError::from(e))?;
         tx.commit().map_err(|e| DBError::from(e))?;
         Ok(())
-    }
-
-    /// Generate a new memory-backed DB
-    pub fn memory_db() -> SignerDb {
-        SignerDb {
-            db_path: Some(PathBuf::from(":memory:")),
-            connection: None,
-        }
-    }
-
-    /// Generate a new memory-backed DB connection
-    pub fn memory_conn(&self) -> Connection {
-        let db = Connection::open_in_memory().expect("Could not create in-memory db");
-        db
     }
 }
 
@@ -167,7 +130,7 @@ pub fn test_signer_db(db_path: &str) -> SignerDb {
     if fs::metadata(&db_path).is_ok() {
         fs::remove_file(&db_path).unwrap();
     }
-    SignerDb::new(&Some(db_path.into())).expect("Failed to create signer db")
+    SignerDb::new(Some(db_path.into())).expect("Failed to create signer db")
 }
 
 #[cfg(test)]
@@ -225,7 +188,7 @@ mod tests {
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
-        let mut db = SignerDb::new(&db_path).expect("Failed to create signer db");
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block) = create_block();
         db.insert_block(&block_info)
             .expect("Unable to insert block into db");
@@ -241,7 +204,7 @@ mod tests {
     #[test]
     fn test_update_block() {
         let db_path = tmp_db_path();
-        let mut db = SignerDb::new(&db_path).expect("Failed to create signer db");
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block) = create_block();
         db.insert_block(&block_info)
             .expect("Unable to insert block into db");
