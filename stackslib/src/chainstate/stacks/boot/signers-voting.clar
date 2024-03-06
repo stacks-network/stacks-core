@@ -89,9 +89,14 @@
     (map-get? aggregate-public-keys reward-cycle))
 
 ;; get the weight required for consensus threshold
-(define-public (get-threshold-weight (reward-cycle uint))
+(define-private (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
         (ok (/ (+ (* total-weight threshold-consensus) u99) u100))))
+
+;; get the weight required for consensus threshold (read-only)
+(define-read-only (get-threshold-weight-read-only (reward-cycle uint))
+    (let  ((total-weight (default-to u0 (map-get? cycle-total-weight reward-cycle))))
+        (/ (+ (* total-weight threshold-consensus) u99) u100)))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
