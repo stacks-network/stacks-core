@@ -25,8 +25,8 @@
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
 
-;; Threshold consensus, expressed as parts-per-thousand to allow for integer
-;; division with higher precision (e.g. 700 for 70%).
+;; Threshold consensus, expressed as parts-per-hundred to allow for integer
+;; division with higher precision (e.g. 70 for 70%).
 (define-constant threshold-consensus u70)
 
 ;; Maps reward-cycle ids to last round
