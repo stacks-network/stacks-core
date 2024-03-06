@@ -910,11 +910,7 @@ impl Signer {
     ) -> std::collections::HashMap<StacksAddress, u64> {
         let mut account_nonces = std::collections::HashMap::with_capacity(signer_addresses.len());
         for address in signer_addresses {
-            let Ok(account_nonce) = retry_with_exponential_backoff(|| {
-                stacks_client
-                    .get_account_nonce(address)
-                    .map_err(backoff::Error::transient)
-            }) else {
+            let Ok(account_nonce) = stacks_client.get_account_nonce(address) else {
                 warn!("{self}: Unable to get account nonce for address: {address}.");
                 continue;
             };
