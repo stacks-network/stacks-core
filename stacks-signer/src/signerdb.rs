@@ -126,18 +126,18 @@ pub fn test_signer_db(db_path: &str) -> SignerDb {
 
 #[cfg(test)]
 mod tests {
-    use blockstack_lib::chainstate::{
-        nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote},
-        stacks::ThresholdSignature,
+    use std::fs;
+    use std::path::PathBuf;
+
+    use blockstack_lib::chainstate::nakamoto::{
+        NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
-    use stacks_common::{
-        bitvec::BitVec,
-        types::chainstate::{ConsensusHash, StacksBlockId, TrieHash},
-        util::secp256k1::MessageSignature,
-    };
+    use blockstack_lib::chainstate::stacks::ThresholdSignature;
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+    use stacks_common::util::secp256k1::MessageSignature;
 
     use super::*;
-    use std::{fs, path::PathBuf};
 
     fn _wipe_db(db_path: &PathBuf) {
         if fs::metadata(db_path).is_ok() {
