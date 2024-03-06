@@ -22,6 +22,8 @@ const MINIMAL_CAN_STACK_STX = "minimal-can-stack-stx";
 const GET_CHECK_DELEGATION = "get-check-delegation";
 const GET_DELEGATION_INFO = "get-delegation-info";
 const GET_ALLOWANCE_CONTRACT_CALLERS = "get-allowance-contract-callers";
+const GET_NUM_REWARD_SET_POX_ADDRESSES = "get-num-reward-set-pox-addresses";
+const GET_PARTIAL_STACKED_BY_CYCLE = "get-partial-stacked-by-cycle";
 const ALLOW_CONTRACT_CALLER = "allow-contract-caller";
 // Contract Consts
 const TESTNET_STACKING_THRESHOLD_25 = 8000;
@@ -1486,7 +1488,7 @@ describe("test pox-4 contract", () => {
       );
     });
 
-    it("should return some get-allowance-contract-caller after allow-contract-caller", () => {
+    it("should return some(until-burn-ht: none) get-allowance-contract-caller after allow-contract-caller", () => {
       fc.assert(
         fc.property(
           fc.constantFrom(...simnet.getAccounts().values()),
@@ -1519,9 +1521,61 @@ describe("test pox-4 contract", () => {
       );
     });
 
+    it("should return u0 get-num-reward-set-pox-addresses", () => {
+      fc.assert(
+        fc.property(
+          fc.constantFrom(...simnet.getAccounts().values()),
+          fc.nat(),
+          (caller, reward_cycle) => {
+            // Arrange
+            const expected = 0;
+            // Act
+            const { result: actual } = simnet.callReadOnlyFn(
+              POX_4,
+              GET_NUM_REWARD_SET_POX_ADDRESSES,
+              [Cl.uint(reward_cycle)],
+              caller
+            );
+            // Assert
+            assert(isClarityType(actual, ClarityType.UInt));
+            expect(actual).toBeUint(expected);
+          }
+        )
+      );
+    });
+
+    it("should return none get-partial-stacked-by-cycle", () => {
+      fc.assert(
+        fc.property(
+          fc.constantFrom(...simnet.getAccounts().values()),
+          fc.nat({ max: 6 }),
+          fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
+          fc.nat(),
+          fc.constantFrom(...simnet.getAccounts().values()),
+          (caller, version, hashbytes, reward_cycle, sender) => {
+            // Arrange
+            // Act
+            const { result: actual } = simnet.callReadOnlyFn(
+              POX_4,
+              GET_PARTIAL_STACKED_BY_CYCLE,
+              [
+                Cl.tuple({
+                  version: Cl.buffer(Uint8Array.from([version])),
+                  hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+                }),
+                Cl.uint(reward_cycle),
+                Cl.principal(sender),
+              ],
+              caller
+            );
+            // Assert
+            assert(isClarityType(actual, ClarityType.OptionalNone));
+          }
+        )
+      );
+    });
+
     // get-signer-key-message-hash
     // verify-signer-key-sig
-    // get-num-reward-set-pox-addresses
-    // get-partial-stacked-by-cycle
   });
 });
