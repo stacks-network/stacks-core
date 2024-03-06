@@ -89,14 +89,13 @@
     (map-get? aggregate-public-keys reward-cycle))
 
 ;; get the weight required for consensus threshold
-(define-private (get-threshold-weight (reward-cycle uint))
-    (let  ((total-weight (try! (get-and-cache-total-weight reward-cycle))))
-        (ok (/ (+ (* total-weight threshold-consensus) u99) u100))))
-
-;; get the weight required for consensus threshold (read-only)
-(define-read-only (get-threshold-weight-read-only (reward-cycle uint))
+(define-read-only (get-threshold-weight (reward-cycle uint))
     (let  ((total-weight (default-to u0 (map-get? cycle-total-weight reward-cycle))))
         (/ (+ (* total-weight threshold-consensus) u99) u100)))
+
+;; get the voting data for specific reward cycle and round
+(define-private (get-voting-data (reward-cycle uint) (round uint))
+    (unwrap-panic (map-get? round-data {reward-cycle: reward-cycle, round: round})))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
@@ -151,7 +150,8 @@
             ;; vote by signer weight
             (signer-weight (unwrap! (get-signer-weight signer-index reward-cycle) (err ERR_GET_SIGNER_WEIGHT)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
-            (threshold-weight (try! (get-threshold-weight reward-cycle)))
+            (cached-weight (try! (get-and-cache-total-weight reward-cycle)))
+            (threshold-weight (get-threshold-weight reward-cycle))
             (current-round (default-to {
                 votes-count: u0, 
                 votes-weight: u0} (map-get? round-data {reward-cycle: reward-cycle, round: round})))
