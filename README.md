@@ -36,8 +36,8 @@ $ rustup update
 ### 2. Clone the source repository:
 
 ```bash
-$ git clone --depth=1 https://github.com/stacks-network/stacks-blockchain.git
-$ cd stacks-blockchain
+$ git clone --depth=1 https://github.com/stacks-network/stacks-core.git
+$ cd stacks-core
 ```
 
 ### 3. Build the project
@@ -57,6 +57,7 @@ $ cargo test testnet  -- --test-threads=1
 **Run all unit tests in parallel using [nextest](https://nexte.st/):**
 
 _Warning, this typically takes a few minutes_
+
 ```bash
 $ cargo nextest run
 ```
