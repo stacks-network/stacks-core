@@ -56,7 +56,7 @@ jobs:
       - name: Build Binary
         id: build_binary
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: BowTiedDevOps/actions/stacks-core/create-source-binary@feat/update-release-build-dockerfiles
+        uses: stacks-network/actions/stacks-core/create-source-binary@feat/update-release-dockerfiles
         with:
           arch: ${{ matrix.arch }}
           cpu: ${{ matrix.cpu }}
