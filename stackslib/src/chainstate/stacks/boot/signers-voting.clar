@@ -95,7 +95,7 @@
 
 ;; get the voting data for specific reward cycle and round
 (define-private (get-voting-data (reward-cycle uint) (round uint))
-    (unwrap-panic (map-get? round-data {reward-cycle: reward-cycle, round: round})))
+    (map-get? round-data {reward-cycle: reward-cycle, round: round}))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
