@@ -64,7 +64,9 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 use crate::chainstate::stacks::boot::pox_4_tests::{
     assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
 };
-use crate::chainstate::stacks::boot::signers_tests::{get_signer_index, prepare_signers_test, get_round_info};
+use crate::chainstate::stacks::boot::signers_tests::{
+    get_round_info, get_signer_index, prepare_signers_test,
+};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, SIGNERS_NAME,
     SIGNERS_VOTING_NAME,
@@ -2051,86 +2053,43 @@ fn vote_for_aggregate_public_key_mixed_rounds() {
 // In this test case, Alice & Bob vote & we test the new getter
 #[test]
 fn test_get_round_info() {
-     // Test setup
-     let alice = TestStacker::from_seed(&[3, 4]);
-     let bob = TestStacker::from_seed(&[5, 6]);
-     let observer = TestEventObserver::new();
- 
-     // Alice - Signer 1
-     let alice_key = &alice.signer_private_key;
-     let alice_address = key_to_stacks_addr(alice_key);
-     let alice_principal = PrincipalData::from(alice_address);
- 
-     // Bob - Signer 2
-     let bob_key = &bob.signer_private_key;
-     let bob_address = key_to_stacks_addr(bob_key);
-     let bob_principal = PrincipalData::from(bob_address);
- 
-     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
-         function_name!(),
-         vec![
-             (alice_principal.clone(), 1000),
-             (bob_principal.clone(), 1000),
-         ],
-         &[alice.clone(), bob.clone()],
-         Some(&observer),
-     );
- 
-     // Alice and Bob will each have voted once while booting to Nakamoto
-     let alice_nonce = 1;
-     let bob_nonce = 1;
- 
-     let cycle_id = current_reward_cycle;
- 
-     // create vote txs
-     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
-     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
- 
-     let mut signers = TestSigners::default();
-     let aggregate_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
-     let aggregate_public_key = Value::buff_from(aggregate_key.compress().data.to_vec())
-         .expect("Failed to serialize aggregate public key");
- 
-     let aggregate_public_key_ill_formed = Value::buff_from_byte(0x00);
- 
-     let txs = vec![
-         // Alice casts vote correctly
-         make_signers_vote_for_aggregate_public_key_value(
-             alice_key,
-             alice_nonce,
-             alice_index,
-             aggregate_public_key.clone(),
-             0,
-             cycle_id + 1,
-         ),
-         // Bob casts a vote correctly
-         make_signers_vote_for_aggregate_public_key_value(
-             bob_key,
-             bob_nonce,
-             bob_index,
-             aggregate_public_key.clone(),
-             0,
-             cycle_id + 1,
-         ),
-     ];
- 
-     //
-     // vote in the first burn block of prepare phase
-     //
-     let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs]);
+    // Test setup
+    let alice = TestStacker::from_seed(&[3, 4]);
+    let bob = TestStacker::from_seed(&[5, 6]);
+    let observer = TestEventObserver::new();
 
-    // Proceed to the next prepare phase
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
-    let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
+    // Alice - Signer 1
+    let alice_key = &alice.signer_private_key;
+    let alice_address = key_to_stacks_addr(alice_key);
+    let alice_principal = PrincipalData::from(alice_address);
 
-     let round_info = get_round_info(&mut peer, latest_block_id, cycle_id, 0);
+    // Bob - Signer 2
+    let bob_key = &bob.signer_private_key;
+    let bob_address = key_to_stacks_addr(bob_key);
+    let bob_principal = PrincipalData::from(bob_address);
 
-     println!("Round Info: {:?}", round_info);
- 
+    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+        function_name!(),
+        vec![
+            (alice_principal.clone(), 1000),
+            (bob_principal.clone(), 1000),
+        ],
+        &[alice.clone(), bob.clone()],
+        Some(&observer),
+    );
+
+    // Get the current creward cycle
+    let cycle_id = current_reward_cycle;
+
+    let round_info = get_round_info(&mut peer, latest_block_id, cycle_id, 0)
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+    let votes_count = round_info.get("votes-count").unwrap();
+    let votes_weight = round_info.get("votes-weight").unwrap();
+
+    assert_eq!(votes_count, &Value::UInt(2));
+    assert_eq!(votes_weight, &Value::UInt(4));
 }
 
 fn nakamoto_tenure(

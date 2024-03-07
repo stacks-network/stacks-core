@@ -546,15 +546,16 @@ pub fn get_round_info(
     peer: &mut TestPeer<'_>,
     latest_block_id: StacksBlockId,
     reward_cycle: u128,
-    round: u128) -> Option<Value> {
-        let round_tuple = readonly_call(
-            peer,
-            &latest_block_id,
-            "signers-voting".into(),
-            "get-round-info".into(),
-            vec![Value::UInt(reward_cycle), Value::UInt(round)],
-        )
-        .expect_optional()
-        .unwrap();
+    round: u128,
+) -> Option<Value> {
+    let round_tuple = readonly_call(
+        peer,
+        &latest_block_id,
+        "signers-voting".into(),
+        "get-round-info".into(),
+        vec![Value::UInt(reward_cycle), Value::UInt(round)],
+    )
+    .expect_optional()
+    .unwrap();
     round_tuple
 }
