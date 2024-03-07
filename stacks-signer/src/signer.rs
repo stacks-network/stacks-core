@@ -206,7 +206,8 @@ impl From<SignerConfig> for Signer {
             CoordinatorSelector::from(signer_config.signer_entries.public_keys);
 
         debug!(
-            "Signer #{}: initial coordinator is signer {}",
+            "Reward cycle #{} Signer #{}: initial coordinator is signer {}",
+            signer_config.reward_cycle,
             signer_config.signer_id,
             coordinator_selector.get_coordinator().0
         );
@@ -256,7 +257,7 @@ impl Signer {
         match command {
             Command::Dkg => {
                 if self.approved_aggregate_public_key.is_some() {
-                    debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Ignoring DKG command.", self.signer_id, self.reward_cycle);
+                    debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
                     return;
                 }
                 let vote_round = match retry_with_exponential_backoff(|| {
@@ -266,14 +267,15 @@ impl Signer {
                 }) {
                     Ok(last_round) => last_round,
                     Err(e) => {
-                        error!("Signer #{}: Unable to perform DKG. Failed to get last round from stacks node: {e:?}", self.signer_id);
+                        error!("Reward cycle #{} Signer #{}: Unable to perform DKG. Failed to get last round from stacks node: {e:?}", self.reward_cycle, self.signer_id);
                         return;
                     }
                 };
                 // The dkg id will increment internally following "start_dkg_round" so do not increment it here
                 self.coordinator.current_dkg_id = vote_round.unwrap_or(0);
                 info!(
-                    "Signer #{}: Starting DKG vote",
+                    "Reward cycle #{} Signer #{}: Starting DKG vote",
+                    self.reward_cycle,
                     self.signer_id;
                     "round" => self.coordinator.current_dkg_id.wrapping_add(1),
                     "cycle" => self.reward_cycle,
@@ -281,10 +283,16 @@ impl Signer {
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
-                        debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
+                        debug!(
+                            "Reward cycle #{} Signer #{}: ACK: {ack:?}",
+                            self.reward_cycle, self.signer_id
+                        );
                     }
                     Err(e) => {
-                        error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
+                        error!(
+                            "Reward cycle #{} Signer #{}: Failed to start DKG: {e:?}",
+                            self.reward_cycle, self.signer_id
+                        );
                         return;
                     }
                 }
@@ -295,7 +303,7 @@ impl Signer {
                 merkle_root,
             } => {
                 if self.approved_aggregate_public_key.is_none() {
-                    debug!("Signer #{}: Cannot sign a block without an approved aggregate public key. Ignore it.", self.signer_id);
+                    debug!("Reward cycle #{} Signer #{}: Cannot sign a block without an approved aggregate public key. Ignore it.", self.reward_cycle, self.signer_id);
                     return;
                 }
                 let signer_signature_hash = block.header.signer_signature_hash();
@@ -305,10 +313,10 @@ impl Signer {
                     .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
                     .unwrap_or_else(|| BlockInfo::new(block.clone()));
                 if block_info.signed_over {
-                    debug!("Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.signer_id);
+                    debug!("Reward cycle #{} Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.reward_cycle, self.signer_id);
                     return;
                 }
-                info!("Signer #{}: Signing block", self.signer_id;
+                info!("Reward cycle #{} Signer #{}: Signing block", self.reward_cycle, self.signer_id;
                          "block_consensus_hash" => %block.header.consensus_hash,
                          "block_height" => block.header.chain_length,
                          "pre_sign_block_id" => %block.block_id(),
@@ -320,7 +328,10 @@ impl Signer {
                 ) {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
-                        debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
+                        debug!(
+                            "Reward cycle #{} Signer #{}: ACK: {ack:?}",
+                            self.reward_cycle, self.signer_id
+                        );
                         block_info.signed_over = true;
                         self.signer_db
                             .insert_block(&block_info)
@@ -330,8 +341,8 @@ impl Signer {
                     }
                     Err(e) => {
                         error!(
-                            "Signer #{}: Failed to start signing block: {e:?}",
-                            self.signer_id
+                            "Reward cycle #{} Signer #{}: Failed to start signing block: {e:?}",
+                            self.reward_cycle, self.signer_id
                         );
                         return;
                     }
@@ -348,7 +359,8 @@ impl Signer {
             State::Idle => {
                 if coordinator_id != self.signer_id {
                     debug!(
-                        "Signer #{}: Coordinator is {coordinator_id:?}. Will not process any commands...",
+                        "Reward cycle #{} Signer #{}: Coordinator is {coordinator_id:?}. Will not process any commands...",
+                        self.reward_cycle,
                         self.signer_id
                     );
                     return;
@@ -357,15 +369,16 @@ impl Signer {
                     self.execute_command(stacks_client, &command);
                 } else {
                     debug!(
-                        "Signer #{}: Nothing to process. Waiting for command...",
-                        self.signer_id
+                        "Reward cycle #{} Signer #{}: Nothing to process. Waiting for command...",
+                        self.reward_cycle, self.signer_id
                     );
                 }
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
                 debug!(
-                    "Signer #{}: Waiting for coordinator {coordinator_id:?} operation to finish...",
+                    "Reward cycle #{} Signer #{}: Waiting for coordinator {coordinator_id:?} operation to finish...",
+                    self.reward_cycle,
                     self.signer_id,
                 );
             }
@@ -387,13 +400,13 @@ impl Signer {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
+                        debug!("Reward Cycle #{} Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.reward_cycle, self.signer_id);
                         return;
                     }
                     Err(e) => {
                         error!(
-                            "Signer #{}: Failed to lookup block in signer db: {:?}",
-                            self.signer_id, e
+                            "Rewrad Cycle #{} Signer #{}: Failed to lookup block in signer db: {:?}",
+                            self.reward_cycle, self.signer_id, e
                         );
                         return;
                     }
@@ -404,7 +417,8 @@ impl Signer {
                     .insert_block(&block_info)
                     .expect("Failed to insert block in DB");
                 info!(
-                    "Signer #{}: Treating block validation for block {} as valid: {:?}",
+                    "Reward cycle #{} Signer #{}: Treating block validation for block {} as valid: {:?}",
+                    self.reward_cycle,
                     self.signer_id,
                     &block_info.block.block_id(),
                     block_info.valid
@@ -417,13 +431,13 @@ impl Signer {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
+                        debug!("Reward Cycle #{} Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.reward_cycle, self.signer_id);
                         return;
                     }
                     Err(e) => {
                         error!(
-                            "Signer #{}: Failed to lookup block in signer db: {:?}",
-                            self.signer_id, e
+                            "Reward Cycle #{} Signer #{}: Failed to lookup block in signer db: {:?}",
+                            self.reward_cycle, self.signer_id, e
                         );
                         return;
                     }
@@ -431,13 +445,14 @@ impl Signer {
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
-                warn!("Signer #{}: Broadcasting a block rejection due to stacks node validation failure...", self.signer_id);
+                warn!("Reward cycle #{} Signer #{}: Broadcasting a block rejection due to stacks node validation failure...", self.reward_cycle, self.signer_id);
                 if let Err(e) = self
                     .stackerdb
                     .send_message_with_retry(block_validate_reject.clone().into())
                 {
                     warn!(
-                        "Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        "Reward cycle #{} Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        self.reward_cycle,
                         self.signer_id
                     );
                 }
@@ -445,9 +460,14 @@ impl Signer {
             }
         };
         if let Some(mut nonce_request) = block_info.nonce_request.take() {
-            debug!("Signer #{}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...", self.signer_id);
+            debug!("Reward cycle #{} Signer #{}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...", self.reward_cycle, self.signer_id);
             // We have received validation from the stacks node. Determine our vote and update the request message
-            Self::determine_vote(self.signer_id, &mut block_info, &mut nonce_request);
+            Self::determine_vote(
+                self.signer_id,
+                self.reward_cycle,
+                &mut block_info,
+                &mut nonce_request,
+            );
             // Send the nonce request through with our vote
             let packet = Packet {
                 msg: Message::NonceRequest(nonce_request),
@@ -462,7 +482,8 @@ impl Signer {
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
-                    "Signer #{}: triggering a signing round over the block {}",
+                    "Reward cycle #{} Signer #{}: triggering a signing round over the block {}",
+                    self.reward_cycle,
                     self.signer_id,
                     block_info.block.header.block_hash()
                 );
@@ -473,7 +494,7 @@ impl Signer {
                 });
             } else {
                 debug!(
-                    "Signer #{} ignoring block.", self.signer_id;
+                    "Reward cycle #{} Signer #{} ignoring block.", self.reward_cycle, self.signer_id;
                     "block_hash" => block_info.block.header.block_hash(),
                     "valid" => block_info.valid,
                     "signed_over" => block_info.signed_over,
@@ -521,8 +542,8 @@ impl Signer {
                 .submit_block_for_validation(block.clone())
                 .unwrap_or_else(|e| {
                     warn!(
-                        "Signer #{}: Failed to submit block for validation: {e:?}",
-                        self.signer_id
+                        "Reward cycle #{} Signer #{}: Failed to submit block for validation: {e:?}",
+                        self.reward_cycle, self.signer_id
                     );
                 });
         }
@@ -541,7 +562,8 @@ impl Signer {
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
                 error!(
-                    "Signer #{}: Failed to process inbound messages as a signer: {e:?}",
+                    "Reward cycle #{} Signer #{}: Failed to process inbound messages as a signer: {e:?}",
+                    self.reward_cycle,
                     self.signer_id
                 );
                 vec![]
@@ -553,7 +575,8 @@ impl Signer {
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
                 error!(
-                    "Signer #{}: Failed to process inbound messages as a coordinator: {e:?}",
+                    "Reward cycle #{} Signer #{}: Failed to process inbound messages as a coordinator: {e:?}",
+                    self.reward_cycle,
                     self.signer_id
                 );
                 (vec![], vec![])
@@ -581,7 +604,8 @@ impl Signer {
         else {
             // We currently reject anything that is not a block vote
             debug!(
-                "Signer #{}: Received a signature share request for an unknown message stream. Reject it.",
+                "Reward cycle #{} Signer #{}: Received a signature share request for an unknown message stream. Reject it.",
+                self.reward_cycle,
                 self.signer_id
             );
             return false;
@@ -596,8 +620,8 @@ impl Signer {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
                 debug!(
-                    "Signer #{}: set vote for {} to {vote:?}",
-                    self.signer_id, block_vote.rejected
+                    "Reward cycle #{} Signer #{}: set vote for {} to {vote:?}",
+                    self.reward_cycle, self.signer_id, block_vote.rejected
                 );
                 request.message = vote.serialize_to_vec();
                 true
@@ -606,14 +630,14 @@ impl Signer {
                 // We never agreed to sign this block. Reject it.
                 // This can happen if the coordinator received enough votes to sign yes
                 // or no on a block before we received validation from the stacks node.
-                debug!("Signer #{}: Received a signature share request for a block we never agreed to sign. Ignore it.", self.signer_id);
+                debug!("Reward cycle #{} Signer #{}: Received a signature share request for a block we never agreed to sign. Ignore it.", self.reward_cycle, self.signer_id);
                 false
             }
             None => {
                 // We will only sign across block hashes or block hashes + b'n' byte for
                 // blocks we have seen a Nonce Request for (and subsequent validation)
                 // We are missing the context here necessary to make a decision. Reject the block
-                debug!("Signer #{}: Received a signature share request from an unknown block. Reject it.", self.signer_id);
+                debug!("Reward cycle #{} Signer #{}: Received a signature share request from an unknown block. Reject it.", self.reward_cycle, self.signer_id);
                 false
             }
         }
@@ -632,7 +656,8 @@ impl Signer {
         else {
             // We currently reject anything that is not a block
             debug!(
-                "Signer #{}: Received a nonce request for an unknown message stream. Reject it.",
+                "Reward cycle #{} Signer #{}: Received a nonce request for an unknown message stream. Reject it.",
+                self.reward_cycle,
                 self.signer_id
             );
             return false;
@@ -645,7 +670,7 @@ impl Signer {
         {
             Some(block_info) => block_info,
             None => {
-                debug!("Signer #{}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...", self.signer_id);
+                debug!("Reward Cycle #{} Signer #{}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...", self.reward_cycle, self.signer_id);
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
                     .insert_block(&block_info)
@@ -654,7 +679,8 @@ impl Signer {
                     .submit_block_for_validation(block)
                     .unwrap_or_else(|e| {
                         warn!(
-                            "Signer #{}: Failed to submit block for validation: {e:?}",
+                            "Reward Cycle #{} Signer #{}: Failed to submit block for validation: {e:?}",
+                            self.reward_cycle,
                             self.signer_id
                         );
                     });
@@ -664,12 +690,17 @@ impl Signer {
 
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
-            debug!("Signer #{}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...", self.signer_id);
+            debug!("Reward cycle #{} Signer #{}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...", self.reward_cycle, self.signer_id);
             block_info.nonce_request = Some(nonce_request.clone());
             return false;
         }
 
-        Self::determine_vote(self.signer_id, &mut block_info, nonce_request);
+        Self::determine_vote(
+            self.signer_id,
+            self.reward_cycle,
+            &mut block_info,
+            nonce_request,
+        );
         self.signer_db
             .insert_block(&block_info)
             .expect("Failed to insert block in DB");
@@ -685,7 +716,7 @@ impl Signer {
         if self.approved_aggregate_public_key.is_some() {
             // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
             // TODO: should be only allow special cased transactions during prepare phase before a key is set?
-            debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Skipping transaction verification...", self.signer_id, self.reward_cycle);
+            debug!("Reward cycle #{} Signer #{}: Already have an aggregate key for reward cycle {}. Skipping transaction verification...", self.reward_cycle, self.signer_id, self.reward_cycle);
             return true;
         }
         if let Ok(expected_transactions) = self.get_expected_transactions(stacks_client) {
@@ -697,14 +728,16 @@ impl Signer {
                 .filter_map(|tx| {
                     if !block_tx_hashset.contains(&tx.txid()) {
                         debug!(
-                            "Signer #{}: expected txid {} is in the block",
+                            "Reward cycle #{} Signer #{}: expected txid {} is in the block",
+                            self.reward_cycle,
                             self.signer_id,
                             &tx.txid()
                         );
                         Some(tx)
                     } else {
                         debug!(
-                            "Signer #{}: missing expected txid {}",
+                            "Reward cycle #{} Signer #{}: missing expected txid {}",
+                            self.reward_cycle,
                             self.signer_id,
                             &tx.txid()
                         );
@@ -714,7 +747,7 @@ impl Signer {
                 .collect::<Vec<_>>();
             let is_valid = missing_transactions.is_empty();
             if !is_valid {
-                debug!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
+                debug!("Reward cycle #{} Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.reward_cycle, self.signer_id);
                 let block_rejection = BlockRejection::new(
                     block.header.signer_signature_hash(),
                     RejectCode::MissingTransactions(missing_transactions),
@@ -725,7 +758,8 @@ impl Signer {
                     .send_message_with_retry(block_rejection.into())
                 {
                     warn!(
-                        "Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        "Reward cycle #{} Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        self.reward_cycle,
                         self.signer_id
                     );
                 }
@@ -734,7 +768,8 @@ impl Signer {
         } else {
             // Failed to connect to the stacks node to get transactions. Cannot validate the block. Reject it.
             debug!(
-                "Signer #{}: Broadcasting a block rejection due to signer connectivity issues...",
+                "Reward cycle #{} Signer #{}: Broadcasting a block rejection due to signer connectivity issues...",
+                self.reward_cycle,
                 self.signer_id
             );
             let block_rejection = BlockRejection::new(
@@ -747,7 +782,8 @@ impl Signer {
                 .send_message_with_retry(block_rejection.into())
             {
                 warn!(
-                    "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                    "Reward cycle #{} Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                    self.reward_cycle,
                     self.signer_id
                 );
             }
@@ -781,8 +817,8 @@ impl Signer {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         if self.next_signer_slot_ids.is_empty() {
             debug!(
-                "Signer #{}: No next signers. Skipping transaction retrieval.",
-                self.signer_id
+                "Reward cycle #{} Signer #{}: No next signers. Skipping transaction retrieval.",
+                self.reward_cycle, self.signer_id
             );
             return Ok(vec![]);
         }
@@ -805,19 +841,22 @@ impl Signer {
     /// Determine the vote for a block and update the block info and nonce request accordingly
     fn determine_vote(
         signer_id: u32,
+        reward_cycle: u64,
         block_info: &mut BlockInfo,
         nonce_request: &mut NonceRequest,
     ) {
         let rejected = !block_info.valid.unwrap_or(false);
         if rejected {
             debug!(
-                "Signer #{}: Rejecting block {}",
+                "Reward cycle #{} Signer #{}: Rejecting block {}",
+                reward_cycle,
                 signer_id,
                 block_info.block.block_id()
             );
         } else {
             debug!(
-                "Signer #{}: Accepting block {}",
+                "Reward cycle #{} Signer #{}: Accepting block {}",
+                reward_cycle,
                 signer_id,
                 block_info.block.block_id()
             );
@@ -863,8 +902,8 @@ impl Signer {
             Some(packet)
         } else {
             debug!(
-                "Signer #{}: Failed to verify wsts packet with {}: {packet:?}",
-                self.signer_id, coordinator_public_key
+                "Reward cycle #{} Signer #{}: Failed to verify wsts packet with {}: {packet:?}",
+                self.reward_cycle, self.signer_id, coordinator_public_key
             );
             None
         }
@@ -881,21 +920,30 @@ impl Signer {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
             match operation_result {
                 OperationResult::Sign(signature) => {
-                    debug!("Signer #{}: Received signature result", self.signer_id);
+                    debug!(
+                        "Reward cycle #{} Signer #{}: Received signature result",
+                        self.reward_cycle, self.signer_id
+                    );
                     self.process_signature(signature);
                 }
                 OperationResult::SignTaproot(_) => {
-                    debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
+                    debug!("Reward cycle #{} Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.reward_cycle, self.signer_id);
                 }
                 OperationResult::Dkg(dkg_public_key) => {
                     self.process_dkg(stacks_client, dkg_public_key);
                 }
                 OperationResult::SignError(e) => {
-                    warn!("Signer #{}: Received a Sign error: {e:?}", self.signer_id);
+                    warn!(
+                        "Reward cycle #{} Signer #{}: Received a Sign error: {e:?}",
+                        self.reward_cycle, self.signer_id
+                    );
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
-                    warn!("Signer #{}: Received a DKG error: {e:?}", self.signer_id);
+                    warn!(
+                        "Reward cycle #{} Signer #{}: Received a DKG error: {e:?}",
+                        self.reward_cycle, self.signer_id
+                    );
                     // TODO: process these errors and track malicious signers to report
                 }
             }
@@ -912,7 +960,8 @@ impl Signer {
         .unwrap_or(StacksEpochId::Epoch24);
         let tx_fee = if epoch < StacksEpochId::Epoch30 {
             debug!(
-                "Signer #{}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.",
+                "Reward cycle #{} Signer #{}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.",
+                self.reward_cycle,
                 self.signer_id
             );
             Some(self.tx_fee_ustx)
@@ -930,8 +979,8 @@ impl Signer {
         })
         .map_err(|e| {
             warn!(
-                "Signer #{}: Unable to get signer transactions: {e:?}",
-                self.signer_id
+                "Reward cycle #{} Signer #{}: Unable to get signer transactions: {e:?}",
+                self.reward_cycle, self.signer_id
             );
         })
         .unwrap_or_default();
@@ -956,14 +1005,16 @@ impl Signer {
                     new_transaction,
                 ) {
                     warn!(
-                        "Signer #{}: Failed to broadcast DKG public key vote ({dkg_public_key:?}): {e:?}",
+                        "Reward cycle #{} Signer #{}: Failed to broadcast DKG public key vote ({dkg_public_key:?}): {e:?}",
+                        self.reward_cycle,
                         self.signer_id
                     );
                 }
             }
             Err(e) => {
                 warn!(
-                    "Signer #{}: Failed to build DKG public key vote ({dkg_public_key:?}) transaction: {e:?}.",
+                    "Reward cycle #{} Signer #{}: Failed to build DKG public key vote ({dkg_public_key:?}) transaction: {e:?}.",
+                    self.reward_cycle,
                     self.signer_id
                 );
             }
@@ -984,7 +1035,8 @@ impl Signer {
                     .map_err(backoff::Error::transient)
             }) else {
                 warn!(
-                    "Signer #{}: Unable to get account nonce for address: {address}.",
+                    "Reward cycle #{} Signer #{}: Unable to get account nonce for address: {address}.",
+                    self.reward_cycle,
                     self.signer_id
                 );
                 continue;
@@ -1006,22 +1058,23 @@ impl Signer {
         if self.approved_aggregate_public_key.is_some() {
             // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
             info!(
-                "Signer #{}: Already has an aggregate key for reward cycle {}. Do not broadcast the transaction ({txid:?}).",
-                self.signer_id, self.reward_cycle
+                "Reward cycle #{} Signer #{}: Already has an approved aggregate key. Do not broadcast the transaction ({txid:?}).",
+                self.reward_cycle, self.signer_id
             );
             return Ok(());
         }
         if epoch >= StacksEpochId::Epoch30 {
-            debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
+            debug!("Reward cycle #{} Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.reward_cycle, self.signer_id);
         } else if epoch == StacksEpochId::Epoch25 {
-            debug!("Signer #{}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
+            debug!("Reward cycle #{} Signer #{}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.", self.reward_cycle, self.signer_id);
             stacks_client.submit_transaction(&new_transaction)?;
             info!(
-                "Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
+                "Reward cycle #{} Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
+                self.reward_cycle,
                 self.signer_id
             );
         } else {
-            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", self.signer_id, new_transaction.txid());
+            debug!("Reward cycle #{} Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", self.reward_cycle, self.signer_id, new_transaction.txid());
             return Ok(());
         }
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
@@ -1029,8 +1082,8 @@ impl Signer {
         let signer_message = SignerMessage::Transactions(signer_transactions);
         self.stackerdb.send_message_with_retry(signer_message)?;
         info!(
-            "Signer #{}: Broadcasted DKG vote transaction ({txid}) to stacker DB",
-            self.signer_id,
+            "Reward cycle #{} Signer #{}: Broadcasted DKG vote transaction ({txid}) to stacker DB",
+            self.reward_cycle, self.signer_id,
         );
         Ok(())
     }
@@ -1042,7 +1095,8 @@ impl Signer {
         let message = self.coordinator.get_message();
         let Some(block_vote): Option<NakamotoBlockVote> = read_next(&mut &message[..]).ok() else {
             debug!(
-                "Signer #{}: Received a signature result for a non-block. Nothing to broadcast.",
+                "Reward cycle #{} Signer #{}: Received a signature result for a non-block. Nothing to broadcast.",
+                self.reward_cycle,
                 self.signer_id
             );
             return;
@@ -1063,13 +1117,13 @@ impl Signer {
 
         // Submit signature result to miners to observe
         debug!(
-            "Signer #{}: submit block response {block_submission:?}",
-            self.signer_id
+            "Reward cycle #{} Signer #{}: submit block response {block_submission:?}",
+            self.reward_cycle, self.signer_id
         );
         if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
             warn!(
-                "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
-                self.signer_id
+                "Reward cycle #{} Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                self.reward_cycle, self.signer_id
             );
         }
     }
@@ -1086,7 +1140,8 @@ impl Signer {
             else {
                 // This is not a block vote either. We cannot process this error
                 debug!(
-                    "Signer #{}: Received a signature error for a non-block. Nothing to broadcast.",
+                    "Reward Cycle #{} Signer #{}: Received a signature error for a non-block. Nothing to broadcast.",
+                    self.reward_cycle,
                     self.signer_id
                 );
                 return;
@@ -1097,7 +1152,7 @@ impl Signer {
                 .expect("Failed to connect to signer DB")
             else {
                 debug!(
-                    "Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id
+                    "Reward Cycle #{} Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.reward_cycle, self.signer_id
                 );
                 return;
             };
@@ -1106,8 +1161,8 @@ impl Signer {
         let block_rejection =
             BlockRejection::new(block.header.signer_signature_hash(), RejectCode::from(e));
         debug!(
-            "Signer #{}: Broadcasting block rejection: {block_rejection:?}",
-            self.signer_id
+            "Reward cycle #{} Signer #{}: Broadcasting block rejection: {block_rejection:?}",
+            self.reward_cycle, self.signer_id
         );
         // Submit signature result to miners to observe
         if let Err(e) = self
@@ -1115,7 +1170,8 @@ impl Signer {
             .send_message_with_retry(block_rejection.into())
         {
             warn!(
-                "Signer #{}: Failed to send block rejection submission to stacker-db: {e:?}",
+                "Reward cycle #{} Signer #{}: Failed to send block rejection submission to stacker-db: {e:?}",
+                self.reward_cycle,
                 self.signer_id
             );
         }
@@ -1131,13 +1187,14 @@ impl Signer {
         match res.send(operation_results) {
             Ok(_) => {
                 debug!(
-                    "Signer #{}: Successfully sent {} operation result(s)",
-                    self.signer_id, nmb_results
+                    "Reward cycle #{} Signer #{}: Successfully sent {} operation result(s)",
+                    self.reward_cycle, self.signer_id, nmb_results
                 )
             }
             Err(e) => {
                 warn!(
-                    "Signer #{}: Failed to send {nmb_results} operation results: {e:?}",
+                    "Reward cycle #{} Signer #{}: Failed to send {nmb_results} operation results: {e:?}",
+                    self.reward_cycle,
                     self.signer_id
                 );
             }
@@ -1147,17 +1204,22 @@ impl Signer {
     /// Sending all provided packets through stackerdb with a retry
     fn send_outbound_messages(&mut self, outbound_messages: Vec<Packet>) {
         debug!(
-            "Signer #{}: Sending {} messages to other stacker-db instances.",
+            "Reward cycle #{} Signer #{}: Sending {} messages to other stacker-db instances.",
+            self.reward_cycle,
             self.signer_id,
             outbound_messages.len()
         );
         for msg in outbound_messages {
             let ack = self.stackerdb.send_message_with_retry(msg.into());
             if let Ok(ack) = ack {
-                debug!("Signer #{}: send outbound ACK: {ack:?}", self.signer_id);
+                debug!(
+                    "Reward cycle #{} Signer #{}: send outbound ACK: {ack:?}",
+                    self.reward_cycle, self.signer_id
+                );
             } else {
                 warn!(
-                    "Signer #{}: Failed to send message to stacker-db instance: {ack:?}",
+                    "Reward cycle #{} Signer #{}: Failed to send message to stacker-db instance: {ack:?}",
+                    self.reward_cycle,
                     self.signer_id
                 );
             }
@@ -1177,15 +1239,16 @@ impl Signer {
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             // We have an approved aggregate public key. Do nothing further
             debug!(
-                "Signer #{}: Have updated DKG value to {:?}.",
-                self.signer_id, self.approved_aggregate_public_key
+                "Reward cycle #{} Signer #{}: Have updated DKG value to {:?}.",
+                self.reward_cycle, self.signer_id, self.approved_aggregate_public_key
             );
             return Ok(());
         };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
         if self.signer_id == coordinator_id && self.state == State::Idle {
             debug!(
-                "Signer #{}: Checking if old vote transaction exists in StackerDB...",
+                "Reward cycle #{} Signer #{}: Checking if old vote transaction exists in StackerDB...",
+                self.reward_cycle,
                 self.signer_id
             );
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
@@ -1193,7 +1256,7 @@ impl Signer {
             let signer_address = stacks_client.get_signer_address();
             let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
             let old_transactions = self.get_signer_transactions(&account_nonces).map_err(|e| {
-                warn!("Signer #{}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily", self.signer_id);
+                warn!("Reward cycle #{} Signer #{}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily", self.reward_cycle, self.signer_id);
             }).unwrap_or_default();
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
@@ -1203,7 +1266,7 @@ impl Signer {
                     && params.voting_round == self.coordinator.current_dkg_id
                     && reward_cycle == self.reward_cycle
                 {
-                    debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.signer_id;
+                    debug!("Reward cycle #{} Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.reward_cycle, self.signer_id;
                         "txid" => %transaction.txid(),
                         "aggregate_key" => %params.aggregate_key,
                         "voting_round" => params.voting_round
@@ -1221,11 +1284,11 @@ impl Signer {
             {
                 // TODO Check if the vote failed and we need to retrigger the DKG round not just if we have already voted...
                 // TODO need logic to trigger another DKG round if a certain amount of time passes and we still have no confirmed DKG vote
-                debug!("Signer #{}: Not triggering a DKG round. Already voted and we may need to wait for more votes to arrive.", self.signer_id);
+                debug!("Reward cycle #{} Signer #{}: Not triggering a DKG round. Already voted and we may need to wait for more votes to arrive.", self.reward_cycle, self.signer_id);
                 return Ok(());
             }
             if self.commands.front() != Some(&Command::Dkg) {
-                info!("Signer #{} is the current coordinator for {reward_cycle} and must trigger DKG. Queuing DKG command...", self.signer_id);
+                info!("Reward cycle #{} Signer #{} is the current coordinator and must trigger DKG. Queuing DKG command...", self.reward_cycle, self.signer_id);
                 self.commands.push_front(Command::Dkg);
             }
         }
@@ -1240,22 +1303,27 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
-        debug!("Signer #{}: Processing event: {event:?}", self.signer_id);
+        debug!(
+            "Reward cycle #{} Signer #{}: Processing event: {event:?}",
+            self.reward_cycle, self.signer_id
+        );
         match event {
             Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
                 debug!(
-                    "Signer #{}: Received a block proposal result from the stacks node...",
+                    "Reward cycle #{} Signer #{}: Received a block proposal result from the stacks node...",
+                    self.reward_cycle,
                     self.signer_id
                 );
                 self.handle_block_validate_response(stacks_client, block_validate_response, res)
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
                 if *signer_set != self.stackerdb.get_signer_set() {
-                    debug!("Signer #{}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...", self.signer_id);
+                    debug!("Reward cycle #{} Signer #{}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...", self.reward_cycle, self.signer_id);
                     return Ok(());
                 }
                 debug!(
-                    "Signer #{}: Received {} messages from the other signers...",
+                    "Reward cycle #{} Signer #{}: Received {} messages from the other signers...",
+                    self.reward_cycle,
                     self.signer_id,
                     messages.len()
                 );
@@ -1264,22 +1332,29 @@ impl Signer {
             Some(SignerEvent::ProposedBlocks(blocks)) => {
                 if current_reward_cycle != self.reward_cycle {
                     // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
-                    debug!("Signer #{}: Received a proposed block, but this signer's reward cycle ({}) is not the current one ({}). Ignoring...", self.signer_id, self.reward_cycle, current_reward_cycle);
+                    debug!("Reward cycle #{} Signer #{}: Received a proposed block, but this signer's reward cycle is not the current one ({}). Ignoring...", self.reward_cycle, self.signer_id, current_reward_cycle);
                     return Ok(());
                 }
                 debug!(
-                    "Signer #{}: Received {} block proposals from the miners...",
+                    "Reward cycle #{} Signer #{}: Received {} block proposals from the miners...",
+                    self.reward_cycle,
                     self.signer_id,
                     blocks.len()
                 );
                 self.handle_proposed_blocks(stacks_client, blocks);
             }
             Some(SignerEvent::StatusCheck) => {
-                debug!("Signer #{}: Received a status check event.", self.signer_id)
+                debug!(
+                    "Reward cycle #{} Signer #{}: Received a status check event.",
+                    self.reward_cycle, self.signer_id
+                )
             }
             None => {
                 // No event. Do nothing.
-                debug!("Signer #{}: No event received", self.signer_id)
+                debug!(
+                    "Reward cycle #{} Signer #{}: No event received",
+                    self.reward_cycle, self.signer_id
+                )
             }
         }
         Ok(())
