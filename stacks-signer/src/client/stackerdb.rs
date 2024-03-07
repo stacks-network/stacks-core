@@ -16,6 +16,7 @@
 //
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use blockstack_lib::util_lib::boot::boot_code_addr;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
@@ -161,20 +162,25 @@ impl StackerDB {
             } else {
                 warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
             }
-            if let Some(reason) = chunk_ack.reason {
-                // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
-                // See: https://github.com/stacks-network/stacks-blockchain/issues/3917
-                if reason.contains("Data for this slot and version already exist") {
-                    warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
-                    if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
-                        // NOTE: per the above, this is always executed
-                        versions.insert(slot_id, slot_version.saturating_add(1));
-                    } else {
-                        return Err(ClientError::NotConnected);
+            if let Some(code) = chunk_ack.code {
+                match StackerDBErrorCodes::from_code(code) {
+                    Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                        warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
+                        if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+                            // NOTE: per the above, this is always executed
+                            versions.insert(slot_id, slot_version.saturating_add(1));
+                        } else {
+                            return Err(ClientError::NotConnected);
+                        }
                     }
-                } else {
-                    warn!("Failed to send message to stackerdb: {}", reason);
-                    return Err(ClientError::PutChunkRejected(reason));
+                    _ => {
+                        warn!("Failed to send message to stackerdb: {:?}", chunk_ack);
+                        return Err(ClientError::PutChunkRejected(
+                            chunk_ack
+                                .reason
+                                .unwrap_or_else(|| "No reason given".to_string()),
+                        ));
+                    }
                 }
             }
         }
@@ -343,6 +349,7 @@ mod tests {
             accepted: true,
             reason: None,
             metadata: None,
+            code: None,
         };
         let mock_server = mock_server_from_config(&config);
         let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
