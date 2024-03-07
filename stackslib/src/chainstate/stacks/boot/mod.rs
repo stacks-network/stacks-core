@@ -1859,6 +1859,8 @@ pub mod test {
         signer_key: &StacksPublicKey,
         burn_ht: u64,
         signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -1876,6 +1878,8 @@ pub mod test {
                 Value::UInt(lock_period),
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -2019,6 +2023,8 @@ pub mod test {
         lock_period: u128,
         signer_key: StacksPublicKey,
         signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -2034,6 +2040,8 @@ pub mod test {
                 addr_tuple,
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -2128,6 +2136,8 @@ pub mod test {
         reward_cycle: u128,
         signature_opt: Option<Vec<u8>>,
         signer_key: &Secp256k1PublicKey,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -2143,6 +2153,8 @@ pub mod test {
                 Value::UInt(reward_cycle),
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -2154,12 +2166,25 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
+        signer_key: &Secp256k1PublicKey,
+        signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
+        let signature = signature_opt
+            .map(|sig| Value::some(Value::buff_from(sig).unwrap()).unwrap())
+            .unwrap_or_else(|| Value::none());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-increase",
-            vec![Value::UInt(amount)],
+            vec![
+                Value::UInt(amount),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
         )
         .unwrap();
 
@@ -2206,6 +2231,8 @@ pub mod test {
         reward_cycle: u128,
         topic: &Pox4SignatureTopic,
         period: u128,
+        max_amount: u128,
+        auth_id: u128,
     ) -> Vec<u8> {
         let signature = make_pox_4_signer_key_signature(
             pox_addr,
@@ -2214,6 +2241,8 @@ pub mod test {
             topic,
             CHAIN_ID_TESTNET,
             period,
+            max_amount,
+            auth_id,
         )
         .unwrap();
 
@@ -2229,6 +2258,8 @@ pub mod test {
         enabled: bool,
         nonce: u64,
         sender_key: Option<&StacksPrivateKey>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let signer_pubkey = StacksPublicKey::from_private(signer_key);
         let payload = TransactionPayload::new_contract_call(
@@ -2242,6 +2273,8 @@ pub mod test {
                 Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 Value::buff_from(signer_pubkey.to_bytes_compressed()).unwrap(),
                 Value::Bool(enabled),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();

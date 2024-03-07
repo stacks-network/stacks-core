@@ -538,6 +538,8 @@ pub fn boot_to_epoch_3(
             &Pox4SignatureTopic::StackStx,
             CHAIN_ID_TESTNET,
             12_u128,
+            u128::MAX,
+            1,
         )
         .unwrap()
         .to_rsv();
@@ -559,6 +561,8 @@ pub fn boot_to_epoch_3(
                 clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
                     .unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
             ],
         );
         submit_tx(&http_origin, &stacking_tx);
@@ -812,6 +816,8 @@ pub fn boot_to_epoch_3_reward_set(
             &Pox4SignatureTopic::StackStx,
             CHAIN_ID_TESTNET,
             lock_period,
+            u128::MAX,
+            1,
         )
         .unwrap()
         .to_rsv();
@@ -832,6 +838,8 @@ pub fn boot_to_epoch_3_reward_set(
                 clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
                     .unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
             ],
         );
         submit_tx(&http_origin, &stacking_tx);
@@ -1424,6 +1432,8 @@ fn correct_burn_outs() {
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
                 1_u128,
+                u128::MAX,
+                1,
             )
             .unwrap()
             .to_rsv();
@@ -1443,6 +1453,8 @@ fn correct_burn_outs() {
                     clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
                         .unwrap(),
                     clarity::vm::Value::buff_from(pk_bytes).unwrap(),
+                    clarity::vm::Value::UInt(u128::MAX),
+                    clarity::vm::Value::UInt(1),
                 ],
             );
             let txid = submit_tx(&http_origin, &stacking_tx);
