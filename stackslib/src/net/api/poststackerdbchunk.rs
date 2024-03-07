@@ -146,6 +146,7 @@ impl StackerDBErrorCodes {
         })
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn from_code(code: u32) -> Option<Self> {
         match code {
             0 => Some(Self::DataAlreadyExists),
