@@ -244,11 +244,6 @@ impl RelayerThread {
             self.min_network_download_passes = net_result.num_download_passes + 1;
             self.min_network_inv_passes = net_result.num_inv_sync_passes + 1;
             self.last_network_block_height_ts = get_epoch_time_ms();
-            debug!(
-                "Relayer: block mining until the next download pass {}",
-                self.min_network_download_passes
-            );
-            signal_mining_blocked(self.globals.get_miner_status());
         }
 
         let net_receipts = self
