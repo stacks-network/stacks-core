@@ -657,32 +657,6 @@ fn get_signer_index(
         })
 }
 
-fn get_signer_index(
-    stacker_set: &GetStackersResponse,
-    signer_key: &Secp256k1PublicKey,
-) -> Result<usize, String> {
-    let Some(ref signer_set) = stacker_set.stacker_set.signers else {
-        return Err("Empty signer set for reward cycle".into());
-    };
-    let signer_key_bytes = signer_key.to_bytes_compressed();
-    signer_set
-        .iter()
-        .enumerate()
-        .find_map(|(ix, entry)| {
-            if entry.signing_key.as_slice() == signer_key_bytes.as_slice() {
-                Some(ix)
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            format!(
-                "Signing key not found. {} not found.",
-                to_hex(&signer_key_bytes)
-            )
-        })
-}
-
 /// Use the read-only API to get the aggregate key for a given reward cycle
 pub fn get_key_for_cycle(
     reward_cycle: u64,
@@ -2169,6 +2143,7 @@ fn vote_for_aggregate_key_burn_op() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -2213,6 +2188,7 @@ fn vote_for_aggregate_key_burn_op() {
         &blocks_processed,
         &[stacker_sk],
         &[signer_sk],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
