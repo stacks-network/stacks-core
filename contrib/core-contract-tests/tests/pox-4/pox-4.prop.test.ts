@@ -1,46 +1,100 @@
-import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
+import {
+  Cl,
+  ClarityType,
+  ClarityValue,
+  isClarityType,
+  serializeCV,
+} from "@stacks/transactions";
 import fc from "fast-check";
 import { assert, describe, expect, it } from "vitest";
-import { buildSignerKeyMessageHash } from "./pox-4-utils/utils";
+import { createHash } from "crypto";
 
-// Contracts
-const POX_4 = "pox-4";
-// Methods
-const ALLOW_CONTRACT_CALLER = "allow-contract-caller";
-const BURN_HEIGHT_TO_REWARD_CYCLE = "burn-height-to-reward-cycle";
-const CAN_STACK_STX = "can-stack-stx";
-const CHECK_CALLER_ALLOWED = "check-caller-allowed";
-const CHECK_POX_ADDR_VERSION = "check-pox-addr-version";
-const CHECK_POX_LOCK_PERIOD = "check-pox-lock-period";
-const CURRENT_POX_REWARD_CYCLE = "current-pox-reward-cycle";
-const GET_ALLOWANCE_CONTRACT_CALLERS = "get-allowance-contract-callers";
-const GET_CHECK_DELEGATION = "get-check-delegation";
-const GET_DELEGATION_INFO = "get-delegation-info";
-const GET_NUM_REWARD_SET_POX_ADDRESSES = "get-num-reward-set-pox-addresses";
-const GET_PARTIAL_STACKED_BY_CYCLE = "get-partial-stacked-by-cycle";
-const GET_POX_INFO = "get-pox-info";
-const GET_REWARD_SET_POX_ADDRESS = "get-reward-set-pox-address";
-const GET_REWARD_SET_SIZE = "get-reward-set-size";
-const GET_SIGNER_KEY_MESSAGE_HASH = "get-signer-key-message-hash";
-const GET_STACKER_INFO = "get-stacker-info";
-const GET_STACKING_MINIMUM = "get-stacking-minimum";
-const GET_TOTAL_USTX_STACKED = "get-total-ustx-stacked";
-const MINIMAL_CAN_STACK_STX = "minimal-can-stack-stx";
-const REWARD_CYCLE_TO_BURN_HEIGHT = "reward-cycle-to-burn-height";
-const VERIFY_SIGNER_KEY_SIG = "verify-signer-key-sig";
 // Contract Consts
 const INITIAL_TOTAL_LIQ_SUPPLY = 1_000_000_000_000_000;
 const MIN_AMOUNT_USTX = 125_000_000_000n;
 const TESTNET_PREPARE_CYCLE_LENGTH = 50;
 const TESTNET_REWARD_CYCLE_LENGTH = 1050;
 const TESTNET_STACKING_THRESHOLD_25 = 8000;
-// Clarity Constraints
+// Clarity
 const MAX_CLAR_UINT = 340282366920938463463374607431768211455n;
+const TESTNET_CHAIN_ID = 2147483648;
+const SIP_018_MESSAGE_PREFIX = "534950303138";
 // Error Codes
 const ERR_STACKING_INVALID_LOCK_PERIOD = 2;
 const ERR_STACKING_THRESHOLD_NOT_MET = 11;
 const ERR_STACKING_INVALID_POX_ADDRESS = 13;
 const ERR_STACKING_INVALID_AMOUNT = 18;
+
+function sha256(data: Buffer): Buffer {
+  return createHash("sha256").update(data).digest();
+}
+
+function structuredDataHash(structuredData: ClarityValue): Buffer {
+  return sha256(Buffer.from(serializeCV(structuredData)));
+}
+
+const generateDomainHash = (): ClarityValue =>
+  Cl.tuple({
+    name: Cl.stringAscii("pox-4-signer"),
+    version: Cl.stringAscii("1.0.0"),
+    "chain-id": Cl.uint(TESTNET_CHAIN_ID),
+  });
+
+const generateMessageHash = (
+  version: number,
+  hashbytes: number[],
+  reward_cycle: number,
+  topic: string,
+  period: number,
+  auth_id: number,
+  max_amount: number
+): ClarityValue =>
+  Cl.tuple({
+    "pox-addr": Cl.tuple({
+      version: Cl.buffer(Uint8Array.from([version])),
+      hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+    }),
+    "reward-cycle": Cl.uint(reward_cycle),
+    topic: Cl.stringAscii(topic),
+    period: Cl.uint(period),
+    "auth-id": Cl.uint(auth_id),
+    "max-amount": Cl.uint(max_amount),
+  });
+
+const generateMessagePrefixBuffer = (prefix: string) =>
+  Buffer.from(prefix, "hex");
+
+export const buildSignerKeyMessageHash = (
+  version: number,
+  hashbytes: number[],
+  reward_cycle: number,
+  topic: string,
+  period: number,
+  max_amount: number,
+  auth_id: number
+) => {
+  const domain_hash = structuredDataHash(generateDomainHash());
+  const message_hash = structuredDataHash(
+    generateMessageHash(
+      version,
+      hashbytes,
+      reward_cycle,
+      topic,
+      period,
+      auth_id,
+      max_amount
+    )
+  );
+  const structuredDataPrefix = generateMessagePrefixBuffer(
+    SIP_018_MESSAGE_PREFIX
+  );
+
+  const signer_key_message_hash = sha256(
+    Buffer.concat([structuredDataPrefix, domain_hash, message_hash])
+  );
+
+  return signer_key_message_hash;
+};
 
 describe("test pox-4 contract", () => {
   describe("test pox-4 contract read only functions", () => {
@@ -52,8 +106,8 @@ describe("test pox-4 contract", () => {
           (account, reward_cycle) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               account
             );
@@ -65,8 +119,8 @@ describe("test pox-4 contract", () => {
               pox_4_info.value.data["reward-cycle-length"];
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              REWARD_CYCLE_TO_BURN_HEIGHT,
+              "pox-4",
+              "reward-cycle-to-burn-height",
               [Cl.uint(reward_cycle)],
               account
             );
@@ -91,8 +145,8 @@ describe("test pox-4 contract", () => {
           (account, burn_height) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               account
             );
@@ -104,8 +158,8 @@ describe("test pox-4 contract", () => {
               pox_4_info.value.data["reward-cycle-length"];
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              BURN_HEIGHT_TO_REWARD_CYCLE,
+              "pox-4",
+              "burn-height-to-reward-cycle",
               [Cl.uint(burn_height)],
               account
             );
@@ -132,8 +186,8 @@ describe("test pox-4 contract", () => {
             let expected = 0;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CURRENT_POX_REWARD_CYCLE,
+              "pox-4",
+              "current-pox-reward-cycle",
               [],
               caller
             );
@@ -154,8 +208,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_STACKER_INFO,
+              "pox-4",
+              "get-stacker-info",
               [Cl.principal(stacker)],
               caller
             );
@@ -175,8 +229,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_CALLER_ALLOWED,
+              "pox-4",
+              "check-caller-allowed",
               [],
               caller
             );
@@ -198,8 +252,8 @@ describe("test pox-4 contract", () => {
             const expected = 0;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_REWARD_SET_SIZE,
+              "pox-4",
+              "get-reward-set-size",
               [Cl.uint(reward_cycle)],
               caller
             );
@@ -221,8 +275,8 @@ describe("test pox-4 contract", () => {
             const expected = 0;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_TOTAL_USTX_STACKED,
+              "pox-4",
+              "get-total-ustx-stacked",
               [Cl.uint(reward_cycle)],
               caller
             );
@@ -244,8 +298,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_REWARD_SET_POX_ADDRESS,
+              "pox-4",
+              "get-reward-set-pox-address",
               [Cl.uint(index), Cl.uint(reward_cycle)],
               caller
             );
@@ -264,8 +318,8 @@ describe("test pox-4 contract", () => {
           (caller) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -279,8 +333,8 @@ describe("test pox-4 contract", () => {
             );
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_STACKING_MINIMUM,
+              "pox-4",
+              "get-stacking-minimum",
               [],
               caller
             );
@@ -302,8 +356,8 @@ describe("test pox-4 contract", () => {
             const expected = true;
             // Act
             let { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_POX_ADDR_VERSION,
+              "pox-4",
+              "check-pox-addr-version",
               [Cl.buffer(Uint8Array.from([version]))],
               caller
             );
@@ -325,8 +379,8 @@ describe("test pox-4 contract", () => {
             const expected = false;
             // Act
             let { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_POX_ADDR_VERSION,
+              "pox-4",
+              "check-pox-addr-version",
               [Cl.buffer(Uint8Array.from([version]))],
               caller
             );
@@ -348,8 +402,8 @@ describe("test pox-4 contract", () => {
             const expected = true;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_POX_LOCK_PERIOD,
+              "pox-4",
+              "check-pox-lock-period",
               [Cl.uint(reward_cycles)],
               caller
             );
@@ -371,8 +425,8 @@ describe("test pox-4 contract", () => {
             const expected = false;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_POX_LOCK_PERIOD,
+              "pox-4",
+              "check-pox-lock-period",
               [Cl.uint(reward_cycles)],
               caller
             );
@@ -394,8 +448,8 @@ describe("test pox-4 contract", () => {
             const expected = false;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CHECK_POX_LOCK_PERIOD,
+              "pox-4",
+              "check-pox-lock-period",
               [Cl.uint(reward_cycles)],
               caller
             );
@@ -432,8 +486,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -442,8 +496,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseOk = true;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -489,8 +543,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -499,8 +553,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseOk = true;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -549,8 +603,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -559,8 +613,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -606,8 +660,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -616,8 +670,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -662,8 +716,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -672,8 +726,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -718,8 +772,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -728,8 +782,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -772,8 +826,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -782,8 +836,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_THRESHOLD_NOT_MET;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -826,8 +880,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -836,8 +890,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_LOCK_PERIOD;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              CAN_STACK_STX,
+              "pox-4",
+              "can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -883,8 +937,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -893,8 +947,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseOk = true;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -940,8 +994,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -950,8 +1004,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseOk = true;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1000,8 +1054,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1010,8 +1064,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1057,8 +1111,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1067,8 +1121,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1113,8 +1167,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1123,8 +1177,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1169,8 +1223,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1179,8 +1233,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1223,8 +1277,8 @@ describe("test pox-4 contract", () => {
           ) => {
             // Arrange
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1233,8 +1287,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_LOCK_PERIOD;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1267,8 +1321,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             const amount_ustx = 0;
             const { result: pox_4_info } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1277,8 +1331,8 @@ describe("test pox-4 contract", () => {
             const expectedResponseErr = ERR_STACKING_INVALID_AMOUNT;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              MINIMAL_CAN_STACK_STX,
+              "pox-4",
+              "minimal-can-stack-stx",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1307,8 +1361,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_CHECK_DELEGATION,
+              "pox-4",
+              "get-check-delegation",
               [Cl.principal(caller)],
               caller
             );
@@ -1327,8 +1381,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_DELEGATION_INFO,
+              "pox-4",
+              "get-delegation-info",
               [Cl.principal(caller)],
               caller
             );
@@ -1349,8 +1403,8 @@ describe("test pox-4 contract", () => {
               expected_first_burn_block_height = 0;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_POX_INFO,
+              "pox-4",
+              "get-pox-info",
               [],
               caller
             );
@@ -1390,8 +1444,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_ALLOWANCE_CONTRACT_CALLERS,
+              "pox-4",
+              "get-allowance-contract-callers",
               [Cl.principal(sender), Cl.principal(contract_caller)],
               caller
             );
@@ -1411,8 +1465,8 @@ describe("test pox-4 contract", () => {
           (caller, sender, contract_caller) => {
             // Arrange
             const { result: allow } = simnet.callPublicFn(
-              POX_4,
-              ALLOW_CONTRACT_CALLER,
+              "pox-4",
+              "allow-contract-caller",
               [Cl.principal(contract_caller), Cl.none()],
               sender
             );
@@ -1420,8 +1474,8 @@ describe("test pox-4 contract", () => {
             assert(isClarityType(allow.value, ClarityType.BoolTrue));
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_ALLOWANCE_CONTRACT_CALLERS,
+              "pox-4",
+              "get-allowance-contract-callers",
               [Cl.principal(sender), Cl.principal(contract_caller)],
               caller
             );
@@ -1444,8 +1498,8 @@ describe("test pox-4 contract", () => {
             const expected = 0;
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_NUM_REWARD_SET_POX_ADDRESSES,
+              "pox-4",
+              "get-num-reward-set-pox-addresses",
               [Cl.uint(reward_cycle)],
               caller
             );
@@ -1469,8 +1523,8 @@ describe("test pox-4 contract", () => {
             // Arrange
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_PARTIAL_STACKED_BY_CYCLE,
+              "pox-4",
+              "get-partial-stacked-by-cycle",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
@@ -1524,8 +1578,8 @@ describe("test pox-4 contract", () => {
             );
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
-              POX_4,
-              GET_SIGNER_KEY_MESSAGE_HASH,
+              "pox-4",
+              "get-signer-key-message-hash",
               [
                 Cl.tuple({
                   version: Cl.buffer(Uint8Array.from([version])),
