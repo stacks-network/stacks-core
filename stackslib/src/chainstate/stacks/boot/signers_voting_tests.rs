@@ -65,7 +65,7 @@ use crate::chainstate::stacks::boot::pox_4_tests::{
     assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
 };
 use crate::chainstate::stacks::boot::signers_tests::{
-    get_round_info, get_signer_index, prepare_signers_test,
+    get_signer_index, prepare_signers_test, readonly_call,
 };
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, SIGNERS_NAME,
@@ -2050,7 +2050,8 @@ fn vote_for_aggregate_public_key_mixed_rounds() {
     assert_eq!(alice_vote_tx.events.len(), 0);
 }
 
-// In this test case, Alice & Bob vote & we test the new getter
+// In this test case, Alice & Bob advance through setup & check
+// the round info from the very first reward cycle & round.
 #[test]
 fn test_get_round_info() {
     // Test setup
@@ -2068,7 +2069,7 @@ fn test_get_round_info() {
     let bob_address = key_to_stacks_addr(bob_key);
     let bob_principal = PrincipalData::from(bob_address);
 
-    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+    let (mut peer, test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
         vec![
             (alice_principal.clone(), 1000),
@@ -2090,6 +2091,80 @@ fn test_get_round_info() {
 
     assert_eq!(votes_count, &Value::UInt(2));
     assert_eq!(votes_weight, &Value::UInt(4));
+}
+
+pub fn get_round_info(
+    peer: &mut TestPeer<'_>,
+    latest_block_id: StacksBlockId,
+    reward_cycle: u128,
+    round: u128,
+) -> Option<Value> {
+    let round_tuple = readonly_call(
+        peer,
+        &latest_block_id,
+        "signers-voting".into(),
+        "get-round-info".into(),
+        vec![Value::UInt(reward_cycle), Value::UInt(round)],
+    )
+    .expect_optional()
+    .unwrap();
+    round_tuple
+}
+
+// In this test case, Alice & Bob advance through setup & check
+// the weight threshold info from the very first reward cycle & round.
+#[test]
+fn test_get_threshold_weight() {
+    // Test setup
+    let alice = TestStacker::from_seed(&[3, 4]);
+    let bob = TestStacker::from_seed(&[5, 6]);
+    let observer = TestEventObserver::new();
+
+    // Alice - Signer 1
+    let alice_key = &alice.signer_private_key;
+    let alice_address = key_to_stacks_addr(alice_key);
+    let alice_principal = PrincipalData::from(alice_address);
+
+    // Bob - Signer 2
+    let bob_key = &bob.signer_private_key;
+    let bob_address = key_to_stacks_addr(bob_key);
+    let bob_principal = PrincipalData::from(bob_address);
+
+    let (mut peer, test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+        function_name!(),
+        vec![
+            (alice_principal.clone(), 1000),
+            (bob_principal.clone(), 1000),
+        ],
+        &[alice.clone(), bob.clone()],
+        Some(&observer),
+    );
+
+    // Get the current creward cycle
+    let cycle_id = current_reward_cycle;
+
+    // Call get-threshold-weight
+    let threshold_weight: u128 = get_threshold_weight(&mut peer, latest_block_id, cycle_id);
+
+    // Since there are four votes, the threshold weight should be 3 (75% of 4)
+    assert_eq!(threshold_weight, 3);
+}
+
+pub fn get_threshold_weight(
+    peer: &mut TestPeer<'_>,
+    latest_block_id: StacksBlockId,
+    reward_cycle: u128,
+) -> u128 {
+    let threshold_weight = readonly_call(
+        peer,
+        &latest_block_id,
+        "signers-voting".into(),
+        "get-threshold-weight".into(),
+        vec![Value::UInt(reward_cycle)],
+    )
+    .expect_u128()
+    .unwrap();
+    threshold_weight
 }
 
 fn nakamoto_tenure(
