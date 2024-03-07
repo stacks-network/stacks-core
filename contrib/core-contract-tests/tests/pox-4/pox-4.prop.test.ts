@@ -1,36 +1,39 @@
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 import { assert, describe, expect, it } from "vitest";
 import fc from "fast-check";
+import { buildSignerKeyMessageHash } from "./pox-4-utils/utils";
 
 // Contracts
 const POX_4 = "pox-4";
 // Methods
-const GET_POX_INFO = "get-pox-info";
-const GET_STACKER_INFO = "get-stacker-info";
-const REWARD_CYCLE_TO_BURN_HEIGHT = "reward-cycle-to-burn-height";
+const ALLOW_CONTRACT_CALLER = "allow-contract-caller";
 const BURN_HEIGHT_TO_REWARD_CYCLE = "burn-height-to-reward-cycle";
-const CURRENT_POX_REWARD_CYCLE = "current-pox-reward-cycle";
+const CAN_STACK_STX = "can-stack-stx";
 const CHECK_CALLER_ALLOWED = "check-caller-allowed";
-const GET_REWARD_SET_SIZE = "get-reward-set-size";
-const GET_REWARD_SET_POX_ADDRESS = "get-reward-set-pox-address";
-const GET_TOTAL_USTX_STACKED = "get-total-ustx-stacked";
 const CHECK_POX_ADDR_VERSION = "check-pox-addr-version";
 const CHECK_POX_LOCK_PERIOD = "check-pox-lock-period";
-const GET_STACKING_MINIMUM = "get-stacking-minimum";
-const CAN_STACK_STX = "can-stack-stx";
-const MINIMAL_CAN_STACK_STX = "minimal-can-stack-stx";
+const CURRENT_POX_REWARD_CYCLE = "current-pox-reward-cycle";
+const GET_ALLOWANCE_CONTRACT_CALLERS = "get-allowance-contract-callers";
 const GET_CHECK_DELEGATION = "get-check-delegation";
 const GET_DELEGATION_INFO = "get-delegation-info";
-const GET_ALLOWANCE_CONTRACT_CALLERS = "get-allowance-contract-callers";
 const GET_NUM_REWARD_SET_POX_ADDRESSES = "get-num-reward-set-pox-addresses";
 const GET_PARTIAL_STACKED_BY_CYCLE = "get-partial-stacked-by-cycle";
-const ALLOW_CONTRACT_CALLER = "allow-contract-caller";
+const GET_POX_INFO = "get-pox-info";
+const GET_REWARD_SET_POX_ADDRESS = "get-reward-set-pox-address";
+const GET_REWARD_SET_SIZE = "get-reward-set-size";
+const GET_SIGNER_KEY_MESSAGE_HASH = "get-signer-key-message-hash";
+const GET_STACKER_INFO = "get-stacker-info";
+const GET_STACKING_MINIMUM = "get-stacking-minimum";
+const GET_TOTAL_USTX_STACKED = "get-total-ustx-stacked";
+const MINIMAL_CAN_STACK_STX = "minimal-can-stack-stx";
+const REWARD_CYCLE_TO_BURN_HEIGHT = "reward-cycle-to-burn-height";
+const VERIFY_SIGNER_KEY_SIG = "verify-signer-key-sig";
 // Contract Consts
-const TESTNET_STACKING_THRESHOLD_25 = 8000;
-const TESTNET_REWARD_CYCLE_LENGTH = 1050;
-const TESTNET_PREPARE_CYCLE_LENGTH = 50;
 const INITIAL_TOTAL_LIQ_SUPPLY = 1_000_000_000_000_000;
 const MIN_AMOUNT_USTX = 125_000_000_000n;
+const TESTNET_PREPARE_CYCLE_LENGTH = 50;
+const TESTNET_REWARD_CYCLE_LENGTH = 1050;
+const TESTNET_STACKING_THRESHOLD_25 = 8000;
 // Clarity Constraints
 const MAX_CLAR_UINT = 340282366920938463463374607431768211455n;
 // Error Codes
@@ -56,12 +59,10 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const first_burn_block_height =
               pox_4_info.value.data["first-burnchain-block-height"];
             const reward_cycle_length =
               pox_4_info.value.data["reward-cycle-length"];
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -69,12 +70,10 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycle)],
               account
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.UInt));
             assert(isClarityType(first_burn_block_height, ClarityType.UInt));
             assert(isClarityType(reward_cycle_length, ClarityType.UInt));
-
             const expected =
               Number(first_burn_block_height.value) +
               Number(reward_cycle_length.value) * reward_cycle;
@@ -99,12 +98,10 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const first_burn_block_height =
               pox_4_info.value.data["first-burnchain-block-height"];
             const reward_cycle_length =
               pox_4_info.value.data["reward-cycle-length"];
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -112,7 +109,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(burn_height)],
               account
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.UInt));
             assert(isClarityType(first_burn_block_height, ClarityType.UInt));
@@ -156,7 +152,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (stacker, caller) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -164,7 +159,6 @@ describe("test pox-4 contract", () => {
               [Cl.principal(stacker)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.OptionalNone));
             expect(actual).toBeNone();
@@ -179,7 +173,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (caller) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -187,7 +180,6 @@ describe("test pox-4 contract", () => {
               [],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolTrue));
             expect(actual).toBeBool(true);
@@ -204,7 +196,6 @@ describe("test pox-4 contract", () => {
           (caller, reward_cycle) => {
             // Arrange
             const expected = 0;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -212,7 +203,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycle)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.UInt));
             expect(actual).toBeUint(expected);
@@ -229,7 +219,6 @@ describe("test pox-4 contract", () => {
           (caller, reward_cycle) => {
             // Arrange
             const expected = 0;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -237,7 +226,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycle)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.UInt));
             expect(actual).toBeUint(expected);
@@ -254,7 +242,6 @@ describe("test pox-4 contract", () => {
           fc.nat(),
           (caller, index, reward_cycle) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -262,7 +249,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(index), Cl.uint(reward_cycle)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.OptionalNone));
             expect(actual).toBeNone();
@@ -277,7 +263,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (caller) => {
             // Arrange
-
             const { result: pox_4_info } = simnet.callReadOnlyFn(
               POX_4,
               GET_POX_INFO,
@@ -286,15 +271,12 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const stx_liq_supply =
               pox_4_info.value.data["total-liquid-supply-ustx"];
-
             assert(isClarityType(stx_liq_supply, ClarityType.UInt));
             const expected = Math.floor(
               Number(stx_liq_supply.value) / TESTNET_STACKING_THRESHOLD_25
             );
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -302,7 +284,6 @@ describe("test pox-4 contract", () => {
               [],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.UInt));
             expect(actual).toBeUint(expected);
@@ -319,7 +300,6 @@ describe("test pox-4 contract", () => {
           (caller, version) => {
             // Arrange
             const expected = true;
-
             // Act
             let { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -327,7 +307,6 @@ describe("test pox-4 contract", () => {
               [Cl.buffer(Uint8Array.from([version]))],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolTrue));
             expect(actual).toBeBool(expected);
@@ -344,7 +323,6 @@ describe("test pox-4 contract", () => {
           (caller, version) => {
             // Arrange
             const expected = false;
-
             // Act
             let { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -352,7 +330,6 @@ describe("test pox-4 contract", () => {
               [Cl.buffer(Uint8Array.from([version]))],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolFalse));
             expect(actual).toBeBool(expected);
@@ -369,7 +346,6 @@ describe("test pox-4 contract", () => {
           (caller, reward_cycles) => {
             // Arrange
             const expected = true;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -377,7 +353,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycles)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolTrue));
             expect(actual).toBeBool(expected);
@@ -394,7 +369,6 @@ describe("test pox-4 contract", () => {
           (caller, reward_cycles) => {
             // Arrange
             const expected = false;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -402,7 +376,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycles)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolFalse));
             expect(actual).toBeBool(expected);
@@ -419,7 +392,6 @@ describe("test pox-4 contract", () => {
             // Arrange
             const reward_cycles = 0;
             const expected = false;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -427,7 +399,6 @@ describe("test pox-4 contract", () => {
               [Cl.uint(reward_cycles)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.BoolFalse));
             expect(actual).toBeBool(expected);
@@ -468,9 +439,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseOk = true;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -486,7 +455,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseOk));
             assert(isClarityType(actual.value, ClarityType.BoolTrue));
@@ -520,7 +488,6 @@ describe("test pox-4 contract", () => {
             num_cycles
           ) => {
             // Arrange
-
             const { result: pox_4_info } = simnet.callReadOnlyFn(
               POX_4,
               GET_POX_INFO,
@@ -529,9 +496,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseOk = true;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -547,7 +512,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseOk));
             assert(isClarityType(actual.value, ClarityType.BoolTrue));
@@ -592,9 +556,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -610,7 +572,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -652,9 +613,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -670,7 +629,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -711,9 +669,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -729,7 +685,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -770,9 +725,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -788,7 +741,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -827,9 +779,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_THRESHOLD_NOT_MET;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -845,7 +795,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -884,9 +833,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_LOCK_PERIOD;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -902,7 +849,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -912,7 +858,6 @@ describe("test pox-4 contract", () => {
       );
     });
 
-    // minimal can stack stx
     it("should return (ok true) minimal-can-stack-stx for versions 0-4 valid pox addresses, hashbytes, amount, cycles number", () => {
       fc.assert(
         fc.property(
@@ -945,9 +890,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseOk = true;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -963,7 +906,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseOk));
             assert(isClarityType(actual.value, ClarityType.BoolTrue));
@@ -997,7 +939,6 @@ describe("test pox-4 contract", () => {
             num_cycles
           ) => {
             // Arrange
-
             const { result: pox_4_info } = simnet.callReadOnlyFn(
               POX_4,
               GET_POX_INFO,
@@ -1006,9 +947,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseOk = true;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1024,7 +963,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseOk));
             assert(isClarityType(actual.value, ClarityType.BoolTrue));
@@ -1069,9 +1007,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1087,7 +1023,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1129,9 +1064,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1147,7 +1080,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1188,9 +1120,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1206,7 +1136,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1247,9 +1176,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_POX_ADDRESS;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1265,7 +1192,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1304,9 +1230,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_LOCK_PERIOD;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1322,7 +1246,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1343,7 +1266,6 @@ describe("test pox-4 contract", () => {
           (caller, version, hashbytes, first_rew_cycle, num_cycles) => {
             // Arrange
             const amount_ustx = 0;
-
             const { result: pox_4_info } = simnet.callReadOnlyFn(
               POX_4,
               GET_POX_INFO,
@@ -1352,9 +1274,7 @@ describe("test pox-4 contract", () => {
             );
             assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
             assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
-
             const expectedResponseErr = ERR_STACKING_INVALID_AMOUNT;
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1370,7 +1290,6 @@ describe("test pox-4 contract", () => {
               ],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.ResponseErr));
             assert(isClarityType(actual.value, ClarityType.Int));
@@ -1386,7 +1305,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (caller) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1394,7 +1312,6 @@ describe("test pox-4 contract", () => {
               [Cl.principal(caller)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.OptionalNone));
           }
@@ -1408,7 +1325,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (caller) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1416,7 +1332,6 @@ describe("test pox-4 contract", () => {
               [Cl.principal(caller)],
               caller
             );
-
             // Assert
             assert(isClarityType(actual, ClarityType.OptionalNone));
           }
@@ -1473,7 +1388,6 @@ describe("test pox-4 contract", () => {
           fc.constantFrom(...simnet.getAccounts().values()),
           (caller, sender, contract_caller) => {
             // Arrange
-
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
               POX_4,
@@ -1502,7 +1416,6 @@ describe("test pox-4 contract", () => {
               [Cl.principal(contract_caller), Cl.none()],
               sender
             );
-
             assert(isClarityType(allow, ClarityType.ResponseOk));
             assert(isClarityType(allow.value, ClarityType.BoolTrue));
             // Act
@@ -1575,7 +1488,46 @@ describe("test pox-4 contract", () => {
       );
     });
 
-    // get-signer-key-message-hash
+    it("should return correct hash get-signer-key-message-hash", () => {
+      fc.assert(
+        fc.property(
+          fc.constantFrom(...simnet.getAccounts().values()),
+          fc.nat({ max: 6 }),
+          fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
+          fc.nat(),
+          fc.nat(),
+          (caller, version, hashbytes, reward_cycle, period) => {
+            // Arrange
+            const topic = "test";
+            const signer_key_message_hash = buildSignerKeyMessageHash(
+              version,
+              hashbytes,
+              reward_cycle,
+              topic,
+              period
+            );
+            // Act
+            const { result: actual } = simnet.callReadOnlyFn(
+              POX_4,
+              GET_SIGNER_KEY_MESSAGE_HASH,
+              [
+                Cl.tuple({
+                  version: Cl.buffer(Uint8Array.from([version])),
+                  hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+                }),
+                Cl.uint(reward_cycle),
+                Cl.stringAscii(topic),
+                Cl.uint(period),
+              ],
+              caller
+            );
+            // Assert
+            assert(isClarityType(actual, ClarityType.Buffer));
+            expect(actual).toBeBuff(signer_key_message_hash);
+          }
+        )
+      );
+    });
     // verify-signer-key-sig
   });
 });
