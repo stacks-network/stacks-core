@@ -46,7 +46,7 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -63,7 +63,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE,
+    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
@@ -97,6 +97,13 @@ pub struct NakamotoSigners();
 pub struct SignerCalculation {
     pub reward_set: RewardSet,
     pub events: Vec<StacksTransactionEvent>,
+}
+
+pub struct AggregateKeyVoteParams {
+    pub signer_index: u64,
+    pub aggregate_key: Point,
+    pub voting_round: u64,
+    pub reward_cycle: u64,
 }
 
 impl RawRewardSetEntry {
@@ -486,5 +493,90 @@ impl NakamotoSigners {
             return Err(ChainstateError::NoRegisteredSigners(reward_cycle));
         }
         Ok(signers)
+    }
+
+    /// Verify that the transaction is a valid vote for the aggregate public key
+    /// Note: it does not verify the function arguments, only that the transaction is validly formed
+    /// and has a valid nonce from an expected address
+    pub fn valid_vote_transaction(
+        account_nonces: &HashMap<StacksAddress, u64>,
+        transaction: &StacksTransaction,
+        is_mainnet: bool,
+    ) -> bool {
+        let origin_address = transaction.origin_address();
+        let origin_nonce = transaction.get_origin_nonce();
+        let Some(account_nonce) = account_nonces.get(&origin_address) else {
+            debug!("valid_vote_transaction: Unrecognized origin address ({origin_address}).",);
+            return false;
+        };
+        if transaction.is_mainnet() != is_mainnet {
+            debug!("valid_vote_transaction: Received a transaction for an unexpected network.",);
+            return false;
+        }
+        if origin_nonce < *account_nonce {
+            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}).");
+            return false;
+        }
+        Self::parse_vote_for_aggregate_public_key(transaction).is_some()
+    }
+
+    pub fn parse_vote_for_aggregate_public_key(
+        transaction: &StacksTransaction,
+    ) -> Option<AggregateKeyVoteParams> {
+        let TransactionPayload::ContractCall(payload) = &transaction.payload else {
+            // Not a contract call so not a special cased vote for aggregate public key transaction
+            return None;
+        };
+        if payload.contract_identifier()
+            != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
+            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.into()
+        {
+            // This is not a special cased transaction.
+            return None;
+        }
+        if payload.function_args.len() != 4 {
+            return None;
+        }
+        let signer_index_value = payload.function_args.first()?;
+        let signer_index = u64::try_from(signer_index_value.clone().expect_u128().ok()?).ok()?;
+        let point_value = payload.function_args.get(1)?;
+        let point_bytes = point_value.clone().expect_buff(33).ok()?;
+        let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
+        let aggregate_key = Point::try_from(&compressed_data).ok()?;
+        let round_value = payload.function_args.get(2)?;
+        let voting_round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
+        let reward_cycle =
+            u64::try_from(payload.function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
+        Some(AggregateKeyVoteParams {
+            signer_index,
+            aggregate_key,
+            voting_round,
+            reward_cycle,
+        })
+    }
+
+    /// Update the map of filtered valid transactions, selecting one per address based first on lowest nonce, then txid
+    pub fn update_filtered_transactions(
+        filtered_transactions: &mut HashMap<StacksAddress, StacksTransaction>,
+        account_nonces: &HashMap<StacksAddress, u64>,
+        mainnet: bool,
+        transactions: Vec<StacksTransaction>,
+    ) {
+        for transaction in transactions {
+            if NakamotoSigners::valid_vote_transaction(&account_nonces, &transaction, mainnet) {
+                let origin_address = transaction.origin_address();
+                let origin_nonce = transaction.get_origin_nonce();
+                if let Some(entry) = filtered_transactions.get_mut(&origin_address) {
+                    let entry_nonce = entry.get_origin_nonce();
+                    if entry_nonce > origin_nonce
+                        || (entry_nonce == origin_nonce && entry.txid() > transaction.txid())
+                    {
+                        *entry = transaction;
+                    }
+                } else {
+                    filtered_transactions.insert(origin_address, transaction);
+                }
+            }
+        }
     }
 }

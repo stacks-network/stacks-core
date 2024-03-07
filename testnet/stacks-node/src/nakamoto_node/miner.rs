@@ -31,7 +31,6 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -151,10 +150,6 @@ impl BlockMinerThread {
         let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
-        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.rpc_bind
-        ));
         let Some(miner_privkey) = self.config.miner.mining_key else {
             warn!("No mining key configured, cannot mine");
             return;
@@ -205,7 +200,7 @@ impl BlockMinerThread {
                         // Propose the block to the observing signers through the .miners stackerdb instance
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
                         let mut miners_stackerdb =
-                            StackerDBSession::new(rpc_sock, miner_contract_id);
+                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
                         match miners_stackerdb.put_chunk(&chunk) {
                             Ok(ack) => {
                                 info!("Proposed block to stackerdb: {ack:?}");
@@ -223,21 +218,14 @@ impl BlockMinerThread {
                         warn!("Failed to propose block to stackerdb: {e:?}");
                     }
                 }
+                self.globals.counters.bump_naka_proposed_blocks();
 
-                if let Some(self_signer) = self.config.self_signing() {
-                    if let Err(e) = self.self_sign_and_broadcast(self_signer, new_block.clone()) {
-                        warn!("Error self-signing block: {e:?}");
-                    } else {
-                        self.globals.coord().announce_new_stacks_block();
-                    }
+                if let Err(e) =
+                    self.wait_for_signer_signature_and_broadcast(&stackerdbs, new_block.clone())
+                {
+                    warn!("Error broadcasting block: {e:?}");
                 } else {
-                    if let Err(e) =
-                        self.wait_for_signer_signature_and_broadcast(&stackerdbs, new_block.clone())
-                    {
-                        warn!("Error broadcasting block: {e:?}");
-                    } else {
-                        self.globals.coord().announce_new_stacks_block();
-                    }
+                    self.globals.coord().announce_new_stacks_block();
                 }
 
                 self.globals.counters.bump_naka_mined_blocks();
@@ -331,48 +319,47 @@ impl BlockMinerThread {
             })
             .collect();
 
-        // There may be more than signer messages, but odds are there is only one transacton per signer
-        let mut transactions_to_include = Vec::with_capacity(signer_messages.len());
+        if signer_messages.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+
+        // Get all nonces for the signers from clarity DB to use to validate transactions
+        let account_nonces = chainstate
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    addresses
+                        .iter()
+                        .map(|address| {
+                            (
+                                address.clone(),
+                                clarity_db
+                                    .get_account_nonce(&address.clone().into())
+                                    .unwrap_or(0),
+                            )
+                        })
+                        .collect::<HashMap<StacksAddress, u64>>()
+                })
+            })
+            .unwrap_or_default();
+        let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
             match signer_message {
                 SignerMessage::Transactions(transactions) => {
-                    for transaction in transactions {
-                        let address = transaction.origin_address();
-                        let nonce = transaction.get_origin_nonce();
-                        if !addresses.contains(&address) {
-                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
-                            continue;
-                        }
-
-                        let cur_nonce = chainstate
-                            .with_read_only_clarity_tx(
-                                &sortdb.index_conn(),
-                                &self.parent_tenure_id,
-                                |clarity_tx| {
-                                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                        clarity_db.get_account_nonce(&address.into()).unwrap_or(0)
-                                    })
-                                },
-                            )
-                            .unwrap_or(0);
-
-                        if cur_nonce > nonce {
-                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
-                            continue;
-                        }
-                        debug!("Miner: including signer transaction.";
-                            "nonce" => {nonce},
-                            "origin_address" => %address,
-                            "txid" => %transaction.txid()
-                        );
-                        // TODO : filter out transactions that are not valid votes. Do not include transactions with invalid/duplicate nonces for the same address.
-                        transactions_to_include.push(transaction);
-                    }
+                    NakamotoSigners::update_filtered_transactions(
+                        &mut filtered_transactions,
+                        &account_nonces,
+                        self.config.is_mainnet(),
+                        transactions,
+                    )
                 }
                 _ => {} // Any other message is ignored
             }
         }
-        Ok(transactions_to_include)
+        Ok(filtered_transactions.into_values().collect())
     }
 
     fn wait_for_signer_signature(
@@ -391,7 +378,7 @@ impl BlockMinerThread {
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let weights: u64 = signer_weights.values().sum();
-        let rejection_threshold = weights / 10 * 7;
+        let rejection_threshold: u64 = (weights as f64 * 7_f64 / 10_f64).ceil() as u64;
         let mut rejections = HashSet::new();
         let mut rejections_weight: u64 = 0;
         let now = Instant::now();
@@ -535,54 +522,6 @@ impl BlockMinerThread {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
             })?;
         block.header.signer_signature = signature;
-        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
-        NakamotoChainState::accept_block(
-            &chainstate_config,
-            block,
-            &mut sortition_handle,
-            &staging_tx,
-            headers_conn,
-            &aggregate_public_key,
-        )?;
-        staging_tx.commit()?;
-        Ok(())
-    }
-
-    fn self_sign_and_broadcast(
-        &self,
-        mut signer: TestSigners,
-        mut block: NakamotoBlock,
-    ) -> Result<(), ChainstateError> {
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let chainstate_config = chain_state.config();
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .expect("FATAL: could not open sortition DB");
-
-        let burn_height = self.burn_block.block_height;
-        let cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: no reward cycle for burn block");
-        signer.sign_nakamoto_block(&mut block, cycle);
-
-        let mut sortition_handle = sort_db.index_handle_at_tip();
-        let aggregate_public_key = if block.header.chain_length <= 1 {
-            signer.aggregate_public_key.clone()
-        } else {
-            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
-                &mut chain_state,
-                &sort_db,
-                &sortition_handle,
-                &block,
-            )?;
-            aggregate_public_key
-        };
-
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,

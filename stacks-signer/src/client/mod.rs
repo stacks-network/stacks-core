@@ -99,9 +99,6 @@ pub enum ClientError {
     /// No reward set exists for the given reward cycle
     #[error("No reward set exists for reward cycle {0}")]
     NoRewardSet(u64),
-    /// Reward set contained corrupted data
-    #[error("{0}")]
-    CorruptedRewardSet(String),
     /// Stacks node does not support a feature we need
     #[error("Stacks node does not support a required feature: {0}")]
     UnsupportedStacksFeature(String),
@@ -140,6 +137,7 @@ pub(crate) mod tests {
     };
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
     use rand::distributions::Standard;
@@ -156,7 +154,8 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, RegisteredSignersInfo, SignerConfig};
+    use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -170,7 +169,7 @@ pub(crate) mod tests {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
-            config.node_host = mock_server_addr;
+            config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
             Self {
@@ -204,16 +203,7 @@ pub(crate) mod tests {
 
     /// Create a mock server on a same port as in the config
     pub fn mock_server_from_config(config: &GlobalConfig) -> TcpListener {
-        TcpListener::bind(config.node_host).unwrap()
-    }
-
-    /// Create a mock server on the same port as the config and write a response to it
-    pub fn mock_server_from_config_and_write_response(
-        config: &GlobalConfig,
-        bytes: &[u8],
-    ) -> [u8; 1024] {
-        let mock_server = mock_server_from_config(config);
-        write_response(mock_server, bytes)
+        TcpListener::bind(config.node_host.to_string()).unwrap()
     }
 
     /// Write a response to the mock server and return the request bytes
@@ -353,6 +343,27 @@ pub(crate) mod tests {
         build_read_only_response(&clarity_value)
     }
 
+    /// Build a response for the get_approved_aggregate_key request
+    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
+        let clarity_value = if let Some(point) = point {
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "aggregate-public-key".into(),
+                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                            .expect("BUG: Failed to create clarity value from point"),
+                    ),
+                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
@@ -434,7 +445,7 @@ pub(crate) mod tests {
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
-        let mut signer_slot_ids = HashMap::new();
+        let mut signer_slot_ids = vec![];
         let ecdsa_private_key = config.ecdsa_private_key;
         let ecdsa_public_key =
             ecdsa::PublicKey::new(&ecdsa_private_key).expect("Failed to create ecdsa public key");
@@ -468,7 +479,7 @@ pub(crate) mod tests {
                     &StacksPublicKey::from_slice(ecdsa_public_key.to_bytes().as_slice())
                         .expect("Failed to create stacks public key"),
                 );
-                signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+                signer_slot_ids.push(SignerSlotID(signer_id));
                 signer_ids.insert(address, signer_id);
 
                 continue;
@@ -495,26 +506,26 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
-            signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+            signer_slot_ids.push(SignerSlotID(signer_id));
             signer_ids.insert(address, signer_id);
             start_key_id = end_key_id;
         }
         SignerConfig {
             reward_cycle,
             signer_id: 0,
-            signer_slot_id: 0,
+            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            registered_signers: RegisteredSignersInfo {
-                signer_slot_ids,
+            signer_entries: ParsedSignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,
                 signer_ids,
                 signer_public_keys,
             },
+            signer_slot_ids,
             ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
-            node_host: config.node_host,
+            node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             dkg_end_timeout: config.dkg_end_timeout,
             dkg_private_timeout: config.dkg_private_timeout,

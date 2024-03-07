@@ -80,7 +80,9 @@ jobs:
 
       - name: Rustfmt
         id: rustfmt
-        uses: actions-rust-lang/rustfmt@2d1d4e9f72379428552fa1def0b898733fb8472d # v1.1.0
+        uses: stacks-network/actions/rustfmt@main
+        with:
+          alias: "fmt-stacks"
 
   ######################################################################################
   ## Create a tagged github release
@@ -148,6 +150,7 @@ jobs:
           ) ||
           github.event_name == 'workflow_dispatch' ||
           github.event_name == 'pull_request' ||
+          github.event_name == 'merge_group' ||
           (
             contains('
               refs/heads/master

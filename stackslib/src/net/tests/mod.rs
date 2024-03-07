@@ -46,7 +46,9 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::boot::{
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::{
@@ -185,9 +187,9 @@ impl NakamotoBootPlan {
                         function_name,
                         ..
                     }) => {
-                        if contract_name.as_str() == "signers-voting"
+                        if contract_name.as_str() == SIGNERS_VOTING_NAME
                             && address.is_burn()
-                            && function_name.as_str() == "vote-for-aggregate-public-key"
+                            && function_name.as_str() == SIGNERS_VOTING_FUNCTION_NAME
                         {
                             false
                         } else {
@@ -394,6 +396,8 @@ impl NakamotoBootPlan {
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
                     12_u128,
+                    u128::MAX,
+                    1,
                 );
                 make_pox_4_lockup(
                     &test_stacker.stacker_private_key,
@@ -404,6 +408,8 @@ impl NakamotoBootPlan {
                     &StacksPublicKey::from_private(&test_stacker.signer_private_key),
                     34,
                     Some(signature),
+                    u128::MAX,
+                    1,
                 )
             })
             .collect();
