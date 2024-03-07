@@ -19,9 +19,11 @@ pub mod serialization;
 #[allow(clippy::result_large_err)]
 pub mod signatures;
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::{char, cmp, fmt, str};
 
+use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
@@ -1527,11 +1529,11 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
-            if type_map.contains_key(&name) {
-                return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
-            } else {
-                type_map.insert(name.clone(), type_info);
-            }
+            let entry = type_map.entry(name.clone());
+            match entry {
+                Entry::Vacant(e) => e.insert(type_info),
+                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
+            };
             data_map.insert(name, value);
         }
 
