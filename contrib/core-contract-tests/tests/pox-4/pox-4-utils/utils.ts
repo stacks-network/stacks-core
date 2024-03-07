@@ -21,7 +21,9 @@ const generateMessageHash = (
   hashbytes: number[],
   reward_cycle: number,
   topic: string,
-  period: number
+  period: number,
+  auth_id: number,
+  max_amount: number
 ) =>
   Cl.tuple({
     "pox-addr": Cl.tuple({
@@ -31,6 +33,8 @@ const generateMessageHash = (
     "reward-cycle": Cl.uint(reward_cycle),
     topic: Cl.stringAscii(topic),
     period: Cl.uint(period),
+    "auth-id": Cl.uint(auth_id),
+    "max-amount": Cl.uint(max_amount),
   });
 
 const generateMessagePrefixBuffer = (prefix: string) =>
@@ -41,12 +45,22 @@ export const buildSignerKeyMessageHash = (
   hashbytes: number[],
   reward_cycle: number,
   topic: string,
-  period: number
+  period: number,
+  max_amount: number,
+  auth_id: number
 ) => {
   const sip018_msg_prefix = "534950303138";
   const domain_hash = structuredDataHash(generateDomainHash());
   const message_hash = structuredDataHash(
-    generateMessageHash(version, hashbytes, reward_cycle, topic, period)
+    generateMessageHash(
+      version,
+      hashbytes,
+      reward_cycle,
+      topic,
+      period,
+      auth_id,
+      max_amount
+    )
   );
   const structuredDataPrefix = generateMessagePrefixBuffer(sip018_msg_prefix);
 

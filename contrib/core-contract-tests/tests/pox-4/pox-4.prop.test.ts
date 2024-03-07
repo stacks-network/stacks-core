@@ -1,6 +1,6 @@
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
-import { assert, describe, expect, it } from "vitest";
 import fc from "fast-check";
+import { assert, describe, expect, it } from "vitest";
 import { buildSignerKeyMessageHash } from "./pox-4-utils/utils";
 
 // Contracts
@@ -1496,15 +1496,31 @@ describe("test pox-4 contract", () => {
           fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
           fc.nat(),
           fc.nat(),
-          (caller, version, hashbytes, reward_cycle, period) => {
+          // fc.asciiString({ maxLength: 10, minLength: 1 }),
+          fc.nat(),
+          fc.nat(),
+          (
+            caller,
+            version,
+            hashbytes,
+            reward_cycle,
+            period,
+            // topic,
+            max_amount,
+            auth_id
+          ) => {
             // Arrange
-            const topic = "test";
+            // clarinet bug string:
+            // r;NT="
+
             const signer_key_message_hash = buildSignerKeyMessageHash(
               version,
               hashbytes,
               reward_cycle,
-              topic,
-              period
+              "topic",
+              period,
+              max_amount,
+              auth_id
             );
             // Act
             const { result: actual } = simnet.callReadOnlyFn(
@@ -1516,8 +1532,10 @@ describe("test pox-4 contract", () => {
                   hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
                 }),
                 Cl.uint(reward_cycle),
-                Cl.stringAscii(topic),
+                Cl.stringAscii("topic"),
                 Cl.uint(period),
+                Cl.uint(max_amount),
+                Cl.uint(auth_id),
               ],
               caller
             );
