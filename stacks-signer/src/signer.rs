@@ -1114,7 +1114,7 @@ impl Signer {
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             // We have an approved aggregate public key. Do nothing further
-            debug!(
+            info!(
                 "Signer #{}: Have updated DKG value to {:?}.",
                 self.signer_id, self.approved_aggregate_public_key
             );
@@ -1122,7 +1122,7 @@ impl Signer {
         };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
         if self.signer_id == coordinator_id && self.state == State::Idle {
-            debug!(
+            info!(
                 "Signer #{}: Checking if old vote transaction exists in StackerDB...",
                 self.signer_id
             );
@@ -1141,7 +1141,7 @@ impl Signer {
                     && params.voting_round == self.coordinator.current_dkg_id
                     && reward_cycle == self.reward_cycle
                 {
-                    debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.signer_id;
+                    info!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction.", self.signer_id;
                         "txid" => %transaction.txid(),
                         "aggregate_key" => %params.aggregate_key,
                         "voting_round" => params.voting_round
@@ -1159,7 +1159,7 @@ impl Signer {
             {
                 // TODO Check if the vote failed and we need to retrigger the DKG round not just if we have already voted...
                 // TODO need logic to trigger another DKG round if a certain amount of time passes and we still have no confirmed DKG vote
-                debug!("Signer #{}: Not triggering a DKG round. Already voted and we may need to wait for more votes to arrive.", self.signer_id);
+                info!("Signer #{}: Not triggering a DKG round. Already voted and we may need to wait for more votes to arrive.", self.signer_id);
                 return Ok(());
             }
             if self.commands.front() != Some(&Command::Dkg) {
