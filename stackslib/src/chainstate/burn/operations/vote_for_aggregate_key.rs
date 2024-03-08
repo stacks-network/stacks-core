@@ -216,7 +216,6 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::{Error as op_error, VoteForAggregateKeyOp};
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
     use stacks_common::types::StacksPublicKeyBuffer;
@@ -231,6 +230,7 @@ mod tests {
         BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::{BurnchainTransaction, Txid};
+    use crate::chainstate::burn::operations::{Error as op_error, VoteForAggregateKeyOp};
     use crate::chainstate::burn::Opcodes;
     use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 
