@@ -2,8 +2,11 @@ import {
   Cl,
   ClarityType,
   ClarityValue,
+  createStacksPrivateKey,
   isClarityType,
+  pubKeyfromPrivKey,
   serializeCV,
+  signWithKey,
 } from "@stacks/transactions";
 import fc from "fast-check";
 import { assert, describe, expect, it } from "vitest";
@@ -24,14 +27,39 @@ const ERR_STACKING_INVALID_LOCK_PERIOD = 2;
 const ERR_STACKING_THRESHOLD_NOT_MET = 11;
 const ERR_STACKING_INVALID_POX_ADDRESS = 13;
 const ERR_STACKING_INVALID_AMOUNT = 18;
+const ERR_INVALID_SIGNATURE_PUBKEY = 35;
+const ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH = 38;
+// Private Keys
+const privateKeyMapping: {
+  [key: string]: string;
+} = {
+  ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM:
+    "753b7cc01a1a2e86221266a154af739463fce51219d97e4f856cd7200c3bd2a601",
+  ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5:
+    "7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801",
+  ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG:
+    "530d9f61984c888536871c6573073bdfc0058896dc1adfe9a6a10dfacadc209101",
+  ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC:
+    "d655b2523bcd65e34889725c73064feb17ceb796831c0e111ba1a552b0f31b3901",
+  ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND:
+    "f9d7206a47f14d2870c163ebab4bf3e70d18f5d14ce1031f3902fbbc894fe4c701",
+  ST2REHHS5J3CERCRBEPMGH7921Q6PYKAADT7JP2VB:
+    "3eccc5dac8056590432db6a35d52b9896876a3d5cbdea53b72400bc9c2099fe801",
+  ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0:
+    "7036b29cb5e235e5fd9b09ae3e8eec4404e44906814d5d01cbca968a60ed4bfb01",
+  ST3PF13W7Z0RRM42A8VZRVFQ75SV1K26RXEP8YGKJ:
+    "b463f0df6c05d2f156393eee73f8016c5372caa0e9e29a901bb7171d90dc4f1401",
+  ST3NBRSFKX28FQ2ZJ1MAKX58HKHSDGNV5N7R21XCP:
+    "6a1a754ba863d7bab14adbbc3f8ebb090af9e871ace621d3e5ab634e1422885e01",
+  STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6:
+    "de433bdfa14ec43aa1098d5be594c8ffb20a31485ff9de2923b2689471c401b801",
+};
 
-function sha256(data: Buffer): Buffer {
-  return createHash("sha256").update(data).digest();
-}
+const sha256 = (data: Buffer): Buffer =>
+  createHash("sha256").update(data).digest();
 
-function structuredDataHash(structuredData: ClarityValue): Buffer {
-  return sha256(Buffer.from(serializeCV(structuredData)));
-}
+const structuredDataHash = (structuredData: ClarityValue): Buffer =>
+  sha256(Buffer.from(serializeCV(structuredData)));
 
 const generateDomainHash = (): ClarityValue =>
   Cl.tuple({
@@ -64,7 +92,7 @@ const generateMessageHash = (
 const generateMessagePrefixBuffer = (prefix: string) =>
   Buffer.from(prefix, "hex");
 
-export const buildSignerKeyMessageHash = (
+const buildSignerKeyMessageHash = (
   version: number,
   hashbytes: number[],
   reward_cycle: number,
@@ -94,6 +122,14 @@ export const buildSignerKeyMessageHash = (
   );
 
   return signer_key_message_hash;
+};
+
+const signMessageHash = (privateKey: string, messageHash: Buffer) => {
+  const data = signWithKey(
+    createStacksPrivateKey(privateKey),
+    messageHash.toString("hex")
+  ).data;
+  return Buffer.from(data.slice(2) + data.slice(0, 2), "hex");
 };
 
 describe("test pox-4 contract read only functions", () => {
@@ -1593,5 +1629,210 @@ describe("test pox-4 contract read only functions", () => {
       )
     );
   });
-  // verify-signer-key-sig
+
+  it("should return (ok true) verify-signer-key-sig called with correct data", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.nat({ max: 6 }),
+        fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        (
+          caller,
+          version,
+          hashbytes,
+          reward_cycle,
+          period,
+          amount,
+          max_amount,
+          auth_id
+        ) => {
+          // Arrange
+          fc.pre(amount <= max_amount);
+          const signer_private_key = privateKeyMapping[caller] ?? "";
+          const signer_key_message_hash = buildSignerKeyMessageHash(
+            version,
+            hashbytes,
+            reward_cycle,
+            "topic",
+            period,
+            max_amount,
+            auth_id
+          );
+          const signer_sig = signMessageHash(
+            signer_private_key,
+            signer_key_message_hash
+          );
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            "pox-4",
+            "verify-signer-key-sig",
+            [
+              Cl.tuple({
+                version: Cl.buffer(Uint8Array.from([version])),
+                hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+              }),
+              Cl.uint(reward_cycle),
+              Cl.stringAscii("topic"),
+              Cl.uint(period),
+              Cl.some(Cl.buffer(signer_sig)),
+              Cl.buffer(pubKeyfromPrivKey(signer_private_key).data),
+              Cl.uint(amount),
+              Cl.uint(max_amount),
+              Cl.uint(auth_id),
+            ],
+            caller
+          );
+          assert(isClarityType(actual, ClarityType.ResponseOk));
+          assert(isClarityType(actual.value, ClarityType.BoolTrue));
+          expect(actual).toBeOk(Cl.bool(true));
+          expect(actual.value).toBeBool(true);
+        }
+      )
+    );
+  });
+
+  it("should return (err 35) verify-signer-key-sig called with wrong public key", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.nat({ max: 6 }),
+        fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.constantFrom(...simnet.getAccounts().values()),
+        (
+          caller,
+          version,
+          hashbytes,
+          reward_cycle,
+          period,
+          amount,
+          max_amount,
+          auth_id,
+          wrong_address
+        ) => {
+          // Arrange
+          fc.pre(amount <= max_amount);
+          fc.pre(wrong_address !== caller);
+          const expectedResponseErr = ERR_INVALID_SIGNATURE_PUBKEY;
+          const signer_private_key = privateKeyMapping[caller];
+          const wrong_private_key = privateKeyMapping[wrong_address];
+          const signer_key_message_hash = buildSignerKeyMessageHash(
+            version,
+            hashbytes,
+            reward_cycle,
+            "topic",
+            period,
+            max_amount,
+            auth_id
+          );
+          const signer_sig = signMessageHash(
+            signer_private_key,
+            signer_key_message_hash
+          );
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            "pox-4",
+            "verify-signer-key-sig",
+            [
+              Cl.tuple({
+                version: Cl.buffer(Uint8Array.from([version])),
+                hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+              }),
+              Cl.uint(reward_cycle),
+              Cl.stringAscii("topic"),
+              Cl.uint(period),
+              Cl.some(Cl.buffer(signer_sig)),
+              Cl.buffer(pubKeyfromPrivKey(wrong_private_key).data),
+              Cl.uint(amount),
+              Cl.uint(max_amount),
+              Cl.uint(auth_id),
+            ],
+            caller
+          );
+          // Assert
+          assert(isClarityType(actual, ClarityType.ResponseErr));
+          assert(isClarityType(actual.value, ClarityType.Int));
+          expect(actual).toBeErr(Cl.int(expectedResponseErr));
+          expect(actual.value).toBeInt(expectedResponseErr);
+        }
+      )
+    );
+  });
+
+  it("should return (err 38) verify-signer-key-sig called with wrong public key", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...simnet.getAccounts().values()),
+        fc.nat({ max: 6 }),
+        fc.array(fc.nat({ max: 255 }), { maxLength: 32 }),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        fc.nat(),
+        (
+          caller,
+          version,
+          hashbytes,
+          reward_cycle,
+          period,
+          amount,
+          max_amount,
+          auth_id
+        ) => {
+          // Arrange
+          fc.pre(amount > max_amount);
+          const expectedResponseErr = ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH;
+          const signer_private_key = privateKeyMapping[caller];
+          const signer_key_message_hash = buildSignerKeyMessageHash(
+            version,
+            hashbytes,
+            reward_cycle,
+            "topic",
+            period,
+            max_amount,
+            auth_id
+          );
+          const signer_sig = signMessageHash(
+            signer_private_key,
+            signer_key_message_hash
+          );
+          // Act
+          const { result: actual } = simnet.callReadOnlyFn(
+            "pox-4",
+            "verify-signer-key-sig",
+            [
+              Cl.tuple({
+                version: Cl.buffer(Uint8Array.from([version])),
+                hashbytes: Cl.buffer(Uint8Array.from(hashbytes)),
+              }),
+              Cl.uint(reward_cycle),
+              Cl.stringAscii("topic"),
+              Cl.uint(period),
+              Cl.some(Cl.buffer(signer_sig)),
+              Cl.buffer(pubKeyfromPrivKey(signer_private_key).data),
+              Cl.uint(amount),
+              Cl.uint(max_amount),
+              Cl.uint(auth_id),
+            ],
+            caller
+          );
+          // Assert
+          assert(isClarityType(actual, ClarityType.ResponseErr));
+          assert(isClarityType(actual.value, ClarityType.Int));
+          expect(actual).toBeErr(Cl.int(expectedResponseErr));
+          expect(actual.value).toBeInt(expectedResponseErr);
+        }
+      )
+    );
+  });
 });
