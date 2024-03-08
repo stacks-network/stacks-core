@@ -155,6 +155,7 @@ impl BlockMinerThread {
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
         );
+        debug!("Parent tenure ID: {:?}", self.parent_tenure_id);
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }

@@ -596,7 +596,10 @@ impl RelayerThread {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 NakamotoNodeError::SpawnError(e)
             })?;
-        debug!("Relayer: started tenure thread ID {:?}", new_miner_handle.thread().id());
+        debug!(
+            "Relayer: started tenure thread ID {:?}",
+            new_miner_handle.thread().id()
+        );
         self.miner_thread.replace(new_miner_handle);
 
         Ok(())
