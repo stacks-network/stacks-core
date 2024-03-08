@@ -118,6 +118,7 @@ impl std::fmt::Display for MinerStatus {
 
 /// halt mining
 pub fn signal_mining_blocked(miner_status: Arc<Mutex<MinerStatus>>) {
+    debug!("Signaling miner to block"; "thread_id" => ?std::thread::current().id());
     match miner_status.lock() {
         Ok(mut status) => {
             status.add_blocked();
