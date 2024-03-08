@@ -163,6 +163,8 @@ pub struct SignerConfig {
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: u64,
+    /// The path to the signer's database file
+    pub db_path: PathBuf,
 }
 
 /// The parsed configuration for the signer
@@ -196,6 +198,8 @@ pub struct GlobalConfig {
     pub tx_fee_ustx: u64,
     /// the authorization password for the block proposal endpoint
     pub auth_password: String,
+    /// The path to the signer's database file
+    pub db_path: PathBuf,
 }
 
 /// Internal struct for loading up the config file
@@ -226,6 +230,8 @@ struct RawConfigFile {
     pub tx_fee_ustx: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
+    /// The path to the signer's database file or :memory: for an in-memory database
+    pub db_path: String,
 }
 
 impl RawConfigFile {
@@ -302,6 +308,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
+        let db_path = raw_data.db_path.into();
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -317,6 +325,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             sign_timeout,
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
             auth_password: raw_data.auth_password,
+            db_path,
         })
     }
 }
@@ -363,6 +372,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
+db_path = ":memory:"
 "#
         );
 
@@ -380,4 +390,28 @@ event_timeout = {event_timeout_ms}
     }
 
     signer_config_tomls
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_signer_config_tomls_should_produce_deserializable_strings() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let node_host = "localhost";
+        let network = Network::Testnet;
+        let password = "melon";
+
+        let config_tomls = build_signer_config_tomls(&[pk], node_host, None, &network, password);
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert_eq!(config.auth_password, "melon");
+    }
 }
