@@ -2573,11 +2573,18 @@ impl NakamotoChainState {
 
         let active_pox_contract = pox_constants.active_pox_contract(burn_header_height.into());
 
+        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+            burn_header_height as u64,
+            sortition_dbconn.get_burn_start_height().into(),
+            sortition_dbconn.get_pox_reward_cycle_length().into(),
+        ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
+
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops.clone(),
             active_pox_contract,
+            pox_reward_cycle,
         ));
         tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,

@@ -2230,7 +2230,6 @@ fn stack_stx_burn_op_test() {
 
     let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_stx_addr_2: StacksAddress = to_addr(&spender_sk_2);
-    let spender_addr_2: PrincipalData = spender_stx_addr_2.clone().into();
 
     let recipient_sk = StacksPrivateKey::new();
     let recipient_addr = to_addr(&recipient_sk);
@@ -2436,11 +2435,12 @@ fn stack_stx_burn_op_test() {
         "reward_cycle" => reward_cycle,
     );
 
+    // `stacked_ustx` should be large enough to avoid ERR_STACKING_THRESHOLD_NOT_MET from Clarity
     let stack_stx_op_with_some_signer_key = BlockstackOperationType::StackStx(StackStxOp {
         sender: spender_stx_addr_1.clone(),
         reward_addr: pox_addr.clone(),
-        stacked_ustx: 100000,
-        num_cycles: reward_cycle.try_into().unwrap(),
+        stacked_ustx: 10000000000000,
+        num_cycles: 6,
         signer_key: Some(signer_key),
         // to be filled in
         vtxindex: 0,
@@ -2465,8 +2465,8 @@ fn stack_stx_burn_op_test() {
     let stack_stx_op_with_no_signer_key = BlockstackOperationType::StackStx(StackStxOp {
         sender: spender_stx_addr_2.clone(),
         reward_addr: pox_addr.clone(),
-        stacked_ustx: 100000,
-        num_cycles: reward_cycle.try_into().unwrap(),
+        stacked_ustx: 10000000000000,
+        num_cycles: 6,
         signer_key: None,
         // to be filled in
         vtxindex: 0,
@@ -2495,6 +2495,7 @@ fn stack_stx_burn_op_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let mut stack_stx_found = false;
+    let mut stack_stx_burn_op_tx_count = 0;
     let blocks = test_observer::get_blocks();
     info!("stack event observer num blocks: {:?}", blocks.len());
     for block in blocks.iter() {
@@ -2521,10 +2522,42 @@ fn stack_stx_burn_op_test() {
                 assert_eq!(signer_key_found, signer_key.to_hex());
 
                 stack_stx_found = true;
+                stack_stx_burn_op_tx_count += 1;
             }
         }
     }
     assert!(stack_stx_found, "Expected stack STX op");
+    assert_eq!(stack_stx_burn_op_tx_count, 1, "Stack-stx tx without a signer_key shouldn't have been submitted");
+
+    let sortdb = btc_regtest_controller.sortdb_mut();
+    let sortdb_conn = sortdb.conn();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb_conn).unwrap();
+
+    let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
+        sortdb.conn(),
+        &tip.burn_header_hash,
+        6,
+    ).unwrap();
+
+    let mut all_stacking_burn_ops = vec![];
+    let mut found_none = false;
+    let mut found_some = false;
+    // go from oldest burn header hash to newest
+    for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
+        let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh).unwrap();
+        for stacking_op in stacking_ops.into_iter() {
+            debug!("Stacking op queried from sortdb: {:?}", stacking_op);
+            match stacking_op.signer_key {
+                Some(_) => found_some = true,
+                None => found_none = true,
+            }
+            all_stacking_burn_ops.push(stacking_op);
+
+        }
+    }
+    assert_eq!(all_stacking_burn_ops.len(), 2, "Both stack-stx ops with and without a signer_key should be considered valid.");
+    assert!(found_none, "Expected one stacking_op to have a signer_key of None");
+    assert!(found_some, "Expected one stacking_op to have a signer_key of Some");
 
     test_observer::clear();
     channel.stop_chains_coordinator();

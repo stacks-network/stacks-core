@@ -77,6 +77,7 @@ use crate::util_lib::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
 };
+use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use crate::util_lib::strings::StacksString;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -4145,6 +4146,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
         active_pox_contract: &str,
+        pox_reward_cycle: u64,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mainnet = clarity_tx.config.mainnet;
@@ -4179,7 +4181,27 @@ impl StacksChainState {
                 args.push(Value::none());
 
                 if let Some(signer_key_value) = signer_key {
-                    args.push(Value::buff_from(signer_key_value.as_bytes().to_vec()).unwrap());
+                    args.push(Value::buff_from(signer_key_value.clone().as_bytes().to_vec()).unwrap());
+
+                    // Need to authorize the signer key before making stack-stx call without a signature
+                    let signer_key_auth_result = Self::set_signer_key_authorization(
+                        clarity_tx,
+                        sender,
+                        &reward_addr.as_clarity_tuple().unwrap(),
+                        u128::from(*num_cycles),
+                        pox_reward_cycle,
+                        &signer_key_value.clone().as_bytes().to_vec(),
+                        mainnet,
+                        active_pox_contract,
+                    );
+
+                    match signer_key_auth_result {
+                        Err(error) => {
+                            warn!("Error in set-signer-key-authorization: {}", error);
+                            continue;
+                        }
+                        _ => {}
+                    }
                 } else {
                     warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided.", txid, burn_header_hash);
                     continue;
@@ -4603,6 +4625,57 @@ impl StacksChainState {
         };
 
         Ok(parent_miner)
+    }
+
+    fn set_signer_key_authorization(
+        clarity_tx: &mut ClarityTx,
+        sender: &StacksAddress,
+        reward_addr: &TupleData,
+        num_cycles: u128,
+        pox_reward_cycle: u64,
+        signer_key_value: &Vec<u8>,
+        mainnet: bool,
+        active_pox_contract: &str,
+    ) -> Result<(), String> {
+        let signer_auth_args = vec![
+            Value::Tuple(reward_addr.clone()),
+            Value::UInt(num_cycles),
+            Value::UInt(u128::from(pox_reward_cycle)),
+            Value::string_ascii_from_bytes(Pox4SignatureTopic::StackStx.get_name_str().into()).unwrap(),
+            Value::buff_from(signer_key_value.clone()).unwrap(),
+            Value::Bool(true),
+        ];
+
+        match clarity_tx.connection().as_transaction(|tx| {
+            tx.run_contract_call(
+                &sender.clone().into(),
+                None,
+                &boot_code_id(active_pox_contract, mainnet),
+                "set-signer-key-authorization",
+                &signer_auth_args,
+                |_, _| false,
+            )
+        }) {
+            Ok((value, _, _)) => {
+                if let Value::Response(ref resp) = value {
+                    if !resp.committed {
+                        debug!("Set-signer-key-authorization rejected by PoX contract.";
+                       "contract_call_ecode" => %resp.data);
+                        return Err(format!("set-signer-key-authorization rejected: {:?}", resp.data));
+                    }
+                    debug!("Processed set-signer-key-authorization");
+
+                    Ok(())
+                } else {
+                    unreachable!("BUG: Non-response value returned by set-signer-key-authorization")
+                }
+            }
+            Err(e) => {
+                info!("Set-signer-key-authorization processing error.";
+                           "error" => %format!("{:?}", e));
+                Err(format!("Error processing set-signer-key-authorization: {:?}", e))
+            },
+        }
     }
 
     fn get_stacking_and_transfer_burn_ops_v205(
@@ -5073,11 +5146,18 @@ impl StacksChainState {
 
         let active_pox_contract = pox_constants.active_pox_contract(u64::from(burn_tip_height));
 
+        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+            burn_tip_height as u64,
+            burn_dbconn.get_burn_start_height().into(),
+            burn_dbconn.get_pox_reward_cycle_length().into(),
+        ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
+
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops.clone(),
             active_pox_contract,
+            pox_reward_cycle
         ));
         debug!(
             "Setup block: Processed burnchain stacking ops for {}/{}",
