@@ -1611,12 +1611,15 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let alice_delegation_tx_events = &alice_delegate_tx.unwrap().clone().events;
     assert_eq!(alice_delegation_tx_events.len() as u64, 1);
     let alice_delegation_tx_event = &alice_delegation_tx_events[0];
-    let alice_delegate_stx_op_data = HashMap::from([(
-        "end-cycle-id",
-        Optional(OptionalData {
-            data: Some(Box::from(Value::UInt(24))),
-        }),
-    )]);
+    let alice_delegate_stx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(22)),
+        (
+            "end-cycle-id",
+            Optional(OptionalData {
+                data: Some(Box::from(Value::UInt(24))),
+            }),
+        ),
+    ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stx".to_string(),
         stacker: alice_principal.clone().into(),
@@ -1835,10 +1838,14 @@ fn pox_4_revoke_delegate_stx_events() {
     let revoke_delegation_tx_events = &alice_txs.get(&alice_revoke_nonce).unwrap().clone().events;
     assert_eq!(revoke_delegation_tx_events.len() as u64, 1);
     let revoke_delegation_tx_event = &revoke_delegation_tx_events[0];
-    let revoke_delegate_stx_op_data = HashMap::from([(
-        "delegate-to",
-        Value::Principal(PrincipalData::from(bob_address.clone())),
-    )]);
+    let revoke_delegate_stx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(22)),
+        ("end-cycle-id", Optional(OptionalData { data: None })),
+        (
+            "delegate-to",
+            Value::Principal(PrincipalData::from(bob_address.clone())),
+        ),
+    ]);
     let common_data = PoxPrintFields {
         op_name: "revoke-delegate-stx".to_string(),
         stacker: alice_principal.clone().into(),

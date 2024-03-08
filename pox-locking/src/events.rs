@@ -258,6 +258,10 @@ fn create_event_info_data_code(
         "delegate-stack-increase" => {
             format!(
                 r#"
+                (let (
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    {prepare_offset}
+                )
                 {{
                     data: {{
                         ;; pox addr
@@ -277,12 +281,15 @@ fn create_event_info_data_code(
                         stacker: '{stacker},
                         ;; Get end cycle ID
                         end-cycle-id: (burn-height-to-reward-cycle (get unlock-height (stx-account '{stacker}))),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
                     }}
                 }}
                 "#,
                 stacker = &args[0],
                 pox_addr = &args[1],
                 increase_by = &args[2],
+                prepare_offset = prepare_offset.replace("%height%", "unlock-height"),
             )
         }
         "stack-extend" => {
@@ -366,6 +373,8 @@ fn create_event_info_data_code(
                         stacker: '{stacker},
                         ;; Get end cycle ID
                         end-cycle-id: (burn-height-to-reward-cycle new-unlock-ht),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
                     }}
                 }})
                 "#,
@@ -457,6 +466,9 @@ fn create_event_info_data_code(
         "delegate-stx" => {
             format!(
                 r#"
+                (let (
+                    {prepare_offset}
+                )
                 {{
                     data: {{
                         ;; amount of ustx to delegate.
@@ -475,31 +487,56 @@ fn create_event_info_data_code(
                         end-cycle-id: (match {until_burn_height}
 	                            height (some (burn-height-to-reward-cycle height))
 	                            none),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
                     }}
-                }}
+                }})
                 "#,
                 amount_ustx = &args[0],
                 delegate_to = &args[1],
                 until_burn_height = &args[2],
                 pox_addr = &args[3],
+                prepare_offset = prepare_offset.replace("%height%", "burn-block-height"),
             )
         }
         "revoke-delegate-stx" => {
             if let Value::Optional(opt) = *response.data.clone() {
+                eprintln!("Response data in revoke-delegate-stx is: {:?}", opt.data);
                 format!(
                     r#"
+                    (let (
+                        {prepare_offset}
+                    )
                     {{
-                        data: {{ delegate-to: '{delegate_to} }}
-                    }}
+                        data: {{
+                            delegate-to: '{delegate_to},
+                            ;; Get end cycle ID
+                            end-cycle-id: (match {until_burn_height}
+                                    height (some (burn-height-to-reward-cycle height))
+                                    none),
+                            ;; Get start cycle ID
+                            start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
+                        }},
+                    }})
                     "#,
                     delegate_to = opt
                         .data
+                        .clone()
                         .map(|boxed_value| *boxed_value)
                         .unwrap()
                         .expect_tuple()
                         .expect("FATAL: unexpected clarity value")
                         .get("delegated-to")
+                        .unwrap(),
+                    until_burn_height = opt
+                        .data
+                        .map(|boxed_value| *boxed_value)
                         .unwrap()
+                        .expect_tuple()
+                        .expect("FATAL: unexpected clarity value")
+                        .get("until-burn-ht")
+                        .unwrap(),
+                    prepare_offset = prepare_offset.replace("%height%", "burn-block-height"),
                 )
             } else {
                 "{data: {unimplemented: true}}".into()
