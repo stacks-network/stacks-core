@@ -562,6 +562,7 @@ impl RelayerThread {
             "Relayer: Spawn tenure thread";
             "height" => last_burn_block.block_height,
             "burn_header_hash" => %burn_header_hash,
+            "parent_tenure_id" => %parent_tenure_id,
         );
 
         let miner_thread_state =
@@ -588,7 +589,7 @@ impl RelayerThread {
         let new_miner_state = self.create_block_miner(vrf_key, burn_tip, parent_tenure_start)?;
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner-{}", self.local_peer.data_url))
+            .name(format!("miner.{parent_tenure_start}"))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
             .map_err(|e| {

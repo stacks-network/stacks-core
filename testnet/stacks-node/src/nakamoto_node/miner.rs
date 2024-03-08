@@ -144,6 +144,12 @@ impl BlockMinerThread {
     pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
+        debug!(
+            "New miner thread starting";
+            "had_prior_miner" => prior_miner.is_some(),
+            "parent_tenure_id" => %self.parent_tenure_id,
+            "thread_id" => ?thread::current().id(),
+        );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
@@ -960,9 +966,19 @@ impl ParentStacksBlockInfo {
             None
         };
 
-        debug!("Mining tenure's last consensus hash: {} (height {} hash {}), stacks tip consensus hash: {} (height {} hash {})",
-               &check_burn_block.consensus_hash, check_burn_block.block_height, &check_burn_block.burn_header_hash,
-               &parent_snapshot.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
+        debug!(
+            "Looked up parent information";
+            "parent_tenure_id" => %parent_tenure_id,
+            "parent_tenure_consensus_hash" => %parent_tenure_header.consensus_hash,
+            "parent_tenure_burn_hash" => %parent_tenure_header.burn_header_hash,
+            "parent_tenure_burn_height" => parent_tenure_header.burn_header_height,
+            "mining_consensus_hash" => %check_burn_block.consensus_hash,
+            "mining_burn_hash" => %check_burn_block.burn_header_hash,
+            "mining_burn_height" => check_burn_block.block_height,
+            "stacks_tip_consensus_hash" => %parent_snapshot.consensus_hash,
+            "stacks_tip_burn_hash" => %parent_snapshot.burn_header_hash,
+            "stacks_tip_burn_height" => parent_snapshot.block_height,
+        );
 
         let coinbase_nonce = {
             let principal = miner_address.into();
