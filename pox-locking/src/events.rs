@@ -136,6 +136,10 @@ fn create_event_info_data_code(
                         signer-sig: {signer_sig},
                         ;; equal to args[5]
                         signer-key: {signer_key},
+                        ;; equal to args[6]
+                        max-amount: {max_amount},
+                        ;; equal to args[7]
+                        auth-id: {auth_id},
                     }}
                 }}
                 "#,
@@ -145,6 +149,8 @@ fn create_event_info_data_code(
                 start_burn_height = &args[2],
                 signer_sig = &args.get(4).unwrap_or(&Value::none()),
                 signer_key = &args.get(5).unwrap_or(&Value::none()),
+                max_amount = &args.get(6).unwrap_or(&Value::none()),
+                auth_id = &args.get(7).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-stx" => {
@@ -195,11 +201,23 @@ fn create_event_info_data_code(
                         ;; derived from args[0]
                         total-locked: (+ {increase_by} (get locked (stx-account tx-sender))),
                         ;; pox addr increased
-                        pox-addr: (get pox-addr (unwrap-panic (map-get? stacking-state {{ stacker: tx-sender }})))
+                        pox-addr: (get pox-addr (unwrap-panic (map-get? stacking-state {{ stacker: tx-sender }}))),
+                        ;; signer sig (args[1])
+                        signer-sig: {signer_sig},
+                        ;; signer key (args[2])
+                        signer-key: {signer_key},
+                        ;; equal to args[3]
+                        max-amount: {max_amount},
+                        ;; equal to args[4]
+                        auth-id: {auth_id},
                     }}
                 }}
                 "#,
-                increase_by = &args[0]
+                increase_by = &args[0],
+                signer_sig = &args.get(1).unwrap_or(&Value::none()),
+                signer_key = &args.get(2).unwrap_or(&Value::none()),
+                max_amount = &args.get(3).unwrap_or(&Value::none()),
+                auth_id = &args.get(4).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-increase" => {
@@ -259,6 +277,10 @@ fn create_event_info_data_code(
                         signer-sig: {signer_sig},
                         ;; equal to args[3]
                         signer-key: {signer_key},
+                        ;; equal to args[4]
+                        max-amount: {max_amount},
+                        ;; equal to args[5]
+                        auth-id: {auth_id},
                     }}
                 }})
                 "#,
@@ -266,6 +288,8 @@ fn create_event_info_data_code(
                 pox_addr = &args[1],
                 signer_sig = &args.get(2).unwrap_or(&Value::none()),
                 signer_key = &args.get(3).map_or("none".to_string(), |v| v.to_string()),
+                max_amount = &args.get(4).unwrap_or(&Value::none()),
+                auth_id = &args.get(5).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-extend" => {
@@ -326,6 +350,10 @@ fn create_event_info_data_code(
                         signer-sig: {signer_sig},
                         ;; equal to args[3]
                         signer-key: {signer_key},
+                        ;; equal to args[4]
+                        max-amount: {max_amount},
+                        ;; equal to args[5]
+                        auth-id: {auth_id},
                     }}
                 }}
                 "#,
@@ -333,6 +361,8 @@ fn create_event_info_data_code(
                 reward_cycle = &args[1],
                 signer_sig = &args.get(2).unwrap_or(&Value::none()),
                 signer_key = &args.get(3).unwrap_or(&Value::none()),
+                max_amount = &args.get(4).unwrap_or(&Value::none()),
+                auth_id = &args.get(5).unwrap_or(&Value::none()),
             )
         }
         "stack-aggregation-increase" => {
