@@ -1375,6 +1375,8 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
+        u128::MAX,
+        1,
     );
     let steph_stacking = make_pox_4_lockup(
         &steph_key,
@@ -1385,13 +1387,31 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         &steph_signing_key,
         block_height,
         Some(signature),
+        u128::MAX,
+        1,
     );
     steph_nonce += 1;
 
     //stack-increase
     let steph_stack_increase_nonce = steph_nonce;
-    let steph_stack_increase =
-        make_pox_4_stack_increase(&steph_key, steph_stack_increase_nonce, 100);
+    let signature = make_signer_key_signature(
+        &steph_pox_addr,
+        &steph_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackIncrease,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let steph_stack_increase = make_pox_4_stack_increase(
+        &steph_key,
+        steph_stack_increase_nonce,
+        100,
+        &steph_signing_key,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
     steph_nonce += 1;
 
     //stack-extend
@@ -1402,6 +1422,8 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         reward_cycle,
         &Pox4SignatureTopic::StackExtend,
         1_u128,
+        u128::MAX,
+        1,
     );
 
     let steph_stack_extend = make_pox_4_extend(
@@ -1411,6 +1433,8 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         lock_period,
         steph_signing_key,
         Some(stack_extend_signature),
+        u128::MAX,
+        1,
     );
     steph_nonce += 1;
 
@@ -1451,6 +1475,8 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         next_reward_cycle,
         &Pox4SignatureTopic::AggregationCommit,
         lock_period,
+        u128::MAX,
+        1,
     );
     let bob_aggregation_commit = make_pox_4_aggregation_commit_indexed(
         &bob,
@@ -1459,6 +1485,8 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         next_reward_cycle,
         Some(signature),
         &bob_signing_key,
+        u128::MAX,
+        1,
     );
     bob_nonce += 1;
 
