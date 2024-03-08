@@ -547,14 +547,18 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .expect("FATAL: snapshot occurred before system start");
 
         for rc in highest_rc..=tip_rc {
-            if let Entry::Occupied(_) = self.reward_cycle_consensus_hashes.entry(rc) {
-                continue;
+            match self.reward_cycle_consensus_hashes.entry(rc) {
+                Entry::Vacant(e) => {
+                    let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {
+                        // NOTE: this should be unreachable, but don't panic
+                        return Err(DBError::NotFoundError.into());
+                    };
+                    e.insert(ch);
+                }
+                Entry::Occupied(_) => {
+                    continue;
+                }
             }
-            let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {
-                // NOTE: this should be unreachable, but don't panic
-                return Err(DBError::NotFoundError.into());
-            };
-            self.reward_cycle_consensus_hashes.insert(rc, ch);
         }
         Ok(tip_rc)
     }

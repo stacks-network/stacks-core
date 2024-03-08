@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error as io_error, ErrorKind, Read, Write};
 use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError};
@@ -394,7 +393,7 @@ impl HttpPeer {
             };
 
             // event ID already used?
-            if let Entry::Occupied(_) = self.peers.entry(event_id) {
+            if self.peers.contains_key(&event_id) {
                 warn!(
                     "Already have an event {}: {:?}",
                     event_id,
@@ -523,7 +522,7 @@ impl HttpPeer {
         poll_state: &mut NetworkPollState,
     ) -> () {
         for event_id in poll_state.ready.iter() {
-            if let Entry::Occupied(_) = self.connecting.entry(*event_id) {
+            if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt, _) =
                     self.connecting.remove(event_id).unwrap();
 
@@ -559,7 +558,7 @@ impl HttpPeer {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
-            if let Entry::Vacant(_) = self.sockets.entry(*event_id) {
+            if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;

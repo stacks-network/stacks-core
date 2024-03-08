@@ -820,7 +820,7 @@ impl TrackerData {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
-            if let Entry::Vacant(_) = cost_contracts.entry(cost_function_ref.contract_id.to_owned())
+            if let Entry::Vacant(e) = cost_contracts.entry(cost_function_ref.contract_id.to_owned())
             {
                 let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
                 {
@@ -835,14 +835,14 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
+                e.insert(contract_context);
             }
 
             m.insert(f, cost_function_ref);
         }
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
-            if let Entry::Vacant(_) = cost_contracts.entry(circuit_target.contract_id.to_owned()) {
+            if let Entry::Vacant(e) = cost_contracts.entry(circuit_target.contract_id.to_owned()) {
                 let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
@@ -855,7 +855,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
+                e.insert(contract_context);
             }
         }
 

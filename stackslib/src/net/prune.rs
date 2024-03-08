@@ -416,11 +416,13 @@ impl PeerNetwork {
             debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
             self.deregister_neighbor(&prune);
 
-            if let Entry::Vacant(_) = self.prune_inbound_counts.entry(prune.to_owned()) {
-                self.prune_inbound_counts.insert(prune.clone(), 1);
-            } else {
-                let c = self.prune_inbound_counts.get(prune).unwrap().to_owned();
-                self.prune_inbound_counts.insert(prune.clone(), c + 1);
+            match self.prune_inbound_counts.entry(prune.to_owned()) {
+                Entry::Occupied(mut e) => {
+                    *e.get_mut() += 1;
+                }
+                Entry::Vacant(e) => {
+                    e.insert(1);
+                }
             }
         }
 
@@ -438,11 +440,13 @@ impl PeerNetwork {
             debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
             self.deregister_neighbor(&prune);
 
-            if let Entry::Vacant(_) = self.prune_outbound_counts.entry(prune.to_owned()) {
-                self.prune_outbound_counts.insert(prune.clone(), 1);
-            } else {
-                let c = self.prune_outbound_counts.get(prune).unwrap().to_owned();
-                self.prune_outbound_counts.insert(prune.clone(), c + 1);
+            match self.prune_outbound_counts.entry(prune.to_owned()) {
+                Entry::Occupied(mut e) => {
+                    *e.get_mut() += 1;
+                }
+                Entry::Vacant(e) => {
+                    e.insert(1);
+                }
             }
         }
 

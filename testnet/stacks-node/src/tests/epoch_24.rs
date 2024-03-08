@@ -490,8 +490,8 @@ fn fix_to_pox_contract() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if let Entry::Vacant(_) = reward_cycle_pox_addrs.entry(reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
+        if let Entry::Vacant(e) = reward_cycle_pox_addrs.entry(reward_cycle) {
+            e.insert(HashMap::new());
         }
 
         let iconn = sortdb.index_conn();
@@ -1210,8 +1210,8 @@ fn verify_auto_unlock_behavior() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if let Entry::Vacant(_) = reward_cycle_pox_addrs.entry(reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
+        if let Entry::Vacant(e) = reward_cycle_pox_addrs.entry(reward_cycle) {
+            e.insert(HashMap::new());
         }
 
         let iconn = sortdb.index_conn();

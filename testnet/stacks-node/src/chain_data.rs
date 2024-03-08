@@ -363,10 +363,14 @@ impl MinerStats {
 
         for (_, commit) in active_miners_and_commits.iter() {
             let addr = commit.apparent_sender.to_string();
-            if let Entry::Occupied(_) = dist.entry(addr.to_owned()) {
-                continue;
+            match dist.entry(addr.to_owned()) {
+                Entry::Occupied(_) => {
+                    continue;
+                }
+                Entry::Vacant(e) => {
+                    e.insert(commit.burn_fee);
+                }
             }
-            dist.insert(addr, commit.burn_fee);
         }
 
         for (_, spend) in dist.iter() {
@@ -435,7 +439,7 @@ impl MinerStats {
         };
 
         for (miner, last_commit) in active_miners_and_commits.iter() {
-            if let Entry::Vacant(_) = commit_table.entry(miner.to_owned()) {
+            if let Entry::Vacant(e) = commit_table.entry(miner.to_owned()) {
                 let mocked_commit = LeaderBlockCommitOp {
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
@@ -457,7 +461,7 @@ impl MinerStats {
                         as u8,
                     burn_header_hash: BurnchainHeaderHash(DEADBEEF.clone()),
                 };
-                commit_table.insert(miner.to_string(), mocked_commit);
+                e.insert(mocked_commit);
             }
         }
 

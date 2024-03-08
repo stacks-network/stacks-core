@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -3087,29 +3088,28 @@ impl StacksChainState {
         let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
         for i in 0..signed_microblocks.len() {
             let signed_microblock = &signed_microblocks[i];
-            if let std::collections::hash_map::Entry::Occupied(_) =
-                parent_hashes.entry(signed_microblock.header.prev_block.to_owned())
-            {
-                debug!(
-                    "Deliberate microblock fork: duplicate parent {}",
-                    signed_microblock.header.prev_block
-                );
-                let conflicting_microblock_header = parent_hashes
-                    .get(&signed_microblock.header.prev_block)
-                    .unwrap();
+            match parent_hashes.entry(signed_microblock.header.prev_block.to_owned()) {
+                Entry::Occupied(_) => {
+                    debug!(
+                        "Deliberate microblock fork: duplicate parent {}",
+                        signed_microblock.header.prev_block
+                    );
+                    let conflicting_microblock_header = parent_hashes
+                        .get(&signed_microblock.header.prev_block)
+                        .unwrap();
 
-                return Some((
-                    i - 1,
-                    Some(TransactionPayload::PoisonMicroblock(
-                        signed_microblock.header.clone(),
-                        conflicting_microblock_header.clone(),
-                    )),
-                ));
+                    return Some((
+                        i - 1,
+                        Some(TransactionPayload::PoisonMicroblock(
+                            signed_microblock.header.clone(),
+                            conflicting_microblock_header.clone(),
+                        )),
+                    ));
+                }
+                Entry::Vacant(e) => {
+                    e.insert(signed_microblock.header.clone());
+                }
             }
-            parent_hashes.insert(
-                signed_microblock.header.prev_block.clone(),
-                signed_microblock.header.clone(),
-            );
         }
 
         // hashes are contiguous enough -- for each seqnum, there is a microblock with seqnum+1 with the

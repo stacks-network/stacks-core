@@ -543,13 +543,7 @@ impl<'a> RollbackWrapper<'a> {
             )
         })?;
 
-        let contains_key = if let Entry::Occupied(_) = self.lookup_map.entry(key.to_owned()) {
-            true
-        } else {
-            false
-        };
-
-        if self.query_pending_data && contains_key {
+        if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)
         } else {
             self.store.has_entry(key)
