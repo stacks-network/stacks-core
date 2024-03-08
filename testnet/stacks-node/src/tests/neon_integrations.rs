@@ -2401,6 +2401,8 @@ fn vote_for_aggregate_key_burn_op_test() {
         &Pox4SignatureTopic::StackStx,
         CHAIN_ID_TESTNET,
         12,
+        u128::MAX,
+        1,
     )
     .unwrap();
 
@@ -2420,6 +2422,8 @@ fn vote_for_aggregate_key_burn_op_test() {
             Value::UInt(12),
             Value::some(Value::buff_from(signature.to_rsv()).unwrap()).unwrap(),
             Value::buff_from(signer_pk_bytes.clone()).unwrap(),
+            Value::UInt(u128::MAX),
+            Value::UInt(1),
         ],
     );
 
