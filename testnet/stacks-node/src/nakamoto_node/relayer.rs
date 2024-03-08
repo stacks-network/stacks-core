@@ -596,7 +596,7 @@ impl RelayerThread {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 NakamotoNodeError::SpawnError(e)
             })?;
-
+        debug!("Relayer: started tenure thread ID {:?}", new_miner_handle.thread().id());
         self.miner_thread.replace(new_miner_handle);
 
         Ok(())
@@ -606,8 +606,10 @@ impl RelayerThread {
         // when stopping a tenure, block the mining thread if its currently running, then join it.
         // do this in a new thread will (so that the new thread stalls, not the relayer)
         let Some(prior_tenure_thread) = self.miner_thread.take() else {
+            debug!("Relayer: no tenure thread to stop");
             return Ok(());
         };
+        let id = prior_tenure_thread.thread().id();
         let globals = self.globals.clone();
 
         let stop_handle = std::thread::Builder::new()
@@ -619,7 +621,7 @@ impl RelayerThread {
             })?;
 
         self.miner_thread.replace(stop_handle);
-
+        debug!("Relayer: stopped tenure thread ID {id:?}");
         Ok(())
     }
 
