@@ -376,15 +376,13 @@ impl BlockMinerThread {
 
     fn wait_for_signer_signature(
         &self,
+        sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
         aggregate_public_key: &Point,
         signer_signature_hash: &Sha512Trunc256Sum,
         signer_weights: HashMap<StacksAddress, u64>,
+        reward_cycle: u64,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("FATAL: no reward cycle for burn block");
         let (signers_contract_id, slot_ids_addresses) =
             self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID, reward_cycle)?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
@@ -396,6 +394,10 @@ impl BlockMinerThread {
         let now = Instant::now();
         debug!("Miner: waiting for block response from reward cycle {reward_cycle } signers...");
         while now.elapsed() < self.config.miner.wait_on_signers {
+            if self.check_burn_tip_changed(&sortdb).is_err() {
+                info!("Miner: burnchain tip changed while waiting for signer signature.");
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
             // Get the block responses from the signers for the block we just proposed
             debug!("Miner: retreiving latest signer messsages";
                 "signers_contract_id" => %signers_contract_id,
@@ -531,10 +533,12 @@ impl BlockMinerThread {
         )?;
         let signature = self
             .wait_for_signer_signature(
+                &sort_db,
                 &stackerdbs,
                 &aggregate_public_key,
                 &block.header.signer_signature_hash(),
                 signer_weights,
+                reward_cycle,
             )
             .map_err(|e| {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
