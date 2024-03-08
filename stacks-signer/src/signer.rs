@@ -463,7 +463,7 @@ impl Signer {
                 msg: Message::NonceRequest(nonce_request),
                 sig: vec![],
             };
-            self.handle_packets(stacks_client, res, &[packet]);
+            self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
         } else {
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
@@ -511,7 +511,7 @@ impl Signer {
                 }
             })
             .collect();
-        self.handle_packets(stacks_client, res, &packets);
+        self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
@@ -541,6 +541,7 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         packets: &[Packet],
+        current_reward_cycle: u64,
     ) {
         let signer_outbound_messages = self
             .signing_round
@@ -554,16 +555,20 @@ impl Signer {
             });
 
         // Next process the message as the coordinator
-        let (coordinator_outbound_messages, operation_results) = self
-            .coordinator
-            .process_inbound_messages(packets)
-            .unwrap_or_else(|e| {
-                error!(
-                    "Signer #{}: Failed to process inbound messages as a coordinator: {e:?}",
-                    self.signer_id
-                );
+        let (coordinator_outbound_messages, operation_results) =
+            if self.reward_cycle != current_reward_cycle {
+                self.coordinator
+                    .process_inbound_messages(packets)
+                    .unwrap_or_else(|e| {
+                        error!(
+                        "Signer #{}: Failed to process inbound messages as a coordinator: {e:?}",
+                        self.signer_id
+                    );
+                        (vec![], vec![])
+                    })
+            } else {
                 (vec![], vec![])
-            });
+            };
 
         if !operation_results.is_empty() {
             // We have finished a signing or DKG round, either successfully or due to error.
@@ -885,8 +890,11 @@ impl Signer {
                 OperationResult::SignTaproot(_) => {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
-                OperationResult::Dkg(dkg_public_key) => {
-                    self.process_dkg(stacks_client, dkg_public_key);
+                OperationResult::Dkg {
+                    ref aggregate_key,
+                    ref participants,
+                } => {
+                    self.process_dkg(stacks_client, aggregate_key);
                 }
                 OperationResult::SignError(e) => {
                     warn!("Signer #{}: Received a Sign error: {e:?}", self.signer_id);

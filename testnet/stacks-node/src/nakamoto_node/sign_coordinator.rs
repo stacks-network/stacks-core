@@ -17,7 +17,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::{SignerEvent, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{MessageSlotID, SignerEvent, SignerMessage, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -30,106 +30,18 @@ use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use wsts::common::{PublicNonce, Signature, SignatureShare};
+use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare};
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 use wsts::errors::AggregatorError;
+use wsts::net::Packet;
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::PublicKeys;
+use wsts::v2::Aggregator;
 
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
-
-#[derive(Clone)]
-pub struct MyAggregator {
-    aggregate_public_key: Point,
-}
-
-impl MyAggregator {
-    pub fn sign_with_tweak(
-        &mut self,
-        msg: &[u8],
-        nonces: &[PublicNonce],
-        sig_shares: &[SignatureShare],
-        _key_ids: &[u32],
-        tweak: &Scalar,
-    ) -> Result<(Point, Signature), AggregatorError> {
-        if nonces.len() != sig_shares.len() {
-            return Err(AggregatorError::BadNonceLen(nonces.len(), sig_shares.len()));
-        }
-
-        let party_ids: Vec<u32> = sig_shares.iter().map(|ss| ss.id).collect();
-        let (_intermediate_rs, intermediate_r) =
-            wsts::compute::intermediate(msg, &party_ids, nonces);
-        let mut z = Scalar::from(0);
-        let aggregate_public_key = self.aggregate_public_key;
-        let tweaked_public_key = aggregate_public_key + tweak * wsts::curve::point::G;
-        let c = wsts::compute::challenge(&tweaked_public_key, &intermediate_r, msg);
-        let mut cx_sign = Scalar::from(1);
-        if tweak != &Scalar::from(0) && !tweaked_public_key.has_even_y() {
-            cx_sign = -Scalar::from(1);
-        }
-
-        // optimistically try to create the aggregate signature without checking for bad keys or sig shares
-        for i in 0..sig_shares.len() {
-            z += sig_shares[i].z_i;
-        }
-
-        z += cx_sign * c * tweak;
-
-        let sig = Signature {
-            R: intermediate_r,
-            z,
-        };
-
-        Ok((tweaked_public_key, sig))
-    }
-}
-
-impl wsts::traits::Aggregator for MyAggregator {
-    fn new(_num_keys: u32, _threshold: u32) -> Self {
-        Self {
-            aggregate_public_key: Point::default(),
-        }
-    }
-
-    fn init(
-        &mut self,
-        _poly_comms: &HashMap<u32, wsts::common::PolyCommitment>,
-    ) -> Result<(), wsts::errors::AggregatorError> {
-        // pass
-        Ok(())
-    }
-
-    fn sign(
-        &mut self,
-        msg: &[u8],
-        nonces: &[wsts::common::PublicNonce],
-        sig_shares: &[wsts::common::SignatureShare],
-        key_ids: &[u32],
-    ) -> Result<wsts::common::Signature, wsts::errors::AggregatorError> {
-        let (key, sig) =
-            self.sign_with_tweak(msg, nonces, sig_shares, key_ids, &Scalar::from(0))?;
-
-        if sig.verify(&key, msg) {
-            Ok(sig)
-        } else {
-            Err(AggregatorError::BadGroupSig)
-        }
-    }
-
-    fn sign_taproot(
-        &mut self,
-        _msg: &[u8],
-        _nonces: &[wsts::common::PublicNonce],
-        _sig_shares: &[wsts::common::SignatureShare],
-        _key_ids: &[u32],
-        _merkle_root: Option<wsts::common::MerkleRoot>,
-    ) -> Result<wsts::taproot::SchnorrProof, wsts::errors::AggregatorError> {
-        Err(wsts::errors::AggregatorError::BadGroupSig)
-    }
-}
 
 /// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
 ///  sole function is to serve as the coordinator for Nakamoto block signing.
@@ -137,7 +49,7 @@ impl wsts::traits::Aggregator for MyAggregator {
 ///  is used by Nakamoto miners to act as the coordinator for the blocks they
 ///  produce.
 pub struct SignCoordinator {
-    coordinator: FireCoordinator<MyAggregator>,
+    coordinator: FireCoordinator<Aggregator>,
     receiver: Option<Receiver<StackerDBChunksEvent>>,
     message_key: Scalar,
     wsts_public_keys: PublicKeys,
@@ -225,6 +137,65 @@ impl From<&[NakamotoSignerEntry]> for NakamotoSigningParams {
     }
 }
 
+fn get_signer_commitments(
+    is_mainnet: bool,
+    reward_set: &[NakamotoSignerEntry],
+    stackerdbs: &StackerDBs,
+    reward_cycle: u64,
+    wsts_pks: &PublicKeys,
+    message_key: &Scalar,
+) -> Result<Vec<(u32, PolyCommitment)>, ChainstateError> {
+    let commitment_contract =
+        MessageSlotID::DkgPublicShares.stacker_db_contract(is_mainnet, reward_cycle);
+    let signer_set_len = u32::try_from(reward_set.len())
+        .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set length exceeds u32".into()))?;
+    let my_pubkey = ecdsa::PublicKey::new(message_key).map_err(|_| {
+        ChainstateError::InvalidStacksBlock(
+            "Miner failed to create public version of miner secret key".into(),
+        )
+    })?;
+    let mut comms = vec![];
+    for signer_id in 0..signer_set_len {
+        let Some(signer_data) = stackerdbs.get_latest_chunk(&commitment_contract, signer_id)?
+        else {
+            warn!(
+                "Failed to fetch public share, trying to continue aggregation without";
+                "signer_id" => signer_id
+            );
+            continue;
+        };
+        let Ok(SignerMessage::Packet(packet)) =
+            SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
+        else {
+            warn!(
+                "Failed to parse public share, trying to continue aggregation without";
+                "signer_id" => signer_id,
+            );
+            continue;
+        };
+        if !packet.verify(wsts_pks, &my_pubkey) {
+            warn!(
+                "Failed to verify public share, trying to continue aggregation without";
+                "signer_id" => signer_id,
+            );
+            continue;
+        };
+        let mut public_shares = match packet.msg {
+            wsts::net::Message::DkgPublicShares(x) => x,
+            other => {
+                warn!(
+                    "Expected public share message, but got other message. Trying to continue aggregation without";
+                    "signer_id" => signer_id,
+                    "other_msg" => ?other,
+                );
+                continue;
+            }
+        };
+        comms.append(&mut public_shares.comms);
+    }
+    Ok(comms)
+}
+
 impl SignCoordinator {
     /// * `reward_set` - the active reward set data, used to construct the signer
     ///    set parameters.
@@ -283,9 +254,21 @@ impl SignCoordinator {
             ..Default::default()
         };
 
-        let mut coordinator: FireCoordinator<MyAggregator> = FireCoordinator::new(coord_config);
-        coordinator.set_aggregate_public_key(Some(aggregate_public_key.clone()));
-        coordinator.aggregator.aggregate_public_key = aggregate_public_key;
+        let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
+        let party_polynomials = get_signer_commitments(
+            is_mainnet,
+            reward_set_signers.as_slice(),
+            todo!(),
+            todo!(),
+            &wsts_public_keys,
+            &message_key,
+        )?;
+
+        if let Err(e) = coordinator
+            .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
+        {
+            warn!("Failed to set a valid set of party polynomials");
+        };
         // this has to match the signer sets in order for the
         //  individual signer's local coordinator instance to accept
         //  the SigShareRequest. This *isn't* necessary to to validate
@@ -463,7 +446,7 @@ impl SignCoordinator {
                 });
             for operation_result in op_results.into_iter() {
                 match operation_result {
-                    wsts::state_machine::OperationResult::Dkg(_)
+                    wsts::state_machine::OperationResult::Dkg { .. }
                     | wsts::state_machine::OperationResult::SignTaproot(_)
                     | wsts::state_machine::OperationResult::DkgError(_) => {
                         debug!("Ignoring unrelated operation result");

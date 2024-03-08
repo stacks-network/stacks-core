@@ -13,13 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
@@ -70,11 +70,52 @@ pub const BLOCK_MSG_ID: u32 = 10;
 /// The slot ID for the transactions list for miners and signers to observe
 pub const TRANSACTIONS_MSG_ID: u32 = 11;
 
+define_u8_enum!(
+/// Enum representing the stackerdb message identifier: this is
+///  the contract index in the signers contracts (i.e., X in signers-0-X)
+MessageSlotID {
+    /// DkgBegin message
+    DkgBegin = 0,
+    /// DkgPrivateBegin
+    DkgPrivateBegin = 1,
+    /// DkgEndBegin
+    DkgEndBegin = 2,
+    /// DkgEnd
+    DkgEnd = 3,
+    /// DkgPublicshares
+    DkgPublicShares = 4,
+    /// DkgPrivateShares
+    DkgPrivateShares = 5,
+    /// NonceRequest
+    NonceRequest = 6,
+    /// NonceResponse
+    NonceResponse = 7,
+    /// SignatureShareRequest
+    SignatureShareRequest = 8,
+    /// SignatureShareResponse
+    SignatureShareResponse = 9,
+    /// Block proposal responses
+    BlockResponse = 10,
+    /// Transactions
+    Transactions = 11
+});
+
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
     Transactions = 2
 });
+
+impl MessageSlotID {
+    /// Return the StackerDB contract corresponding to messages of this type
+    pub fn stacker_db_contract(
+        &self,
+        mainnet: bool,
+        reward_cycle: u64,
+    ) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u8().into(), mainnet)
+    }
+}
 
 impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
@@ -1082,7 +1123,6 @@ impl From<BlockValidateReject> for SignerMessage {
 
 #[cfg(test)]
 mod test {
-
     use blockstack_lib::chainstate::stacks::{
         TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
         TransactionSmartContract, TransactionVersion,
@@ -1095,6 +1135,18 @@ mod test {
     use wsts::common::Signature;
 
     use super::{StacksMessageCodecExtensions, *};
+
+    #[test]
+    fn signer_slots_count_is_sane() {
+        let slot_identifiers_len = MessageSlotID::ALL.len();
+        assert!(
+            SIGNER_SLOTS_PER_USER as usize >= slot_identifiers_len,
+            "stacks_common::SIGNER_SLOTS_PER_USER ({}) must be >= slot identifiers ({})",
+            SIGNER_SLOTS_PER_USER,
+            slot_identifiers_len,
+        );
+    }
+
     #[test]
     fn serde_reject_code() {
         let code = RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock);
