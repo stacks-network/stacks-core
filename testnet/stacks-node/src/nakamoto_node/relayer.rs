@@ -641,18 +641,35 @@ impl RelayerThread {
             MinerDirective::BeginTenure {
                 parent_tenure_start,
                 burnchain_tip,
-            } => {
-                let _ = self.start_new_tenure(parent_tenure_start, burnchain_tip);
-            }
+            } => match self.start_new_tenure(parent_tenure_start, burnchain_tip) {
+                Ok(()) => {
+                    debug!("Relayer: successfully started new tenure.");
+                }
+                Err(e) => {
+                    error!("Relayer: Failed to start new tenure: {:?}", e);
+                }
+            },
             MinerDirective::ContinueTenure { new_burn_view: _ } => {
                 // TODO: in this case, we eventually want to undergo a tenure
                 //  change to switch to the new burn view, but right now, we will
                 //  simply end our current tenure if it exists
-                let _ = self.stop_tenure();
+                match self.stop_tenure() {
+                    Ok(()) => {
+                        debug!("Relayer: successfully stopped tenure.");
+                    }
+                    Err(e) => {
+                        error!("Relayer: Failed to stop tenure: {:?}", e);
+                    }
+                }
             }
-            MinerDirective::StopTenure => {
-                let _ = self.stop_tenure();
-            }
+            MinerDirective::StopTenure => match self.stop_tenure() {
+                Ok(()) => {
+                    debug!("Relayer: successfully stopped tenure.");
+                }
+                Err(e) => {
+                    error!("Relayer: Failed to stop tenure: {:?}", e);
+                }
+            },
         }
 
         true
