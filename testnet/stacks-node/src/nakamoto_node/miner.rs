@@ -134,7 +134,6 @@ impl BlockMinerThread {
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
     pub fn stop_miner(globals: &Globals, prior_miner: JoinHandle<()>) {
-        let id = prior_miner.thread().id();
         globals.block_miner();
         prior_miner
             .join()
