@@ -252,7 +252,7 @@ impl RunLoop {
                 if let Some(signer) = self.stacks_signers.get_mut(&prior_reward_set) {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
-                        debug!("Reward cycle #{} Signer #{}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring signer.", signer.reward_cycle, signer.signer_id);
+                        debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring signer.");
                         signer.next_signer_addresses = new_signer_config
                             .signer_entries
                             .signer_ids
@@ -286,7 +286,7 @@ impl RunLoop {
                 .refresh_coordinator(&pox_consensus_hash);
             if old_coordinator_id != updated_coordinator_id {
                 debug!(
-                    "Reward cycle #{} Signer #{}: Coordinator updated. Resetting state to Idle.", signer.reward_cycle, signer.signer_id;
+                    "{signer}: Coordinator updated. Resetting state to Idle.";
                     "old_coordinator_id" => {old_coordinator_id},
                     "updated_coordinator_id" => {updated_coordinator_id},
                     "pox_consensus_hash" => %pox_consensus_hash
@@ -363,22 +363,17 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 res.clone(),
                 current_reward_cycle,
             ) {
-                error!(
-                    "Reward cycle #{} Signer #{} errored processing event: {e}",
-                    signer.reward_cycle, signer.signer_id,
-                );
+                error!("{signer}: errored processing event: {e}");
             }
             if let Some(command) = self.commands.pop_front() {
                 let reward_cycle = command.reward_cycle;
                 if signer.reward_cycle != reward_cycle {
                     warn!(
-                        "Reward cycle #{} Signer #{}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}", signer.reward_cycle, signer.signer_id
+                        "{signer}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
                     );
                 } else {
                     info!(
-                        "Reward cycle #{} Signer #{}: Queuing an external runloop command ({:?}): {command:?}",
-                        signer.reward_cycle,
-                        signer.signer_id,
+                        "{signer}: Queuing an external runloop command ({:?}): {command:?}",
                         signer
                             .signing_round
                             .public_keys
