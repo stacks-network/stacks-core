@@ -397,6 +397,10 @@ impl BlockMinerThread {
         debug!("Miner: waiting for block response from reward cycle {reward_cycle } signers...");
         while now.elapsed() < self.config.miner.wait_on_signers {
             // Get the block responses from the signers for the block we just proposed
+            debug!("Miner: retreiving latest signer messsages";
+                "signers_contract_id" => %signers_contract_id,
+                "slot_ids" => ?slot_ids,
+            );
             let signer_chunks = stackerdbs
                 .get_latest_chunks(&signers_contract_id, &slot_ids)
                 .expect("FATAL: could not get latest chunks from stacker DB");
@@ -411,6 +415,7 @@ impl BlockMinerThread {
                     })
                 })
                 .collect();
+            debug!("Miner: retrieved {} signer messages", signer_messages.len());
             for (signer_id, signer_message) in signer_messages {
                 match signer_message {
                     SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
