@@ -120,7 +120,7 @@ impl StackerDB {
         let msg_id = message.msg_id();
         let slot_id = self.signer_slot_id;
         loop {
-            let slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+            let mut slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
                 if let Some(version) = versions.get(&slot_id) {
                     *version
                 } else {
@@ -165,7 +165,12 @@ impl StackerDB {
             if let Some(code) = chunk_ack.code {
                 match StackerDBErrorCodes::from_code(code) {
                     Some(StackerDBErrorCodes::DataAlreadyExists) => {
-                        warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
+                        if let Some(slot_metadata) = chunk_ack.metadata {
+                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected {}. Retrying...", slot_version, slot_metadata.slot_version);
+                            slot_version = slot_metadata.slot_version;
+                        } else {
+                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unkown version number. Incrementing and retrying...", slot_version);
+                        }
                         if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
                             // NOTE: per the above, this is always executed
                             versions.insert(slot_id, slot_version.saturating_add(1));
