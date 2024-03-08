@@ -422,12 +422,13 @@ impl BlockMinerThread {
                         {
                             // The signature is valid across the signer signature hash of the original proposed block
                             // Immediately return and update the block with this new signature before appending it to the chain
-                            debug!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
+                            info!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
                             return Ok(signature);
                         }
                         // We received an accepted block for some unknown block hash...Useless! Ignore it.
                         // Keep waiting for a threshold number of signers to either reject the proposed block
                         // or return valid signature to show up across the proposed block
+                        debug!("Miner: received a signature for an unknown block hash: {hash:?}. Ignoring it.");
                     }
                     SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) => {
                         // First check that this block rejection is for the block we proposed
