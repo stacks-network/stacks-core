@@ -153,9 +153,9 @@ fn create_event_info_data_code(
                         ;; equal to args[7]
                         auth-id: {auth_id},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle unlock-burn-height),
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-burn-height)),
                         ;; Get start cycle ID
-                        start-cycle-id: (+ current-pox-reward-cycle prepare-offset),
+                        start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
                     }}
                 }})
                 "#,
@@ -200,9 +200,9 @@ fn create_event_info_data_code(
                         ;; equal to args[0]
                         stacker: '{stacker},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle unlock-burn-height),
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-burn-height)),
                         ;; Get start cycle ID
-                        start-cycle-id: (+ current-pox-reward-cycle prepare-offset),
+                        start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
                     }}
                 }})
                 "#,
@@ -241,7 +241,7 @@ fn create_event_info_data_code(
                         ;; equal to args[4]
                         auth-id: {auth_id},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle unlock-height),
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-height)),
                         ;; Get start cycle ID
                         start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
                     }}
@@ -320,7 +320,7 @@ fn create_event_info_data_code(
                         ;; equal to args[5]
                         auth-id: {auth_id},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle new-unlock-ht),
+                        end-cycle-id: (some (burn-height-to-reward-cycle new-unlock-ht)),
                         ;; Get start cycle ID
                         start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
                     }}
@@ -403,9 +403,9 @@ fn create_event_info_data_code(
                         ;; equal to args[5]
                         auth-id: {auth_id},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle (get unlock-height (stx-account tx-sender))),
+                        end-cycle-id: (some (burn-height-to-reward-cycle (get unlock-height (stx-account tx-sender)))),
                         ;; Get start cycle ID
-                        start-cycle-id: (+ current-pox-reward-cycle prepare-offset),
+                        start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
                     }}
                 }})
                 "#,
@@ -442,7 +442,7 @@ fn create_event_info_data_code(
                         ;; equal to args[2]
                         reward-cycle-index: {reward_cycle_index},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle unlock-height),
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-height)),
                         ;; Get start cycle ID
                         start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
                     }}
@@ -472,7 +472,9 @@ fn create_event_info_data_code(
                         ;; equal to args[3].
                         pox-addr: {pox_addr},
                         ;; Get end cycle ID
-                        end-cycle-id: (burn-height-to-reward-cycle {until_burn_height}),
+                        end-cycle-id: (match {until_burn_height}
+	                            height (some (burn-height-to-reward-cycle height))
+	                            none),
                     }}
                 }}
                 "#,
