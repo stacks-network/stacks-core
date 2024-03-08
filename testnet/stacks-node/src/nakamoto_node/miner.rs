@@ -135,15 +135,11 @@ impl BlockMinerThread {
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
     pub fn stop_miner(globals: &Globals, prior_miner: JoinHandle<()>) {
         let id = prior_miner.thread().id();
-        debug!("Blocking miner thread ID {:?}", id);
         globals.block_miner();
-        debug!("Joining miner thread ID {:?}", id);
         prior_miner
             .join()
             .expect("FATAL: IO failure joining prior mining thread");
-        debug!("Joined miner thread ID {:?}", id);
         globals.unblock_miner();
-        debug!("Unblocked miner.");
     }
 
     pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
@@ -155,7 +151,6 @@ impl BlockMinerThread {
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
         );
-        debug!("Parent tenure ID: {:?}", self.parent_tenure_id);
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
