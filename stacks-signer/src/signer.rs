@@ -367,7 +367,7 @@ impl Signer {
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish...",);
+                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
             }
         }
     }
