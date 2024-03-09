@@ -24,7 +24,9 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
-use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
+use libsigner::{
+    BlockProposalSigners, BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage,
+};
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -497,17 +499,30 @@ impl Signer {
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(&mut self, stacks_client: &StacksClient, blocks: &[NakamotoBlock]) {
-        for block in blocks {
+    fn handle_proposed_blocks(
+        &mut self,
+        stacks_client: &StacksClient,
+        proposals: &[BlockProposalSigners],
+    ) {
+        for proposal in proposals {
+            if proposal.reward_cycle != self.reward_cycle {
+                debug!(
+                    "Signer #{}: Received proposal for block outside of my reward cycle, ignoring.",
+                    self.signer_id;
+                    "proposal_reward_cycle" => proposal.reward_cycle,
+                    "proposal_burn_height" => proposal.burn_height,
+                );
+                continue;
+            }
             // Store the block in our cache
             self.signer_db
-                .insert_block(&BlockInfo::new(block.clone()))
+                .insert_block(&BlockInfo::new(proposal.block.clone()))
                 .unwrap_or_else(|e| {
                     error!("{self}: Failed to insert block in DB: {e:?}");
                 });
             // Submit the block for validation
             stacks_client
-                .submit_block_for_validation(block.clone())
+                .submit_block_for_validation(proposal.block.clone())
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}");
                 });
