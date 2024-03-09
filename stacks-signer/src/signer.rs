@@ -128,6 +128,8 @@ pub enum State {
     Idle,
     /// The signer is executing a DKG or Sign round
     OperationInProgress,
+    /// The signer's reward cycle has finished
+    TenureCompleted,
 }
 
 /// The stacks signer registered for the reward cycle
@@ -372,6 +374,9 @@ impl Signer {
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
                 debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
+            }
+            State::TenureCompleted => {
+                warn!("{self}: Tenure completed. This signer should have been cleaned up during refresh.",);
             }
         }
     }

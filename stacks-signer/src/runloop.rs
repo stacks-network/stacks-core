@@ -279,7 +279,14 @@ impl RunLoop {
         self.refresh_signer_config(next_reward_cycle);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
-        for signer in self.stacks_signers.values_mut() {
+        let mut to_delete = Vec::new();
+        for (idx, signer) in &mut self.stacks_signers {
+            if signer.reward_cycle < current_reward_cycle {
+                debug!("{signer}: Signer's tenure has completed.");
+                // We don't really need this state, but it's useful for debugging
+                signer.state = SignerState::TenureCompleted;
+                to_delete.push(*idx);
+            }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
                 .coordinator_selector
@@ -300,6 +307,11 @@ impl RunLoop {
                         .update_dkg(&self.stacks_client)
                         .map_err(backoff::Error::transient)
                 })?;
+            }
+        }
+        for i in to_delete.into_iter() {
+            if let Some(signer) = self.stacks_signers.remove(&i) {
+                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
             }
         }
         if self.stacks_signers.is_empty() {
@@ -357,6 +369,10 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
         for signer in self.stacks_signers.values_mut() {
+            if signer.state == SignerState::TenureCompleted {
+                warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
+                continue;
+            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
