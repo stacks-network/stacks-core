@@ -280,12 +280,12 @@ impl RunLoop {
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
         let mut to_delete = Vec::new();
-        for signer in self.stacks_signers.values_mut() {
+        for (idx, signer) in &mut self.stacks_signers {
             if signer.reward_cycle < current_reward_cycle {
                 debug!("{signer}: Signer's tenure has completed.");
                 // We don't really need this state, but it's useful for debugging
                 signer.state = SignerState::TenureCompleted;
-                to_delete.push(signer.reward_cycle % 2);
+                to_delete.push(*idx);
             }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
