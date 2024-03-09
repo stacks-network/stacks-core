@@ -18,6 +18,8 @@ use std::path::Path;
 
 use blockstack_lib::util_lib::db::{query_row, sqlite_open, table_exists, Error as DBError};
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use slog::slog_debug;
+use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::signer::BlockInfo;
@@ -89,6 +91,16 @@ impl SignerDb {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
+        debug!(
+            "Inserting block_info: sighash = {hash}, vote = {:?}",
+            block_info.vote.as_ref().map(|v| {
+                if v.rejected {
+                    "REJECT"
+                } else {
+                    "ACCEPT"
+                }
+            })
+        );
         self.db
             .execute(
                 "INSERT OR REPLACE INTO blocks (signer_signature_hash, block_info) VALUES (?1, ?2)",

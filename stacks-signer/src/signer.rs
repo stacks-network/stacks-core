@@ -592,7 +592,10 @@ impl Signer {
         {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
-                debug!("{self}: set vote for {} to {vote:?}", block_vote.rejected);
+                debug!(
+                    "{self}: Set vote (rejected = {}) to {vote:?}", block_vote.rejected;
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 request.message = vote.serialize_to_vec();
                 true
             }
@@ -600,7 +603,10 @@ impl Signer {
                 // We never agreed to sign this block. Reject it.
                 // This can happen if the coordinator received enough votes to sign yes
                 // or no on a block before we received validation from the stacks node.
-                debug!("{self}: Received a signature share request for a block we never agreed to sign. Ignore it.");
+                debug!(
+                    "{self}: Received a signature share request for a block we never agreed to sign. Ignore it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 false
             }
             None => {
@@ -608,7 +614,8 @@ impl Signer {
                 // blocks we have seen a Nonce Request for (and subsequent validation)
                 // We are missing the context here necessary to make a decision. Reject the block
                 debug!(
-                    "{self}: Received a signature share request from an unknown block. Reject it."
+                    "{self}: Received a signature share request from an unknown block. Reject it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
                 );
                 false
             }
