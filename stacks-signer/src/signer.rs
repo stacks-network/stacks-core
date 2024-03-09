@@ -376,7 +376,7 @@ impl Signer {
                 debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
             }
             State::TenureCompleted => {
-                debug!("{self}: Tenure completed. Will not process any more commands.",);
+                warn!("{self}: Tenure completed. This signer should have been cleaned up during refresh.",);
             }
         }
     }

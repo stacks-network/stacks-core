@@ -279,7 +279,14 @@ impl RunLoop {
         self.refresh_signer_config(next_reward_cycle);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
+        let mut to_delete = Vec::new();
         for signer in self.stacks_signers.values_mut() {
+            if signer.reward_cycle < current_reward_cycle {
+                debug!("{signer}: Signer's tenure has completed.");
+                // We don't really need this state, but it's useful for debugging
+                signer.state = SignerState::TenureCompleted;
+                to_delete.push(signer.reward_cycle % 2);
+            }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
                 .coordinator_selector
@@ -300,6 +307,11 @@ impl RunLoop {
                         .update_dkg(&self.stacks_client)
                         .map_err(backoff::Error::transient)
                 })?;
+            }
+        }
+        for i in to_delete.into_iter() {
+            if let Some(signer) = self.stacks_signers.remove(&i) {
+                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
             }
         }
         if self.stacks_signers.is_empty() {
@@ -356,11 +368,9 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
-        let mut outdated_signers = Vec::with_capacity(self.stacks_signers.len());
         for signer in self.stacks_signers.values_mut() {
-            if signer.reward_cycle < current_reward_cycle {
-                debug!("{signer}: Signer's tenure has completed. Ignoring event: {event:?}");
-                outdated_signers.push(signer.reward_cycle % 2);
+            if signer.state == SignerState::TenureCompleted {
+                warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
                 continue;
             }
             let event_parity = match event {
@@ -407,11 +417,6 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
             // After processing event, run the next command for each signer
             signer.process_next_command(&self.stacks_client);
-        }
-        for i in outdated_signers.into_iter() {
-            if let Some(signer) = self.stacks_signers.remove(&i) {
-                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
-            }
         }
         None
     }
