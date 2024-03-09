@@ -253,6 +253,14 @@ impl BlockMinerThread {
                 {
                     warn!("Error broadcasting block: {e:?}");
                 } else {
+                    info!(
+                        "Miner: Block signed by signer set and broadcasted";
+                        "signer_sighash" => %new_block.header.signer_signature_hash(),
+                        "block_hash" => %new_block.header.block_hash(),
+                        "stacks_block_id" => %new_block.header.block_id(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
                     self.globals.coord().announce_new_stacks_block();
                 }
 
@@ -861,15 +869,11 @@ impl BlockMinerThread {
         block.header.miner_signature = miner_signature;
 
         info!(
-            "Miner: Succeeded assembling {} block #{}: {}, with {} txs",
-            if parent_block_info.parent_block_total_burn == 0 {
-                "Genesis"
-            } else {
-                "Stacks"
-            },
+            "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block.header.chain_length,
             block.header.block_hash(),
-            block.txs.len(),
+            block.txs.len();
+            "signer_sighash" => %block.header.signer_signature_hash(),
         );
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
