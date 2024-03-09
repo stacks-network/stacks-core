@@ -356,7 +356,13 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
+        let mut outdated_signers = Vec::with_capacity(self.stacks_signers.len());
         for signer in self.stacks_signers.values_mut() {
+            if signer.reward_cycle < current_reward_cycle {
+                debug!("{signer}: Signer's tenure has completed. Ignoring event: {event:?}");
+                outdated_signers.push(signer.reward_cycle % 2);
+                continue;
+            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -401,6 +407,11 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
             // After processing event, run the next command for each signer
             signer.process_next_command(&self.stacks_client);
+        }
+        for i in outdated_signers.into_iter() {
+            if let Some(signer) = self.stacks_signers.remove(&i) {
+                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
+            }
         }
         None
     }
