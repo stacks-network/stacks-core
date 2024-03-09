@@ -172,8 +172,10 @@ impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Reward Cycle #{} Signer #{}",
-            self.reward_cycle, self.signer_id,
+            "Cycle #{} Signer #{}(C:{})",
+            self.reward_cycle,
+            self.signer_id,
+            self.coordinator_selector.get_coordinator().0,
         )
     }
 }
@@ -454,8 +456,9 @@ impl Signer {
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
-                    "{self}: triggering a signing round over the block {}",
-                    block_info.block.header.block_hash()
+                    "{self}: attempt to trigger a signing round for block";
+                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
+                    "block_hash" => %block_info.block.header.block_hash(),
                 );
                 self.commands.push_back(Command::Sign {
                     block: block_info.block.clone(),
