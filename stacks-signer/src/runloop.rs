@@ -357,6 +357,22 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
         for signer in self.stacks_signers.values_mut() {
+            let event_parity = match event {
+                Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
+                // Block proposal events do have reward cycles, but each proposal has its own cycle,
+                //  and the vec could be heterogenous, so, don't differentiate.
+                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
+                    Some(u64::from(msg_parity) % 2)
+                }
+                Some(SignerEvent::StatusCheck) => None,
+                None => None,
+            };
+            let other_signer_parity = (signer.reward_cycle + 1) % 2;
+            if event_parity == Some(other_signer_parity) {
+                continue;
+            }
+
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),

@@ -447,7 +447,9 @@ impl SignerTest {
                             panic!("Received SignError {}", sign_error);
                         }
                         OperationResult::Dkg(point) => {
-                            panic!("Received aggregate_group_key {point}");
+                            // should not panic, because DKG may have just run for the
+                            //   next reward cycle.
+                            info!("Received aggregate_group_key {point}");
                         }
                     }
                 }
