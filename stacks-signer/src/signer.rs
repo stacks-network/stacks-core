@@ -989,15 +989,18 @@ impl Signer {
 
         let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message
-            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone())
         } else {
             // we agreed to sign the block hash. Return an approval message
-            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone())
         };
 
         // Submit signature result to miners to observe
-        debug!("{self}: submit block response {block_submission:?}");
-        if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
+        info!("{self}: Submit block response: {block_submission}");
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry(block_submission.into())
+        {
             warn!("{self}: Failed to send block submission to stacker-db: {e:?}");
         }
     }
