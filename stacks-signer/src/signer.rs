@@ -21,7 +21,7 @@ use std::time::Instant;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
-use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
 use libsigner::{
@@ -510,25 +510,51 @@ impl Signer {
         for proposal in proposals {
             if proposal.reward_cycle != self.reward_cycle {
                 debug!(
-                    "Signer #{}: Received proposal for block outside of my reward cycle, ignoring.",
-                    self.signer_id;
+                    "{self}: Received proposal for block outside of my reward cycle, ignoring.";
                     "proposal_reward_cycle" => proposal.reward_cycle,
                     "proposal_burn_height" => proposal.burn_height,
                 );
                 continue;
             }
-            // Store the block in our cache
-            self.signer_db
-                .insert_block(&BlockInfo::new(proposal.block.clone()))
-                .unwrap_or_else(|e| {
-                    error!("{self}: Failed to insert block in DB: {e:?}");
-                });
-            // Submit the block for validation
-            stacks_client
-                .submit_block_for_validation(proposal.block.clone())
-                .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to submit block for validation: {e:?}");
-                });
+            let sig_hash = proposal.block.header.signer_signature_hash();
+            match self.signer_db.block_lookup(&sig_hash) {
+                Ok(Some(block)) => {
+                    debug!(
+                        "{self}: Received proposal for block already known, ignoring new proposal.";
+                        "signer_sighash" => %sig_hash,
+                        "proposal_burn_height" => proposal.burn_height,
+                        "vote" => ?block.vote.as_ref().map(|v| {
+                            if v.rejected {
+                                "REJECT"
+                            } else {
+                                "ACCEPT"
+                            }
+                        }),
+                        "signed_over" => block.signed_over,
+                    );
+                    continue;
+                }
+                Ok(None) => {
+                    // Store the block in our cache
+                    self.signer_db
+                        .insert_block(&BlockInfo::new(proposal.block.clone()))
+                        .unwrap_or_else(|e| {
+                            error!("{self}: Failed to insert block in DB: {e:?}");
+                        });
+                    // Submit the block for validation
+                    stacks_client
+                        .submit_block_for_validation(proposal.block.clone())
+                        .unwrap_or_else(|e| {
+                            warn!("{self}: Failed to submit block for validation: {e:?}");
+                        });
+                }
+                Err(e) => {
+                    error!(
+                        "{self}: Failed to lookup block in DB: {e:?}. Dropping proposal request."
+                    );
+                    continue;
+                }
+            }
         }
     }
 
