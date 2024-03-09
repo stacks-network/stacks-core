@@ -73,7 +73,7 @@ pub struct BlockInfo {
     /// The associated packet nonce request if we have one
     nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
-    signed_over: bool,
+    pub signed_over: bool,
 }
 
 impl BlockInfo {
@@ -992,10 +992,12 @@ impl Signer {
             return;
         };
 
-        // TODO: proper garbage collection...This is currently our only cleanup of blocks
-        self.signer_db
-            .remove_block(&block_vote.signer_signature_hash)
-            .expect(&format!("{self}: Failed to remove block from to signer DB"));
+        // WIP: try not deleting a block from signerDB until we have a better garbage collection strategy.
+        // This causes issues when we have to reprocess a block and we have already deleted it from the signerDB
+        // // TODO: proper garbage collection...This is currently our only cleanup of blocks
+        // self.signer_db
+        //     .remove_block(&block_vote.signer_signature_hash)
+        //     .expect(&format!("{self}: Failed to remove block from to signer DB"));
 
         let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message

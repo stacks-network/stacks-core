@@ -91,8 +91,10 @@ impl SignerDb {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
+        let block_id = &block_info.block.block_id();
+        let signed_over = &block_info.signed_over;
         debug!(
-            "Inserting block_info: sighash = {hash}, vote = {:?}",
+            "Inserting block_info: sighash = {hash}, block_id = {block_id}, signed = {signed_over} vote = {:?}",
             block_info.vote.as_ref().map(|v| {
                 if v.rejected {
                     "REJECT"
@@ -117,6 +119,7 @@ impl SignerDb {
 
     /// Remove a block
     pub fn remove_block(&mut self, hash: &Sha512Trunc256Sum) -> Result<(), DBError> {
+        debug!("Deleting block_info: sighash = {hash}");
         self.db.execute(
             "DELETE FROM blocks WHERE signer_signature_hash = ?",
             &[format!("{}", hash)],
