@@ -16,7 +16,6 @@
 
 use std::hash::Hash;
 
-use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;

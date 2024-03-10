@@ -363,13 +363,8 @@ impl MinerStats {
 
         for (_, commit) in active_miners_and_commits.iter() {
             let addr = commit.apparent_sender.to_string();
-            match dist.entry(addr.to_owned()) {
-                Entry::Occupied(_) => {
-                    continue;
-                }
-                Entry::Vacant(e) => {
-                    e.insert(commit.burn_fee);
-                }
+            if let Entry::Vacant(e) = dist.entry(addr.to_owned()) {
+                e.insert(commit.burn_fee);
             }
         }
 
