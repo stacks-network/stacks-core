@@ -1515,6 +1515,7 @@ describe("test pox-4 contract read only functions", () => {
           // Assert
           assert(isClarityType(actual, ClarityType.OptionalSome));
           assert(isClarityType(actual.value, ClarityType.Tuple));
+          expect(actual).toBeSome(Cl.tuple({ "until-burn-ht": Cl.none() }));
           expect(actual.value).toBeTuple({ "until-burn-ht": Cl.none() });
         }
       )
