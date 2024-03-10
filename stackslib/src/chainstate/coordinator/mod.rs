@@ -32,7 +32,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
-use super::stacks::boot::RewardSet;
+use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -176,6 +176,7 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
     );
 
     /// called whenever a burn block is about to be
@@ -189,13 +190,6 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
-    );
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
     );
 }
 
@@ -360,10 +354,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
                 error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
                 return Err(Error::PoXAnchorBlockRequired);
             }
-        }
-
-        if let Some(dispatcher) = self.0 {
-            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
         Ok(reward_set)
