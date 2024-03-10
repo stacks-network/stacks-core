@@ -39,7 +39,6 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
     TransactionPayload, TransactionVersion,
 };
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -83,8 +82,6 @@ struct ParentTenureInfo {
 struct ParentStacksBlockInfo {
     /// Header metadata for the Stacks block we're going to build on top of
     stacks_parent_header: StacksHeaderInfo,
-    /// the total amount burned in the sortition that selected the Stacks block parent
-    parent_block_total_burn: u64,
     /// nonce to use for this new block's coinbase transaction
     coinbase_nonce: u64,
     parent_tenure: Option<ParentTenureInfo>,
@@ -692,7 +689,6 @@ impl BlockMinerThread {
                     parent_tenure_blocks: 0,
                 }),
                 stacks_parent_header: chain_tip.metadata,
-                parent_block_total_burn: 0,
                 coinbase_nonce: 0,
             });
         };
@@ -915,26 +911,6 @@ impl ParentStacksBlockInfo {
         .expect("Failed to look up block's parent snapshot")
         .expect("Failed to look up block's parent snapshot");
 
-        let parent_sortition_id = &parent_snapshot.sortition_id;
-
-        let parent_block_total_burn =
-            if &stacks_tip_header.consensus_hash == &FIRST_BURNCHAIN_CONSENSUS_HASH {
-                0
-            } else {
-                let parent_burn_block =
-                    SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
-                        .expect("SortitionDB failure.")
-                        .ok_or_else(|| {
-                            error!(
-                                "Failed to find block snapshot for the parent sortition";
-                                "parent_sortition_id" => %parent_sortition_id
-                            );
-                            NakamotoNodeError::SnapshotNotFoundForChainTip
-                        })?;
-
-                parent_burn_block.total_burn
-            };
-
         // don't mine off of an old burnchain block
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
@@ -1029,7 +1005,6 @@ impl ParentStacksBlockInfo {
 
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
-            parent_block_total_burn,
             coinbase_nonce,
             parent_tenure: parent_tenure_info,
         })
