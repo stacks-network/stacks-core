@@ -182,6 +182,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set_data: &Option<RewardSetData>,
     ) {
         assert!(
             false,
@@ -196,18 +197,6 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
-    ) {
-        assert!(
-            false,
-            "We should never try to announce to the dummy dispatcher"
-        );
-    }
-
-    fn announce_reward_set(
-        &self,
-        _reward_set: &RewardSet,
-        _block_id: &StacksBlockId,
-        _cycle_number: u64,
     ) {
         assert!(
             false,
@@ -5304,7 +5293,14 @@ impl StacksChainState {
         burnchain_sortition_burn: u64,
         affirmation_weight: u64,
         do_not_advance: bool,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        Error,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
@@ -5691,7 +5687,7 @@ impl StacksChainState {
                 signers_updated: false,
             };
 
-            return Ok((epoch_receipt, clarity_commit));
+            return Ok((epoch_receipt, clarity_commit, None));
         }
 
         let parent_block_header = parent_chain_tip
@@ -5727,13 +5723,36 @@ impl StacksChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set_data = None;
         if let Some(signer_calculation) = signer_set_calc {
             let new_block_id = new_tip.index_block_hash();
             NakamotoChainState::write_reward_set(
                 chainstate_tx,
                 &new_block_id,
                 &signer_calculation.reward_set,
-            )?
+            )?;
+
+            let first_block_height = burn_dbconn.get_burn_start_height();
+            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                parent_burn_block_height.into(),
+            ) {
+                Some(cycle)
+            } else {
+                pox_constants
+                    .block_height_to_reward_cycle(
+                        first_block_height.into(),
+                        parent_burn_block_height.into(),
+                    )
+                    .map(|cycle| cycle + 1)
+            };
+
+            if let Some(cycle) = cycle_number {
+                reward_set_data = Some(RewardSetData::new(
+                    signer_calculation.reward_set.clone(),
+                    cycle,
+                ));
+            }
         }
 
         set_last_block_transaction_count(
@@ -5756,7 +5775,7 @@ impl StacksChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((epoch_receipt, clarity_commit, reward_set_data))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -6081,7 +6100,7 @@ impl StacksChainState {
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
         let pox_constants = sort_tx.context.pox_constants.clone();
-        let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
+        let (epoch_receipt, clarity_commit, reward_set_data) = match StacksChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -6217,6 +6236,7 @@ impl StacksChainState {
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set_data,
             );
         }
 

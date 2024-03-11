@@ -7,6 +7,7 @@ ARG BUILD_DIR=/build
 ARG OSXCROSS="https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
 ARG TARGET=x86_64-apple-darwin
 ARG TARGET_CPU
+ENV RUSTFLAGS="${TARGET_CPU:+${RUSTFLAGS} -Ctarget-cpu=${TARGET_CPU}}"
 WORKDIR /src
 
 COPY . .
@@ -22,11 +23,9 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
     && . /opt/osxcross/env-macos-x86_64 \
-    ${TARGET_CPU:+RUSTFLAGS="$RUSTFLAGS $TARGET_CPU"} \
-    cargo build --features monitoring_prom,slog_json --release --workspace --target ${TARGET} --bin stacks-node --bin stacks-inspect --bin clarity-cli --bin blockstack-cli \
+    && cargo build --features monitoring_prom,slog_json --release --workspace --target ${TARGET} --bin stacks-node --bin stacks-inspect --bin clarity-cli --bin blockstack-cli \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
 FROM scratch AS export-stage
 COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
-

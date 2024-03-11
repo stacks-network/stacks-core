@@ -12,7 +12,6 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -33,7 +32,6 @@ use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -294,102 +292,6 @@ impl ConfigFile {
         }
     }
 
-    pub fn mockamoto() -> ConfigFile {
-        let epochs = vec![
-            StacksEpochConfigFile {
-                epoch_name: "1.0".into(),
-                start_height: 0,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.0".into(),
-                start_height: 0,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.05".into(),
-                start_height: 1,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.1".into(),
-                start_height: 2,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.2".into(),
-                start_height: 3,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.3".into(),
-                start_height: 4,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.4".into(),
-                start_height: 5,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "2.5".into(),
-                start_height: 6,
-            },
-            StacksEpochConfigFile {
-                epoch_name: "3.0".into(),
-                start_height: 7,
-            },
-        ];
-
-        let burnchain = BurnchainConfigFile {
-            mode: Some("mockamoto".into()),
-            rpc_port: Some(8332),
-            peer_port: Some(8333),
-            peer_host: Some("localhost".into()),
-            username: Some("blockstack".into()),
-            password: Some("blockstacksystem".into()),
-            magic_bytes: Some("M3".into()),
-            epochs: Some(epochs),
-            pox_prepare_length: Some(3),
-            pox_reward_length: Some(36),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            bootstrap_node: None,
-            miner: Some(true),
-            stacker: Some(true),
-            ..NodeConfigFile::default()
-        };
-
-        let mining_key = Secp256k1PrivateKey::new();
-        let miner = MinerConfigFile {
-            mining_key: Some(mining_key.to_hex()),
-            ..MinerConfigFile::default()
-        };
-
-        let mock_private_key = Secp256k1PrivateKey::from_seed(&[0]);
-        let mock_public_key = Secp256k1PublicKey::from_private(&mock_private_key);
-        let mock_address = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![mock_public_key],
-        )
-        .unwrap();
-
-        info!(
-            "Mockamoto starting. Initial balance set to mock_private_key = {}",
-            mock_private_key.to_hex()
-        );
-
-        let ustx_balance = vec![InitialBalanceFile {
-            address: mock_address.to_string(),
-            amount: 1_000_000_000_000,
-        }];
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            miner: Some(miner),
-            ustx_balance: Some(ustx_balance),
-            ..ConfigFile::default()
-        }
-    }
-
     pub fn helium() -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
@@ -524,19 +426,6 @@ lazy_static! {
 }
 
 impl Config {
-    #[cfg(any(test, feature = "testing"))]
-    pub fn self_signing(&self) -> Option<TestSigners> {
-        if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
-            return None;
-        }
-        self.miner.self_signing_key.clone()
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    pub fn self_signing(&self) -> Option<TestSigners> {
-        return None;
-    }
-
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -663,7 +552,7 @@ impl Config {
         }
 
         // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
-        if self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto" {
+        if self.burnchain.mode == "nakamoto-neon" {
             self.check_nakamoto_config(&burnchain);
         }
     }
@@ -895,15 +784,7 @@ impl Config {
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        if config_file.burnchain.as_ref().map(|b| b.mode.clone()) == Some(Some("mockamoto".into()))
-        {
-            // in the case of mockamoto, use `ConfigFile::mockamoto()` as the default for
-            //  processing a user-supplied config
-            let default = Self::from_config_default(ConfigFile::mockamoto(), Config::default())?;
-            Self::from_config_default(config_file, default)
-        } else {
-            Self::from_config_default(config_file, Config::default())
-        }
+        Self::from_config_default(config_file, Config::default())
     }
 
     fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
@@ -929,7 +810,6 @@ impl Config {
             "krypton",
             "xenon",
             "mainnet",
-            "mockamoto",
             "nakamoto-neon",
         ];
 
@@ -1368,7 +1248,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" | "nakamoto-neon" => {
+            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -1599,9 +1479,6 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// stacker DBs we replicate
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
-    /// if running in mockamoto mode, how long to wait between each
-    /// simulated bitcoin block
-    pub mockamoto_time_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1882,7 +1759,6 @@ impl Default for NodeConfig {
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
-            mockamoto_time_ms: 3_000,
         }
     }
 }
@@ -2052,7 +1928,6 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
-    pub self_signing_key: Option<TestSigners>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     pub wait_on_interim_blocks: Duration,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
@@ -2100,7 +1975,6 @@ impl Default for MinerConfig {
             candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
-            self_signing_key: None,
             wait_on_interim_blocks: Duration::from_millis(2_500),
             min_tx_count: 0,
             only_increase_tx_count: false,
@@ -2322,9 +2196,6 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
-    /// if running in mockamoto mode, how long to wait between each
-    /// simulated bitcoin block
-    pub mockamoto_time_ms: Option<u64>,
 }
 
 impl NodeConfigFile {
@@ -2400,9 +2271,6 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
-            mockamoto_time_ms: self
-                .mockamoto_time_ms
-                .unwrap_or(default_node_config.mockamoto_time_ms),
         };
         Ok(node_config)
     }
@@ -2486,7 +2354,6 @@ impl MinerConfigFile {
                 .as_ref()
                 .map(|x| Secp256k1PrivateKey::from_hex(x))
                 .transpose()?,
-            self_signing_key: Some(TestSigners::default()),
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)
@@ -2599,7 +2466,6 @@ pub enum EventKeyType {
     MinedMicroblocks,
     StackerDBChunks,
     BlockProposal,
-    StackerSet,
 }
 
 impl EventKeyType {
@@ -2630,10 +2496,6 @@ impl EventKeyType {
 
         if raw_key == "block_proposal" {
             return Some(EventKeyType::BlockProposal);
-        }
-
-        if raw_key == "stacker_set" {
-            return Some(EventKeyType::StackerSet);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
