@@ -51,12 +51,9 @@ jobs:
             cpu: armv7
           - arch: macos # excludes macos-armv7
             cpu: armv7
-    env:
-      TEST_TIMEOUT: 30
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         id: build_binary
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: stacks-network/actions/stacks-core/create-source-binary@main
         with:
           arch: ${{ matrix.arch }}
