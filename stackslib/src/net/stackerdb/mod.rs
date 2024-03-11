@@ -164,6 +164,8 @@ pub struct StackerDBSyncResult {
     dead: HashSet<NeighborKey>,
     /// neighbors that misbehaved while syncing
     broken: HashSet<NeighborKey>,
+    /// neighbors that have stale views, but are otherwise online
+    pub(crate) stale: HashSet<NeighborAddress>,
 }
 
 /// Settings for the Stacker DB
@@ -385,6 +387,8 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// whether or not we should immediately re-fetch chunks because we learned about new chunks
     /// from our peers when they replied to our chunk-pushes with new inventory state
     need_resync: bool,
+    /// Track stale neighbors
+    pub(crate) stale_neighbors: HashSet<NeighborAddress>,
 }
 
 impl StackerDBSyncResult {
@@ -397,6 +401,7 @@ impl StackerDBSyncResult {
             chunks_to_store: vec![chunk.chunk_data],
             dead: HashSet::new(),
             broken: HashSet::new(),
+            stale: HashSet::new(),
         }
     }
 }

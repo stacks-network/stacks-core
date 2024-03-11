@@ -4222,26 +4222,13 @@ impl SortitionDB {
             .unwrap_or(&burnchain.first_block_hash)
             .clone();
 
-        let rc = burnchain
-            .block_height_to_reward_cycle(chain_tip.block_height)
-            .expect("FATAL: block height does not have a reward cycle");
-
-        let rc_height = burnchain.reward_cycle_to_block_height(rc);
-        let rc_consensus_hash = SortitionDB::get_ancestor_snapshot(
-            conn,
-            cmp::min(chain_tip.block_height, rc_height),
-            &chain_tip.sortition_id,
-        )?
-        .map(|sn| sn.consensus_hash)
-        .ok_or(db_error::NotFoundError)?;
-
         test_debug!(
             "Chain view: {},{}-{},{},{}",
             chain_tip.block_height,
             chain_tip.burn_header_hash,
             stable_block_height,
             &burn_stable_block_hash,
-            &rc_consensus_hash,
+            &chain_tip.canonical_stacks_tip_consensus_hash,
         );
         Ok(BurnchainView {
             burn_block_height: chain_tip.block_height,
@@ -4249,7 +4236,7 @@ impl SortitionDB {
             burn_stable_block_height: stable_block_height,
             burn_stable_block_hash: burn_stable_block_hash,
             last_burn_block_hashes: last_burn_block_hashes,
-            rc_consensus_hash,
+            rc_consensus_hash: chain_tip.canonical_stacks_tip_consensus_hash,
         })
     }
 }
@@ -4500,6 +4487,21 @@ impl SortitionDB {
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
         Self::get_canonical_stacks_chain_tip_hash_and_height(conn)
             .map(|(ch, bhh, _height)| (ch, bhh))
+    }
+
+    #[cfg(test)]
+    pub fn set_canonical_stacks_chain_tip(
+        conn: &Connection,
+        ch: &ConsensusHash,
+        bhh: &BlockHeaderHash,
+        height: u64,
+    ) -> Result<(), db_error> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+        let args: &[&dyn ToSql] = &[ch, bhh, &u64_to_sql(height)?, &tip.sortition_id];
+        conn.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
+                    WHERE sortition_id = ?4", args)
+            .map_err(db_error::SqliteError)?;
+        Ok(())
     }
 
     /// Get the maximum arrival index for any known snapshot.
