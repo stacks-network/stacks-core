@@ -503,6 +503,8 @@ fn pox_extend_transition() {
         u128::MAX,
         auth_id,
     );
+    let alice_stack_signature = alice_signature.clone();
+    let alice_stack_signer_key = alice_signer_key.clone();
     let alice_lockup = make_pox_4_lockup(
         &alice,
         2,
@@ -613,8 +615,8 @@ fn pox_extend_transition() {
         3,
         alice_pox_addr.clone(),
         6,
-        alice_signer_key,
-        Some(alice_signature),
+        alice_signer_key.clone(),
+        Some(alice_signature.clone()),
         u128::MAX,
         3,
     );
@@ -731,6 +733,16 @@ fn pox_extend_transition() {
         ),
         ("pox-addr", pox_addr_val.clone()),
         ("lock-period", Value::UInt(4)),
+        (
+            "signer-sig",
+            Value::some(Value::buff_from(alice_stack_signature).unwrap()).unwrap(),
+        ),
+        (
+            "signer-key",
+            Value::buff_from(alice_stack_signer_key.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount", Value::UInt(u128::MAX)),
+        ("auth-id", Value::UInt(1)),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-stx".to_string(),
@@ -4311,7 +4323,7 @@ fn stack_increase() {
         alice_nonce,
         min_ustx,
         &signing_pk,
-        Some(signature),
+        Some(signature.clone()),
         u128::MAX,
         1,
     );
@@ -4321,6 +4333,8 @@ fn stack_increase() {
     let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
     let actual_result = stacker_transactions.first().cloned().unwrap().result;
+
+    let increase_event = &stacker_transactions.first().cloned().unwrap().events[0];
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
@@ -4333,6 +4347,29 @@ fn stack_increase() {
         .unwrap(),
     ))
     .unwrap();
+
+    let increase_op_data = HashMap::from([
+        (
+            "signer-sig",
+            Value::some(Value::buff_from(signature).unwrap()).unwrap(),
+        ),
+        (
+            "signer-key",
+            Value::buff_from(signing_pk.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount", Value::UInt(u128::MAX)),
+        ("auth-id", Value::UInt(1)),
+    ]);
+
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: Value::Principal(PrincipalData::from(alice_address.clone())),
+        balance: Value::UInt(10234866375000),
+        locked: Value::UInt(5133625000),
+        burnchain_unlock_height: Value::UInt(125),
+    };
+
+    check_pox_print_event(&increase_event, common_data, increase_op_data);
 
     // Testing stack_increase response is equal to expected response
     // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
