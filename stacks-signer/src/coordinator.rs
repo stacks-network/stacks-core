@@ -20,7 +20,6 @@ use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::util::hash::Sha256Sum;
 use wsts::curve::ecdsa;
 use wsts::state_machine::PublicKeys;
 
@@ -136,7 +135,7 @@ impl CoordinatorSelector {
         )
     }
 
-    /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
+    /// Calculate the ordered list of coordinator ids by comparing the provided public keys
     pub fn calculate_coordinator_ids(
         public_keys: &PublicKeys,
         pox_consensus_hash: &ConsensusHash,
@@ -147,13 +146,14 @@ impl CoordinatorSelector {
             .signers
             .iter()
             .map(|(&id, pk)| {
-                let pk_bytes = pk.to_bytes();
-                let mut buffer =
-                    Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
-                buffer.extend_from_slice(&pk_bytes[..]);
-                buffer.extend_from_slice(pox_consensus_hash.as_bytes());
-                let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
-                (id, digest)
+                (id, pk.to_bytes())
+                // WIP: removing this to try and improve stability / debugability of coordinator selection
+                // let mut buffer =
+                //     Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
+                // buffer.extend_from_slice(&pk_bytes[..]);
+                // buffer.extend_from_slice(pox_consensus_hash.as_bytes());
+                // let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+                // (id, digest)
             })
             .collect::<Vec<_>>();
 
