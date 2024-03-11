@@ -4170,7 +4170,9 @@ impl StacksChainState {
                 args.push(Value::none());
 
                 if let Some(signer_key_value) = signer_key {
-                    args.push(Value::buff_from(signer_key_value.clone().as_bytes().to_vec()).unwrap());
+                    args.push(
+                        Value::buff_from(signer_key_value.clone().as_bytes().to_vec()).unwrap(),
+                    );
 
                     // Need to authorize the signer key before making stack-stx call without a signature
                     let signer_key_auth_result = Self::set_signer_key_authorization(
@@ -4630,7 +4632,8 @@ impl StacksChainState {
             Value::Tuple(reward_addr.clone()),
             Value::UInt(num_cycles),
             Value::UInt(u128::from(pox_reward_cycle)),
-            Value::string_ascii_from_bytes(Pox4SignatureTopic::StackStx.get_name_str().into()).unwrap(),
+            Value::string_ascii_from_bytes(Pox4SignatureTopic::StackStx.get_name_str().into())
+                .unwrap(),
             Value::buff_from(signer_key_value.clone()).unwrap(),
             Value::Bool(true),
         ];
@@ -4650,7 +4653,10 @@ impl StacksChainState {
                     if !resp.committed {
                         debug!("Set-signer-key-authorization rejected by PoX contract.";
                        "contract_call_ecode" => %resp.data);
-                        return Err(format!("set-signer-key-authorization rejected: {:?}", resp.data));
+                        return Err(format!(
+                            "set-signer-key-authorization rejected: {:?}",
+                            resp.data
+                        ));
                     }
                     debug!("Processed set-signer-key-authorization");
 
@@ -4662,8 +4668,11 @@ impl StacksChainState {
             Err(e) => {
                 info!("Set-signer-key-authorization processing error.";
                            "error" => %format!("{:?}", e));
-                Err(format!("Error processing set-signer-key-authorization: {:?}", e))
-            },
+                Err(format!(
+                    "Error processing set-signer-key-authorization: {:?}",
+                    e
+                ))
+            }
         }
     }
 
@@ -5146,7 +5155,7 @@ impl StacksChainState {
             &mut clarity_tx,
             stacking_burn_ops.clone(),
             active_pox_contract,
-            pox_reward_cycle
+            pox_reward_cycle,
         ));
         debug!(
             "Setup block: Processed burnchain stacking ops for {}/{}",

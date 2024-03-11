@@ -2169,7 +2169,10 @@ fn stack_stx_burn_op_integration_test() {
     let signer_sk_2 = Secp256k1PrivateKey::new();
     let signer_addr_2 = tests::to_addr(&signer_sk_2);
 
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr_1.clone()).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr_1.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -2319,7 +2322,8 @@ fn stack_stx_burn_op_integration_test() {
     );
 
     let signer_pk_1 = StacksPublicKey::from_private(&signer_sk_1);
-    let signer_key_arg_1: StacksPublicKeyBuffer = signer_pk_1.to_bytes_compressed().as_slice().into();
+    let signer_key_arg_1: StacksPublicKeyBuffer =
+        signer_pk_1.to_bytes_compressed().as_slice().into();
 
     let stack_stx_op_with_some_signer_key = StackStxOp {
         sender: signer_addr_1.clone(),
@@ -2348,7 +2352,8 @@ fn stack_stx_burn_op_integration_test() {
     );
 
     let signer_pk_2 = StacksPublicKey::from_private(&signer_sk_2);
-    let signer_key_arg_2: StacksPublicKeyBuffer = signer_pk_2.to_bytes_compressed().as_slice().into();
+    let signer_key_arg_2: StacksPublicKeyBuffer =
+        signer_pk_2.to_bytes_compressed().as_slice().into();
 
     let stack_stx_op_with_no_signer_key = StackStxOp {
         sender: signer_addr_2.clone(),
@@ -2422,17 +2427,18 @@ fn stack_stx_burn_op_integration_test() {
         }
     }
     assert!(stack_stx_found, "Expected stack STX op");
-    assert_eq!(stack_stx_burn_op_tx_count, 1, "Stack-stx tx without a signer_key shouldn't have been submitted");
+    assert_eq!(
+        stack_stx_burn_op_tx_count, 1,
+        "Stack-stx tx without a signer_key shouldn't have been submitted"
+    );
 
     let sortdb = btc_regtest_controller.sortdb_mut();
     let sortdb_conn = sortdb.conn();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb_conn).unwrap();
 
-    let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
-        sortdb.conn(),
-        &tip.burn_header_hash,
-        6,
-    ).unwrap();
+    let ancestor_burnchain_header_hashes =
+        SortitionDB::get_ancestor_burnchain_header_hashes(sortdb.conn(), &tip.burn_header_hash, 6)
+            .unwrap();
 
     let mut all_stacking_burn_ops = vec![];
     let mut found_none = false;
@@ -2447,12 +2453,21 @@ fn stack_stx_burn_op_integration_test() {
                 None => found_none = true,
             }
             all_stacking_burn_ops.push(stacking_op);
-
         }
     }
-    assert_eq!(all_stacking_burn_ops.len(), 2, "Both stack-stx ops with and without a signer_key should be considered valid.");
-    assert!(found_none, "Expected one stacking_op to have a signer_key of None");
-    assert!(found_some, "Expected one stacking_op to have a signer_key of Some");
+    assert_eq!(
+        all_stacking_burn_ops.len(),
+        2,
+        "Both stack-stx ops with and without a signer_key should be considered valid."
+    );
+    assert!(
+        found_none,
+        "Expected one stacking_op to have a signer_key of None"
+    );
+    assert!(
+        found_some,
+        "Expected one stacking_op to have a signer_key of Some"
+    );
 
     coord_channel
         .lock()
