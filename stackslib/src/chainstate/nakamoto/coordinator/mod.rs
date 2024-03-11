@@ -842,10 +842,11 @@ impl<
                     self.get_nakamoto_reward_cycle_info(header.block_height - 2)?;
                 if let Some(rc_info) = reward_cycle_info.as_ref() {
                     // in nakamoto, if we have any reward cycle info at all, it will be known.
-                    assert!(
-                        rc_info.known_selected_anchor_block().is_some(),
-                        "FATAL: unknown PoX anchor block in Nakamoto"
-                    );
+                    // otherwise, we may have to process some more Stacks blocks
+                    if rc_info.known_selected_anchor_block().is_none() {
+                        warn!("Unknown PoX anchor block in Nakamoto (at height {}). Refusing to process more burnchain blocks until that changes.", header.block_height - 2);
+                        return Ok(false);
+                    }
                 } else {
                     // have to block -- we don't have the reward cycle information
                     debug!("Do not yet have PoX anchor block for next reward cycle -- no anchor block found";
