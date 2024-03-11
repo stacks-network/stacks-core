@@ -1417,12 +1417,7 @@ impl<'a> SortitionHandleTx<'a> {
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
-        // NOTE: chain_tip here is the tip of the PoX fork on the canonical burn chain fork.
-        // consensus_hash refers to the consensus hash of the tip of the canonical Stacks fork
-        // we're updating.
-        let chain_tip = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?.expect(
-            "FAIL: Setting stacks block accepted in canonical chain tip which cannot be found",
-        );
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(self)?;
 
         // record new arrival
         self.set_stacks_block_accepted_at_tip(
@@ -1807,7 +1802,13 @@ impl<'a> SortitionHandleConn<'a> {
                 e
             })?;
 
-        if ch_sn.block_height + u64::from(self.context.pox_constants.reward_cycle_length)
+        if ch_sn.block_height
+            + u64::from(
+                self.context
+                    .pox_constants
+                    .reward_cycle_length
+                    .saturating_mul(2),
+            )
             < sn.block_height
         {
             // too far in the past
@@ -5093,8 +5094,10 @@ impl<'a> SortitionHandleTx<'a> {
                 canonical_stacks_tip_block_hash,
                 canonical_stacks_tip_height,
             ) = res?;
-            info!(
-                "Setting initial stacks_chain_tips values";
+            debug!(
+                "Setting stacks_chain_tips values";
+                "sortition_id" => %sn.sortition_id,
+                "parent_sortition_id" => %parent_snapshot.sortition_id,
                 "stacks_tip_height" => canonical_stacks_tip_height,
                 "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
                 "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
