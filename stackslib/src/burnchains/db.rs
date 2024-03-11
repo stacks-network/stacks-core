@@ -1398,6 +1398,20 @@ impl BurnchainDB {
         Ok(())
     }
 
+    /// Get back all of the parsed burnchain operations for a given block.
+    /// Used in testing to replay burnchain data.
+    #[cfg(test)]
+    pub fn get_burnchain_block_ops(
+        &self,
+        block_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+        let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
+        let args: &[&dyn ToSql] = &[block_hash];
+        let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
+        ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
+        Ok(ops)
+    }
+
     pub fn store_new_burnchain_block<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,
