@@ -8,7 +8,7 @@ on:
 
 ## Define which docker arch to build for
 env:
-  docker_platforms: linux/amd64
+  docker_platforms: "linux/amd64"
   docker-org: blockstack
 
 concurrency:
@@ -31,10 +31,20 @@ jobs:
     steps:
       ## Setup Docker for the builds
       - name: Docker setup
+        id: docker_setup
         uses: stacks-network/actions/docker@main
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      ## if the repo owner is not `stacks-network`, default to a docker-org of the repo owner (i.e. github user id)
+      ## this allows forks to run the docker push workflows without having to hardcode a dockerhub org (but it does require docker hub user to match github username)
+      - name: Set Local env vars
+        id: set_env
+        if: |
+          github.repository_owner != 'stacks-network'
+        run: |
+          echo "docker-org=${{ github.repository_owner }}" >> "$GITHUB_ENV"
 
       ## Set docker metatdata
       - name: Docker Metadata ( ${{matrix.dist}} )
@@ -58,8 +68,8 @@ jobs:
           tags: ${{ steps.docker_metadata.outputs.tags }}
           labels: ${{ steps.docker_metadata.outputs.labels }}
           build-args: |
-            REPO=${{ github.repository_owner }}/${{ github.event.repository.name }}
             STACKS_NODE_VERSION=${{ env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+            TARGET_CPU=x86-64-v3
           push: ${{ env.DOCKER_PUSH }}
