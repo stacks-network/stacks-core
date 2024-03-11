@@ -2160,6 +2160,7 @@ fn stack_stx_burn_op_integration_test() {
         return;
     }
 
+    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let signer_sk_1 = Secp256k1PrivateKey::new();
@@ -2206,6 +2207,7 @@ fn stack_stx_burn_op_integration_test() {
         &blocks_processed,
         &[stacker_sk],
         &[signer_sk_1],
+        Some(&signers),
         &mut btc_regtest_controller,
     );
 
