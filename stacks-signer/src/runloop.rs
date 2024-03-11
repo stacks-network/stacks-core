@@ -229,7 +229,7 @@ impl RunLoop {
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(&mut self, reward_cycle: u64) {
+    fn refresh_signer_config(&mut self, reward_cycle: u64, current: bool) {
         let reward_index = reward_cycle % 2;
         let mut needs_refresh = false;
         if let Some(signer) = self.stacks_signers.get_mut(&reward_index) {
@@ -266,7 +266,11 @@ impl RunLoop {
                     .insert(reward_index, Signer::from(new_signer_config));
                 debug!("Reward cycle #{reward_cycle} Signer #{signer_id} initialized.");
             } else {
-                warn!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                if current {
+                    warn!("Signer is not registered for the current reward cycle ({reward_cycle}). Waiting for confirmed registration...");
+                } else {
+                    debug!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                }
             }
         }
     }
@@ -275,8 +279,8 @@ impl RunLoop {
     /// Note: this will trigger DKG if required
     fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
-        self.refresh_signer_config(current_reward_cycle);
-        self.refresh_signer_config(next_reward_cycle);
+        self.refresh_signer_config(current_reward_cycle, true);
+        self.refresh_signer_config(next_reward_cycle, false);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
         let mut to_delete = Vec::new();
@@ -286,6 +290,7 @@ impl RunLoop {
                 // We don't really need this state, but it's useful for debugging
                 signer.state = SignerState::TenureCompleted;
                 to_delete.push(*idx);
+                continue;
             }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
