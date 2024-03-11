@@ -140,7 +140,10 @@ impl RunLoop {
         reward_cycle: u64,
     ) -> Result<Option<ParsedSignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self.stacks_client.get_reward_set_signers_with_retry(reward_cycle)? else {
+        let Some(signers) = self
+            .stacks_client
+            .get_reward_set_signers_with_retry(reward_cycle)?
+        else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };

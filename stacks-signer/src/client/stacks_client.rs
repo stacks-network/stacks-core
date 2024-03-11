@@ -226,7 +226,10 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation_with_retry(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation_with_retry(
+        &self,
+        block: NakamotoBlock,
+    ) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -453,7 +456,10 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks mempool
-    pub fn submit_transaction_with_retry(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+    pub fn submit_transaction_with_retry(
+        &self,
+        tx: &StacksTransaction,
+    ) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
