@@ -5246,12 +5246,9 @@ impl PeerNetwork {
         let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        let mut need_stackerdb_refresh = sn.canonical_stacks_tip_consensus_hash
-            != self.burnchain_tip.canonical_stacks_tip_consensus_hash;
 
-        if sn.block_height != self.chain_view.burn_block_height
-            || self.num_state_machine_passes == 0
-        {
+        if burnchain_tip_changed || stacks_tip_changed {
+            // only do the needful depending on what changed
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
@@ -5332,17 +5329,7 @@ impl PeerNetwork {
                 .get_last_selected_anchor_block_txid()?
                 .unwrap_or(Txid([0x00; 32]));
 
-            test_debug!(
-                "{:?}: chain view is {:?}",
-                &self.get_local_peer(),
-                &self.chain_view
-            );
-            need_stackerdb_refresh = true;
-        }
-
-        if need_stackerdb_refresh {
-            // refresh stackerdb configs -- canonical stacks tip has changed
-            debug!("{:?}: Refresh all stackerdbs", &self.get_local_peer());
+            // refresh stackerdb configs
             self.refresh_stacker_db_configs(sortdb, chainstate)?;
         }
 
