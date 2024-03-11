@@ -286,6 +286,7 @@ impl RunLoop {
                 // We don't really need this state, but it's useful for debugging
                 signer.state = SignerState::TenureCompleted;
                 to_delete.push(*idx);
+                continue;
             }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
