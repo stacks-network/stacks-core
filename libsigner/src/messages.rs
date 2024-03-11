@@ -97,13 +97,16 @@ MessageSlotID {
     /// Block proposal responses
     BlockResponse = 10,
     /// Transactions
-    Transactions = 11
+    Transactions = 11,
+    /// DKG Results
+    DkgResults = 12
 });
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
-    Transactions = 2
+    Transactions = 2,
+    DkgResults = 3
 });
 
 impl MessageSlotID {
@@ -132,6 +135,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
+            SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
         }
     }
 }
@@ -217,6 +221,13 @@ pub enum SignerMessage {
     Packet(Packet),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
+    /// The results of a successful DKG
+    DkgResults {
+        /// The aggregate key from the DKG round
+        aggregate_key: Point,
+        /// The polynomial commits used to construct the aggregate key
+        party_polynomials: Vec<(u32, PolyCommitment)>,
+    },
 }
 
 impl SignerMessage {
@@ -237,7 +248,68 @@ impl SignerMessage {
             },
             Self::BlockResponse(_) => BLOCK_MSG_ID,
             Self::Transactions(_) => TRANSACTIONS_MSG_ID,
+            Self::DkgResults { .. } => MessageSlotID::DkgResults.to_u8().into(),
         }
+    }
+}
+
+impl SignerMessage {
+    /// Provide an interface for consensus serializing a DkgResults message
+    ///  without constructing the DkgResults struct (this eliminates a clone)
+    pub fn serialize_dkg_result<'a, W: Write, I>(
+        fd: &mut W,
+        aggregate_key: &Point,
+        party_polynomials: I,
+        write_prefix: bool,
+    ) -> Result<(), CodecError>
+    where
+        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
+    {
+        if write_prefix {
+            SignerMessageTypePrefix::DkgResults
+                .to_u8()
+                .consensus_serialize(fd)?;
+        }
+        fd.write_all(&aggregate_key.compress().data)
+            .map_err(CodecError::WriteError)?;
+        let polynomials_len: u32 = party_polynomials
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::ArrayTooLong)?;
+        polynomials_len.consensus_serialize(fd)?;
+        for (party_id, polynomial) in party_polynomials {
+            party_id.consensus_serialize(fd)?;
+            fd.write_all(&polynomial.id.id.to_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(&polynomial.id.kG.compress().data)
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(&polynomial.id.kca.to_bytes())
+                .map_err(CodecError::WriteError)?;
+            let commit_len: u32 = polynomial
+                .poly
+                .len()
+                .try_into()
+                .map_err(|_| CodecError::ArrayTooLong)?;
+            commit_len.consensus_serialize(fd)?;
+            for poly in polynomial.poly.iter() {
+                fd.write_all(&poly.compress().data)
+                    .map_err(CodecError::WriteError)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn deserialize_point<R: Read>(fd: &mut R) -> Result<Point, CodecError> {
+        let mut bytes = [0; 33];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        Point::try_from(&Compressed::from(bytes))
+            .map_err(|e| CodecError::DeserializeError(e.to_string()))
+    }
+
+    fn deserialize_scalar<R: Read>(fd: &mut R) -> Result<Scalar, CodecError> {
+        let mut bytes = [0; 32];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        Ok(Scalar::from(bytes))
     }
 }
 
@@ -253,6 +325,17 @@ impl StacksMessageCodec for SignerMessage {
             }
             SignerMessage::Transactions(transactions) => {
                 write_next(fd, transactions)?;
+            }
+            SignerMessage::DkgResults {
+                aggregate_key,
+                party_polynomials,
+            } => {
+                Self::serialize_dkg_result(
+                    fd,
+                    aggregate_key,
+                    party_polynomials.iter().map(|(a, b)| (a, b)),
+                    false,
+                )?;
             }
         };
         Ok(())
@@ -273,6 +356,46 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::Transactions => {
                 let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
                 SignerMessage::Transactions(transactions)
+            }
+            SignerMessageTypePrefix::DkgResults => {
+                let aggregate_key = Self::deserialize_point(fd)?;
+                let party_polynomial_len = u32::consensus_deserialize(fd)?;
+                let mut party_polynomials = Vec::with_capacity(
+                    party_polynomial_len
+                        .try_into()
+                        .expect("FATAL: u32 could not fit in usize"),
+                );
+                for _ in 0..party_polynomial_len {
+                    let party_id = u32::consensus_deserialize(fd)?;
+                    let polynomial_id_id = Self::deserialize_scalar(fd)?;
+                    let polynomial_id_kg = Self::deserialize_point(fd)?;
+                    let polynomial_id_kca = Self::deserialize_scalar(fd)?;
+
+                    let commit_len = u32::consensus_deserialize(fd)?;
+                    let mut polynomial_poly = Vec::with_capacity(
+                        commit_len
+                            .try_into()
+                            .expect("FATAL: u32 could not fit in usize"),
+                    );
+                    for _ in 0..commit_len {
+                        let poly = Self::deserialize_point(fd)?;
+                        polynomial_poly.push(poly);
+                    }
+                    let polynomial_id = ID {
+                        id: polynomial_id_id,
+                        kG: polynomial_id_kg,
+                        kca: polynomial_id_kca,
+                    };
+                    let polynomial = PolyCommitment {
+                        id: polynomial_id,
+                        poly: polynomial_poly,
+                    };
+                    party_polynomials.push((party_id, polynomial));
+                }
+                Self::DkgResults {
+                    aggregate_key,
+                    party_polynomials,
+                }
             }
         };
         Ok(message)

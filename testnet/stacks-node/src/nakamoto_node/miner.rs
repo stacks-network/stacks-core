@@ -235,6 +235,7 @@ impl BlockMinerThread {
                         return;
                     }
                 };
+                let reward_cycle_id = reward_info.reward_cycle;
                 let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
                     error!("Current reward cycle did not select a reward set. Cannot mine!");
                     return;
@@ -260,6 +261,8 @@ impl BlockMinerThread {
                     aggregate_public_key,
                     self.config.is_mainnet(),
                     self.config.node.rpc_bind.clone(),
+                    &stackerdbs,
+                    reward_cycle_id,
                 ) {
                     Ok(x) => x,
                     Err(e) => {

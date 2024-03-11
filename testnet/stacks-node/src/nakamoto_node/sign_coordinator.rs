@@ -30,12 +30,10 @@ use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare};
+use wsts::common::PolyCommitment;
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
-use wsts::errors::AggregatorError;
-use wsts::net::Packet;
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::PublicKeys;
@@ -142,58 +140,63 @@ fn get_signer_commitments(
     reward_set: &[NakamotoSignerEntry],
     stackerdbs: &StackerDBs,
     reward_cycle: u64,
-    wsts_pks: &PublicKeys,
-    message_key: &Scalar,
+    expected_aggregate_key: &Point,
 ) -> Result<Vec<(u32, PolyCommitment)>, ChainstateError> {
     let commitment_contract =
-        MessageSlotID::DkgPublicShares.stacker_db_contract(is_mainnet, reward_cycle);
+        MessageSlotID::DkgResults.stacker_db_contract(is_mainnet, reward_cycle);
     let signer_set_len = u32::try_from(reward_set.len())
         .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set length exceeds u32".into()))?;
-    let my_pubkey = ecdsa::PublicKey::new(message_key).map_err(|_| {
-        ChainstateError::InvalidStacksBlock(
-            "Miner failed to create public version of miner secret key".into(),
-        )
-    })?;
-    let mut comms = vec![];
     for signer_id in 0..signer_set_len {
         let Some(signer_data) = stackerdbs.get_latest_chunk(&commitment_contract, signer_id)?
         else {
             warn!(
-                "Failed to fetch public share, trying to continue aggregation without";
+                "Failed to fetch DKG result, will look for results from other signers.";
                 "signer_id" => signer_id
             );
             continue;
         };
-        let Ok(SignerMessage::Packet(packet)) =
-            SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
+        let Ok(SignerMessage::DkgResults {
+            aggregate_key,
+            party_polynomials,
+        }) = SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
         else {
             warn!(
-                "Failed to parse public share, trying to continue aggregation without";
+                "Failed to parse DKG result, will look for results from other signers.";
                 "signer_id" => signer_id,
             );
             continue;
         };
-        if !packet.verify(wsts_pks, &my_pubkey) {
+
+        if &aggregate_key != expected_aggregate_key {
             warn!(
-                "Failed to verify public share, trying to continue aggregation without";
-                "signer_id" => signer_id,
+                "Aggregate key in DKG results does not match expected, will look for results from other signers.";
+                "expected" => %expected_aggregate_key,
+                "reported" => %aggregate_key,
             );
             continue;
-        };
-        let mut public_shares = match packet.msg {
-            wsts::net::Message::DkgPublicShares(x) => x,
-            other => {
-                warn!(
-                    "Expected public share message, but got other message. Trying to continue aggregation without";
-                    "signer_id" => signer_id,
-                    "other_msg" => ?other,
-                );
-                continue;
-            }
-        };
-        comms.append(&mut public_shares.comms);
+        }
+        let computed_key = party_polynomials
+            .iter()
+            .fold(Point::default(), |s, (_, comm)| s + comm.poly[0]);
+
+        if expected_aggregate_key != &computed_key {
+            warn!(
+                "Aggregate key computed from DKG results does not match expected, will look for results from other signers.";
+                "expected" => %expected_aggregate_key,
+                "computed" => %computed_key,
+            );
+            continue;
+        }
+
+        return Ok(party_polynomials);
     }
-    Ok(comms)
+    error!(
+        "No valid DKG results found for the active signing set, cannot coordinate a group signature";
+        "reward_cycle" => reward_cycle,
+    );
+    Err(ChainstateError::InvalidStacksBlock(
+        "Failed to fetch DKG results for the active signer set".into(),
+    ))
 }
 
 impl SignCoordinator {
@@ -208,6 +211,8 @@ impl SignCoordinator {
         aggregate_public_key: Point,
         is_mainnet: bool,
         rpc_sock: String,
+        stackerdb_conn: &StackerDBs,
+        reward_cycle: u64,
     ) -> Result<Self, ChainstateError> {
         let Some(ref reward_set_signers) = reward_set.signers else {
             error!("Could not initialize WSTS coordinator for reward set without signer");
@@ -258,16 +263,14 @@ impl SignCoordinator {
         let party_polynomials = get_signer_commitments(
             is_mainnet,
             reward_set_signers.as_slice(),
-            todo!(),
-            todo!(),
-            &wsts_public_keys,
-            &message_key,
+            stackerdb_conn,
+            reward_cycle,
+            &aggregate_public_key,
         )?;
-
         if let Err(e) = coordinator
             .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
         {
-            warn!("Failed to set a valid set of party polynomials");
+            warn!("Failed to set a valid set of party polynomials"; "error" => %e);
         };
         // this has to match the signer sets in order for the
         //  individual signer's local coordinator instance to accept
@@ -422,7 +425,9 @@ impl SignCoordinator {
             let packets: Vec<_> = messages
                 .into_iter()
                 .filter_map(|msg| match msg {
-                    SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
+                    SignerMessage::DkgResults { .. }
+                    | SignerMessage::BlockResponse(_)
+                    | SignerMessage::Transactions(_) => None,
                     SignerMessage::Packet(packet) => {
                         info!("Packet: {packet:?}");
                         if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {

@@ -115,8 +115,18 @@ impl StackerDB {
         &mut self,
         message: SignerMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let message_bytes = message.serialize_to_vec();
         let msg_id = message.msg_id();
+        let message_bytes = message.serialize_to_vec();
+        self.send_message_bytes_with_retry(msg_id, message_bytes)
+    }
+
+    /// Sends message (as a raw msg ID and bytes) to the .signers stacker-db with an
+    ///  exponential backoff retry
+    pub fn send_message_bytes_with_retry(
+        &mut self,
+        msg_id: u32,
+        message_bytes: Vec<u8>,
+    ) -> Result<StackerDBChunkAckData, ClientError> {
         let slot_id = self.signer_slot_id;
         loop {
             let slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {

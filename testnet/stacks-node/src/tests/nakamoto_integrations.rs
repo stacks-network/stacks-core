@@ -260,7 +260,7 @@ pub fn read_and_sign_block_proposal(
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
-            .get_latest(miner_slot_id)
+            .get_latest(miner_slot_id.0)
             .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
             .ok_or("No chunk found")?
     };

@@ -23,7 +23,9 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::{HashMap, HashSet};
-use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
+use libsigner::{
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent, SignerMessage,
+};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
@@ -504,7 +506,9 @@ impl Signer {
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
-                SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
+                SignerMessage::DkgResults { .. }
+                | SignerMessage::BlockResponse(_)
+                | SignerMessage::Transactions(_) => None,
                 // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
@@ -890,10 +894,7 @@ impl Signer {
                 OperationResult::SignTaproot(_) => {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
-                OperationResult::Dkg {
-                    ref aggregate_key,
-                    ref participants,
-                } => {
+                OperationResult::Dkg(aggregate_key) => {
                     self.process_dkg(stacks_client, aggregate_key);
                 }
                 OperationResult::SignError(e) => {
@@ -910,6 +911,25 @@ impl Signer {
 
     /// Process a dkg result by broadcasting a vote to the stacks node
     fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
+        let mut dkg_results_bytes = vec![];
+        if let Err(e) = SignerMessage::serialize_dkg_result(
+            &mut dkg_results_bytes,
+            dkg_public_key,
+            self.coordinator.party_polynomials.iter(),
+            true,
+        ) {
+            error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
+                   "error" => %e);
+        } else {
+            if let Err(e) = self.stackerdb.send_message_bytes_with_retry(
+                MessageSlotID::DkgResults.to_u8().into(),
+                dkg_results_bytes,
+            ) {
+                error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
+                       "error" => %e);
+            }
+        }
+
         let epoch = retry_with_exponential_backoff(|| {
             stacks_client
                 .get_node_epoch()
