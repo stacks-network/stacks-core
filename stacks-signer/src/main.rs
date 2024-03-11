@@ -104,13 +104,8 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
     assert!(dkg_res.len() == 1, "Received unexpected number of results");
     let dkg = dkg_res.first().unwrap();
     match dkg {
-        OperationResult::Dkg {
-            ref aggregate_key,
-            ref participants,
-        } => {
-            println!(
-                "Received aggregate group key: {aggregate_key}. Participants: {participants:?}"
-            );
+        OperationResult::Dkg(aggregate_key) => {
+            println!("Received aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {
             panic!(
@@ -138,9 +133,7 @@ fn process_sign_result(sign_res: &[OperationResult]) {
     assert!(sign_res.len() == 1, "Received unexpected number of results");
     let sign = sign_res.first().unwrap();
     match sign {
-        OperationResult::Dkg {
-            ref aggregate_key, ..
-        } => {
+        OperationResult::Dkg(aggregate_key) => {
             panic!("Received unexpected aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {

@@ -320,10 +320,10 @@ impl SignCoordinator {
             return Err("No slot for miner".into());
         };
         let target_slot = 1;
-        if slot_range.1 - slot_range.0 <= target_slot {
+        let slot_id = slot_range.start + target_slot;
+        if !slot_range.contains(&slot_id) {
             return Err("Not enough slots for miner messages".into());
         }
-        let slot_id = slot_range.0 + target_slot;
         // Get the LAST slot version number written to the DB. If not found, use 0.
         // Add 1 to get the NEXT version number
         // Note: we already check above for the slot's existence
@@ -338,7 +338,7 @@ impl SignCoordinator {
             .sign(&miner_sk)
             .map_err(|_| "Failed to sign StackerDB chunk")?;
 
-        let mut stackerdb_session = StackerDBSession::new(rpc_sock.clone(), miners_contract_id);
+        let mut stackerdb_session = StackerDBSession::new(rpc_sock, miners_contract_id);
         match stackerdb_session.put_chunk(&chunk) {
             Ok(ack) => {
                 info!("Wrote message to stackerdb: {ack:?}");

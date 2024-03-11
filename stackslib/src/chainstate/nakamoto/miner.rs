@@ -539,7 +539,7 @@ impl NakamotoBlockBuilder {
             return Ok(None);
         };
         // proposal slot is the first slot.
-        let slot_id = slot_range.0;
+        let slot_id = slot_range.start;
         // Get the LAST slot version number written to the DB. If not found, use 0.
         // Add 1 to get the NEXT version number
         // Note: we already check above for the slot's existence

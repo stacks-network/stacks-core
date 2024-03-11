@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
@@ -14,6 +13,7 @@ use std::collections::HashMap;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -28,7 +28,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
