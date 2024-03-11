@@ -541,7 +541,6 @@ impl<'a> RollbackWrapper<'a> {
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
             )
         })?;
-
         if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)
         } else {

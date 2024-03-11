@@ -322,27 +322,19 @@ impl DNSClient {
 
     pub fn poll_lookup(&mut self, host: &str, port: u16) -> Result<Option<DNSResponse>, net_error> {
         let req = DNSRequest::new(host.to_string(), port, 0);
-        if let Some(e) = self.requests.get_mut(&req) {
-            let _ = match e {
-                None => {
+        match self.requests.entry(req.to_owned()) {
+            Entry::Occupied(e) => {
+                if e.get().is_none() {
                     return Ok(None);
                 }
-                Some(resp) => resp,
-            };
-
-            let resp = self
-                .requests
-                .remove(&req)
-                .expect("BUG: had key but then didn't")
-                .expect("BUG: had response but then didn't");
-
-            return Ok(Some(resp));
+                let resp = e.remove().expect("BUG: had response but then didn't");
+                Ok(Some(resp))
+            }
+            Entry::Vacant(_) => Err(net_error::LookupError(format!(
+                "No such pending lookup: {}:{}",
+                host, port
+            ))),
         }
-
-        Err(net_error::LookupError(format!(
-            "No such pending lookup: {}:{}",
-            host, port
-        )))
     }
 
     pub fn clear_all_requests(&mut self) -> () {
