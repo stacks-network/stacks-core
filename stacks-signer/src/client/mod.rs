@@ -248,7 +248,7 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
-    /// Build a response to get_pox_data where it returns a specific reward cycle id and block height
+    /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
     pub fn build_get_pox_data_response(
         reward_cycle: Option<u64>,
         prepare_phase_start_height: Option<u64>,
@@ -364,7 +364,7 @@ pub(crate) mod tests {
         build_read_only_response(&clarity_value)
     }
 
-    /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
+    /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
         pox_consensus_hash: Option<ConsensusHash>,
