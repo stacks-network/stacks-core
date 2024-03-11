@@ -20,6 +20,7 @@ use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha256Sum;
 use wsts::curve::ecdsa;
 use wsts::state_machine::PublicKeys;
 
@@ -68,6 +69,9 @@ impl From<PublicKeys> for CoordinatorSelector {
     }
 }
 
+/// Whether or not to rotate to new coordinators in `update_coordinator`
+const ROTATE_COORDINATORS: bool = false;
+
 impl CoordinatorSelector {
     /// Update the coordinator id
     fn update_coordinator(&mut self, new_coordinator_ids: Vec<u32>) {
@@ -80,7 +84,7 @@ impl CoordinatorSelector {
                 .coordinator_ids
                 .first()
                 .expect("FATAL: No registered signers");
-            if new_coordinator_id == self.coordinator_id {
+            if ROTATE_COORDINATORS && new_coordinator_id == self.coordinator_id {
                 // If the newly selected coordinator is the same as the current and we have more than one available, advance immediately to the next
                 if self.coordinator_ids.len() > 1 {
                     new_index = new_index.saturating_add(1);
@@ -88,12 +92,16 @@ impl CoordinatorSelector {
             }
             new_index
         } else {
-            let mut new_index = self.coordinator_index.saturating_add(1);
-            if new_index == self.coordinator_ids.len() {
-                // We have exhausted all potential coordinators. Go back to the start
-                new_index = 0;
+            if ROTATE_COORDINATORS {
+                let mut new_index = self.coordinator_index.saturating_add(1);
+                if new_index == self.coordinator_ids.len() {
+                    // We have exhausted all potential coordinators. Go back to the start
+                    new_index = 0;
+                }
+                new_index
+            } else {
+                self.coordinator_index
             }
-            new_index
         };
         self.coordinator_id = *self
             .coordinator_ids
@@ -146,14 +154,13 @@ impl CoordinatorSelector {
             .signers
             .iter()
             .map(|(&id, pk)| {
-                (id, pk.to_bytes())
-                // WIP: removing this to try and improve stability / debugability of coordinator selection
-                // let mut buffer =
-                //     Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
-                // buffer.extend_from_slice(&pk_bytes[..]);
-                // buffer.extend_from_slice(pox_consensus_hash.as_bytes());
-                // let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
-                // (id, digest)
+                let pk_bytes = pk.to_bytes();
+                let mut buffer =
+                    Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
+                buffer.extend_from_slice(&pk_bytes[..]);
+                buffer.extend_from_slice(pox_consensus_hash.as_bytes());
+                let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+                (id, digest)
             })
             .collect::<Vec<_>>();
 
