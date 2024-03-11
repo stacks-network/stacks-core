@@ -226,11 +226,15 @@ impl EventStopSignaler for SignerStopSignaler {
             // We need to send actual data to trigger the event receiver
             let body = "Yo. Shut this shit down!".to_string();
             let req = format!(
-                "POST /shutdown HTTP/1.1\r\nContent-Length: {}\r\n\r\n{}",
-                &body.len(),
+                "POST /shutdown HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+                self.local_addr,
+                body.len(),
                 body
             );
-            stream.write_all(req.as_bytes()).unwrap();
+            match stream.write_all(req.as_bytes()) {
+                Err(e) => error!("Failed to send shutdown request: {}", e),
+                _ => (),
+            };
         }
     }
 }
