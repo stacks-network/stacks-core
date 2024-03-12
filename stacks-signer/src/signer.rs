@@ -22,8 +22,8 @@ use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, NakamotoBlockProposal};
-use hashbrown::{HashMap, HashSet};
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use hashbrown::HashSet;
 use libsigner::{
     BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
     SignerMessage,

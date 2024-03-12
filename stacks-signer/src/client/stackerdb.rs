@@ -16,7 +16,6 @@
 //
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
-use blockstack_lib::util_lib::boot::boot_code_addr;
 use hashbrown::HashMap;
 use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
@@ -68,7 +67,6 @@ impl StackerDB {
         signer_slot_id: SignerSlotID,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
-        let stackerdb_issuer = boot_code_addr(is_mainnet);
         for msg_id in MessageSlotID::ALL {
             signers_message_stackerdb_sessions.insert(
                 *msg_id,

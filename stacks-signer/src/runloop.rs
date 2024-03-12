@@ -280,7 +280,7 @@ impl RunLoop {
     fn refresh_signers(
         &mut self,
         current_reward_cycle: u64,
-        in_prepare_phase: bool,
+        _in_prepare_phase: bool,
     ) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
         self.refresh_signer_config(current_reward_cycle, true);
