@@ -14,10 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-use std::net::SocketAddr;
-
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use blockstack_lib::util_lib::boot::boot_code_addr;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
@@ -55,7 +54,7 @@ pub struct StackerDB {
 impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
         StackerDB::new(
-            config.node_host,
+            &config.node_host,
             config.stacks_private_key,
             config.mainnet,
             config.reward_cycle,
@@ -66,7 +65,7 @@ impl From<&SignerConfig> for StackerDB {
 impl StackerDB {
     /// Create a new StackerDB client
     pub fn new(
-        host: SocketAddr,
+        host: &str,
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
         reward_cycle: u64,
@@ -121,7 +120,7 @@ impl StackerDB {
         let msg_id = message.msg_id();
         let slot_id = self.signer_slot_id;
         loop {
-            let slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+            let mut slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
                 if let Some(version) = versions.get(&slot_id) {
                     *version
                 } else {
@@ -163,20 +162,30 @@ impl StackerDB {
             } else {
                 warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
             }
-            if let Some(reason) = chunk_ack.reason {
-                // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
-                // See: https://github.com/stacks-network/stacks-blockchain/issues/3917
-                if reason.contains("Data for this slot and version already exist") {
-                    warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
-                    if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
-                        // NOTE: per the above, this is always executed
-                        versions.insert(slot_id, slot_version.saturating_add(1));
-                    } else {
-                        return Err(ClientError::NotConnected);
+            if let Some(code) = chunk_ack.code {
+                match StackerDBErrorCodes::from_code(code) {
+                    Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                        if let Some(slot_metadata) = chunk_ack.metadata {
+                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected {}. Retrying...", slot_version, slot_metadata.slot_version);
+                            slot_version = slot_metadata.slot_version;
+                        } else {
+                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unkown version number. Incrementing and retrying...", slot_version);
+                        }
+                        if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+                            // NOTE: per the above, this is always executed
+                            versions.insert(slot_id, slot_version.saturating_add(1));
+                        } else {
+                            return Err(ClientError::NotConnected);
+                        }
                     }
-                } else {
-                    warn!("Failed to send message to stackerdb: {}", reason);
-                    return Err(ClientError::PutChunkRejected(reason));
+                    _ => {
+                        warn!("Failed to send message to stackerdb: {:?}", chunk_ack);
+                        return Err(ClientError::PutChunkRejected(
+                            chunk_ack
+                                .reason
+                                .unwrap_or_else(|| "No reason given".to_string()),
+                        ));
+                    }
                 }
             }
         }
@@ -269,14 +278,12 @@ mod tests {
         TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
-    use serial_test::serial;
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
     use crate::config::GlobalConfig;
 
     #[test]
-    #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
@@ -320,9 +327,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn send_signer_message_with_retry_should_succeed() {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
 
@@ -348,6 +354,7 @@ mod tests {
             accepted: true,
             reason: None,
             metadata: None,
+            code: None,
         };
         let mock_server = mock_server_from_config(&config);
         let h = spawn(move || stackerdb.send_message_with_retry(signer_message));

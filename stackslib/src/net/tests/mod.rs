@@ -404,6 +404,8 @@ impl NakamotoBootPlan {
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
                     12_u128,
+                    u128::MAX,
+                    1,
                 );
                 make_pox_4_lockup(
                     &test_stacker.stacker_private_key,
@@ -414,6 +416,8 @@ impl NakamotoBootPlan {
                     &StacksPublicKey::from_private(&test_stacker.signer_private_key),
                     34,
                     Some(signature),
+                    u128::MAX,
+                    1,
                 )
             })
             .collect();

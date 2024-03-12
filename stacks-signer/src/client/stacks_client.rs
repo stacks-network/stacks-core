@@ -34,6 +34,7 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use reqwest::header::AUTHORIZATION;
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
@@ -63,6 +64,8 @@ pub struct StacksClient {
     mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
+    /// the auth password for the stacks node
+    auth_password: String,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -75,13 +78,19 @@ impl From<&GlobalConfig> for StacksClient {
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet: config.network.is_mainnet(),
+            auth_password: config.auth_password.clone(),
         }
     }
 }
 
 impl StacksClient {
-    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, and version
-    pub fn new(stacks_private_key: StacksPrivateKey, node_host: SocketAddr, mainnet: bool) -> Self {
+    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
+    pub fn new(
+        stacks_private_key: StacksPrivateKey,
+        node_host: SocketAddr,
+        auth_password: String,
+        mainnet: bool,
+    ) -> Self {
         let pubkey = StacksPublicKey::from_private(&stacks_private_key);
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
@@ -102,6 +111,7 @@ impl StacksClient {
             chain_id,
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet,
+            auth_password,
         }
     }
 
@@ -171,7 +181,18 @@ impl StacksClient {
             &function_name,
             function_args,
         )?;
-        self.parse_aggregate_public_key(value)
+        // Return value is of type:
+        // ```clarity
+        // (option { aggregate-public-key: (buff 33), signer-weight: uint })
+        // ```
+        let inner_data = value.expect_optional()?;
+        if let Some(inner_data) = inner_data {
+            let tuple = inner_data.expect_tuple()?;
+            let key_value = tuple.get_owned("aggregate-public-key")?;
+            self.parse_aggregate_public_key(key_value)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Determine the stacks node current epoch
@@ -214,6 +235,7 @@ impl StacksClient {
             self.stacks_node_client
                 .post(self.block_proposal_path())
                 .header("Content-Type", "application/json")
+                .header(AUTHORIZATION, self.auth_password.clone())
                 .json(&block_proposal)
                 .send()
                 .map_err(backoff::Error::transient)
@@ -240,7 +262,12 @@ impl StacksClient {
             &function_name,
             function_args,
         )?;
-        self.parse_aggregate_public_key(value)
+        let inner_data = value.expect_optional()?;
+        if let Some(key_value) = inner_data {
+            self.parse_aggregate_public_key(key_value)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Retrieve the current account nonce for the provided address
@@ -374,11 +401,7 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Option<Point>, ClientError> {
         debug!("Parsing aggregate public key...");
-        let opt = value.clone().expect_optional()?;
-        let Some(inner_data) = opt else {
-            return Ok(None);
-        };
-        let data = inner_data.expect_buff(33)?;
+        let data = value.expect_buff(33)?;
         // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
         // Pass up this error if the conversions fail.
         let compressed_data = Compressed::try_from(data.as_slice()).map_err(|e| {
@@ -596,7 +619,6 @@ mod tests {
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use rand::thread_rng;
     use rand_core::RngCore;
-    use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
@@ -608,7 +630,8 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_vote_for_aggregate_key_response, build_read_only_response, write_response,
+        MockServerClient,
     };
 
     #[test]
@@ -759,20 +782,13 @@ mod tests {
     fn parse_valid_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let clarity_value = ClarityValue::some(
-            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
-                .expect("BUG: Failed to create clarity value from point"),
-        )
-        .expect("BUG: Failed to create clarity value from point");
+        let clarity_value = ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+            .expect("BUG: Failed to create clarity value from point");
         let result = mock
             .client
             .parse_aggregate_public_key(clarity_value)
             .unwrap();
         assert_eq!(result, Some(orig_point));
-
-        let value = ClarityValue::none();
-        let result = mock.client.parse_aggregate_public_key(value).unwrap();
-        assert!(result.is_none());
     }
 
     #[test]
@@ -837,7 +853,6 @@ mod tests {
 
     #[ignore]
     #[test]
-    #[serial]
     fn build_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
@@ -861,7 +876,6 @@ mod tests {
 
     #[ignore]
     #[test]
-    #[serial]
     fn broadcast_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
@@ -1147,7 +1161,7 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(Some(point));
+        let key_response = build_get_vote_for_aggregate_key_response(Some(point));
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
@@ -1157,7 +1171,7 @@ mod tests {
 
         let mock = MockServerClient::new();
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_approved_aggregate_key_response(None);
+        let key_response = build_get_vote_for_aggregate_key_response(None);
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
