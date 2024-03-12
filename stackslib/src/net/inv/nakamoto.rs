@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use stacks_common::bitvec::BitVec;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::PoxConstants;
@@ -274,6 +275,7 @@ impl NakamotoTenureInv {
     pub fn new(
         first_block_height: u64,
         reward_cycle_len: u64,
+        cur_reward_cycle: u64,
         neighbor_address: NeighborAddress,
     ) -> Self {
         Self {
@@ -283,7 +285,7 @@ impl NakamotoTenureInv {
             first_block_height,
             reward_cycle_len,
             neighbor_address,
-            cur_reward_cycle: 0,
+            cur_reward_cycle,
             online: true,
             start_sync_time: 0,
         }
@@ -392,9 +394,10 @@ impl NakamotoTenureInv {
         current_reward_cycle: u64,
     ) -> bool {
         debug!(
-            "{:?}: Begin Nakamoto inventory sync for {}",
+            "{:?}: Begin Nakamoto inventory sync for {} in cycle {}",
             network.get_local_peer(),
-            self.neighbor_address
+            self.neighbor_address,
+            current_reward_cycle,
         );
 
         // possibly reset communications with this peer, if it's time to do so.
@@ -540,19 +543,32 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .unwrap_or(0);
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+
+        // NOTE: reward cycles start at block height mod 1, not mod 0, but
+        // .block_height_to_reward_cycle does not account for this.
         let tip_rc = sortdb
             .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, sn.block_height)
+            .block_height_to_reward_cycle(
+                sortdb.first_block_height,
+                sn.block_height.saturating_sub(1),
+            )
             .expect("FATAL: snapshot occurred before system start");
 
+        test_debug!(
+            "Load all reward cycle consensus hashes from {} to {}",
+            highest_rc,
+            tip_rc
+        );
         for rc in highest_rc..=tip_rc {
             if self.reward_cycle_consensus_hashes.contains_key(&rc) {
                 continue;
             }
             let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {
                 // NOTE: this should be unreachable, but don't panic
+                warn!("Failed to load consensus hash for reward cycle {}", rc);
                 return Err(DBError::NotFoundError.into());
             };
+            test_debug!("Inv reward cycle consensus hash for {} is {}", rc, &ch);
             self.reward_cycle_consensus_hashes.insert(rc, ch);
         }
         Ok(tip_rc)
@@ -580,6 +596,14 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     ) -> Result<(), NetError> {
         // make sure we know all consensus hashes for all reward cycles.
         let current_reward_cycle = self.update_reward_cycle_consensus_hashes(sortdb)?;
+
+        let nakamoto_start_height = network
+            .get_epoch_by_epoch_id(StacksEpochId::Epoch30)
+            .start_height;
+        let nakamoto_start_rc = network
+            .get_burnchain()
+            .block_height_to_reward_cycle(nakamoto_start_height)
+            .unwrap_or(0);
 
         // we're updating inventories, so preserve the state we have
         let mut new_inventories = HashMap::new();
@@ -617,6 +641,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                         .pox_constants
                         .reward_cycle_length
                         .into(),
+                    nakamoto_start_rc,
                     naddr.clone(),
                 )
             });
