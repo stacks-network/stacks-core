@@ -98,7 +98,7 @@ impl NakamotoTenureStream {
     /// ID of the last block it received.
     /// Return Err(..) on DB error
     pub fn next_block(&mut self) -> Result<bool, ChainError> {
-        let parent_header = NakamotoChainState::get_block_header_nakamoto(
+        let parent_header = NakamotoChainState::get_block_header(
             &self.headers_conn,
             &self.block_stream.parent_block_id,
         )?
