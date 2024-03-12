@@ -209,13 +209,14 @@ impl NakamotoBlockProposal {
         let burn_dbconn = sortdb.index_conn();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
-        let expected_burn =
-            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+        let expected_burn_opt =
+            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)
+                .ok();
 
         // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
-            expected_burn,
+            expected_burn_opt,
             &self.block,
             mainnet,
             self.chain_id,
