@@ -10009,7 +10009,7 @@ pub mod tests {
                 num_cycles: 6,
                 signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
                 max_amount: Some(u128::MAX),
-                auth_id: Some(0.into()),
+                auth_id: Some(0u64),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

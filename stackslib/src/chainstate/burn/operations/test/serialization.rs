@@ -77,6 +77,8 @@ fn test_serialization_stack_stx_op() {
         burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         num_cycles: 10,
         signer_key: None,
+        max_amount: None,
+        auth_id: None,
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
     let constructed_json = serde_json::json!({
@@ -94,6 +96,8 @@ fn test_serialization_stack_stx_op() {
             "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
             "vtxindex": 10,
             "signer_key": null,
+            "max_amount": null,
+            "auth_id": null,
         }
     });
 
@@ -122,6 +126,8 @@ fn test_serialization_stack_stx_op_with_signer_key() {
         burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         num_cycles: 10,
         signer_key: Some(StacksPublicKeyBuffer([0x01; 33])),
+        max_amount: Some(u128::MAX),
+        auth_id: Some(0u64),
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
     let constructed_json = serde_json::json!({
