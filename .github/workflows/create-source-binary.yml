@@ -40,7 +40,7 @@ jobs:
         cpu:
           - arm64
           - armv7
-          - x86-64 # defaults to x86-64-v3 variant - intel haswell (2013) and newer
+          - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
           # - x86-64-v2 ## intel nehalem (2008) and newer
           # - x86-64-v3 ## intel haswell (2013) and newer
           # - x86-64-v4 ## intel skylake (2017) and newer
@@ -51,6 +51,7 @@ jobs:
             cpu: armv7
           - arch: macos # excludes macos-armv7
             cpu: armv7
+
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         id: build_binary
@@ -59,3 +60,4 @@ jobs:
           arch: ${{ matrix.arch }}
           cpu: ${{ matrix.cpu }}
           tag: ${{ inputs.tag }}
+

@@ -230,6 +230,11 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RewardSetData {
+    pub reward_set: RewardSet,
+    pub cycle_number: u64,
+}
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
 
 impl PoxStartCycleInfo {
@@ -266,6 +271,15 @@ impl RewardSet {
     /// Deserializer corresponding to `RewardSet::metadata_serialize`
     pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
         serde_json::from_str(from).map_err(|e| e.to_string())
+    }
+}
+
+impl RewardSetData {
+    pub fn new(reward_set: RewardSet, cycle_number: u64) -> RewardSetData {
+        RewardSetData {
+            reward_set,
+            cycle_number,
+        }
     }
 }
 

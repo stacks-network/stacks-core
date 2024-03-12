@@ -26,10 +26,10 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
@@ -1717,7 +1717,7 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         block_am.weight(),
         true,
     ) {
-        Ok((_receipt, _)) => {
+        Ok((_receipt, _, _)) => {
             info!("Block processed successfully! block = {index_block_hash}");
         }
         Err(e) => {

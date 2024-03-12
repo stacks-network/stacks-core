@@ -93,12 +93,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
 }
 
 /// The top-level signer implementation
-pub struct Signer<
-    CMD: Send,
-    R: Send,
-    SL: SignerRunLoop<R, CMD> + Send + Sync,
-    EV: EventReceiver + Send,
-> {
+pub struct Signer<CMD, R, SL, EV> {
     /// the runloop itself
     signer_loop: Option<SL>,
     /// the event receiver to use
@@ -107,8 +102,6 @@ pub struct Signer<
     command_receiver: Option<Receiver<CMD>>,
     /// the result sender to use
     result_sender: Option<Sender<R>>,
-    /// marker to permit the R type
-    _phantom: PhantomData<R>,
 }
 
 /// The running signer implementation
@@ -196,13 +189,7 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
     }).expect("FATAL: failed to set signal handler");
 }
 
-impl<
-        CMD: Send + 'static,
-        R: Send + 'static,
-        SL: SignerRunLoop<R, CMD> + Send + Sync + 'static,
-        EV: EventReceiver + Send + 'static,
-    > Signer<CMD, R, SL, EV>
-{
+impl<CMD, R, SL, EV> Signer<CMD, R, SL, EV> {
     /// Create a new signer with the given runloop and event receiver.
     pub fn new(
         runloop: SL,
@@ -215,10 +202,17 @@ impl<
             event_receiver: Some(event_receiver),
             command_receiver: Some(command_receiver),
             result_sender: Some(result_sender),
-            _phantom: PhantomData,
         }
     }
+}
 
+impl<
+        CMD: Send + 'static,
+        R: Send + 'static,
+        SL: SignerRunLoop<R, CMD> + Send + 'static,
+        EV: EventReceiver + Send + 'static,
+    > Signer<CMD, R, SL, EV>
+{
     /// This is a helper function to spawn both the runloop and event receiver in their own
     /// threads.  Advanced signers may not need this method, and instead opt to run the receiver
     /// and runloop directly.  However, this method is present to help signer developers to get

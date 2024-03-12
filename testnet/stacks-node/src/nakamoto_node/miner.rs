@@ -144,6 +144,12 @@ impl BlockMinerThread {
     pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
+        debug!(
+            "New miner thread starting";
+            "had_prior_miner" => prior_miner.is_some(),
+            "parent_tenure_id" => %self.parent_tenure_id,
+            "thread_id" => ?thread::current().id(),
+        );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
@@ -364,15 +370,13 @@ impl BlockMinerThread {
 
     fn wait_for_signer_signature(
         &self,
+        sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
         aggregate_public_key: &Point,
         signer_signature_hash: &Sha512Trunc256Sum,
         signer_weights: HashMap<StacksAddress, u64>,
+        reward_cycle: u64,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("FATAL: no reward cycle for burn block");
         let (signers_contract_id, slot_ids_addresses) =
             self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID, reward_cycle)?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
@@ -384,7 +388,15 @@ impl BlockMinerThread {
         let now = Instant::now();
         debug!("Miner: waiting for block response from reward cycle {reward_cycle } signers...");
         while now.elapsed() < self.config.miner.wait_on_signers {
+            if self.check_burn_tip_changed(&sortdb).is_err() {
+                info!("Miner: burnchain tip changed while waiting for signer signature.");
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
             // Get the block responses from the signers for the block we just proposed
+            debug!("Miner: retreiving latest signer messsages";
+                "signers_contract_id" => %signers_contract_id,
+                "slot_ids" => ?slot_ids,
+            );
             let signer_chunks = stackerdbs
                 .get_latest_chunks(&signers_contract_id, &slot_ids)
                 .expect("FATAL: could not get latest chunks from stacker DB");
@@ -399,6 +411,7 @@ impl BlockMinerThread {
                     })
                 })
                 .collect();
+            debug!("Miner: retrieved {} signer messages", signer_messages.len());
             for (signer_id, signer_message) in signer_messages {
                 match signer_message {
                     SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
@@ -410,12 +423,13 @@ impl BlockMinerThread {
                         {
                             // The signature is valid across the signer signature hash of the original proposed block
                             // Immediately return and update the block with this new signature before appending it to the chain
-                            debug!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
+                            info!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
                             return Ok(signature);
                         }
                         // We received an accepted block for some unknown block hash...Useless! Ignore it.
                         // Keep waiting for a threshold number of signers to either reject the proposed block
                         // or return valid signature to show up across the proposed block
+                        debug!("Miner: received a signature for an unknown block hash: {hash:?}. Ignoring it.");
                     }
                     SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) => {
                         // First check that this block rejection is for the block we proposed
@@ -513,10 +527,12 @@ impl BlockMinerThread {
         )?;
         let signature = self
             .wait_for_signer_signature(
+                &sort_db,
                 &stackerdbs,
                 &aggregate_public_key,
                 &block.header.signer_signature_hash(),
                 signer_weights,
+                reward_cycle,
             )
             .map_err(|e| {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
@@ -960,9 +976,19 @@ impl ParentStacksBlockInfo {
             None
         };
 
-        debug!("Mining tenure's last consensus hash: {} (height {} hash {}), stacks tip consensus hash: {} (height {} hash {})",
-               &check_burn_block.consensus_hash, check_burn_block.block_height, &check_burn_block.burn_header_hash,
-               &parent_snapshot.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
+        debug!(
+            "Looked up parent information";
+            "parent_tenure_id" => %parent_tenure_id,
+            "parent_tenure_consensus_hash" => %parent_tenure_header.consensus_hash,
+            "parent_tenure_burn_hash" => %parent_tenure_header.burn_header_hash,
+            "parent_tenure_burn_height" => parent_tenure_header.burn_header_height,
+            "mining_consensus_hash" => %check_burn_block.consensus_hash,
+            "mining_burn_hash" => %check_burn_block.burn_header_hash,
+            "mining_burn_height" => check_burn_block.block_height,
+            "stacks_tip_consensus_hash" => %parent_snapshot.consensus_hash,
+            "stacks_tip_burn_hash" => %parent_snapshot.burn_header_hash,
+            "stacks_tip_burn_height" => parent_snapshot.block_height,
+        );
 
         let coinbase_nonce = {
             let principal = miner_address.into();

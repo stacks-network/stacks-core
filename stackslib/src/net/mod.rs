@@ -1900,6 +1900,7 @@ pub mod test {
             _anchor_block_cost: &ExecutionCost,
             _confirmed_mblock_cost: &ExecutionCost,
             pox_constants: &PoxConstants,
+            reward_set_data: &Option<RewardSetData>,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
@@ -1919,15 +1920,6 @@ pub mod test {
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
-        ) {
-            // pass
-        }
-
-        fn announce_reward_set(
-            &self,
-            _reward_set: &RewardSet,
-            _block_id: &StacksBlockId,
-            _cycle_number: u64,
         ) {
             // pass
         }
