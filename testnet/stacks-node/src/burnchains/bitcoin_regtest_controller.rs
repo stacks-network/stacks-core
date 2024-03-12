@@ -1169,7 +1169,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = 300;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
