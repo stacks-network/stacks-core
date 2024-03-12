@@ -232,7 +232,10 @@ where
 {
     let s: Option<String> = Option::deserialize(deserializer)?;
     match s {
-        Some(str_val) => str_val.parse::<u128>().map(Some).map_err(serde::de::Error::custom),
+        Some(str_val) => str_val
+            .parse::<u128>()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
         None => Ok(None),
     }
 }
@@ -256,7 +259,7 @@ pub struct RewardSet {
         serialize_with = "serialize_optional_u128_as_string",
         deserialize_with = "deserialize_optional_u128_from_string"
     )]
-    pub pox_stx_threshold: Option<u128>,
+    pub pox_ustx_threshold: Option<u128>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -289,7 +292,7 @@ impl RewardSet {
                 missed_reward_slots: vec![],
             },
             signers: None,
-            pox_stx_threshold: None,
+            pox_ustx_threshold: None,
         }
     }
 
@@ -873,7 +876,7 @@ impl StacksChainState {
                 missed_reward_slots: missed_slots,
             },
             signers: signer_set,
-            pox_stx_threshold: Some(threshold),
+            pox_ustx_threshold: Some(threshold),
         }
     }
 
