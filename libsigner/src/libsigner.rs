@@ -45,7 +45,8 @@ mod session;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver, SignerStopSignaler,
+    BlockProposalSigners, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
+    SignerStopSignaler,
 };
 pub use crate::messages::{
     BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage, BLOCK_MSG_ID,

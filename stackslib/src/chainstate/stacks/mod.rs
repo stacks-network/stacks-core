@@ -693,10 +693,9 @@ impl FromSql for ThresholdSignature {
     }
 }
 
-impl std::fmt::Display for ThresholdSignature {
+impl fmt::Display for ThresholdSignature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = self.serialize_to_vec();
-        write!(f, "{}", &to_hex(&bytes))
+        to_hex(&self.serialize_to_vec()).fmt(f)
     }
 }
 

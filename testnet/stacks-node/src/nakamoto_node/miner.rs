@@ -22,7 +22,10 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::{SignerMessage, SignerSession, StackerDBSession, TRANSACTIONS_MSG_ID};
+use libsigner::{
+    BlockProposalSigners, BlockResponse, RejectCode, SignerMessage, SignerSession,
+    StackerDBSession, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
+};
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -36,7 +39,6 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -83,8 +85,6 @@ struct ParentTenureInfo {
 struct ParentStacksBlockInfo {
     /// Header metadata for the Stacks block we're going to build on top of
     stacks_parent_header: StacksHeaderInfo,
-    /// the total amount burned in the sortition that selected the Stacks block parent
-    parent_block_total_burn: u64,
     /// nonce to use for this new block's coinbase transaction
     coinbase_nonce: u64,
     parent_tenure: Option<ParentTenureInfo>,
@@ -144,6 +144,12 @@ impl BlockMinerThread {
     pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
+        debug!(
+            "New miner thread starting";
+            "had_prior_miner" => prior_miner.is_some(),
+            "parent_tenure_id" => %self.parent_tenure_id,
+            "thread_id" => ?thread::current().id(),
+        );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
@@ -188,37 +194,53 @@ impl BlockMinerThread {
             .expect("FATAL: could not open sortition DB");
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
                 .expect("FATAL: could not retrieve chain tip");
+            let reward_cycle = self
+                .burnchain
+                .pox_constants
+                .block_height_to_reward_cycle(
+                    self.burnchain.first_block_height,
+                    self.burn_block.block_height,
+                )
+                .expect("FATAL: building on a burn block that is before the first burn block");
             if let Some(mut new_block) = new_block {
-                match NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                let proposal_msg = BlockProposalSigners {
+                    block: new_block.clone(),
+                    burn_height: self.burn_block.block_height,
+                    reward_cycle,
+                };
+                let proposal = match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
                     &tip,
                     &stackerdbs,
-                    &new_block,
+                    &proposal_msg,
                     &miner_privkey,
                     &miners_contract_id,
                 ) {
-                    Ok(Some(chunk)) => {
-                        // Propose the block to the observing signers through the .miners stackerdb instance
-                        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-                        let mut miners_stackerdb =
-                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-                        match miners_stackerdb.put_chunk(&chunk) {
-                            Ok(ack) => {
-                                info!("Proposed block to stackerdb: {ack:?}");
-                            }
-                            Err(e) => {
-                                warn!("Failed to propose block to stackerdb {e:?}");
-                                return;
-                            }
-                        }
-                    }
+                    Ok(Some(chunk)) => chunk,
                     Ok(None) => {
                         warn!("Failed to propose block to stackerdb: no slot available");
+                        continue;
                     }
                     Err(e) => {
                         warn!("Failed to propose block to stackerdb: {e:?}");
+                        continue;
+                    }
+                };
+
+                // Propose the block to the observing signers through the .miners stackerdb instance
+                let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+                let mut miners_stackerdb =
+                    StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+                match miners_stackerdb.put_chunk(&proposal) {
+                    Ok(ack) => {
+                        info!("Proposed block to stackerdb: {ack:?}");
+                    }
+                    Err(e) => {
+                        warn!("Failed to propose block to stackerdb {e:?}");
+                        return;
                     }
                 }
+
                 self.globals.counters.bump_naka_proposed_blocks();
 
                 let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
@@ -235,7 +257,6 @@ impl BlockMinerThread {
                         return;
                     }
                 };
-                let reward_cycle_id = reward_info.reward_cycle;
                 let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
                     error!("Current reward cycle did not select a reward set. Cannot mine!");
                     return;
@@ -262,7 +283,7 @@ impl BlockMinerThread {
                     self.config.is_mainnet(),
                     self.config.node.rpc_bind.clone(),
                     &stackerdbs,
-                    reward_cycle_id,
+                    reward_cycle,
                 ) {
                     Ok(x) => x,
                     Err(e) => {
@@ -292,6 +313,14 @@ impl BlockMinerThread {
                 if let Err(e) = self.broadcast(new_block.clone(), &aggregate_public_key) {
                     warn!("Error accepting own block: {e:?}");
                 } else {
+                    info!(
+                        "Miner: Block signed by signer set and broadcasted";
+                        "signer_sighash" => %new_block.header.signer_signature_hash(),
+                        "block_hash" => %new_block.header.block_hash(),
+                        "stacks_block_id" => %new_block.header.block_id(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
                     self.globals.coord().announce_new_stacks_block();
                 }
 
@@ -575,7 +604,6 @@ impl BlockMinerThread {
                     parent_tenure_blocks: 0,
                 }),
                 stacks_parent_header: chain_tip.metadata,
-                parent_block_total_burn: 0,
                 coinbase_nonce: 0,
             });
         };
@@ -746,15 +774,11 @@ impl BlockMinerThread {
         block.header.miner_signature = miner_signature;
 
         info!(
-            "Miner: Succeeded assembling {} block #{}: {}, with {} txs",
-            if parent_block_info.parent_block_total_burn == 0 {
-                "Genesis"
-            } else {
-                "Stacks"
-            },
+            "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block.header.chain_length,
             block.header.block_hash(),
-            block.txs.len(),
+            block.txs.len();
+            "signer_sighash" => %block.header.signer_signature_hash(),
         );
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
@@ -801,26 +825,6 @@ impl ParentStacksBlockInfo {
         )
         .expect("Failed to look up block's parent snapshot")
         .expect("Failed to look up block's parent snapshot");
-
-        let parent_sortition_id = &parent_snapshot.sortition_id;
-
-        let parent_block_total_burn =
-            if &stacks_tip_header.consensus_hash == &FIRST_BURNCHAIN_CONSENSUS_HASH {
-                0
-            } else {
-                let parent_burn_block =
-                    SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
-                        .expect("SortitionDB failure.")
-                        .ok_or_else(|| {
-                            error!(
-                                "Failed to find block snapshot for the parent sortition";
-                                "parent_sortition_id" => %parent_sortition_id
-                            );
-                            NakamotoNodeError::SnapshotNotFoundForChainTip
-                        })?;
-
-                parent_burn_block.total_burn
-            };
 
         // don't mine off of an old burnchain block
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
@@ -883,9 +887,19 @@ impl ParentStacksBlockInfo {
             None
         };
 
-        debug!("Mining tenure's last consensus hash: {} (height {} hash {}), stacks tip consensus hash: {} (height {} hash {})",
-               &check_burn_block.consensus_hash, check_burn_block.block_height, &check_burn_block.burn_header_hash,
-               &parent_snapshot.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
+        debug!(
+            "Looked up parent information";
+            "parent_tenure_id" => %parent_tenure_id,
+            "parent_tenure_consensus_hash" => %parent_tenure_header.consensus_hash,
+            "parent_tenure_burn_hash" => %parent_tenure_header.burn_header_hash,
+            "parent_tenure_burn_height" => parent_tenure_header.burn_header_height,
+            "mining_consensus_hash" => %check_burn_block.consensus_hash,
+            "mining_burn_hash" => %check_burn_block.burn_header_hash,
+            "mining_burn_height" => check_burn_block.block_height,
+            "stacks_tip_consensus_hash" => %parent_snapshot.consensus_hash,
+            "stacks_tip_burn_hash" => %parent_snapshot.burn_header_hash,
+            "stacks_tip_burn_height" => parent_snapshot.block_height,
+        );
 
         let coinbase_nonce = {
             let principal = miner_address.into();
@@ -906,7 +920,6 @@ impl ParentStacksBlockInfo {
 
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
-            parent_block_total_burn,
             coinbase_nonce,
             parent_tenure: parent_tenure_info,
         })

@@ -69,6 +69,9 @@ impl From<PublicKeys> for CoordinatorSelector {
     }
 }
 
+/// Whether or not to rotate to new coordinators in `update_coordinator`
+const ROTATE_COORDINATORS: bool = false;
+
 impl CoordinatorSelector {
     /// Update the coordinator id
     fn update_coordinator(&mut self, new_coordinator_ids: Vec<u32>) {
@@ -81,7 +84,7 @@ impl CoordinatorSelector {
                 .coordinator_ids
                 .first()
                 .expect("FATAL: No registered signers");
-            if new_coordinator_id == self.coordinator_id {
+            if ROTATE_COORDINATORS && new_coordinator_id == self.coordinator_id {
                 // If the newly selected coordinator is the same as the current and we have more than one available, advance immediately to the next
                 if self.coordinator_ids.len() > 1 {
                     new_index = new_index.saturating_add(1);
@@ -89,12 +92,16 @@ impl CoordinatorSelector {
             }
             new_index
         } else {
-            let mut new_index = self.coordinator_index.saturating_add(1);
-            if new_index == self.coordinator_ids.len() {
-                // We have exhausted all potential coordinators. Go back to the start
-                new_index = 0;
+            if ROTATE_COORDINATORS {
+                let mut new_index = self.coordinator_index.saturating_add(1);
+                if new_index == self.coordinator_ids.len() {
+                    // We have exhausted all potential coordinators. Go back to the start
+                    new_index = 0;
+                }
+                new_index
+            } else {
+                self.coordinator_index
             }
-            new_index
         };
         self.coordinator_id = *self
             .coordinator_ids
@@ -136,7 +143,7 @@ impl CoordinatorSelector {
         )
     }
 
-    /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
+    /// Calculate the ordered list of coordinator ids by comparing the provided public keys
     pub fn calculate_coordinator_ids(
         public_keys: &PublicKeys,
         pox_consensus_hash: &ConsensusHash,
