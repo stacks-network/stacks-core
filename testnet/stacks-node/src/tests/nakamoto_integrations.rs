@@ -52,11 +52,13 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
@@ -2142,6 +2144,13 @@ fn miner_writes_proposed_block_to_stackerdb() {
         "proposed_zero_block_hash" => &proposed_zero_block_hash,
         "proposed_block_hash" => &proposed_block_hash,
     );
+
+    let signer_bitvec_str = observed_block.signer_bitvec.clone();
+    let signer_bitvec_bytes = hex_bytes(&signer_bitvec_str).unwrap();
+    let signer_bitvec = BitVec::<4000>::consensus_deserialize(&mut signer_bitvec_bytes.as_slice())
+        .expect("Failed to deserialize signer bitvec");
+
+    assert_eq!(signer_bitvec.len(), 1);
 
     assert_eq!(
         format!("0x{}", observed_block.block_hash),

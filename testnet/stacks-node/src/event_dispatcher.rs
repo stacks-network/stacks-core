@@ -102,6 +102,7 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
+    pub signer_bitvec: String,
 }
 
 impl EventObserver {
@@ -1023,6 +1024,8 @@ impl EventDispatcher {
             return;
         }
 
+        let signer_bitvec = bytes_to_hex(block.header.signer_bitvec.serialize_to_vec().as_slice());
+
         let payload = serde_json::to_value(MinedNakamotoBlockEvent {
             target_burn_height,
             block_hash: block.header.block_hash().to_string(),
@@ -1031,6 +1034,7 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
+            signer_bitvec,
         })
         .unwrap();
 
