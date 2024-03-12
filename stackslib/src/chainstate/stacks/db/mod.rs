@@ -325,6 +325,14 @@ impl StacksBlockHeaderTypes {
         }
     }
 
+    /// Get the total spend by miners for this block
+    pub fn total_burns(&self) -> u64 {
+        match self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.total_work.burn,
+            StacksBlockHeaderTypes::Nakamoto(x) => x.burn_spent,
+        }
+    }
+
     pub fn as_stacks_epoch2(&self) -> Option<&StacksBlockHeader> {
         match &self {
             StacksBlockHeaderTypes::Epoch2(ref x) => Some(x),

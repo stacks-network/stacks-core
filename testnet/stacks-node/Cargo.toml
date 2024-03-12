@@ -9,7 +9,6 @@ rust-version = "1.61"
 [dependencies]
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
-rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
@@ -29,7 +28,7 @@ chrono = "0.4.19"
 regex = "1"
 libsigner = { path = "../../libsigner" }
 wsts = { workspace = true }
-rand_core = "0.6"
+rand = { workspace = true }
 
 [dev-dependencies]
 ring = "0.16.19"

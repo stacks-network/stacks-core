@@ -142,9 +142,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{mem, thread};
@@ -162,15 +160,13 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
     get_mining_spend_amount, signal_mining_blocked, signal_mining_ready, BlockBuilderSettings,
-    MinerStatus, StacksMicroblockBuilder,
+    StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -210,9 +206,9 @@ use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
-use crate::run_loop::neon::{Counters, RunLoop};
+use crate::globals::{NeonGlobals as Globals, RelayerDirective};
+use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
-use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -256,44 +252,6 @@ struct AssembledAnchorBlock {
     tenure_begin: u128,
 }
 
-/// Command types for the relayer thread, issued to it by other threads
-pub enum RelayerDirective {
-    /// Handle some new data that arrived on the network (such as blocks, transactions, and
-    /// microblocks)
-    HandleNetResult(NetworkResult),
-    /// Announce a new sortition.  Process and broadcast the block if we won.
-    ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
-    /// Try to mine a block
-    RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
-    /// Try to register a VRF public key
-    RegisterKey(BlockSnapshot),
-    /// Stop the relayer thread
-    Exit,
-}
-
-/// Inter-thread communication structure, shared between threads
-#[derive(Clone)]
-pub struct Globals {
-    /// Last sortition processed
-    last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
-    /// Status of the miner
-    miner_status: Arc<Mutex<MinerStatus>>,
-    /// Communication link to the coordinator thread
-    coord_comms: CoordinatorChannels,
-    /// Unconfirmed transactions (shared between the relayer and p2p threads)
-    unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
-    /// Writer endpoint to the relayer thread
-    relay_send: SyncSender<RelayerDirective>,
-    /// Cointer state in the main thread
-    counters: Counters,
-    /// Connection to the PoX sync watchdog
-    sync_comms: PoxSyncWatchdogComms,
-    /// Global flag to see if we should keep running
-    pub should_keep_running: Arc<AtomicBool>,
-    /// Status of our VRF key registration state (shared between the main thread and the relayer)
-    leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
-}
-
 /// Miner chain tip, on top of which to build microblocks
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerTip {
@@ -327,205 +285,6 @@ impl MinerTip {
     }
 }
 
-impl Globals {
-    pub fn new(
-        coord_comms: CoordinatorChannels,
-        miner_status: Arc<Mutex<MinerStatus>>,
-        relay_send: SyncSender<RelayerDirective>,
-        counters: Counters,
-        sync_comms: PoxSyncWatchdogComms,
-        should_keep_running: Arc<AtomicBool>,
-    ) -> Globals {
-        Globals {
-            last_sortition: Arc::new(Mutex::new(None)),
-            miner_status,
-            coord_comms,
-            unconfirmed_txs: Arc::new(Mutex::new(UnconfirmedTxMap::new())),
-            relay_send,
-            counters,
-            sync_comms,
-            should_keep_running,
-            leader_key_registration_state: Arc::new(Mutex::new(
-                LeaderKeyRegistrationState::Inactive,
-            )),
-        }
-    }
-
-    /// Get the last sortition processed by the relayer thread
-    pub fn get_last_sortition(&self) -> Option<BlockSnapshot> {
-        match self.last_sortition.lock() {
-            Ok(sort_opt) => sort_opt.clone(),
-            Err(_) => {
-                error!("Sortition mutex poisoned!");
-                panic!();
-            }
-        }
-    }
-
-    /// Set the last sortition processed
-    pub fn set_last_sortition(&self, block_snapshot: BlockSnapshot) {
-        match self.last_sortition.lock() {
-            Ok(mut sortition_opt) => {
-                sortition_opt.replace(block_snapshot);
-            }
-            Err(_) => {
-                error!("Sortition mutex poisoned!");
-                panic!();
-            }
-        };
-    }
-
-    /// Get the status of the miner (blocked or ready)
-    pub fn get_miner_status(&self) -> Arc<Mutex<MinerStatus>> {
-        self.miner_status.clone()
-    }
-
-    /// Get the main thread's counters
-    pub fn get_counters(&self) -> Counters {
-        self.counters.clone()
-    }
-
-    /// Called by the relayer to pass unconfirmed txs to the p2p thread, so the p2p thread doesn't
-    /// need to do the disk I/O needed to instantiate the unconfirmed state trie they represent.
-    /// Clears the unconfirmed transactions, and replaces them with the chainstate's.
-    pub fn send_unconfirmed_txs(&self, chainstate: &StacksChainState) {
-        if let Some(ref unconfirmed) = chainstate.unconfirmed_state {
-            match self.unconfirmed_txs.lock() {
-                Ok(mut txs) => {
-                    txs.clear();
-                    txs.extend(unconfirmed.mined_txs.clone());
-                }
-                Err(e) => {
-                    // can only happen due to a thread panic in the relayer
-                    error!("FATAL: unconfirmed tx arc mutex is poisoned: {:?}", &e);
-                    panic!();
-                }
-            };
-        }
-    }
-
-    /// Called by the p2p thread to accept the unconfirmed tx state processed by the relayer.
-    /// Puts the shared unconfirmed transactions to chainstate.
-    pub fn recv_unconfirmed_txs(&self, chainstate: &mut StacksChainState) {
-        if let Some(ref mut unconfirmed) = chainstate.unconfirmed_state {
-            match self.unconfirmed_txs.lock() {
-                Ok(txs) => {
-                    unconfirmed.mined_txs.clear();
-                    unconfirmed.mined_txs.extend(txs.clone());
-                }
-                Err(e) => {
-                    // can only happen due to a thread panic in the relayer
-                    error!("FATAL: unconfirmed arc mutex is poisoned: {:?}", &e);
-                    panic!();
-                }
-            };
-        }
-    }
-
-    /// Signal system-wide stop
-    pub fn signal_stop(&self) {
-        self.should_keep_running.store(false, Ordering::SeqCst);
-    }
-
-    /// Should we keep running?
-    pub fn keep_running(&self) -> bool {
-        self.should_keep_running.load(Ordering::SeqCst)
-    }
-
-    /// Get the handle to the coordinator
-    pub fn coord(&self) -> &CoordinatorChannels {
-        &self.coord_comms
-    }
-
-    /// Get the current leader key registration state.
-    /// Called from the runloop thread and relayer thread.
-    fn get_leader_key_registration_state(&self) -> LeaderKeyRegistrationState {
-        match self.leader_key_registration_state.lock() {
-            Ok(state) => (*state).clone(),
-            Err(e) => {
-                // can only happen due to a thread panic in the relayer
-                error!("FATAL: leader key registration mutex is poisoned: {:?}", &e);
-                panic!();
-            }
-        }
-    }
-
-    /// Set the initial leader key registration state.
-    /// Called from the runloop thread when booting up.
-    fn set_initial_leader_key_registration_state(&self, new_state: LeaderKeyRegistrationState) {
-        match self.leader_key_registration_state.lock() {
-            Ok(mut state) => {
-                *state = new_state;
-            }
-            Err(e) => {
-                // can only happen due to a thread panic in the relayer
-                error!("FATAL: leader key registration mutex is poisoned: {:?}", &e);
-                panic!();
-            }
-        }
-    }
-
-    /// Advance the leader key registration state to pending, given a txid we just sent.
-    /// Only the relayer thread calls this.
-    fn set_pending_leader_key_registration(&self, target_block_height: u64, txid: Txid) {
-        match self.leader_key_registration_state.lock() {
-            Ok(ref mut leader_key_registration_state) => {
-                **leader_key_registration_state =
-                    LeaderKeyRegistrationState::Pending(target_block_height, txid);
-            }
-            Err(_e) => {
-                error!("FATAL: failed to lock leader key registration state mutex");
-                panic!();
-            }
-        }
-    }
-
-    /// Advance the leader key registration state to active, given the VRF key registration ops
-    /// we've discovered in a given snapshot.
-    /// The runloop thread calls this whenever it processes a sortition.
-    pub fn try_activate_leader_key_registration(
-        &self,
-        burn_block_height: u64,
-        key_registers: Vec<LeaderKeyRegisterOp>,
-    ) -> bool {
-        let mut activated = false;
-        match self.leader_key_registration_state.lock() {
-            Ok(ref mut leader_key_registration_state) => {
-                for op in key_registers.into_iter() {
-                    if let LeaderKeyRegistrationState::Pending(target_block_height, txid) =
-                        **leader_key_registration_state
-                    {
-                        info!(
-                            "Received burnchain block #{} including key_register_op - {}",
-                            burn_block_height, txid
-                        );
-                        if txid == op.txid {
-                            **leader_key_registration_state =
-                                LeaderKeyRegistrationState::Active(RegisteredKey {
-                                    target_block_height,
-                                    vrf_public_key: op.public_key,
-                                    block_height: u64::from(op.block_height),
-                                    op_vtxindex: u32::from(op.vtxindex),
-                                });
-                            activated = true;
-                        } else {
-                            debug!(
-                                "key_register_op {} does not match our pending op {}",
-                                txid, &op.txid
-                            );
-                        }
-                    }
-                }
-            }
-            Err(_e) => {
-                error!("FATAL: failed to lock leader key registration state mutex");
-                panic!();
-            }
-        }
-        activated
-    }
-}
-
 /// Node implementation for both miners and followers.
 /// This struct is used to set up the node proper and launch the p2p thread and relayer thread.
 /// It is further used by the main thread to communicate with these two threads.
@@ -545,71 +304,59 @@ pub struct StacksNode {
 /// Fault injection logic to artificially increase the length of a tenure.
 /// Only used in testing
 #[cfg(test)]
-fn fault_injection_long_tenure() {
+pub(crate) fn fault_injection_long_tenure() {
     // simulated slow block
-    match std::env::var("STX_TEST_SLOW_TENURE") {
-        Ok(tenure_str) => match tenure_str.parse::<u64>() {
-            Ok(tenure_time) => {
-                info!(
-                    "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
-                    tenure_time
-                );
-                stacks_common::util::sleep_ms(tenure_time);
-            }
-            Err(_) => {
-                error!("Parse error for STX_TEST_SLOW_TENURE");
-                panic!();
-            }
-        },
-        _ => {}
-    }
+    let Ok(tenure_str) = std::env::var("STX_TEST_SLOW_TENURE") else {
+        return;
+    };
+    let Ok(tenure_time) = tenure_str.parse::<u64>() else {
+        error!("Parse error for STX_TEST_SLOW_TENURE");
+        panic!();
+    };
+    info!(
+        "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
+        tenure_time
+    );
+    stacks_common::util::sleep_ms(tenure_time);
 }
 
 #[cfg(not(test))]
-fn fault_injection_long_tenure() {}
+pub(crate) fn fault_injection_long_tenure() {}
 
 /// Fault injection to skip mining in this bitcoin block height
 /// Only used in testing
 #[cfg(test)]
-fn fault_injection_skip_mining(rpc_bind: &str, target_burn_height: u64) -> bool {
-    match std::env::var("STACKS_DISABLE_MINER") {
-        Ok(disable_heights) => {
-            let disable_schedule: serde_json::Value =
-                serde_json::from_str(&disable_heights).unwrap();
-            let disable_schedule = disable_schedule.as_array().unwrap();
-            for disabled in disable_schedule {
-                let target_miner_rpc_bind = disabled
-                    .get("rpc_bind")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string();
-                if target_miner_rpc_bind != rpc_bind {
-                    continue;
-                }
-                let target_block_heights = disabled.get("blocks").unwrap().as_array().unwrap();
-                for target_block_value in target_block_heights {
-                    let target_block = target_block_value.as_i64().unwrap() as u64;
-                    if target_block == target_burn_height {
-                        return true;
-                    }
-                }
-            }
-            return false;
+pub(crate) fn fault_injection_skip_mining(rpc_bind: &str, target_burn_height: u64) -> bool {
+    let Ok(disable_heights) = std::env::var("STACKS_DISABLE_MINER") else {
+        return false;
+    };
+    let disable_schedule: serde_json::Value = serde_json::from_str(&disable_heights).unwrap();
+    let disable_schedule = disable_schedule.as_array().unwrap();
+    for disabled in disable_schedule {
+        let target_miner_rpc_bind = disabled.get("rpc_bind").unwrap().as_str().unwrap();
+        if target_miner_rpc_bind != rpc_bind {
+            continue;
         }
-        Err(_) => {
-            return false;
+        let target_block_heights = disabled.get("blocks").unwrap().as_array().unwrap();
+        for target_block_value in target_block_heights {
+            let target_block = u64::try_from(target_block_value.as_i64().unwrap()).unwrap();
+            if target_block == target_burn_height {
+                return true;
+            }
         }
     }
+    false
 }
 
 #[cfg(not(test))]
-fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: u64) -> bool {
+pub(crate) fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: u64) -> bool {
     false
 }
 
 /// Open the chainstate, and inject faults from the config file
-fn open_chainstate_with_faults(config: &Config) -> Result<StacksChainState, ChainstateError> {
+pub(crate) fn open_chainstate_with_faults(
+    config: &Config,
+) -> Result<StacksChainState, ChainstateError> {
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let (mut chainstate, _) = StacksChainState::open(
         config.is_mainnet(),
@@ -653,7 +400,7 @@ struct ParentStacksBlockInfo {
 }
 
 #[derive(Clone)]
-enum LeaderKeyRegistrationState {
+pub enum LeaderKeyRegistrationState {
     /// Not started yet
     Inactive,
     /// Waiting for burnchain confirmation
@@ -662,6 +409,16 @@ enum LeaderKeyRegistrationState {
     Pending(u64, Txid),
     /// Ready to go!
     Active(RegisteredKey),
+}
+
+impl LeaderKeyRegistrationState {
+    pub fn get_active(&self) -> Option<RegisteredKey> {
+        if let Self::Active(registered_key) = self {
+            Some(registered_key.clone())
+        } else {
+            None
+        }
+    }
 }
 
 /// Relayer thread
@@ -3407,6 +3164,10 @@ impl RelayerThread {
                 debug!("Relayer: directive Ran tenure");
                 true
             }
+            RelayerDirective::NakamotoTenureStartProcessed(_, _) => {
+                warn!("Relayer: Nakamoto tenure start notification received while still operating 2.x neon node");
+                true
+            }
             RelayerDirective::Exit => false,
         };
         if !continue_running {
@@ -3862,7 +3623,7 @@ impl StacksNode {
     }
 
     /// Set up the AST size-precheck height, if configured
-    fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
+    pub(crate) fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
         if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
             info!(
                 "Override burnchain height of {:?} to {}",
@@ -4015,7 +3776,7 @@ impl StacksNode {
     }
 
     /// Set up the PeerNetwork, but do not bind it.
-    pub fn setup_peer_network(
+    pub(crate) fn setup_peer_network(
         config: &Config,
         atlas_config: &AtlasConfig,
         burnchain: Burnchain,

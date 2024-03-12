@@ -25,6 +25,8 @@ pub use stacks_common::types::StacksEpochId;
 use stacks_common::util::log;
 
 pub use self::mempool::MemPoolDB;
+use crate::burnchains::bitcoin::indexer::get_bitcoin_stacks_epochs;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
@@ -604,9 +606,34 @@ pub trait StacksEpochExtension {
         epoch_2_1_block_height: u64,
     ) -> Vec<StacksEpoch>;
     fn validate_epochs(epochs: &[StacksEpoch]) -> Vec<StacksEpoch>;
+    /// This method gets the epoch vector.
+    ///
+    /// Choose according to:
+    /// 1) Use the custom epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
+    /// 2) Use hard-coded static values, otherwise.
+    ///
+    /// It is an error (panic) to set custom epochs if running on `Mainnet`.
+    ///
+    fn get_epochs(
+        bitcoin_network: BitcoinNetworkType,
+        configured_epochs: Option<&Vec<StacksEpoch>>,
+    ) -> Vec<StacksEpoch>;
 }
 
 impl StacksEpochExtension for StacksEpoch {
+    fn get_epochs(
+        bitcoin_network: BitcoinNetworkType,
+        configured_epochs: Option<&Vec<StacksEpoch>>,
+    ) -> Vec<StacksEpoch> {
+        match configured_epochs {
+            Some(epochs) => {
+                assert!(bitcoin_network != BitcoinNetworkType::Mainnet);
+                epochs.clone()
+            }
+            None => get_bitcoin_stacks_epochs(bitcoin_network),
+        }
+    }
+
     #[cfg(test)]
     fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(

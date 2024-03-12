@@ -1664,6 +1664,23 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
+    /// Update the canonical Stacks tip (testing only)
+    #[cfg(test)]
+    pub fn test_update_canonical_stacks_tip(
+        &mut self,
+        sort_id: &SortitionId,
+        consensus_hash: &ConsensusHash,
+        stacks_block_hash: &BlockHeaderHash,
+        stacks_block_height: u64,
+    ) -> Result<(), db_error> {
+        self.update_canonical_stacks_tip(
+            sort_id,
+            consensus_hash,
+            stacks_block_hash,
+            stacks_block_height,
+        )
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
@@ -4392,9 +4409,9 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    pub fn get_canonical_stacks_chain_tip_hash(
+    pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
-    ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
+    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
         let sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
         let cur_epoch = SortitionDB::get_stacks_epoch(conn, sn.block_height)?.expect(&format!(
             "FATAL: no epoch defined for burn height {}",
@@ -4407,9 +4424,9 @@ impl SortitionDB {
             let mut cursor = sn;
             loop {
                 let result_at_tip = conn.query_row_and_then(
-                    "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
+                    "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
                     &[&cursor.sortition_id],
-                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
                 ).optional()?;
                 if let Some(stacks_tip) = result_at_tip {
                     return Ok(stacks_tip);
@@ -4422,8 +4439,16 @@ impl SortitionDB {
         // epoch 2.x behavior -- look at the snapshot itself
         let stacks_block_hash = sn.canonical_stacks_tip_hash;
         let consensus_hash = sn.canonical_stacks_tip_consensus_hash;
+        let stacks_block_height = sn.canonical_stacks_tip_height;
+        Ok((consensus_hash, stacks_block_hash, stacks_block_height))
+    }
 
-        Ok((consensus_hash, stacks_block_hash))
+    /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    pub fn get_canonical_stacks_chain_tip_hash(
+        conn: &Connection,
+    ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
+        Self::get_canonical_stacks_chain_tip_hash_and_height(conn)
+            .map(|(ch, bhh, _height)| (ch, bhh))
     }
 
     /// Get the maximum arrival index for any known snapshot.
@@ -8462,13 +8487,14 @@ pub mod tests {
         }
     }
 
-    fn make_fork_run(
+    pub fn make_fork_run(
         db: &mut SortitionDB,
         start_snapshot: &BlockSnapshot,
         length: u64,
         bit_pattern: u8,
-    ) -> () {
+    ) -> Vec<BlockSnapshot> {
         let mut last_snapshot = start_snapshot.clone();
+        let mut new_snapshots = vec![];
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
                 accumulated_coinbase_ustx: 0,
@@ -8491,11 +8517,13 @@ pub mod tests {
                 stacks_block_accepted: false,
                 stacks_block_height: 0,
                 arrival_index: 0,
-                canonical_stacks_tip_height: 0,
-                canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height,
+                canonical_stacks_tip_hash: last_snapshot.canonical_stacks_tip_hash,
+                canonical_stacks_tip_consensus_hash: last_snapshot
+                    .canonical_stacks_tip_consensus_hash,
                 miner_pk_hash: None,
             };
+            new_snapshots.push(snapshot.clone());
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
@@ -8515,6 +8543,7 @@ pub mod tests {
                 .unwrap()
                 .unwrap();
         }
+        new_snapshots
     }
 
     #[test]

@@ -43,6 +43,7 @@ mod epoch_23;
 mod epoch_24;
 mod integrations;
 mod mempool;
+mod nakamoto_integrations;
 pub mod neon_integrations;
 mod signer;
 mod stackerdb;
