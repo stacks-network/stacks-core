@@ -1168,8 +1168,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1221,7 +1220,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             }
             self.call_stack.insert(&func_identifier, true);
 
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), false);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1249,6 +1248,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         function: &DefinedFunction,
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
+        allow_private: bool,
     ) -> Result<Value> {
         let make_read_only = function.is_read_only();
 
@@ -1302,7 +1302,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.global_context.roll_back()?;
             result
         } else {
-            self.global_context.handle_tx_result(result)
+            self.global_context.handle_tx_result(result, allow_private)
         }
     }
 
@@ -1855,7 +1855,11 @@ impl<'a> GlobalContext<'a> {
         self.database.roll_back()
     }
 
-    pub fn handle_tx_result(&mut self, result: Result<Value>) -> Result<Value> {
+    pub fn handle_tx_result(
+        &mut self,
+        result: Result<Value>,
+        allow_private: bool,
+    ) -> Result<Value> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
@@ -1864,6 +1868,9 @@ impl<'a> GlobalContext<'a> {
                     self.roll_back()?;
                 }
                 Ok(Value::Response(data))
+            } else if allow_private && cfg!(feature = "developer-mode") {
+                self.commit()?;
+                Ok(result)
             } else {
                 Err(
                     CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)

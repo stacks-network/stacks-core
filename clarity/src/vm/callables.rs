@@ -346,8 +346,8 @@ impl DefinedFunction {
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args, None),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None),
+            DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
+            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None, false),
         }
     }
 
