@@ -1290,7 +1290,7 @@ fn pox_3_unlocks() {
     }
 }
 
-// This tests calls most of Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
+// This tests calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
 // in emitted pox events.
 // In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
 // Alice delegates to Bob via `delegate-stx`
@@ -1355,8 +1355,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     }
 
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    let steph_pox_addr = pox_addr_from(&steph_key);
-    let pox_addr_val = Value::Tuple(steph_pox_addr.clone().as_clarity_tuple().unwrap());
+    let next_reward_cycle = reward_cycle + 1;
 
     info!(
         "Block height: {}",
@@ -1367,7 +1366,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let block_height = get_tip(peer.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
-    //stack-stx
+    // stack-stx
     let steph_stack_stx_nonce = steph_nonce;
     let signature = make_signer_key_signature(
         &steph_pox_addr,
@@ -1392,7 +1391,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     );
     steph_nonce += 1;
 
-    //stack-increase
+    // stack-increase
     let steph_stack_increase_nonce = steph_nonce;
     let signature = make_signer_key_signature(
         &steph_pox_addr,
@@ -1414,7 +1413,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     );
     steph_nonce += 1;
 
-    //stack-extend
+    // stack-extend
     let steph_stack_extend_nonce = steph_nonce;
     let stack_extend_signature = make_signer_key_signature(
         &steph_pox_addr,
@@ -1425,7 +1424,6 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         u128::MAX,
         1,
     );
-
     let steph_stack_extend = make_pox_4_extend(
         &steph_key,
         steph_stack_extend_nonce,
@@ -1438,13 +1436,12 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     );
     steph_nonce += 1;
 
-    // alice delegates STX to Bob
-    let alice_delegation_amount_min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
+    // alice delegates STX to bob
     let target_height = get_tip(peer.sortdb.as_ref()).block_height + 10;
     let alice_delegate = make_pox_4_delegate_stx(
         &alice,
         alice_nonce,
-        alice_delegation_amount_min_ustx,
+        min_ustx,
         bob_principal.clone(),
         Some(target_height as u128),
         Some(bob_pox_addr.clone()),
@@ -1458,15 +1455,12 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         &bob,
         bob_nonce,
         alice_principal.clone(),
-        alice_delegation_amount_min_ustx,
+        min_ustx,
         bob_pox_addr.clone(),
         curr_height as u128,
         lock_period,
     );
     bob_nonce += 1;
-
-    let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    let next_reward_cycle = reward_cycle + 1;
 
     let bob_aggregation_commit_nonce = bob_nonce;
     let signature = make_signer_key_signature(
@@ -1501,6 +1495,13 @@ fn pox_4_check_cycle_id_range_in_print_events() {
         ],
         &mut coinbase_nonce,
     ));
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
+    assert_eq!(tipId, latest_block.unwrap());
+
+    let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
+    assert_eq!(in_prepare_phase, false);
 
     let blocks = observer.get_blocks();
     let mut steph_txs = HashMap::new();
@@ -1539,12 +1540,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let steph_stacking_tx_event = &steph_stacking_tx_events[0];
     let steph_stacking_op_data = HashMap::from([
         ("start-cycle-id", Value::UInt(22)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(24))),
-            }),
-        ),
+        ("end-cycle-id", Value::some(Value::UInt(24)).unwrap()),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-stx".to_string(),
@@ -1560,13 +1556,9 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     assert_eq!(steph_stack_increase_tx_events.len() as u64, 2);
     let steph_stack_increase_tx_event = &steph_stack_increase_tx_events[0];
     let steph_stack_increase_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(24)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(24))),
-            }),
-        ),
+        // in the same block, so we essentially want to be able to disregard the first event (stack-stx)
+        ("start-cycle-id", Value::UInt(22)),
+        ("end-cycle-id", Value::some(Value::UInt(24)).unwrap()),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),
@@ -1587,12 +1579,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let steph_stack_extend_tx_event = &steph_stack_extend_tx_events[0];
     let steph_stacking_op_data = HashMap::from([
         ("start-cycle-id", Value::UInt(24)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(25))),
-            }),
-        ),
+        ("end-cycle-id", Value::some(Value::UInt(25)).unwrap()),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-extend".to_string(),
@@ -1613,12 +1600,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let alice_delegation_tx_event = &alice_delegation_tx_events[0];
     let alice_delegate_stx_op_data = HashMap::from([
         ("start-cycle-id", Value::UInt(22)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(24))),
-            }),
-        ),
+        ("end-cycle-id", Value::some(Value::UInt(24)).unwrap()),
     ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stx".to_string(),
@@ -1639,12 +1621,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let bob_delegate_stack_stx_tx_event = &bob_delegate_stack_stx_tx_events[0];
     let bob_delegate_stack_stx_tx_op_data = HashMap::from([
         ("start-cycle-id", Value::UInt(22)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(24))),
-            }),
-        ),
+        ("end-cycle-id", Value::some(Value::UInt(24)).unwrap()),
     ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-stx".to_string(),
@@ -1665,12 +1642,7 @@ fn pox_4_check_cycle_id_range_in_print_events() {
     let bob_aggregation_commit_tx_event = &bob_aggregation_commit_tx_events[0];
     let bob_aggregation_commit_tx_op_data = HashMap::from([
         ("start-cycle-id", Value::UInt(22)),
-        (
-            "end-cycle-id",
-            Optional(OptionalData {
-                data: Some(Box::from(Value::UInt(0))), //Is this supposed to be 0?!
-            }),
-        ),
+        ("end-cycle-id", Value::some(Value::UInt(0)).unwrap()), //Is this supposed to be 0?!
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit-indexed".to_string(),

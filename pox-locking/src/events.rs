@@ -112,6 +112,7 @@ fn create_event_info_data_code(
     response: &ResponseData,
 ) -> String {
     // If a given burn block height is in a prepare phase, then the stacker will be in the _next_ reward cycle, so bump the cycle by 1
+    // `prepare_offset` is 1 or 0, depending on whether current execution is in a prepare phase or not
     let prepare_offset = r#"
         (prepare-offset (if (<
             (mod (- %height% (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length))
@@ -243,7 +244,7 @@ fn create_event_info_data_code(
                         ;; Get end cycle ID
                         end-cycle-id: (some (burn-height-to-reward-cycle unlock-height)),
                         ;; Get start cycle ID
-                        start-cycle-id: (+ (burn-height-to-reward-cycle unlock-height) prepare-offset),
+                        start-cycle-id: (+ (current-pox-reward-cycle) prepare-offset),
                     }}
                 }})
                 "#,
@@ -252,7 +253,7 @@ fn create_event_info_data_code(
                 signer_key = &args.get(2).unwrap_or(&Value::none()),
                 max_amount = &args.get(3).unwrap_or(&Value::none()),
                 auth_id = &args.get(4).unwrap_or(&Value::none()),
-                prepare_offset = prepare_offset.replace("%height%", "unlock-height"),
+                prepare_offset = prepare_offset.replace("%height%", "burn-block-height"),
             )
         }
         "delegate-stack-increase" => {
