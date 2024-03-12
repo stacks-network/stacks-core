@@ -1047,7 +1047,7 @@ impl NakamotoBlock {
     /// Arguments
     /// -- `tenure_burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
     /// tenure.  It is not always the tip of the burnchain.
-    /// -- `expected_burn` is the total number of burnchain tokens spent
+    /// -- `expected_burn` is the total number of burnchain tokens spent, if known.
     /// -- `leader_key` is the miner's leader key registration transaction
     ///
     /// Verifies the following:
@@ -1060,7 +1060,7 @@ impl NakamotoBlock {
     pub fn validate_against_burnchain(
         &self,
         tenure_burn_chain_tip: &BlockSnapshot,
-        expected_burn: u64,
+        expected_burn: Option<u64>,
         leader_key: &LeaderKeyRegisterOp,
     ) -> Result<(), ChainstateError> {
         // this block's consensus hash must match the sortition that selected it
@@ -1075,14 +1075,16 @@ impl NakamotoBlock {
         }
 
         // this block must commit to all of the work seen so far
-        if self.header.burn_spent != expected_burn {
-            warn!("Invalid Nakamoto block header: invalid total burns";
-                  "header.burn_spent" => self.header.burn_spent,
-                  "expected_burn" => expected_burn,
-            );
-            return Err(ChainstateError::InvalidStacksBlock(
-                "Invalid Nakamoto block: invalid total burns".into(),
-            ));
+        if let Some(expected_burn) = expected_burn {
+            if self.header.burn_spent != expected_burn {
+                warn!("Invalid Nakamoto block header: invalid total burns";
+                      "header.burn_spent" => self.header.burn_spent,
+                      "expected_burn" => expected_burn,
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid Nakamoto block: invalid total burns".into(),
+                ));
+            }
         }
 
         // miner must have signed this block
@@ -1265,6 +1267,7 @@ impl NakamotoChainState {
             nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db(), sort_tx)?
         else {
             // no more blocks
+            test_debug!("No more Nakamoto blocks to process");
             return Ok(None);
         };
 
@@ -1483,13 +1486,7 @@ impl NakamotoChainState {
         } else {
             // if there's no new tenure for this block, the burn total should be the same as its parent
             let parent = Self::get_block_header(chainstate_conn, &block.header.parent_block_id)?
-                .ok_or_else(|| {
-                    warn!("Could not load expected burns -- no parent block";
-                          "block_id" => %block.block_id(),
-                          "parent_block_id" => %block.header.parent_block_id
-                    );
-                    ChainstateError::NoSuchBlockError
-                })?;
+                .ok_or(ChainstateError::NoSuchBlockError)?;
 
             return Ok(parent.anchored_header.total_burns());
         };
@@ -1510,7 +1507,7 @@ impl NakamotoChainState {
     /// verifies that all transactions in the block are allowed in this epoch.
     pub fn validate_nakamoto_block_burnchain(
         db_handle: &SortitionHandleConn,
-        expected_burn: u64,
+        expected_burn: Option<u64>,
         block: &NakamotoBlock,
         mainnet: bool,
         chain_id: u32,
@@ -1707,18 +1704,15 @@ impl NakamotoChainState {
             ChainstateError::InvalidStacksBlock("Not a well-formed tenure-extend block".into())
         })?;
 
-        let Ok(expected_burn) = Self::get_expected_burns(db_handle, headers_conn, &block) else {
-            warn!("Unacceptable Nakamoto block: unable to find its paired sortition";
-                  "block_id" => %block.block_id(),
-            );
-            return Ok(false);
-        };
+        // it's okay if this fails because we might not have the parent block yet.  It will be
+        // checked on `::append_block()`
+        let expected_burn_opt = Self::get_expected_burns(db_handle, headers_conn, &block).ok();
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
         if let Err(e) = Self::validate_nakamoto_block_burnchain(
             db_handle,
-            expected_burn,
+            expected_burn_opt,
             &block,
             config.mainnet,
             config.chain_id,
@@ -2703,7 +2697,7 @@ impl NakamotoChainState {
         burnchain_sortition_burn: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
         debug!(
-            "Process block {:?} with {} transactions",
+            "Process Nakamoto block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
             block.txs.len()
         );
@@ -2797,6 +2791,27 @@ impl NakamotoChainState {
                 },
             )?
         };
+
+        let expected_burn = Self::get_expected_burns(burn_dbconn, chainstate_tx, block)
+            .map_err(|e| {
+                warn!("Unacceptable Nakamoto block: could not load expected burns (unable to find its paired sortition)";
+                      "block_id" => %block.block_id(),
+                      "parent_block_id" => %block.header.parent_block_id,
+                      "error" => e.to_string(),
+                );
+                ChainstateError::InvalidStacksBlock("Invalid Nakamoto block: could not find sortition burns".into())
+            })?;
+
+        // this block must commit to all of the burnchain spends seen so far
+        if block.header.burn_spent != expected_burn {
+            warn!("Invalid Nakamoto block header: invalid total burns";
+                  "header.burn_spent" => block.header.burn_spent,
+                  "expected_burn" => expected_burn,
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: invalid total burns".into(),
+            ));
+        }
 
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.
