@@ -160,6 +160,15 @@ impl NakamotoStagingBlocksConn {
 }
 
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    /// Determine if there exists any unprocessed Nakamoto blocks
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    pub fn has_any_unprocessed_nakamoto_block(&self) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE processed = 0 LIMIT 1";
+        let res: Option<i64> = query_row(self, qry, NO_PARAMS)?;
+        Ok(res.is_some())
+    }
+
     /// Determine whether or not we have processed at least one Nakamoto block in this sortition history.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` is updated by a separate
     /// tx from block-processing, so it's imperative that the thread that calls this function is
