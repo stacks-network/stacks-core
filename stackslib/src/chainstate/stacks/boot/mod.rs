@@ -230,10 +230,9 @@ fn deserialize_optional_u128_from_string<'de, D>(deserializer: D) -> Result<Opti
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::Error;
     let s: Option<String> = Option::deserialize(deserializer)?;
     match s {
-        Some(str_val) => str_val.parse::<u128>().map(Some).map_err(D::Error::custom),
+        Some(str_val) => str_val.parse::<u128>().map(Some).map_err(serde::de::Error::custom),
         None => Ok(None),
     }
 }
