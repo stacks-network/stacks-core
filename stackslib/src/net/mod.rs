@@ -67,6 +67,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::boot::{
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
+};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error as marf_error;
@@ -1555,6 +1558,7 @@ pub mod test {
     use std::sync::Mutex;
     use std::{fs, io, thread};
 
+    use clarity::boot_util::boot_code_id;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -1571,6 +1575,7 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
+    use wsts::curve::point::Point;
     use {mio, rand};
 
     use super::*;
@@ -1601,6 +1606,7 @@ pub mod test {
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
+    use crate::clarity::vm::clarity::TransactionConnection;
     use crate::core::{StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
@@ -1911,6 +1917,8 @@ pub mod test {
         pub stacker_db_configs: Vec<Option<StackerDBConfig>>,
         /// What services should this peer support?
         pub services: u16,
+        /// aggregate public key to use
+        pub aggregate_public_key: Option<Point>,
     }
 
     impl TestPeerConfig {
@@ -1974,6 +1982,7 @@ pub mod test {
                 services: (ServiceFlags::RELAY as u16)
                     | (ServiceFlags::RPC as u16)
                     | (ServiceFlags::STACKERDB as u16),
+                aggregate_public_key: None,
             }
         }
 
@@ -2249,9 +2258,22 @@ pub mod test {
             let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
 
+            let agg_pub_key_opt = config.aggregate_public_key.clone();
+
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 let mut receipts = vec![];
+
+                if let Some(agg_pub_key) = agg_pub_key_opt {
+                    debug!(
+                        "Setting aggregate public key to {}",
+                        &to_hex(&agg_pub_key.compress().data)
+                    );
+                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
+                } else {
+                    debug!("Not setting aggregate public key");
+                }
+                // add test-specific boot code
                 if conf.setup_code.len() > 0 {
                     let receipt = clarity_tx.connection().as_transaction(|clarity| {
                         let boot_code_addr = boot_code_test_addr();

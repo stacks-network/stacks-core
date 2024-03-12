@@ -38,16 +38,17 @@ use clarity::vm::types::{
 use clarity::vm::{analysis, ast, ClarityVersion, ContractName};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
 };
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
+    POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME,
+    POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1281,7 +1282,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
             let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
-            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
             let pox_4_activation_height = self.burn_state_db.get_pox_4_activation_height();
 
             let pox_4_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
@@ -1343,6 +1343,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_4_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
+            let initialized_agg_key = if !mainnet {
+                self.with_readonly_clarity_env(
+                    false,
+                    self.chain_id,
+                    ClarityVersion::Clarity2,
+                    StacksAddress::burn_address(false).into(),
+                    None,
+                    LimitedCostTracker::Free,
+                    |vm_env| {
+                        vm_env.execute_contract_allow_private(
+                            &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
+                            BOOT_TEST_POX_4_AGG_KEY_FNAME,
+                            &[],
+                            true,
+                        )
+                    },
+                )
+                .ok()
+                .map(|agg_key_value| {
+                    Value::buff_from(agg_key_value.expect_buff(33))
+                        .expect("failed to reconstruct buffer")
+                })
+            } else {
+                None
+            };
+
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_4_contract_id);
@@ -1360,7 +1386,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     Value::UInt(u128::from(first_block_height)),
                     Value::UInt(u128::from(pox_prepare_length)),
                     Value::UInt(u128::from(pox_reward_cycle_length)),
-                    Value::UInt(u128::from(pox_rejection_fraction)),
                     Value::UInt(u128::from(pox_4_first_cycle)),
                 ];
 
@@ -1374,6 +1399,47 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         |_, _| false,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
+
+                // set the aggregate public key for all pre-pox-4 cycles, if in testnet, and can fetch a boot-setting
+                if !mainnet {
+                    if let Some(ref agg_pub_key) = initialized_agg_key {
+                        for set_in_reward_cycle in 0..=pox_4_first_cycle {
+                            info!(
+                                "Setting initial aggregate-public-key in PoX-4";
+                                "agg_pub_key" => %agg_pub_key,
+                                "reward_cycle" => set_in_reward_cycle,
+                                "pox_4_first_cycle" => pox_4_first_cycle,
+                            );
+                            tx_conn
+                                .with_abort_callback(
+                                    |vm_env| {
+                                        vm_env.execute_in_env(
+                                            StacksAddress::burn_address(false).into(),
+                                            None,
+                                            None,
+                                            |env| {
+                                                env.execute_contract_allow_private(
+                                                    &pox_4_contract_id,
+                                                    "set-aggregate-public-key",
+                                                    &[
+                                                        SymbolicExpression::atom_value(
+                                                            Value::UInt(set_in_reward_cycle.into()),
+                                                        ),
+                                                        SymbolicExpression::atom_value(
+                                                            agg_pub_key.clone(),
+                                                        ),
+                                                    ],
+                                                    false,
+                                                )
+                                            },
+                                        )
+                                    },
+                                    |_, _| false,
+                                )
+                                .unwrap();
+                        }
+                    }
+                }
 
                 receipt
             });

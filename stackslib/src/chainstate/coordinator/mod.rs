@@ -248,6 +248,7 @@ pub enum Error {
     NotInPreparePhase,
     RewardSetAlreadyProcessed,
     PoXAnchorBlockRequired,
+    PoXNotProcessedYet,
 }
 
 impl From<BurnchainError> for Error {
@@ -284,20 +285,21 @@ pub struct OnChainRewardSetProvider();
 impl RewardSetProvider for OnChainRewardSetProvider {
     fn get_reward_set(
         &self,
-        // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
-        current_burn_height: u64,
+        cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
-            &format!("FATAL: no epoch for burn height {}", current_burn_height),
-        );
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
+            .expect(&format!(
+                "FATAL: no epoch for burn height {}",
+                cycle_start_burn_height
+            ));
         if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
             // Stacks 2.x epoch
             return self.get_reward_set_epoch2(
-                current_burn_height,
+                cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
@@ -307,7 +309,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         } else {
             // Nakamoto epoch
             return self.get_reward_set_nakamoto(
-                current_burn_height,
+                cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
@@ -675,124 +677,112 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
         &format!("FATAL: no epoch defined for burn height {}", burn_height),
     );
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(burn_height) {
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: no reward cycle for burn height");
+    if !burnchain.is_reward_cycle_start(burn_height) {
+        return Ok(None);
+    }
 
-        if burnchain
-            .pox_constants
-            .is_after_pox_sunset_end(burn_height, epoch_at_height.epoch_id)
-        {
-            return Ok(Some(RewardCycleInfo {
-                reward_cycle,
-                anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }));
-        }
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_height)
+        .expect("FATAL: no reward cycle for burn height");
 
-        debug!("Beginning reward cycle";
-              "burn_height" => burn_height,
-              "reward_cycle" => reward_cycle,
-              "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
-              "prepare_phase_length" => burnchain.pox_constants.prepare_length);
+    if burnchain
+        .pox_constants
+        .is_after_pox_sunset_end(burn_height, epoch_at_height.epoch_id)
+    {
+        return Ok(Some(RewardCycleInfo {
+            reward_cycle,
+            anchor_status: PoxAnchorBlockStatus::NotSelected,
+        }));
+    }
 
-        let reward_cycle_info = {
-            let ic = sort_db.index_handle(sortition_tip);
-            let burnchain_db_conn_opt = if epoch_at_height.epoch_id >= StacksEpochId::Epoch21
-                || always_use_affirmation_maps
-            {
+    debug!("Beginning reward cycle";
+           "burn_height" => burn_height,
+           "reward_cycle" => reward_cycle,
+           "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
+           "prepare_phase_length" => burnchain.pox_constants.prepare_length);
+
+    let reward_cycle_info = {
+        let ic = sort_db.index_handle(sortition_tip);
+        let burnchain_db_conn_opt =
+            if epoch_at_height.epoch_id >= StacksEpochId::Epoch21 || always_use_affirmation_maps {
                 // use the new block-commit-based PoX anchor block selection rules
                 Some(burnchain_db.conn())
             } else {
                 None
             };
 
-            ic.get_chosen_pox_anchor(burnchain_db_conn_opt, &parent_bhh, &burnchain.pox_constants)
-        }?;
-        if let Some((consensus_hash, stacks_block_hash, txid)) = reward_cycle_info {
-            debug!(
-                "Chosen PoX anchor is {}/{} txid {} for reward cycle starting {} at burn height {}",
-                &consensus_hash, &stacks_block_hash, &txid, reward_cycle, burn_height
-            );
-            info!(
-                "Anchor block selected for cycle {}: {}/{} (txid {})",
-                reward_cycle, &consensus_hash, &stacks_block_hash, &txid
-            );
-
-            let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.db(),
-                &consensus_hash,
-                &stacks_block_hash,
-            )?;
-            let anchor_status = if anchor_block_known {
-                let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
-                let reward_set = provider.get_reward_set(
-                    burn_height,
-                    chain_state,
-                    burnchain,
-                    sort_db,
-                    &block_id,
-                )?;
-                debug!(
-                    "Stacks anchor block {}/{} cycle {} txid {} is processed",
-                    &consensus_hash, &stacks_block_hash, reward_cycle, &txid
-                );
-                PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
-            } else {
-                debug!(
-                    "Stacks anchor block {}/{} cycle {} txid {} is NOT processed",
-                    &consensus_hash, &stacks_block_hash, reward_cycle, &txid
-                );
-                PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
-            };
-            Ok(Some(RewardCycleInfo {
-                reward_cycle,
-                anchor_status,
-            }))
+        ic.get_chosen_pox_anchor(burnchain_db_conn_opt, &parent_bhh, &burnchain.pox_constants)
+    }?;
+    let reward_cycle_info = if let Some((consensus_hash, stacks_block_hash, txid)) =
+        reward_cycle_info
+    {
+        let anchor_block_known = StacksChainState::is_stacks_block_processed(
+            &chain_state.db(),
+            &consensus_hash,
+            &stacks_block_hash,
+        )?;
+        info!(
+            "PoX Anchor block selected";
+            "cycle" => reward_cycle,
+            "consensus_hash" => %consensus_hash,
+            "block_hash" => %stacks_block_hash,
+            "block_id" => %StacksBlockId::new(&consensus_hash, &stacks_block_hash),
+            "is_known" => anchor_block_known,
+            "commit_txid" => %txid,
+            "cycle_burn_height" => burn_height
+        );
+        let anchor_status = if anchor_block_known {
+            let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
+            let reward_set =
+                provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
+            PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
         } else {
-            debug!(
-                "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
-                reward_cycle, burn_height
-            );
-            Ok(Some(RewardCycleInfo {
-                reward_cycle,
-                anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }))
+            PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
+        };
+        RewardCycleInfo {
+            reward_cycle,
+            anchor_status,
         }
     } else {
-        Ok(None)
+        info!(
+            "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
+            reward_cycle, burn_height
+        );
+        RewardCycleInfo {
+            reward_cycle,
+            anchor_status: PoxAnchorBlockStatus::NotSelected,
+        }
     };
 
-    if let Ok(Some(reward_cycle_info)) = reward_cycle_info.as_ref() {
-        // cache the reward cycle info as of the first sortition in the prepare phase, so that
-        // the Nakamoto epoch can go find it later
-        let ic = sort_db.index_handle(sortition_tip);
-        let prev_reward_cycle = burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: no reward cycle for burn height");
+    // cache the reward cycle info as of the first sortition in the prepare phase, so that
+    // the Nakamoto epoch can go find it later
+    let ic = sort_db.index_handle(sortition_tip);
+    let prev_reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_height)
+        .expect("FATAL: no reward cycle for burn height");
 
-        if prev_reward_cycle > 1 {
-            let prepare_phase_start = burnchain
-                .pox_constants
-                .prepare_phase_start(burnchain.first_block_height, prev_reward_cycle - 1);
-            let first_prepare_sn =
-                SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
-                    .expect("FATAL: no start-of-prepare-phase sortition");
+    if prev_reward_cycle > 1 {
+        let prepare_phase_start = burnchain
+            .pox_constants
+            .prepare_phase_start(burnchain.first_block_height, prev_reward_cycle - 1);
+        let first_prepare_sn =
+            SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
+                .expect("FATAL: no start-of-prepare-phase sortition");
 
-            let mut tx = sort_db.tx_begin()?;
-            if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?
-                .is_none()
-            {
-                SortitionDB::store_preprocessed_reward_set(
-                    &mut tx,
-                    &first_prepare_sn.sortition_id,
-                    &reward_cycle_info,
-                )?;
-            }
-            tx.commit()?;
+        let mut tx = sort_db.tx_begin()?;
+        if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?
+            .is_none()
+        {
+            SortitionDB::store_preprocessed_reward_set(
+                &mut tx,
+                &first_prepare_sn.sortition_id,
+                &reward_cycle_info,
+            )?;
         }
+        tx.commit()?;
     }
-    reward_cycle_info
+
+    Ok(Some(reward_cycle_info))
 }
 
 /// PoX payout event to be sent to connected event observers

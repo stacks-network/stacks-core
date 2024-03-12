@@ -2,14 +2,14 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use backoff::default;
+use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
-use wsts::net::{Message, Packet, Signable};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::net::Packet;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
@@ -177,13 +177,9 @@ impl<C: Coordinator> RunLoop<C> {
             .modified_slots
             .iter()
             .filter_map(|chunk| {
-                let message = bincode::deserialize::<Packet>(&chunk.data).ok()?;
-                if verify_msg(
-                    &message,
-                    &self.signing_round.public_keys,
-                    coordinator_public_key,
-                ) {
-                    Some(message)
+                let packet = bincode::deserialize::<Packet>(&chunk.data).ok()?;
+                if packet.verify(&self.signing_round.public_keys, coordinator_public_key) {
+                    Some(packet)
                 } else {
                     None
                 }
@@ -207,12 +203,15 @@ impl<C: Coordinator> RunLoop<C> {
     }
 }
 
-impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
+impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
     /// Creates new runloop from a config
     fn from(config: &Config) -> Self {
         // TODO: this should be a config option
         // See: https://github.com/stacks-network/stacks-blockchain/issues/3914
         let threshold = ((config.signer_ids_public_keys.key_ids.len() * 7) / 10)
+            .try_into()
+            .unwrap();
+        let dkg_threshold = ((config.signer_ids_public_keys.key_ids.len() * 9) / 10)
             .try_into()
             .unwrap();
         let total_signers = config
@@ -234,14 +233,26 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .iter()
             .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
             .collect::<Vec<u32>>();
+        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
+        let signer_key_ids = config
+            .signer_key_ids
+            .iter()
+            .map(|(i, ids)| (*i, ids.iter().map(|id| id - 1).collect::<HashSet<u32>>()))
+            .collect::<HashMap<u32, HashSet<u32>>>();
+
         let coordinator_config = CoordinatorConfig {
             threshold,
+            dkg_threshold,
             num_signers: total_signers,
             num_keys: total_keys,
             message_private_key: config.message_private_key,
-            ..Default::default()
+            dkg_public_timeout: config.dkg_public_timeout,
+            dkg_end_timeout: config.dkg_end_timeout,
+            nonce_timeout: config.nonce_timeout,
+            sign_timeout: config.sign_timeout,
+            signer_key_ids,
         };
-        let coordinator = FrostCoordinator::new(coordinator_config);
+        let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = Signer::new(
             threshold,
             total_signers,
@@ -333,108 +344,4 @@ fn calculate_coordinator(public_keys: &PublicKeys) -> (u32, &ecdsa::PublicKey) {
     // See: https://github.com/stacks-network/stacks-blockchain/issues/3915
     // Mockamato just uses the first signer_id as the coordinator for now
     (0, public_keys.signers.get(&0).unwrap())
-}
-
-/// TODO: this should not be here.
-/// Temporary copy paste from frost-signer
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3913
-fn verify_msg(
-    m: &Packet,
-    public_keys: &PublicKeys,
-    coordinator_public_key: &ecdsa::PublicKey,
-) -> bool {
-    match &m.msg {
-        Message::DkgBegin(msg) | Message::DkgPrivateBegin(msg) => {
-            if !msg.verify(&m.sig, coordinator_public_key) {
-                warn!("Received a DkgPrivateBegin message with an invalid signature.");
-                return false;
-            }
-        }
-        Message::DkgEnd(msg) => {
-            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a DkgPublicEnd message with an invalid signature.");
-                    return false;
-                }
-            } else {
-                warn!(
-                    "Received a DkgPublicEnd message with an unknown id: {}",
-                    msg.signer_id
-                );
-                return false;
-            }
-        }
-        Message::DkgPublicShares(msg) => {
-            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a DkgPublicShares message with an invalid signature.");
-                    return false;
-                }
-            } else {
-                warn!(
-                    "Received a DkgPublicShares message with an unknown id: {}",
-                    msg.signer_id
-                );
-                return false;
-            }
-        }
-        Message::DkgPrivateShares(msg) => {
-            // Private shares have key IDs from [0, N) to reference IDs from [1, N]
-            // in Frost V4 to enable easy indexing hence ID + 1
-            // TODO: Once Frost V5 is released, this off by one adjustment will no longer be required
-            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a DkgPrivateShares message with an invalid signature from signer_id {} key {}", msg.signer_id, &public_key);
-                    return false;
-                }
-            } else {
-                warn!(
-                    "Received a DkgPrivateShares message with an unknown id: {}",
-                    msg.signer_id
-                );
-                return false;
-            }
-        }
-        Message::NonceRequest(msg) => {
-            if !msg.verify(&m.sig, coordinator_public_key) {
-                warn!("Received a NonceRequest message with an invalid signature.");
-                return false;
-            }
-        }
-        Message::NonceResponse(msg) => {
-            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a NonceResponse message with an invalid signature.");
-                    return false;
-                }
-            } else {
-                warn!(
-                    "Received a NonceResponse message with an unknown id: {}",
-                    msg.signer_id
-                );
-                return false;
-            }
-        }
-        Message::SignatureShareRequest(msg) => {
-            if !msg.verify(&m.sig, coordinator_public_key) {
-                warn!("Received a SignatureShareRequest message with an invalid signature.");
-                return false;
-            }
-        }
-        Message::SignatureShareResponse(msg) => {
-            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a SignatureShareResponse message with an invalid signature.");
-                    return false;
-                }
-            } else {
-                warn!(
-                    "Received a SignatureShareResponse message with an unknown id: {}",
-                    msg.signer_id
-                );
-                return false;
-            }
-        }
-    }
-    true
 }

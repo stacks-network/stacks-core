@@ -52,7 +52,7 @@ use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::OperationResult;
 use wsts::v2;
 
@@ -88,11 +88,11 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+    let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator<v2::Aggregator>>,
+        RunLoop<FireCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.endpoint;
@@ -124,8 +124,11 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
-        OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-            todo!()
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
         }
     }
 }
@@ -150,8 +153,11 @@ fn process_sign_result(sign_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
-        OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-            todo!()
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
         }
     }
 }

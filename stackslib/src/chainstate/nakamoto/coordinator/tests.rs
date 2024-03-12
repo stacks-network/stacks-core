@@ -47,9 +47,15 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestPeer, TestPeerConfig};
 
 /// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto(peer: &mut TestPeer, aggregate_public_key: &Point) {
+fn advance_to_nakamoto(peer: &mut TestPeer) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
+    let signer_key = StacksPublicKey::from_slice(&[
+        0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
+        0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
+        0x59, 0x98, 0x3c,
+    ])
+    .unwrap();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -68,15 +74,10 @@ fn advance_to_nakamoto(peer: &mut TestPeer, aggregate_public_key: &Point) {
                 1_000_000_000_000_000_000,
                 PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
                 12,
+                signer_key,
                 34,
             );
-            let aggregate_tx: StacksTransaction = make_pox_4_aggregate_key(
-                &private_key,
-                1,
-                sortition_height + 1,
-                aggregate_public_key,
-            );
-            vec![stack_tx, aggregate_tx]
+            vec![stack_tx]
         } else {
             vec![]
         };
@@ -95,6 +96,7 @@ pub fn boot_nakamoto(
     aggregate_public_key: Point,
 ) -> TestPeer {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -117,19 +119,19 @@ pub fn boot_nakamoto(
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
 
     let mut peer = TestPeer::new(peer_config);
-    advance_to_nakamoto(&mut peer, &aggregate_public_key);
+    advance_to_nakamoto(&mut peer);
     peer
 }
 
 /// Make a replay peer, used for replaying the blockchain
-fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>, aggregate_public_key: &Point) -> TestPeer<'a> {
+fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
     replay_config.server_port = 0;
     replay_config.http_port = 0;
 
     let mut replay_peer = TestPeer::new(replay_config);
-    advance_to_nakamoto(&mut replay_peer, aggregate_public_key);
+    advance_to_nakamoto(&mut replay_peer);
 
     // sanity check
     let replay_tip = {
@@ -244,7 +246,11 @@ fn replay_reward_cycle(
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
     let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        test_signers.aggregate_public_key.clone(),
+    );
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -303,7 +309,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key,
+        test_signers.aggregate_public_key.clone(),
     );
 
     let (burn_ops, mut tenure_change, miner_key) =
@@ -376,7 +382,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
     // tip
-    let mut replay_peer = make_replay_peer(&mut peer, &test_signers.aggregate_public_key);
+    let mut replay_peer = make_replay_peer(&mut peer);
     replay_reward_cycle(&mut replay_peer, &[burn_ops], &blocks);
 
     let tip = {
@@ -424,7 +430,7 @@ fn test_nakamoto_chainstate_getters() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key,
+        test_signers.aggregate_public_key.clone(),
     );
 
     let sort_tip = {
@@ -594,7 +600,7 @@ fn test_nakamoto_chainstate_getters() {
 
         assert!(NakamotoChainState::check_first_nakamoto_tenure_change(
             chainstate.db(),
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -602,24 +608,24 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
-            &blocks[1].header
+            &blocks[1].header,
         )
         .unwrap());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.tenure_consensus_hash
+            &tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.prev_tenure_consensus_hash
+            &tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.burn_view_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
@@ -629,7 +635,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -658,7 +664,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -783,7 +789,7 @@ fn test_nakamoto_chainstate_getters() {
 
         assert!(NakamotoChainState::check_first_nakamoto_tenure_change(
             chainstate.db(),
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -791,50 +797,50 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             sort_tx.sqlite(),
             &new_blocks[0].header.consensus_hash,
-            &new_blocks[1].header
+            &new_blocks[1].header,
         )
         .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
-            &new_blocks[1].header
+            &new_blocks[1].header,
         )
         .unwrap());
 
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.tenure_consensus_hash
+            &tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.prev_tenure_consensus_hash
+            &tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.burn_view_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.tenure_consensus_hash
+            &old_tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.prev_tenure_consensus_hash
+            &old_tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.burn_view_consensus_hash
+            &old_tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
@@ -861,7 +867,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &new_blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -871,7 +877,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &old_tenure_change_payload
+            &old_tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -913,7 +919,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key,
+        test_signers.aggregate_public_key.clone(),
     );
 
     let mut all_blocks = vec![];
@@ -953,7 +959,6 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
-        let aggregate_public_key = test_signers.aggregate_public_key.clone();
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             tenure_change_tx,
             coinbase_tx,
@@ -973,14 +978,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                         1,
                         &recipient_addr,
                     );
-
-                    let aggregate_tx = make_pox_4_aggregate_key(
-                        &private_key,
-                        account.nonce + 1,
-                        7 + i,
-                        &aggregate_public_key,
-                    );
-                    vec![stx_transfer, aggregate_tx]
+                    vec![stx_transfer]
                 } else {
                     vec![]
                 }
@@ -1141,7 +1139,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                 matured_reward.parent_miner.tx_fees,
                 MinerPaymentTxFees::Epoch2 {
                     anchored: 0,
-                    streamed: 0
+                    streamed: 0,
                 }
             );
         } else if i == 11 {
@@ -1175,7 +1173,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                 miner_reward.tx_fees,
                 MinerPaymentTxFees::Epoch2 {
                     anchored: 0,
-                    streamed: 0
+                    streamed: 0,
                 }
             );
         } else if i == 10 {
@@ -1196,7 +1194,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
     }
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
     // tip
-    let mut replay_peer = make_replay_peer(&mut peer, &test_signers.aggregate_public_key);
+    let mut replay_peer = make_replay_peer(&mut peer);
     for (burn_ops, blocks) in rc_burn_ops.iter().zip(rc_blocks.iter()) {
         replay_reward_cycle(&mut replay_peer, burn_ops, blocks);
     }
@@ -1241,7 +1239,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key,
+        test_signers.aggregate_public_key.clone(),
     );
 
     let mut rc_burn_ops = vec![];
@@ -1530,7 +1528,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
 
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
     // tip
-    let mut replay_peer = make_replay_peer(&mut peer, &test_signers.aggregate_public_key);
+    let mut replay_peer = make_replay_peer(&mut peer);
     replay_reward_cycle(&mut replay_peer, &rc_burn_ops, &all_blocks);
 
     let tip = {
@@ -1569,7 +1567,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key,
+        test_signers.aggregate_public_key.clone(),
     );
 
     let mut all_blocks = vec![];
@@ -1598,7 +1596,6 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
-        let aggregate_public_key = test_signers.aggregate_public_key.clone();
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             tenure_change_tx,
             coinbase_tx,
@@ -1619,13 +1616,6 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
                         &recipient_addr,
                     );
 
-                    let aggregate_tx = make_pox_4_aggregate_key(
-                        &private_key,
-                        account.nonce + 1,
-                        7 + i,
-                        &aggregate_public_key,
-                    );
-
                     let last_block_opt = blocks_so_far
                         .last()
                         .as_ref()
@@ -1642,7 +1632,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
                             miner.make_nakamoto_tenure_change(tenure_extension.clone());
                         txs.push(tenure_extension_tx);
                     }
-                    txs.append(&mut vec![stx_transfer, aggregate_tx]);
+                    txs.append(&mut vec![stx_transfer]);
                     txs
                 } else {
                     vec![]
@@ -1792,7 +1782,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
 
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
     // tip
-    let mut replay_peer = make_replay_peer(&mut peer, &test_signers.aggregate_public_key);
+    let mut replay_peer = make_replay_peer(&mut peer);
     for (burn_ops, blocks) in rc_burn_ops.iter().zip(rc_blocks.iter()) {
         replay_reward_cycle(&mut replay_peer, burn_ops, blocks);
     }

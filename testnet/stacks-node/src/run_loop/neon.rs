@@ -17,7 +17,8 @@ use stacks::chainstate::coordinator::{
     static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
@@ -25,7 +26,7 @@ use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
@@ -68,6 +69,7 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_mined_tenures: RunLoopCounter,
 }
 
 impl Counters {
@@ -82,6 +84,7 @@ impl Counters {
             naka_submitted_vrfs: RunLoopCounter::new(AtomicU64::new(0)),
             naka_submitted_commits: RunLoopCounter::new(AtomicU64::new(0)),
             naka_mined_blocks: RunLoopCounter::new(AtomicU64::new(0)),
+            naka_mined_tenures: RunLoopCounter::new(AtomicU64::new(0)),
         }
     }
 
@@ -96,6 +99,7 @@ impl Counters {
             naka_submitted_vrfs: (),
             naka_submitted_commits: (),
             naka_mined_blocks: (),
+            naka_mined_tenures: (),
         }
     }
 
@@ -145,6 +149,10 @@ impl Counters {
 
     pub fn bump_naka_mined_blocks(&self) {
         Counters::inc(&self.naka_mined_blocks);
+    }
+
+    pub fn bump_naka_mined_tenures(&self) {
+        Counters::inc(&self.naka_mined_tenures);
     }
 
     pub fn set_microblocks_processed(&self, value: u64) {
@@ -471,10 +479,23 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        // TODO: delete this once aggregate public key voting is working
+        let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
+            let agg_pub_key = self_signer.aggregate_public_key.clone();
+            info!("Neon node setting agg public key"; "agg_pub_key" => %to_hex(&agg_pub_key.compress().data));
+            let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
+                NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key)
+            }) as Box<dyn FnOnce(&mut ClarityTx)>;
+            Some(callback)
+        } else {
+            warn!("Self-signing is not supported yet");
+            None
+        };
+
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: None,
+            post_flight_callback: agg_pubkey_boot_callback,
             first_burnchain_block_hash: burnchain_config.first_block_hash,
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,

@@ -29,6 +29,7 @@ regex = "1"
 libsigner = { path = "../../libsigner" }
 wsts = { workspace = true }
 rand = { workspace = true }
+rand_core = { workspace = true }
 
 [dev-dependencies]
 ring = "0.16.19"

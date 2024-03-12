@@ -28,7 +28,7 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -289,7 +289,7 @@ impl RelayerThread {
         self.last_network_download_passes = net_result.num_download_passes;
         self.last_network_inv_passes = net_result.num_inv_sync_passes;
         if self.has_waited_for_latest_blocks() {
-            info!("Relayer: did a download pass, so unblocking mining");
+            debug!("Relayer: did a download pass, so unblocking mining");
             signal_mining_ready(self.globals.get_miner_status());
         }
     }
@@ -414,18 +414,11 @@ impl RelayerThread {
                 .unwrap_or_else(|| VRFProof::empty());
 
         // let's figure out the recipient set!
-        let recipients = get_next_recipients(
-            &sort_tip,
-            &mut self.chainstate,
-            &mut self.sortdb,
-            &self.burnchain,
-            &OnChainRewardSetProvider(),
-            self.config.node.always_use_affirmation_maps,
-        )
-        .map_err(|e| {
-            error!("Relayer: Failure fetching recipient set: {:?}", e);
-            NakamotoNodeError::SnapshotNotFoundForChainTip
-        })?;
+        let recipients = get_nakamoto_next_recipients(&sort_tip, &mut self.sortdb, &self.burnchain)
+            .map_err(|e| {
+                error!("Relayer: Failure fetching recipient set: {:?}", e);
+                NakamotoNodeError::SnapshotNotFoundForChainTip
+            })?;
 
         let block_header =
             NakamotoChainState::get_block_header_by_consensus_hash(self.chainstate.db(), target_ch)
@@ -779,8 +772,8 @@ impl RelayerThread {
 
         if should_commit {
             Some(RelayerDirective::IssueBlockCommit(
-                chain_tip_header.consensus_hash,
-                chain_tip_header.anchored_header.block_hash(),
+                chain_tip_tenure_start.consensus_hash,
+                chain_tip_tenure_start.anchored_header.block_hash(),
             ))
         } else {
             None
@@ -834,7 +827,7 @@ impl RelayerThread {
 
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
-        info!("Relayer: handling directive"; "directive" => %directive);
+        debug!("Relayer: handling directive"; "directive" => %directive);
         let continue_running = match directive {
             RelayerDirective::HandleNetResult(net_result) => {
                 self.process_network_result(net_result);

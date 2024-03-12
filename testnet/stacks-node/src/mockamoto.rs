@@ -79,7 +79,7 @@ use stacks_common::types::chainstate::{
     StacksPrivateKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
@@ -419,7 +419,15 @@ impl MockamotoNode {
 
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
+        // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
+        let self_signer = SelfSigner::single_signer();
+        let agg_pub_key = self_signer.aggregate_public_key.clone();
+        info!("Mockamoto node setting agg public key"; "agg_pub_key" => %to_hex(&self_signer.aggregate_public_key.compress().data));
+        let callback = move |clarity_tx: &mut ClarityTx| {
+            NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
+        };
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(Box::new(callback)));
         let (chainstate, boot_receipts) = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -460,7 +468,7 @@ impl MockamotoNode {
 
         Ok(MockamotoNode {
             sortdb,
-            self_signer: SelfSigner::single_signer(),
+            self_signer,
             chainstate,
             miner_key,
             vrf_key,
@@ -824,6 +832,9 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
+        let mut signer_key = miner_nonce.to_be_bytes().to_vec();
+        signer_key.resize(33, 0);
+
         let stack_stx_payload = if parent_chain_length < 2 {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
@@ -834,6 +845,7 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
+                    ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
         } else {
@@ -846,6 +858,7 @@ impl MockamotoNode {
                 function_args: vec![
                     ClarityValue::UInt(5),
                     pox_address.as_clarity_tuple().unwrap().into(),
+                    ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
         };
@@ -869,6 +882,7 @@ impl MockamotoNode {
             &mut chainstate_tx,
             clarity_instance,
             &sortdb_handle,
+            self.sortdb.first_block_height,
             &self.sortdb.pox_constants,
             chain_tip_ch.clone(),
             chain_tip_bh.clone(),
@@ -977,7 +991,17 @@ impl MockamotoNode {
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
         let mut sortition_handle = self.sortdb.index_handle_at_tip();
-        let aggregate_public_key = self.self_signer.aggregate_public_key;
+        let aggregate_public_key = if chain_length <= 1 {
+            self.self_signer.aggregate_public_key
+        } else {
+            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &mut self.chainstate,
+                &self.sortdb,
+                &sortition_handle,
+                &block,
+            )?;
+            aggregate_public_key
+        };
         self.self_signer.sign_nakamoto_block(&mut block);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(

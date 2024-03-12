@@ -218,9 +218,6 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        // TODO (nakamoto-neon): check if we're trying to setup a self-signing network
-        //  and set the right genesis data
-
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
