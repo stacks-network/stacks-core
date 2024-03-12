@@ -1,0 +1,6 @@
+{
+    "polling_delay_seconds": 60,
+    "max_stacks_delay_seconds": 1500,
+    "recovery_delay_seconds": 660,
+    "shell_command": ["echo", "command not specified"]
+}

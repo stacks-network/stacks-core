@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
+
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
+
 ## [Unreleased]
 
 ### Added
@@ -16,8 +46,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
 - A new subsystem, called StackerDB, has been added, which allows a set of
   Stacks nodes to store off-chain data on behalf of a specially-crafter smart
-contract.  This is an opt-in feature; Stacks nodes explicitly subscribe to
-StackerDB replicas in their config files.
+  contract. This is an opt-in feature; Stacks nodes explicitly subscribe to
+  StackerDB replicas in their config files.
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
@@ -34,10 +64,10 @@ StackerDB replicas in their config files.
   a result of `(err none)` if the top-level code of the smart contract contained
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
-- Added config setting `burnchain.wallet_name` which addresses blank wallets no 
+- Added config setting `burnchain.wallet_name` which addresses blank wallets no
   longer being created by default in recent bitcoin versions. Fixes issue #3596
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
-- The node now gracefully shuts down even if it is in the middle of a handshake with 
+- The node now gracefully shuts down even if it is in the middle of a handshake with
   bitcoind. Fixes issue #3734.
 
 ## [2.4.0.0.1]
@@ -47,12 +77,14 @@ contract deploys. This will help tools (and users) more easily find the log
 messages to determine what went wrong.
 
 ## [2.4.0.0.0]
+
 This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
 
 - [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md)
 - [SIP-024](https://github.com/stacksgov/sips/blob/main/sips/sip-024/sip-024-least-supertype-fix.md)
 
 ### Fixed
+
 - PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
 - Peer network id is updated to `0x18000009`
 - Adds the type sanitization described in SIP-024
@@ -69,6 +101,7 @@ This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.
 ## [2.3.0.0.1]
 
 This is a hotfix release to update:
+
 - peer version identifier used by the stacks-node p2p network.
 - yield interpreter errors in deser_hex
 
@@ -114,7 +147,7 @@ compatible with chainstate directories from 2.1.0.0.1.
 
 - Handle the case where a bitcoin node returns zero headers (#3588)
 - The default value for `always_use_affirmation_maps` is now set to `false`,
-  instead of `true`.  This was preventing testnet nodes from reaching the chain
+  instead of `true`. This was preventing testnet nodes from reaching the chain
   tip with the default configuration.
 - Reduce default poll time of the `chain-liveness` thread which reduces the
   possibility that a miner thread will get interrupted (#3610).
@@ -122,7 +155,7 @@ compatible with chainstate directories from 2.1.0.0.1.
 ## [2.1]
 
 This is a **consensus-breaking** release that introduces a _lot_ of new
-functionality.  Details on the how and why can be found in [SIP-015](https://github.com/stacksgov/sips/blob/feat/sip-015/sips/sip-015/sip-015-network-upgrade.md),
+functionality. Details on the how and why can be found in [SIP-015](https://github.com/stacksgov/sips/blob/feat/sip-015/sips/sip-015/sip-015-network-upgrade.md),
 [SIP-018](https://github.com/MarvinJanssen/sips/blob/feat/signed-structured-data/sips/sip-018/sip-018-signed-structured-data.md),
 and [SIP-20](https://github.com/obycode/sips/blob/bitwise-ops/sips/sip-020/sip-020-bitwise-ops.md).
 
@@ -130,24 +163,24 @@ The changelog for this release is a high-level summary of these SIPs.
 
 ### Added
 
-- There is a new `.pox-2` contract for implementing proof-of-transfer.  This PoX
+- There is a new `.pox-2` contract for implementing proof-of-transfer. This PoX
   contract enables re-stacking while the user's STX are locked, and incrementing
-the amount stacked on top of a locked batch of STX.
+  the amount stacked on top of a locked batch of STX.
 - The Clarity function `stx-account` has been added, which returns the account's
   locked and unlocked balances.
 - The Clarity functions `principal-destruct` and `principal-construct?`
   functions have been added, which provide the means to convert between a
-`principal` instance and the `buff`s and `string-ascii`s that constitute it.
+  `principal` instance and the `buff`s and `string-ascii`s that constitute it.
 - The Clarity function `get-burn-block-info?` has been added to support
   fetching the burnchain header hash of _any_ burnchain block starting from the
-sortition height of the Stacks genesis block, and to support fetching the PoX
-addresses and rewards paid by miners for a particular burnchain block height.
+  sortition height of the Stacks genesis block, and to support fetching the PoX
+  addresses and rewards paid by miners for a particular burnchain block height.
 - The Clarity function `slice` has been added for obtaining a sub-sequence of a
   `buff`, `string-ascii`, `string-utf8`, or `list`.
 - Clarity functions for converting between `string-ascii`, `string-utf8`,
   `uint`, and `int` have been added.
 - Clarity functions for converting between big- and little-endian
-`buff`  representations of `int` and `uint` have been added.
+  `buff` representations of `int` and `uint` have been added.
 - The Clarity function `stx-transfer-memo?` has been added, which behaves the
   same as `stx-transfer?` but also takes a memo argument.
 - The Clarity function `is-standard` has been added to identify whether or not a
@@ -164,16 +197,16 @@ addresses and rewards paid by miners for a particular burnchain block height.
   Stacks 2.05.x.x.x.
 - Clarity trait semantics have been refined and made more explicit, so as to
   avoid certain corner cases where a trait reference might be downgraded to a
-`principal` in Clarity 1.
-  * Trait values can be passed to compatible sub-trait types
-  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
-  * Traits can be assigned to a let-variable
+  `principal` in Clarity 1.
+  - Trait values can be passed to compatible sub-trait types
+  - Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
+  - Traits can be assigned to a let-variable
 - Fixes to unexpected behavior in traits
-  * A trait with duplicate function names is now an error
-  * Aliased trait names do not interfere with local trait definitions
+  - A trait with duplicate function names is now an error
+  - Aliased trait names do not interfere with local trait definitions
 - The comparison functions `<`, `<=`, `>`, and `>=` now work on `string-ascii`,
   `string-utf8`, and `buff` based on byte-by-byte comparison (note that this is
-_not_ lexicographic comparison).
+  _not_ lexicographic comparison).
 - It is now possible to call `delegate-stx` from a burnchain transaction, just
   as it is for `stack-stx` and `transfer-stx`.
 
@@ -183,30 +216,30 @@ _not_ lexicographic comparison).
   locked.
 - If a batch of STX is not enough to clinch even a single reward slot, then the
   STX are automatically unlocked at the start of the reward cycle in which they
-are rendered useless in this capacity.
-- The PoX sunset has been removed.  PoX rewards will continue in perpetuity.
+  are rendered useless in this capacity.
+- The PoX sunset has been removed. PoX rewards will continue in perpetuity.
 - Support for segwit and taproot addresses (v0 and v1 witness programs) has been
   added for Stacking.
 - The Clarity function `get-block-info?` now supports querying a block's total
   burnchain spend by miners who tried to mine it, the spend by the winner, and
-the total block reward (coinbase plus transaction fees).
+  the total block reward (coinbase plus transaction fees).
 - A block's coinbase transaction may specify an alternative recipient principal,
   which can be either a standard or contract principal.
-- A smart contract transaction can specify which version of Clarity to use.  If
+- A smart contract transaction can specify which version of Clarity to use. If
   no version is given, then the epoch-default version will be used (in Stacks
-2.1, this is Clarity 2).
+  2.1, this is Clarity 2).
 - The Stacks node now includes the number of PoX anchor blocks in its
   fork-choice rules. The best Stacks fork is the fork that (1) is on the best
-Bitcoin fork, (2) has the most PoX anchor blocks known, and (3) is the longest.
+  Bitcoin fork, (2) has the most PoX anchor blocks known, and (3) is the longest.
 - On-burnchain operations -- `stack-stx`, `delegate-stx`, and `transfer-stx` --
   can take effect within six (6) burnchain blocks in which they are mined,
-instead of one.
+  instead of one.
 - Transaction fees are debited from accounts _before_ the transaction is
   processed.
 - All smart contract analysis errors are now treated as runtime errors, meaning
   that smart contract transactions which don't pass analysis will still be mined
-(so miners get paid for partially validating them).
-- The default Clarity version is now 2.  Users can opt for version 1 by using
+  (so miners get paid for partially validating them).
+- The default Clarity version is now 2. Users can opt for version 1 by using
   the new smart contract transaction wire format and explicitly setting version
 
 ### Fixed
@@ -217,7 +250,7 @@ instead of one.
 - One or more late block-commits no longer result in the miner losing its
   sortition weight.
 - Documentation will indicate explicitly which Clarity version introduced each
-  keyword or function. 
+  keyword or function.
 
 ## [2.05.0.6.0]
 
@@ -227,21 +260,21 @@ instead of one.
   nodes can find high-quality nodes to boot from (#3401)
 - If there are two or more Stacks chain tips that are tied for the canonical
   tip, the node deterministically chooses one _independent_ of the arrival order
-(#3419). 
+  (#3419).
 - If Stacks blocks for a different fork arrive out-of-order and, in doing so,
   constitute a better fork than the fork the node considers canonical, the node
-will update the canonical Stacks tip pointer in the sortition DB before
-processing the next sortition (#3419).
+  will update the canonical Stacks tip pointer in the sortition DB before
+  processing the next sortition (#3419).
 
 ### Fixed
 
 - The node keychain no longer maintains any internal state, but instead derives
-  keys based on the chain tip the miner is building off of.  This prevents the
-node from accidentally producing an invalid block that reuses a microblock
-public key hash (#3387).
+  keys based on the chain tip the miner is building off of. This prevents the
+  node from accidentally producing an invalid block that reuses a microblock
+  public key hash (#3387).
 - If a node mines an invalid block for some reason, it will no longer stall
-  forever.  Instead, it will detect that its last-mined block is not the chain
-tip, and resume mining (#3406).
+  forever. Instead, it will detect that its last-mined block is not the chain
+  tip, and resume mining (#3406).
 
 ## [2.05.0.5.0]
 
@@ -250,19 +283,19 @@ tip, and resume mining (#3406).
 - The new minimum Rust version is 1.61
 - The act of walking the mempool will now cache address nonces in RAM and to a
   temporary mempool table used for the purpose, instead of unconditionally
-querying them from the chainstate MARF.  This builds upon improvements to mempool
-goodput over 2.05.0.4.0 (#3337).
+  querying them from the chainstate MARF. This builds upon improvements to mempool
+  goodput over 2.05.0.4.0 (#3337).
 - The node and miner implementation has been refactored to remove write-lock
   contention that can arise when the node's chains-coordinator thread attempts to store and
-process newly-discovered (or newly-mined) blocks, and when the node's relayer
-thread attempts to mine a new block.  In addition, the miner logic has been
-moved to a separate thread in order to avoid starving the relayer thread (which
-must handle block and transaction propagation, as well as block-processing).
-The refactored miner thread will be preemptively terminated and restarted
-by the arrival of new Stacks blocks or burnchain blocks, which further
-prevents the miner from holding open write-locks in the underlying
-chainstate databases when there is new chain data to discover (which would
-invalidate the miner's work anyway).  (#3335).
+  process newly-discovered (or newly-mined) blocks, and when the node's relayer
+  thread attempts to mine a new block. In addition, the miner logic has been
+  moved to a separate thread in order to avoid starving the relayer thread (which
+  must handle block and transaction propagation, as well as block-processing).
+  The refactored miner thread will be preemptively terminated and restarted
+  by the arrival of new Stacks blocks or burnchain blocks, which further
+  prevents the miner from holding open write-locks in the underlying
+  chainstate databases when there is new chain data to discover (which would
+  invalidate the miner's work anyway). (#3335).
 
 ### Fixed
 
@@ -274,9 +307,8 @@ invalidate the miner's work anyway).  (#3335).
 ### Fixed
 
 - Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
-  query for choosing transactions in order by estimated fee rate.  This
-drastically speeds up mempool transaction iteration in the miner (#3314)
-
+  query for choosing transactions in order by estimated fee rate. This
+  drastically speeds up mempool transaction iteration in the miner (#3314)
 
 ## [2.05.0.3.0]
 
@@ -312,12 +344,12 @@ drastically speeds up mempool transaction iteration in the miner (#3314)
 - Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
 - Ignore blocks that include problematic transactions
 
-
 ## [2.05.0.2.1]
 
 ### Fixed
+
 - Fixed a security bug in the SPV client whereby the chain work was not being
-  considered at all when determining the canonical Bitcoin fork.  The SPV client
+  considered at all when determining the canonical Bitcoin fork. The SPV client
   now only accepts a new Bitcoin fork if it has a higher chain work than any other
   previously-seen chain (#3152).
 
@@ -342,8 +374,9 @@ It is highly recommended that you **back up your chainstate** before running
 this version of the software on it.
 
 ### Changed
+
 - The MARF implementation will now defer calculating the root hash of a new trie
-  until the moment the trie is committed to disk.  This avoids gratuitous hash
+  until the moment the trie is committed to disk. This avoids gratuitous hash
   calculations, and yields a performance improvement of anywhere between 10x and
   200x (#3041).
 - The MARF implementation will now store tries to an external file for instances
@@ -354,8 +387,8 @@ this version of the software on it.
   by an environment variable (#3042).
 - Sortition processing performance has been improved by about an order of
   magnitude, by avoiding a slew of expensive database reads (#3045).
-- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
-  an event is sent through the event dispatcher. This fixes #3015. 
+- Updated chains coordinator so that before a Stacks block or a burn block is processed,
+  an event is sent through the event dispatcher. This fixes #3015.
 - Expose a node's public key and public key hash160 (i.e. what appears in
   /v2/neighbors) via the /v2/info API endpoint (#3046)
 - Reduced the default subsequent block attempt timeout from 180 seconds to 30
@@ -365,12 +398,14 @@ this version of the software on it.
   This binary provides CLI tools for chain and mempool inspection.
 
 ### Fixed
+
 - The AtlasDB previously could lose `AttachmentInstance` data during shutdown
   or crashes (#3082). This release resolves that.
 
 ## [2.05.0.1.0]
 
-### Added 
+### Added
+
 - A new fee estimator intended to produce fewer over-estimates, by having less
   sensitivity to outliers. Its characteristic features are: 1) use a window to
   forget past estimates instead of exponential averaging, 2) use weighted
@@ -378,46 +413,46 @@ this version of the software on it.
   assess empty space in blocks as having paid the "minimum fee", so that empty
   space is accounted for, 4) use random "fuzz" so that in busy times the fees can
   change dynamically. (#2972)
-- Implements anti-entropy protocol for querying transactions from other 
+- Implements anti-entropy protocol for querying transactions from other
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
   (#2884)
-- Structured logging in the mining code paths. This will shine light 
+- Structured logging in the mining code paths. This will shine light
   on what happens to transactions (successfully added, skipped or errored) that the
   miner considers while buildings blocks. (#2975)
 - Added the mined microblock event, which includes information on transaction
   events that occurred in the course of mining (will provide insight
   on whether a transaction was successfully added to the block,
   skipped, or had a processing error). (#2975)
-- For v2 endpoints, can now specify the `tip` parameter to `latest`. If 
+- For v2 endpoints, can now specify the `tip` parameter to `latest`. If
   `tip=latest`, the node will try to run the query off of the latest tip. (#2778)
-- Adds the /v2/headers endpoint, which returns a sequence of SIP-003-encoded 
-  block headers and consensus hashes (see the ExtendedStacksHeader struct that 
+- Adds the /v2/headers endpoint, which returns a sequence of SIP-003-encoded
+  block headers and consensus hashes (see the ExtendedStacksHeader struct that
   this PR adds to represent this data). (#2862)
-- Adds the /v2/data_var endpoint, which returns a contract's data variable 
+- Adds the /v2/data_var endpoint, which returns a contract's data variable
   value and a MARF proof of its existence. (#2862)
 - Fixed a bug in the unconfirmed state processing logic that could lead to a
   denial of service (node crash) for nodes that mine microblocks (#2970)
 - Added prometheus metric that tracks block fullness by logging the percentage of each
-  cost dimension that is consumed in a given block (#3025).  
-  
+  cost dimension that is consumed in a given block (#3025).
 
 ### Changed
-- Updated the mined block event. It now includes information on transaction 
+
+- Updated the mined block event. It now includes information on transaction
   events that occurred in the course of mining (will provide insight
-  on whether a transaction was successfully added to the block, 
+  on whether a transaction was successfully added to the block,
   skipped, or had a processing error). (#2975)
 - Updated some of the logic in the block assembly for the miner and the follower
   to consolidate similar logic. Added functions `setup_block` and `finish_block`.
   (#2946)
-- Makes the p2p state machine more reactive to newly-arrived 
-  `BlocksAvailable` and `MicroblocksAvailable` messages for block and microblock 
-  streams that this node does not have. If such messages arrive during an inventory 
-  sync, the p2p state machine will immediately transition from the inventory sync 
-  work state to the block downloader work state, and immediately proceed to fetch 
+- Makes the p2p state machine more reactive to newly-arrived
+  `BlocksAvailable` and `MicroblocksAvailable` messages for block and microblock
+  streams that this node does not have. If such messages arrive during an inventory
+  sync, the p2p state machine will immediately transition from the inventory sync
+  work state to the block downloader work state, and immediately proceed to fetch
   the available block or microblock stream. (#2862)
 - Nodes will push recently-obtained blocks and microblock streams to outbound
   neighbors if their cached inventories indicate that they do not yet have them
-(#2986).
+  (#2986).
 - Nodes will no longer perform full inventory scans on their peers, except
   during boot-up, in a bid to minimize block-download stalls (#2986).
 - Nodes will process sortitions in parallel to downloading the Stacks blocks for
@@ -426,19 +461,20 @@ this version of the software on it.
   top of parent blocks that are no longer the chain tip (#2969).
 - Several database indexes have been updated to avoid table scans, which
   significantly improves most RPC endpoint speed and cuts node spin-up time in
-half (#2989, #3005).
+  half (#2989, #3005).
 - Fixed a rare denial-of-service bug whereby a node that processes a very deep
   burnchain reorg can get stuck, and be rendered unable to process further
-sortitions.  This has never happened in production, but it can be replicated in
-tests (#2989).
-- Updated what indices are created, and ensures that indices are created even 
+  sortitions. This has never happened in production, but it can be replicated in
+  tests (#2989).
+- Updated what indices are created, and ensures that indices are created even
   after the database is initialized (#3029).
 
-### Fixed 
+### Fixed
+
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
-  published by different principals with the same name would have had the same 
+  published by different principals with the same name would have had the same
   key in the cost estimator. (#2984)
-- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints
   when polling data (#2987)
 - Fixed an error message from the type-checker that shows up when the type of a
   parameter refers to a trait defined in the same contract (#3064).
@@ -498,7 +534,7 @@ compatible with chainstate directories from 2.0.11.3.0.
 ## [2.0.11.3.0]
 
 This software update is a point-release to change the transaction selection
-logic in the default miner to prioritize by fee instead of nonce sequence.  This
+logic in the default miner to prioritize by fee instead of nonce sequence. This
 release's chainstate directory is compatible with chainstate directories from
 2.0.11.2.0.
 
@@ -506,8 +542,8 @@ release's chainstate directory is compatible with chainstate directories from
 
 - The node will enforce a soft deadline for mining a block, so that a node
   operator can control how frequently their node attempts to mine a block
-regardless of how congested the mempool is.  The timeout parameters are
-controlled in the `[miner]` section of the node's config file (#2823).
+  regardless of how congested the mempool is. The timeout parameters are
+  controlled in the `[miner]` section of the node's config file (#2823).
 
 ## Changed
 
@@ -552,11 +588,11 @@ to reset their chain states.
 - Two bugs that caused problems syncing with the bitcoin chain during a
   bitcoin reorg have been fixed (#2771, #2780).
 - Documentation is fixed in cases where string and buffer types are allowed
-  but not covered in the documentation.  (#2676)
+  but not covered in the documentation. (#2676)
 
 ## [2.0.11.1.0]
 
-This software update is our monthly release. It introduces fixes and features for both developers and miners. 
+This software update is our monthly release. It introduces fixes and features for both developers and miners.
 This release's chainstate directory is compatible with chainstate directories from 2.0.11.0.0.
 
 ## Added
@@ -575,14 +611,14 @@ This release's chainstate directory is compatible with chainstate directories fr
 
 - Improved mempool walk order (#2514).
 - Renamed database `tx_tracking.db` to `tx_tracking.sqlite` (#2666).
-  
-## Fixed 
 
-- Alter the miner to prioritize spending the most recent UTXO when building a transaction, 
+## Fixed
+
+- Alter the miner to prioritize spending the most recent UTXO when building a transaction,
   instead of the largest UTXO. In the event of a tie, it uses the smallest UTXO first (#2661).
 - Fix trait rpc lookups for implicitly implemented traits (#2602).
 - Fix `v2/pox` endpoint, broken on Mocknet (#2634).
-- Align cost limits on mocknet, testnet and mainnet (#2660). 
+- Align cost limits on mocknet, testnet and mainnet (#2660).
 - Log peer addresses in the HTTP server (#2667)
 - Mine microblocks if there are no recent unprocessed Stacks blocks
 
@@ -601,7 +637,7 @@ compatible with prior chainstate directories.
 - New prometheus metrics for mempool transaction processing times and
   outstanding mempool transactions
 - New RPC endpoint with path `/v2/traits/contractAddr/contractName/traitContractName
-  /traitContractAddr/traitName` to determine whether a given trait is implemented 
+/traitContractAddr/traitName` to determine whether a given trait is implemented
   within the specified contract (either explicitly or implicitly).
 - Re-activate the Atlas network for propagating and storing transaction
   attachments. This re-enables off-chain BNS name storage.
@@ -615,8 +651,8 @@ compatible with prior chainstate directories.
 - The `/v2/pox` RPC endpoint was updated to include more useful
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
-  
-## Fixed 
+
+## Fixed
 
 - Fixed faulty logic in the mempool that was still treating the transaction fee
   as a fee rate, which prevented replace-by-fee from working as expected.
@@ -645,7 +681,7 @@ node.
 ## [2.0.9]
 
 This is a hotfix release for improved handling of arriving Stacks blocks through
-both the RPC interface and the P2P ineterface.  The chainstate directory of
+both the RPC interface and the P2P ineterface. The chainstate directory of
 2.0.9 is compatible with the 2.0.8 chainstate.
 
 ## Fixed
@@ -673,7 +709,6 @@ valid block data if its descendant microblock stream is invalid for some reason.
 ## Fixed
 
 - Do not delete a valid parent Stacks block.
-
 
 ## [2.0.6] - 2021-02-15
 
@@ -743,9 +778,9 @@ node from an earlier chainstate, you must use a fresh working directory.
 
 - Enabled WAL mode for the chainstate databases. This allows much more
   concurrency in the `stacks-node`, and improves network performance
-  across the board. **NOTE:** *This changed the database schema, any
+  across the board. **NOTE:** _This changed the database schema, any
   running node would need to re-initialize their nodes from a new chain
-  state when upgrading*.
+  state when upgrading_.
 - Default value `wait_time_for_microblocks`: from 60s to 30s
 - The mempool now performs more transfer semantics checks before admitting
   a transaction (e.g., reject if origin = recipient): see issue #2354

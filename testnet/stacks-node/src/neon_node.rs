@@ -3573,7 +3573,7 @@ pub struct PeerThread {
 
 impl PeerThread {
     /// set up the mempool DB connection
-    fn connect_mempool_db(config: &Config) -> MemPoolDB {
+    pub fn connect_mempool_db(config: &Config) -> MemPoolDB {
         // create estimators, metric instances for RPC handler
         let cost_estimator = config
             .make_cost_estimator()

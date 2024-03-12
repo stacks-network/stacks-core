@@ -9,6 +9,10 @@
 
 name: Open Docs PR
 
+defaults:
+  run:
+    shell: bash
+
 env:
   ROBOT_OWNER: kantai-robot
   ROBOT_REPO: docs.blockstack
@@ -16,9 +20,8 @@ env:
   TARGET_REPO: docs
   TARGET_REPOSITORY: stacks-network/docs
 
-# Only run when:
-#   - push to master
-
+## Only run when:
+##   - push to master
 on:
   push:
     branches:
@@ -33,19 +36,22 @@ jobs:
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
       - name: Build docs
         id: build_docs
         env:
           DOCKER_BUILDKIT: 1
         run: rm -rf docs-output && docker build -o docs-output -f ./.github/actions/docsgen/Dockerfile.docsgen .
+
       - name: Checkout latest docs
         id: git_checkout_docs
-        uses: actions/checkout@v3
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           repository: ${{ env.TARGET_REPOSITORY }}
           path: docs
+
       - name: Branch and commit
         id: push
         run: |
@@ -63,14 +69,15 @@ jobs:
             echo "::set-output name=open_pr::0"
           else
             git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
-            git commit -m "auto: update Clarity references JSONs from stacks-blockchain@${GITHUB_SHA}"
+            git commit -m "auto: update Clarity references JSONs from stacks-core@${GITHUB_SHA}"
             git push robot $ROBOT_BRANCH
             echo "::set-output name=open_pr::1"
           fi
+
       - name: Open PR
         id: open_pr
         if: ${{ steps.push.outputs.open_pr == '1' }}
-        uses: actions/github-script@v6
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
         with:
           github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           script: |
@@ -102,6 +109,6 @@ jobs:
             let result = await github.pulls.create({
                 owner, repo, head,
                 base: "master",
-                title: "Auto: Update API documentation from stacks-blockchain",
-                body: "Update API documentation from the latest in `stacks-blockchain`",
+                title: "Auto: Update API documentation from stacks-core",
+                body: "Update API documentation from the latest in `stacks-core`",
             });

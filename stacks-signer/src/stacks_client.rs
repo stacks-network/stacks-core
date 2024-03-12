@@ -18,8 +18,9 @@ use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::{debug, warn};
+use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 use wsts::net::{Message, Packet};
-use wsts::{Point, Scalar};
 
 use crate::config::Config;
 

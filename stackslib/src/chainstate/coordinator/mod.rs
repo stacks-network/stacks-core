@@ -675,7 +675,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
         &format!("FATAL: no epoch defined for burn height {}", burn_height),
     );
-
     let reward_cycle_info = if burnchain.is_reward_cycle_start(burn_height) {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_height)

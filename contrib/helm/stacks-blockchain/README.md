@@ -27,7 +27,7 @@ $ helm repo add blockstack https://charts.blockstack.xyz
 $ helm install my-release blockstack/stacks-blockchain
 ```
 
-To install the chart with the release name `my-release` and run the node as a **miner** using your private key [generated from the instructions on this page](https://docs.blockstack.org/mining):
+To install the chart with the release name `my-release` and run the node as a **miner** using your private key [generated from the instructions on this page](https://docs.stacks.co/docs/nodes-and-miners/miner-mainnet):
 
 ```bash
 $ helm repo add blockstack https://charts.blockstack.xyz
@@ -93,7 +93,7 @@ The following tables lists the configurable parameters of the stacks-blockchain 
 | config.node.miner | Set this to `true` if deploying a miner node.<br>Set this to `false` if deploying a follower node. | false |
 | config.burnchain.chain |  | bitcoin |
 | config.burnchain.mode |  | krypton |
-| config.burnchain.peer_host |  | bitcoind.blockstack.org |
+| config.burnchain.peer_host |  | bitcoin.mainnet.stacks.org |
 | config.burnchain.rpc_port |  | 18443 |
 | config.burnchain.peer_port |  | 18444 |
 | config.ustx_balance |  | See values.yaml |

@@ -1,0 +1,89 @@
+## Github workflow to build a multiarch docker image from pre-built binaries
+
+name: Docker Image (Binary)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+        description: "Version tag for alpine images"
+      docker-org:
+        required: false
+        type: string
+        description: "Docker repo org for uploading images (defaults to github org)"
+        default: "${GITHUB_REPOSITORY_OWNER}"
+
+## Define which docker arch to build for
+env:
+  docker_platforms: "linux/arm64, linux/arm/v7, linux/amd64, linux/amd64/v2, linux/amd64/v3"
+  docker-org: blockstack
+
+concurrency:
+  group: docker-image-binary-${{ github.head_ref || github.ref || github.run_id }}
+  ## Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: ${{ inputs.tag }}
+
+jobs:
+  ## Runs when the following is true:
+  ##  - tag is provided
+  ##  - workflow is building default branch (master)
+  image:
+    if: |
+      inputs.tag != '' && 
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: Build Image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      ## Build a maximum of 2 images concurrently based on matrix.dist
+      max-parallel: 2
+      matrix:
+        dist:
+          - alpine
+          - debian
+    steps:
+      ## Setup Docker for the builds
+      - name: Docker setup
+        uses: stacks-network/actions/docker@main
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      ## Set docker metatdata
+      ## - depending on the matrix.dist, different tags will be enabled
+      ## ex. alpine will have this tag: `type=ref,event=tag,enable=${{ matrix.dist == 'alpine' }}`
+      - name: Docker Metadata ( ${{matrix.dist}} )
+        id: docker_metadata
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 #v5.0.0
+        with:
+          images: |
+            ${{env.docker-org}}/${{ github.event.repository.name }}
+            ${{env.docker-org}}/stacks-blockchain
+          tags: |
+            type=raw,value=latest,enable=${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ) && matrix.dist == 'alpine' }}
+            type=raw,value=${{ inputs.tag }}-${{ matrix.dist }},enable=${{ inputs.tag != '' && matrix.dist == 'alpine'}}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' && matrix.dist == 'alpine' }}
+            type=ref,event=tag,enable=${{ matrix.dist == 'alpine' }}
+            type=raw,value=latest-${{ matrix.dist }},enable=${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ) && matrix.dist == 'debian' }}
+            type=raw,value=${{ inputs.tag }}-${{ matrix.dist }},enable=${{ inputs.tag != '' && matrix.dist == 'debian' }}
+
+      ## Build docker image for release
+      - name: Build and Push ( ${{matrix.dist}} )
+        id: docker_build
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          file: ./.github/actions/dockerfiles/Dockerfile.${{ matrix.dist }}-binary
+          platforms: ${{ env.docker_platforms }}
+          tags: ${{ steps.docker_metadata.outputs.tags }}
+          labels: ${{ steps.docker_metadata.outputs.labels }}
+          build-args: |
+            TAG=${{ inputs.tag }}
+            REPO=${{ github.repository_owner }}/${{ github.event.repository.name }}
+            STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+          push: ${{ env.DOCKER_PUSH }}

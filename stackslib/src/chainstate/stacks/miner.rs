@@ -2138,7 +2138,7 @@ impl StacksBlockBuilder {
         epoch_tx: &mut ClarityTx,
         builder: &mut B,
         mempool: &mut MemPoolDB,
-        parent_stacks_header: &StacksHeaderInfo,
+        tip_height: u64,
         coinbase_tx: Option<&StacksTransaction>,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
@@ -2146,7 +2146,6 @@ impl StacksBlockBuilder {
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let max_miner_time_ms = settings.max_miner_time_ms;
         let mempool_settings = settings.mempool_settings.clone();
-        let tip_height = parent_stacks_header.stacks_block_height;
         let ts_start = get_epoch_time_ms();
         let stacks_epoch_id = epoch_tx.get_epoch();
         let block_limit = epoch_tx
@@ -2178,10 +2177,7 @@ impl StacksBlockBuilder {
         let mut num_txs = 0;
         let mut blocked = false;
 
-        debug!(
-            "Block transaction selection begins (child of {})",
-            &parent_stacks_header.anchored_header.block_hash()
-        );
+        debug!("Block transaction selection begins (parent height = {tip_height})");
         let result = {
             let mut intermediate_result: Result<_, Error> = Ok(0);
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
@@ -2354,7 +2350,7 @@ impl StacksBlockBuilder {
                     break;
                 }
             }
-            debug!("Block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            debug!("Block transaction selection finished (parent height {}): {} transactions selected ({} considered)", &tip_height, num_txs, considered.len());
             intermediate_result
         };
 
@@ -2437,7 +2433,7 @@ impl StacksBlockBuilder {
             &mut epoch_tx,
             &mut builder,
             mempool,
-            parent_stacks_header,
+            parent_stacks_header.stacks_block_height,
             Some(coinbase_tx),
             settings,
             event_observer,

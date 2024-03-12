@@ -25,8 +25,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::TestRPC;

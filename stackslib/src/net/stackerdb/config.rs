@@ -17,6 +17,7 @@
 /// This file implements the interface to the StackerDB smart contract for loading the DB's config.
 /// The smart contract must conform to this trait:
 ///
+/// ```clarity,ignore
 /// ;; Any StackerDB smart contract must conform to this trait.
 /// (define-trait stackerdb-trait
 ///
@@ -34,6 +35,7 @@
 ///         },
 ///         uint))
 /// )
+/// ```
 use std::collections::{HashMap, HashSet};
 use std::mem;
 

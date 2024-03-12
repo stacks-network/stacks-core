@@ -1,0 +1,132 @@
+## Github workflow to run specified tests on demand
+
+name: Standalone Tests
+
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: "Tests to run (required)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: "Tests to run (required)"
+        required: true
+        type: choice
+        options:
+          - Release Tests
+          - CI Tests
+          - Atlas Tests
+          - Bitcoin Tests
+          - Epoch Tests
+          - Slow Tests
+          - Stacks-Core Tests
+          - SBTC Tests
+
+## Set the display name to the test being run
+run-name: ${{ inputs.workflow }}
+
+jobs:
+  ## Runs every time to either create the required caches or confirm they already exist
+  create-cache:
+    name: Create Test Cache
+    uses: ./.github/workflows/create-cache.yml
+
+  #####################################################
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'CI Tests'
+  ##     - workflow is 'Stacks-Core Tests'
+  stacks-core-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'Stacks-Core Tests'
+      )
+    name: Stacks Core Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/stacks-core-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'CI Tests'
+  ##     - workflow is 'Bitcoin Tests'
+  bitcoin-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'Bitcoin Tests'
+      )
+    name: Bitcoin Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/bitcoin-tests.yml
+
+  #####################################################
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Atlas Tests'
+  atlas-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Atlas Tests' 
+      )
+    name: Atlas Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/atlas-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Epoch Tests'
+  epoch-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Epoch Tests'
+      )
+    name: Epoch Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/epoch-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Slow Tests'
+  slow-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Slow Tests'
+      )
+    name: Slow Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/slow-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'SBTC Tests'
+  sbtc-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'SBTC Tests'
+      )
+    name: SBTC Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/sbtc-tests.yml
+

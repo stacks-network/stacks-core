@@ -2,15 +2,16 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use backoff::default;
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
-use p256k1::ecdsa;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
+use wsts::curve::ecdsa;
 use wsts::net::{Message, Packet, Signable};
 use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
-use wsts::state_machine::coordinator::Coordinatable;
-use wsts::state_machine::signer::SigningRound;
+use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
+use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
@@ -56,7 +57,7 @@ pub struct RunLoop<C> {
     /// The signing round used to sign messages
     // TODO: update this to use frost_signer directly instead of the frost signing round
     // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
-    pub signing_round: SigningRound<v2::Signer>,
+    pub signing_round: Signer<v2::Signer>,
     /// The stacks client
     pub stacks_client: StacksClient,
     /// Received Commands that need to be processed
@@ -65,7 +66,7 @@ pub struct RunLoop<C> {
     pub state: State,
 }
 
-impl<C: Coordinatable> RunLoop<C> {
+impl<C: Coordinator> RunLoop<C> {
     /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
     fn initialize(&mut self) -> Result<(), ClientError> {
         // TODO: update to read stacker db to get state.
@@ -92,7 +93,7 @@ impl<C: Coordinatable> RunLoop<C> {
         match command {
             RunLoopCommand::Dkg => {
                 info!("Starting DKG");
-                match self.coordinator.start_distributed_key_generation() {
+                match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
@@ -117,7 +118,7 @@ impl<C: Coordinatable> RunLoop<C> {
                 info!("Signing message: {:?}", message);
                 match self
                     .coordinator
-                    .start_signing_message(message, *is_taproot, *merkle_root)
+                    .start_signing_round(message, *is_taproot, *merkle_root)
                 {
                     Ok(msg) => {
                         let ack = self
@@ -231,15 +232,17 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .get(&config.signer_id)
             .unwrap()
             .iter()
-            .map(|i| i - 1) // SigningRound::new (unlike SigningRound::from) doesn't do this
+            .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
             .collect::<Vec<u32>>();
-        let coordinator = FrostCoordinator::new(
-            total_signers,
-            total_keys,
+        let coordinator_config = CoordinatorConfig {
             threshold,
-            config.message_private_key,
-        );
-        let signing_round = SigningRound::new(
+            num_signers: total_signers,
+            num_keys: total_keys,
+            message_private_key: config.message_private_key,
+            ..Default::default()
+        };
+        let coordinator = FrostCoordinator::new(coordinator_config);
+        let signing_round = Signer::new(
             threshold,
             total_signers,
             total_keys,
@@ -260,7 +263,7 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
     }
 }
 
-impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop<C> {
+impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop<C> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.event_timeout = timeout;
     }

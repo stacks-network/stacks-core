@@ -13,7 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use rand::{thread_rng, RngCore};
 use secp256k1;
 use secp256k1::ecdsa::{
@@ -27,8 +26,12 @@ use secp256k1::{
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
+use wsts::common::Signature as WSTSSignature;
+use wsts::curve::point::{Compressed, Point};
+use wsts::curve::scalar::Scalar;
 
 use super::hash::Sha256Sum;
+use crate::impl_byte_array_message_codec;
 use crate::types::{PrivateKey, PublicKey};
 use crate::util::hash::{hex_bytes, to_hex};
 
@@ -112,6 +115,45 @@ impl MessageSignature {
 impl Default for Secp256k1PublicKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct SchnorrSignature(pub [u8; 65]);
+impl_array_newtype!(SchnorrSignature, u8, 65);
+impl_array_hexstring_fmt!(SchnorrSignature);
+impl_byte_array_newtype!(SchnorrSignature, u8, 65);
+impl_byte_array_serde!(SchnorrSignature);
+pub const SCHNORR_SIGNATURE_ENCODED_SIZE: u32 = 65;
+
+impl Default for SchnorrSignature {
+    /// Creates a default Schnorr Signature. Note this is not a valid signature.
+    fn default() -> Self {
+        Self([0u8; 65])
+    }
+}
+
+impl SchnorrSignature {
+    /// Attempt to convert a Schnorr signature to a WSTS Signature
+    pub fn to_wsts_signature(&self) -> Option<WSTSSignature> {
+        // TODO: update wsts to add a TryFrom for a [u8; 65] and a slice to a Signature
+        let point_bytes: [u8; 33] = self.0[..33].try_into().ok()?;
+        let scalar_bytes: [u8; 32] = self.0[33..].try_into().ok()?;
+        let point = Point::try_from(&Compressed::from(point_bytes)).ok()?;
+        let scalar = Scalar::from(scalar_bytes);
+        Some(WSTSSignature {
+            R: point,
+            z: scalar,
+        })
+    }
+}
+
+/// Convert a WSTS Signature to a SchnorrSignature
+impl From<&WSTSSignature> for SchnorrSignature {
+    fn from(signature: &WSTSSignature) -> Self {
+        let mut buf = [0u8; 65];
+        buf[..33].copy_from_slice(&signature.R.compress().data);
+        buf[33..].copy_from_slice(&signature.z.to_bytes());
+        SchnorrSignature(buf)
     }
 }
 
@@ -700,5 +742,82 @@ mod tests {
             runtime_recover,
             runtime_verify - runtime_recover
         );
+    }
+
+    #[test]
+    fn test_schnorr_signature_serde() {
+        use wsts::traits::Aggregator;
+
+        // Test that an empty conversion fails.
+        let empty_signature = SchnorrSignature::default();
+        assert!(empty_signature.to_wsts_signature().is_none());
+
+        // Generate a random Signature and ensure it successfully converts
+        let mut rng = rand_core::OsRng::default();
+        let msg =
+            "You Idiots! These Are Not Them! You\'ve Captured Their Stunt Doubles!".as_bytes();
+
+        let num_keys = 10;
+        let threshold = 7;
+        let party_key_ids: Vec<Vec<u32>> =
+            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
+        let num_parties = party_key_ids.len().try_into().unwrap();
+
+        // Create the parties
+        let mut signers: Vec<wsts::v2::Party> = party_key_ids
+            .iter()
+            .enumerate()
+            .map(|(pid, pkids)| {
+                wsts::v2::Party::new(
+                    pid.try_into().unwrap(),
+                    pkids,
+                    num_parties,
+                    num_keys,
+                    threshold,
+                    &mut rng,
+                )
+            })
+            .collect();
+
+        // Generate an aggregate public key
+        let comms = match wsts::v2::test_helpers::dkg(&mut signers, &mut rng) {
+            Ok(comms) => comms,
+            Err(secret_errors) => {
+                panic!("Got secret errors from DKG: {:?}", secret_errors);
+            }
+        };
+        let aggregate_public_key = comms
+            .iter()
+            .fold(Point::default(), |s, comm| s + comm.poly[0]);
+
+        // signers [0,1,3] have "threshold" keys
+        {
+            let mut signers = [signers[0].clone(), signers[1].clone(), signers[3].clone()].to_vec();
+            let mut sig_agg = wsts::v2::Aggregator::new(num_keys, threshold);
+
+            sig_agg.init(comms.clone()).expect("aggregator init failed");
+
+            let (nonces, sig_shares, key_ids) =
+                wsts::v2::test_helpers::sign(msg, &mut signers, &mut rng);
+            let original_signature = sig_agg
+                .sign(msg, &nonces, &sig_shares, &key_ids)
+                .expect("aggregator sig failed");
+            // Serialize the signature and verify the results
+            let schnorr_signature = SchnorrSignature::from(&original_signature);
+            assert_eq!(
+                schnorr_signature[..33],
+                original_signature.R.compress().data[..]
+            );
+            assert_eq!(schnorr_signature[33..], original_signature.z.to_bytes());
+
+            // Deserialize the signature and verify the results
+            let reverted_signature = schnorr_signature
+                .to_wsts_signature()
+                .expect("Failed to convert schnorr signature to wsts signature");
+            assert_eq!(reverted_signature.R, original_signature.R);
+            assert_eq!(reverted_signature.z, original_signature.z);
+            assert!(original_signature.verify(&aggregate_public_key, msg));
+            assert!(reverted_signature.verify(&aggregate_public_key, msg));
+        }
     }
 }

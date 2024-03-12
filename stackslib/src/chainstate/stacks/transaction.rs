@@ -31,6 +31,9 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
+use wsts::common::Signature as Secp256k1Signature;
+use wsts::curve::point::{Compressed as Secp256k1Compressed, Point as Secp256k1Point};
+use wsts::curve::scalar::Scalar as Secp256k1Scalar;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
@@ -153,23 +156,20 @@ impl StacksMessageCodec for TenureChangeCause {
 
 impl StacksMessageCodec for ThresholdSignature {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        let compressed = self.R.compress();
+        let compressed = self.0.R.compress();
         let bytes = compressed.as_bytes();
         fd.write_all(bytes)
             .map_err(crate::codec::Error::WriteError)?;
-        write_next(fd, &self.z.to_bytes())?;
+        write_next(fd, &self.0.z.to_bytes())?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        use p256k1::point::Compressed;
-        use wsts::{Point, Scalar};
-
         // Read curve point
         let mut buf = [0u8; 33];
         fd.read_exact(&mut buf)
             .map_err(crate::codec::Error::ReadError)?;
-        let R = Point::try_from(&Compressed::from(buf)).map_err(|_| {
+        let R = Secp256k1Point::try_from(&Secp256k1Compressed::from(buf)).map_err(|_| {
             crate::codec::Error::DeserializeError("Failed to read curve point".into())
         })?;
 
@@ -177,19 +177,23 @@ impl StacksMessageCodec for ThresholdSignature {
         let mut buf = [0u8; 32];
         fd.read_exact(&mut buf)
             .map_err(crate::codec::Error::ReadError)?;
-        let z = Scalar::from(buf);
+        let z = Secp256k1Scalar::from(buf);
 
-        Ok(Self { R, z })
+        Ok(Self(Secp256k1Signature { R, z }))
     }
 }
 
 impl ThresholdSignature {
+    pub fn verify(&self, public_key: &Secp256k1Point, msg: &[u8]) -> bool {
+        self.0.verify(public_key, msg)
+    }
+
     /// Create mock data for testing. Not valid data
     pub fn mock() -> Self {
-        Self {
-            R: wsts::Point::G(),
-            z: wsts::Scalar::new(),
-        }
+        Self(Secp256k1Signature {
+            R: Secp256k1Point::G(),
+            z: Secp256k1Scalar::new(),
+        })
     }
 }
 
@@ -280,7 +284,7 @@ impl StacksMessageCodec for TransactionPayload {
                         write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
                         write_next(fd, buf)?;
                         write_next(fd, &Value::none())?;
-                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                        write_next(fd, vrf_proof)?;
                     }
                     (Some(recipient), Some(vrf_proof)) => {
                         write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
@@ -291,7 +295,7 @@ impl StacksMessageCodec for TransactionPayload {
                                 "FATAL: failed to encode recipient principal as `optional`",
                             ),
                         )?;
-                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                        write_next(fd, vrf_proof)?;
                     }
                 }
             }
@@ -385,12 +389,7 @@ impl StacksMessageCodec for TransactionPayload {
                 } else {
                     return Err(codec_error::DeserializeError("Failed to parse nakamoto coinbase transaction -- did not receive an optional recipient principal value".to_string()));
                 };
-                let vrf_proof_bytes: Vec<u8> = read_next(fd)?;
-                let Some(vrf_proof) = VRFProof::from_bytes(&vrf_proof_bytes) else {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to decode coinbase VRF proof".to_string(),
-                    ));
-                };
+                let vrf_proof: VRFProof = read_next(fd)?;
                 TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
             }
             TransactionPayloadID::TenureChange => {
@@ -1356,23 +1355,22 @@ impl StacksTransactionSigner {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use std::error::Error;
 
-    use crate::chainstate::stacks::test::codec_all_transactions;
-    use crate::chainstate::stacks::*;
-    use crate::net::codec::test::{
-        check_codec_and_corruption, check_codec_and_corruption_with_epoch,
-    };
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
     use stacks_common::util::retry::{BoundReader, LogReader};
 
+    use super::*;
+    use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::{
         StacksPublicKey as PubKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *, *,
+    };
+    use crate::net::codec::test::{
+        check_codec_and_corruption, check_codec_and_corruption_with_epoch,
     };
     use crate::net::codec::*;
     use crate::net::*;
@@ -2289,11 +2287,6 @@ mod test {
             0x12,
             // no alt recipient, so Value::none
             0x09,
-            // proof bytes length
-            0x00,
-            0x00,
-            0x00,
-            0x50,
             // proof bytes
             0x92,
             0x75,
@@ -2473,11 +2466,6 @@ mod test {
             0x61,
             0x63,
             0x74,
-            // proof bytes length
-            0x00,
-            0x00,
-            0x00,
-            0x50,
             // proof bytes
             0x92,
             0x75,

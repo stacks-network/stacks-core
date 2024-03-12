@@ -1,0 +1,70 @@
+## Github workflow to create multiarch binaries from source
+
+name: Create Binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag name of this release (x.y.z)"
+        required: true
+        type: string
+      arch:
+        description: "Stringified JSON object listing of platform matrix"
+        required: false
+        type: string
+        default: >-
+          ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-glibc-armv7", "linux-musl-arm64", "linux-musl-armv7", "macos-x64", "macos-arm64", "windows-x64"]
+
+## change the display name to the tag being built
+run-name: ${{ inputs.tag }}
+
+concurrency:
+  group: create-binary-${{ github.head_ref || github.ref || github.run_id}}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ## Runs when the following is true:
+  ##  - tag is provided
+  ##  - workflow is building default branch (master)
+  artifact:
+    if: |
+      inputs.tag != '' && 
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
+      max-parallel: 10
+      matrix:
+        platform: ${{ fromJson(inputs.arch) }}
+    steps:
+      ## Setup Docker for the builds
+      - name: Docker setup
+        uses: stacks-network/actions/docker@main
+
+      ## Build the binaries using defined dockerfiles
+      - name: Build Binary (${{ matrix.platform }})
+        id: build_binaries
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # 5.0.0
+        with:
+          file: build-scripts/Dockerfile.${{ matrix.platform }}
+          outputs: type=local,dest=./release/${{ matrix.platform }}
+          build-args: |
+            STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
+            OS_ARCH=${{ matrix.platform }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+
+      ## Compress the binary artifact
+      - name: Compress artifact
+        id: compress_artifact
+        run: zip --junk-paths ${{ matrix.platform }} ./release/${{ matrix.platform }}/*
+
+      ## Upload the binary artifact to the github action (used in `github-release.yml` to create a release)
+      - name: Upload artifact
+        id: upload_artifact
+        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        with:
+          path: ${{ matrix.platform }}.zip

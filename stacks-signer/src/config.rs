@@ -23,14 +23,14 @@ use std::time::Duration;
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
-use p256k1::ecdsa;
-use p256k1::scalar::Scalar;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use wsts::curve::ecdsa;
+use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
 
 /// List of key_ids for each signer_id

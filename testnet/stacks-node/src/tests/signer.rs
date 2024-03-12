@@ -70,7 +70,7 @@ fn setup_stx_btc_node(
     for toml in signer_config_tomls {
         let signer_config = SignerConfig::load_from_str(toml).unwrap();
 
-        conf.events_observers.push(EventObserverConfig {
+        conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
             events_keys: vec![EventKeyType::StackerDBChunks],
         });
@@ -309,6 +309,9 @@ fn test_stackerdb_dkg() {
                     OperationResult::SignTaproot(proof) => {
                         info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         schnorr_proof = Some(proof);
+                    }
+                    OperationResult::DkgError(..) | OperationResult::SignError(..) => {
+                        todo!()
                     }
                 }
             }

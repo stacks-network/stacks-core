@@ -17,8 +17,10 @@ case $DIST_TARGET_FILTER in
     case $DIST_TARGET_FILTER in
       linux-glibc-x64)      build_platform linux-glibc-x64 ;;
       linux-glibc-arm64)    build_platform linux-glibc-arm64 ;;
+      linux-glibc-armv7)    build_platform linux-glibc-armv7 ;;
       linux-musl-x64)       build_platform linux-musl-x64 ;;
       linux-musl-arm64)     build_platform linux-musl-arm64 ;;
+      linux-musl-armv7)     build_platform linux-musl-armv7 ;;
       windows-x64)          build_platform windows-x64 ;;
       macos-x64)            build_platform macos-x64 ;;
       macos-arm64)          build_platform macos-arm64 ;;
@@ -32,8 +34,10 @@ case $DIST_TARGET_FILTER in
     echo "Building distrubtions for all targets."
     build_platform linux-glibc-x64
     build_platform linux-glibc-arm64
+    build_platform linux-glibc-armv7
     build_platform linux-musl-x64
     build_platform linux-musl-arm64
+    build_platform linux-musl-armv7
     build_platform windows-x64
     build_platform macos-x64
     build_platform macos-arm64
