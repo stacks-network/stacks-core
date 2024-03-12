@@ -646,7 +646,7 @@ fn test_nakamoto_tenure_inv() {
         port: 65535,
         public_key_hash: Hash160([0x11; 20]),
     };
-    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100, na);
+    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100, 0, na);
     assert!(!nakamoto_inv.has_ith_tenure(0));
     assert!(!nakamoto_inv.has_ith_tenure(99));
     assert!(!nakamoto_inv.has_ith_tenure(100));
