@@ -713,6 +713,8 @@ impl Config {
             StacksEpochId::Epoch22,
             StacksEpochId::Epoch23,
             StacksEpochId::Epoch24,
+            StacksEpochId::Epoch25,
+            StacksEpochId::Epoch30,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()

@@ -329,13 +329,12 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
 
     /// Get the proof= query parameter value
     fn get_with_proof(&self) -> bool {
-        let with_proof = if let Some(proof_val) = self.get_query_arg(&"proof".to_string()) {
-            proof_val == "1"
-        } else {
-            false
-        };
-
-        with_proof
+        let proof_value = self
+            .get_query_arg("proof")
+            .map(|x| x.to_owned())
+            // default to "with proof"
+            .unwrap_or("1".into());
+        &proof_value == "1"
     }
 }
 

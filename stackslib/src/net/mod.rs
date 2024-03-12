@@ -64,7 +64,6 @@ use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::{PegInOp, PegOutFulfillOp, PegOutRequestOp};
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -1121,18 +1120,6 @@ pub enum StacksMessageID {
     Reserved = 255,
 }
 
-/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
-/// This allows `handle_get_burn_ops` to use an enum for the different operation
-///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
-///  from a, e.g., `Vec<PegInOp>`
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum BurnchainOps {
-    PegIn(Vec<PegInOp>),
-    PegOutRequest(Vec<PegOutRequestOp>),
-    PegOutFulfill(Vec<PegOutFulfillOp>),
-}
-
 /// Message type for all P2P Stacks network messages
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMessage {
@@ -1638,10 +1625,7 @@ pub mod test {
                 BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
-                | BlockstackOperationType::StackStx(_)
-                | BlockstackOperationType::PegIn(_)
-                | BlockstackOperationType::PegOutRequest(_)
-                | BlockstackOperationType::PegOutFulfill(_) => Ok(()),
+                | BlockstackOperationType::StackStx(_) => Ok(()),
             }
         }
 
