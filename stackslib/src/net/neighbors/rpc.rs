@@ -34,10 +34,10 @@ use crate::net::neighbors::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::PeerHostExtensions;
 use crate::net::{
     Error as NetError, HandshakeData, Neighbor, NeighborAddress, NeighborKey, PeerAddress,
-    StacksHttpRequest, StacksHttpResponse, StacksMessage, StacksMessageType, NUM_NEIGHBORS,
+    PeerHostExtensions, StacksHttpRequest, StacksHttpResponse, StacksMessage, StacksMessageType,
+    NUM_NEIGHBORS,
 };
 
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
@@ -141,21 +141,31 @@ impl NeighborRPC {
         naddr: NeighborAddress,
         request: StacksHttpRequest,
     ) -> Result<(), NetError> {
-        // TODO: this is wrong -- we need to get the socket address of the URL, which *may not be*
-        // the same as the socket address as the p2p endpoint.  Instead, the p2p network should
-        // eagerly resolve data URL hostnames after a peer handshakes, and cache them locally, so
-        // code like this can obtain them.
         let nk = naddr.to_neighbor_key(network);
         let convo = network
             .get_neighbor_convo(&nk)
             .ok_or(NetError::PeerNotConnected)?;
         let data_url = convo.data_url.clone();
-        let addr = nk.to_socketaddr();
+        let data_addr = if let Some(ip) = convo.data_ip {
+            ip.clone()
+        } else {
+            debug!(
+                "{}: have not resolved {} data URL {} yet",
+                network.get_local_peer(),
+                &convo,
+                &data_url
+            );
+            if convo.waiting_for_dns() {
+                return Err(NetError::WaitingForDNS);
+            } else {
+                return Err(NetError::PeerNotConnected);
+            }
+        };
 
         let event_id =
             PeerNetwork::with_network_state(network, |ref mut network, ref mut network_state| {
                 PeerNetwork::with_http(network, |ref mut network, ref mut http| {
-                    match http.connect_http(network_state, network, data_url, addr, None) {
+                    match http.connect_http(network_state, network, data_url, data_addr, None) {
                         Ok(event_id) => Ok(event_id),
                         Err(NetError::AlreadyConnected(event_id, _)) => Ok(event_id),
                         Err(e) => {
@@ -176,6 +186,7 @@ impl NeighborRPC {
     ///
     /// Returns Ok(Some(resposne)) if the HTTP request completed
     /// Returns Ok(None) if we are still connecting to the remote peer, or waiting for it to reply
+    /// Returns Err(NetError::WaitingForDNS) if we're still waiting to resolve the peer's data URL
     /// Returns Err(..) if we fail to connect, or if we are unable to receive a reply.
     fn poll_next_reply(
         network: &mut PeerNetwork,
@@ -247,6 +258,11 @@ impl Iterator for NeighborRPCMessageIterator<'_> {
                 match NeighborRPC::poll_next_reply(self.network, event_id, &mut request_opt) {
                     Ok(Some(response)) => response,
                     Ok(None) => {
+                        // keep trying
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(NetError::WaitingForDNS) => {
                         // keep trying
                         inflight.insert(naddr, (event_id, request_opt));
                         continue;
