@@ -23,8 +23,7 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
 use libsigner::{
-    BlockProposalSigners, BlockResponse, RejectCode, SignerMessage, SignerSession,
-    StackerDBSession, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
+    BlockProposalSigners, MessageSlotID, SignerMessage, SignerSession, StackerDBSession,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -345,18 +344,15 @@ impl BlockMinerThread {
     fn get_stackerdb_contract_and_slots(
         &self,
         stackerdbs: &StackerDBs,
-        msg_id: u32,
+        msg_id: &MessageSlotID,
         reward_cycle: u64,
     ) -> Result<(QualifiedContractIdentifier, HashMap<u32, StacksAddress>), NakamotoNodeError> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
 
-        let signers_contract_id = NakamotoSigners::make_signers_db_contract_id(
-            reward_cycle,
-            msg_id,
-            self.config.is_mainnet(),
-        );
+        let signers_contract_id =
+            msg_id.stacker_db_contract(self.config.is_mainnet(), reward_cycle);
         if !stackerdb_contracts.contains(&signers_contract_id) {
             return Err(NakamotoNodeError::SignerSignatureError(
                 "No signers contract found, cannot wait for signers",
@@ -394,7 +390,7 @@ impl BlockMinerThread {
             .wrapping_add(1);
         let (signers_contract_id, slot_ids_addresses) = self.get_stackerdb_contract_and_slots(
             stackerdbs,
-            TRANSACTIONS_MSG_ID,
+            &MessageSlotID::Transactions,
             next_reward_cycle,
         )?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();

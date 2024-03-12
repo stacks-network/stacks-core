@@ -387,7 +387,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
                 //  and the vec could be heterogenous, so, don't differentiate.
-                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::ProposedBlocks(..)) => None,
                 Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
                     Some(u64::from(msg_parity) % 2)
                 }

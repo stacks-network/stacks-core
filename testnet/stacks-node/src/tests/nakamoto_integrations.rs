@@ -25,7 +25,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{BlockResponse, MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -286,8 +286,7 @@ pub fn read_and_sign_block_proposal(
         proposed_block.header.signer_signature.clone(),
     )));
 
-    let signers_contract_id =
-        NakamotoSigners::make_signers_db_contract_id(reward_cycle, libsigner::BLOCK_MSG_ID, false);
+    let signers_contract_id = MessageSlotID::BlockResponse.stacker_db_contract(false, reward_cycle);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let signers_info = get_stacker_set(&http_origin, reward_cycle);

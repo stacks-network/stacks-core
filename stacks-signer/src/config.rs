@@ -361,7 +361,13 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     let mut port = 30000;
-    for stacks_private_key in stacks_private_keys {
+    let run_stamp = rand::random::<u16>();
+    let db_dir = format!(
+        "/tmp/stacks-node-tests/integrations-signers/{:#X}",
+        run_stamp,
+    );
+    fs::create_dir_all(&db_dir).unwrap();
+    for (ix, stacks_private_key) in stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
         port += 1;
         let stacks_private_key = stacks_private_key.to_hex();
@@ -372,7 +378,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
-db_path = ":memory:"
+db_path = "{db_dir}/{ix}.sqlite"
 "#
         );
 

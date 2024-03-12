@@ -22,10 +22,11 @@ use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
-use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, NakamotoBlockProposal};
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
-    BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent, SignerMessage,
+    BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
+    SignerMessage,
 };
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -183,7 +184,6 @@ pub struct BurnBlockInfo {
     /// The reward cycle
     pub reward_cycle: u64,
 }
-
 
 impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -499,7 +499,7 @@ impl Signer {
             }
         };
         if let Some(mut nonce_request) = block_info.nonce_request.take() {
-            debug!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
+            info!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
             // We have received validation from the stacks node. Determine our vote and update the request message
             self.determine_vote(&mut block_info, &mut nonce_request);
             // Send the nonce request through with our vote
@@ -525,7 +525,7 @@ impl Signer {
                     merkle_root: None,
                 });
             } else {
-                debug!(
+                info!(
                     "{self}: ignoring block.";
                     "block_hash" => block_info.block.header.block_hash(),
                     "valid" => block_info.valid,
@@ -638,17 +638,18 @@ impl Signer {
             });
 
         // Next process the message as the coordinator
-        let (coordinator_outbound_messages, operation_results) =
-            if self.reward_cycle != current_reward_cycle {
-                self.coordinator
-                    .process_inbound_messages(packets)
-                    .unwrap_or_else(|e| {
-                        error!("{self}: Failed to process inbound messages as a coordinator: {e:?}");
-                        (vec![], vec![])
-                    })
-            } else {
-                (vec![], vec![])
-            };
+        let (coordinator_outbound_messages, operation_results) = if self.reward_cycle
+            != current_reward_cycle
+        {
+            self.coordinator
+                .process_inbound_messages(packets)
+                .unwrap_or_else(|e| {
+                    error!("{self}: Failed to process inbound messages as a coordinator: {e:?}");
+                    (vec![], vec![])
+                })
+        } else {
+            (vec![], vec![])
+        };
 
         if !operation_results.is_empty() {
             // We have finished a signing or DKG round, either successfully or due to error.
@@ -723,47 +724,42 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         nonce_request: &mut NonceRequest,
-    ) -> bool {
-        let Some(block): Option<NakamotoBlock> = read_next(&mut &nonce_request.message[..]).ok()
+    ) -> Option<BlockInfo> {
+        let Some(block) =
+            NakamotoBlock::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
         else {
             // We currently reject anything that is not a block
-            debug!("{self}: Received a nonce request for an unknown message stream. Reject it.",);
-            return false;
+            warn!("{self}: Received a nonce request for an unknown message stream. Reject it.",);
+            return None;
         };
         let signer_signature_hash = block.header.signer_signature_hash();
-        let mut block_info = match self
+        let Some(mut block_info) = self
             .signer_db
             .block_lookup(&signer_signature_hash)
             .expect("Failed to connect to signer DB")
-        {
-            Some(block_info) => block_info,
-            None => {
-                debug!("{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
-                let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
-                self.signer_db
-                    .insert_block(&block_info)
-                    .expect(&format!("{self}: Failed to insert block in DB"));
-                stacks_client
-                    .submit_block_for_validation(block)
-                    .unwrap_or_else(|e| {
-                        warn!("{self}: Failed to submit block for validation: {e:?}",);
-                    });
-                return false;
-            }
+        else {
+            debug!(
+                "{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...";
+                "signer_sighash" => %block.header.signer_signature_hash(),
+            );
+            let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
+            stacks_client
+                .submit_block_for_validation(block)
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to submit block for validation: {e:?}",);
+                });
+            return Some(block_info);
         };
 
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
             debug!("{self}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...");
             block_info.nonce_request = Some(nonce_request.clone());
-            return false;
+            return Some(block_info);
         }
 
         self.determine_vote(&mut block_info, nonce_request);
-        self.signer_db
-            .insert_block(&block_info)
-            .expect(&format!("{self}: Failed to insert block in DB"));
-        true
+        Some(block_info)
     }
 
     /// Verify the transactions in a block are as expected
@@ -910,7 +906,18 @@ impl Signer {
                     }
                 }
                 Message::NonceRequest(request) => {
-                    if !self.validate_nonce_request(stacks_client, request) {
+                    let Some(updated_block_info) =
+                        self.validate_nonce_request(stacks_client, request)
+                    else {
+                        warn!("Failed to validate and parse nonce request");
+                        return None;
+                    };
+                    self.signer_db
+                        .insert_block(&updated_block_info)
+                        .expect(&format!("{self}: Failed to insert block in DB"));
+                    let process_request = updated_block_info.vote.is_some();
+                    if !process_request {
+                        debug!("Failed to validate nonce request");
                         return None;
                     }
                 }
@@ -920,7 +927,7 @@ impl Signer {
             }
             Some(packet)
         } else {
-            debug!(
+            warn!(
                 "{self}: Failed to verify wsts packet with {}: {packet:?}",
                 coordinator_public_key
             );
@@ -972,10 +979,10 @@ impl Signer {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);
         } else {
-            if let Err(e) = self.stackerdb.send_message_bytes_with_retry(
-                MessageSlotID::DkgResults.to_u8().into(),
-                dkg_results_bytes,
-            ) {
+            if let Err(e) = self
+                .stackerdb
+                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+            {
                 error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
                        "error" => %e);
             }
@@ -1312,11 +1319,11 @@ impl Signer {
                     debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");
                     return Ok(());
                 }
-                debug!(
-                    "{self}: Received {} block proposals and {} messages from the miners...",
-                    self.signer_id,
+                info!(
+                    "{self}: Received {} block proposals and {} messages from the miner",
                     blocks.len(),
-                    messages.len(),
+                    messages.len();
+                    "miner_key" => ?miner_key,
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
                 self.handle_proposed_blocks(stacks_client, blocks);

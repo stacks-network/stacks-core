@@ -13,6 +13,17 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! Messages in the signer-miner interaction have a multi-level hierarchy.
+//! Signers send messages to each other through Packet messages. These messages,
+//! as well as `BlockResponse`, `Transactions`, and `DkgResults` messages are stored
+//! StackerDBs based on the `MessageSlotID` for the particular message type. This is a
+//! shared identifier space between the four message kinds and their subtypes.
+//!
+//! These four message kinds are differentiated with a `SignerMessageTypePrefix`
+//! and the `SignerMessage` enum.
+
+use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,22 +65,6 @@ use wsts::state_machine::{signer, SignError};
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-// The slot IDS for each message type
-const DKG_BEGIN_MSG_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_MSG_ID: u32 = 1;
-const DKG_END_BEGIN_MSG_ID: u32 = 2;
-const DKG_END_MSG_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_MSG_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_MSG_ID: u32 = 5;
-const NONCE_REQUEST_MSG_ID: u32 = 6;
-const NONCE_RESPONSE_MSG_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_MSG_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_MSG_ID: u32 = 9;
-/// The slot ID for the block response for miners to observe
-pub const BLOCK_MSG_ID: u32 = 10;
-/// The slot ID for the transactions list for miners and signers to observe
-pub const TRANSACTIONS_MSG_ID: u32 = 11;
-
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
@@ -94,9 +89,9 @@ MessageSlotID {
     SignatureShareRequest = 8,
     /// SignatureShareResponse
     SignatureShareResponse = 9,
-    /// Block proposal responses
+    /// Block proposal responses for miners to observe
     BlockResponse = 10,
-    /// Transactions
+    /// Transactions list for miners and signers to observe
     Transactions = 11,
     /// DKG Results
     DkgResults = 12
@@ -116,7 +111,18 @@ impl MessageSlotID {
         mainnet: bool,
         reward_cycle: u64,
     ) -> QualifiedContractIdentifier {
-        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u8().into(), mainnet)
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+
+    /// Return the u32 identifier for the message slot (used to index the contract that stores it)
+    pub fn to_u32(&self) -> u32 {
+        self.to_u8().into()
+    }
+}
+
+impl Display for MessageSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}({})", self, self.to_u8())
     }
 }
 
@@ -213,7 +219,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
 }
 
 /// The messages being sent through the stacker db contracts
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
     /// The signed/validated Nakamoto block for miners to observe
     BlockResponse(BlockResponse),
@@ -230,25 +236,48 @@ pub enum SignerMessage {
     },
 }
 
+impl Debug for SignerMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BlockResponse(b) => Debug::fmt(b, f),
+            Self::Packet(p) => Debug::fmt(p, f),
+            Self::Transactions(t) => f.debug_tuple("Transactions").field(t).finish(),
+            Self::DkgResults {
+                aggregate_key,
+                party_polynomials,
+            } => {
+                let party_polynomials: Vec<_> = party_polynomials
+                    .iter()
+                    .map(|(ix, commit)| (ix, commit.to_string()))
+                    .collect();
+                f.debug_struct("DkgResults")
+                    .field("aggregate_key", &aggregate_key.to_string())
+                    .field("party_polynomials", &party_polynomials)
+                    .finish()
+            }
+        }
+    }
+}
+
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn msg_id(&self) -> u32 {
+    pub fn msg_id(&self) -> MessageSlotID {
         match self {
             Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_MSG_ID,
-                Message::DkgEnd(_) => DKG_END_MSG_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_MSG_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_MSG_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_MSG_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_MSG_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_MSG_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_MSG_ID,
+                Message::DkgBegin(_) => MessageSlotID::DkgBegin,
+                Message::DkgPrivateBegin(_) => MessageSlotID::DkgPrivateBegin,
+                Message::DkgEndBegin(_) => MessageSlotID::DkgEndBegin,
+                Message::DkgEnd(_) => MessageSlotID::DkgEnd,
+                Message::DkgPublicShares(_) => MessageSlotID::DkgPublicShares,
+                Message::DkgPrivateShares(_) => MessageSlotID::DkgPrivateShares,
+                Message::NonceRequest(_) => MessageSlotID::NonceRequest,
+                Message::NonceResponse(_) => MessageSlotID::NonceResponse,
+                Message::SignatureShareRequest(_) => MessageSlotID::SignatureShareRequest,
+                Message::SignatureShareResponse(_) => MessageSlotID::SignatureShareResponse,
             },
-            Self::BlockResponse(_) => BLOCK_MSG_ID,
-            Self::Transactions(_) => TRANSACTIONS_MSG_ID,
-            Self::DkgResults { .. } => MessageSlotID::DkgResults.to_u8().into(),
+            Self::BlockResponse(_) => MessageSlotID::BlockResponse,
+            Self::Transactions(_) => MessageSlotID::Transactions,
+            Self::DkgResults { .. } => MessageSlotID::DkgResults,
         }
     }
 }

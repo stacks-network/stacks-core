@@ -9,8 +9,8 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
-    BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
-    BLOCK_MSG_ID,
+    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEventReceiver,
+    SignerMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -21,6 +21,7 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoB
 use stacks::chainstate::stacks::boot::{
     SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
+use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
@@ -31,7 +32,7 @@ use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
@@ -1084,32 +1085,18 @@ fn stackerdb_sign() {
 
     // Verify the signers rejected the proposed block
     let t_start = Instant::now();
-    let mut chunk = None;
-    while chunk.is_none() {
+    let signer_message = loop {
         assert!(
             t_start.elapsed() < Duration::from_secs(30),
             "Timed out while waiting for signers block response stacker db event"
         );
 
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
-        for event in nakamoto_blocks {
-            // Only care about the miners block slot
-            if event.contract_id.name == format!("signers-1-{}", BLOCK_MSG_ID).as_str().into()
-                || event.contract_id.name == format!("signers-0-{}", BLOCK_MSG_ID).as_str().into()
-            {
-                for slot in event.modified_slots {
-                    chunk = Some(slot.data);
-                    break;
-                }
-                if chunk.is_some() {
-                    break;
-                }
-            }
+        if let Some(message) = find_block_response(nakamoto_blocks) {
+            break message;
         }
         thread::sleep(Duration::from_secs(1));
-    }
-    let chunk = chunk.unwrap();
-    let signer_message = read_next::<SignerMessage, _>(&mut &chunk[..]).unwrap();
+    };
     if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = signer_message {
         assert!(matches!(
             rejection.reason_code,
@@ -1119,6 +1106,23 @@ fn stackerdb_sign() {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
+}
+
+pub fn find_block_response(chunk_events: Vec<StackerDBChunksEvent>) -> Option<SignerMessage> {
+    for event in chunk_events.into_iter() {
+        if event.contract_id.name.as_str()
+            == &format!("signers-1-{}", MessageSlotID::BlockResponse.to_u8())
+            || event.contract_id.name.as_str()
+                == &format!("signers-0-{}", MessageSlotID::BlockResponse.to_u8())
+        {
+            let Some(data) = event.modified_slots.first() else {
+                continue;
+            };
+            let msg = SignerMessage::consensus_deserialize(&mut data.data.as_slice()).unwrap();
+            return Some(msg);
+        }
+    }
+    None
 }
 
 #[test]
@@ -1174,34 +1178,18 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Signers Broadcast Block -------------------------");
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
     let t_start = Instant::now();
-    let mut chunk = None;
-    while chunk.is_none() {
+    let signer_message = loop {
         assert!(
-            t_start.elapsed() < short_timeout,
+            t_start.elapsed() < Duration::from_secs(30),
             "Timed out while waiting for signers block response stacker db event"
         );
 
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
-        for event in nakamoto_blocks {
-            if event.contract_id.name == format!("signers-1-{}", BLOCK_MSG_ID).as_str().into()
-                || event.contract_id.name == format!("signers-0-{}", BLOCK_MSG_ID).as_str().into()
-            {
-                for slot in event.modified_slots {
-                    chunk = Some(slot.data);
-                    break;
-                }
-                if chunk.is_some() {
-                    break;
-                }
-            }
-            if chunk.is_some() {
-                break;
-            }
+        if let Some(message) = find_block_response(nakamoto_blocks) {
+            break message;
         }
         thread::sleep(Duration::from_secs(1));
-    }
-    let chunk = chunk.unwrap();
-    let signer_message = read_next::<SignerMessage, _>(&mut &chunk[..]).unwrap();
+    };
     if let SignerMessage::BlockResponse(BlockResponse::Accepted((
         block_signer_signature_hash,
         block_signature,
