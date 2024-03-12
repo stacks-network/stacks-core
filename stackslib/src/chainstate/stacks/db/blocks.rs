@@ -4150,6 +4150,8 @@ impl StacksChainState {
                 txid,
                 burn_header_hash,
                 signer_key,
+                max_amount,
+                auth_id,
                 ..
             } = &stack_stx_op;
 
@@ -4166,13 +4168,36 @@ impl StacksChainState {
             ];
             // Appending additional signer related arguments for pox-4
             if POX_4_NAME == active_pox_contract {
-                // Passing None for signer-sig
+                // Passing None for signer-sig, we will authorize this signer key via set-signer-key-authorization contract call
                 args.push(Value::none());
 
                 if let Some(signer_key_value) = signer_key {
-                    args.push(
-                        Value::buff_from(signer_key_value.clone().as_bytes().to_vec()).unwrap(),
-                    );
+                    let signer_key_value_bytes = signer_key_value.clone().as_bytes().to_vec();
+                    match Value::buff_from(signer_key_value_bytes) {
+                        Ok(buff_value) => args.push(buff_value),
+                        Err(_) => {
+                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of failure in creating Value::Buff from signer_key_value", txid, burn_header_hash);
+                            continue;
+                        }
+                    }
+
+                    let max_amount_value = match max_amount {
+                        Some(max_amount) => Value::UInt(*max_amount),
+                        None => {
+                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because max_amount is required for pox-4 but not provided", txid, burn_header_hash);
+                            continue;
+                        }
+                    };
+                    args.push(max_amount_value.clone());
+
+                    let auth_id_value = match auth_id {
+                        Some(auth_id) => Value::UInt(u128::from(*auth_id)),
+                        None => {
+                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because auth_id is required for pox-4 but not provided", txid, burn_header_hash);
+                            continue;
+                        }
+                    };
+                    args.push(auth_id_value.clone());
 
                     // Need to authorize the signer key before making stack-stx call without a signature
                     let signer_key_auth_result = Self::set_signer_key_authorization(
@@ -4182,19 +4207,21 @@ impl StacksChainState {
                         u128::from(*num_cycles),
                         pox_reward_cycle,
                         &signer_key_value.clone().as_bytes().to_vec(),
+                        max_amount_value,
+                        auth_id_value,
                         mainnet,
                         active_pox_contract,
                     );
 
                     match signer_key_auth_result {
                         Err(error) => {
-                            warn!("Error in set-signer-key-authorization: {}", error);
+                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of error in set-signer-key-authorization: {}", txid, burn_header_hash, error);
                             continue;
                         }
                         _ => {}
                     }
                 } else {
-                    warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided.", txid, burn_header_hash);
+                    warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided", txid, burn_header_hash);
                     continue;
                 }
             }
@@ -4625,6 +4652,8 @@ impl StacksChainState {
         num_cycles: u128,
         pox_reward_cycle: u64,
         signer_key_value: &Vec<u8>,
+        max_amount: Value,
+        auth_id: Value,
         mainnet: bool,
         active_pox_contract: &str,
     ) -> Result<(), String> {
@@ -4636,6 +4665,8 @@ impl StacksChainState {
                 .unwrap(),
             Value::buff_from(signer_key_value.clone()).unwrap(),
             Value::Bool(true),
+            max_amount,
+            auth_id,
         ];
 
         match clarity_tx.connection().as_transaction(|tx| {

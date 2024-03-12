@@ -35,7 +35,8 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, Error as op_error, PreStxOp, StackStxOp,
+    parse_u128_from_be, parse_u64_from_be, BlockstackOperationType, Error as op_error, PreStxOp,
+    StackStxOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -49,6 +50,8 @@ struct ParsedData {
     stacked_ustx: u128,
     num_cycles: u8,
     signer_key: Option<StacksPublicKeyBuffer>,
+    max_amount: Option<u128>,
+    auth_id: Option<u64>,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
@@ -159,6 +162,8 @@ impl StackStxOp {
         stacked_ustx: u128,
         num_cycles: u8,
         signer_key: Option<StacksPublicKeyBuffer>,
+        max_amount: Option<u128>,
+        auth_id: Option<u64>,
     ) -> StackStxOp {
         StackStxOp {
             sender: sender.clone(),
@@ -166,6 +171,8 @@ impl StackStxOp {
             stacked_ustx,
             num_cycles,
             signer_key,
+            max_amount,
+            auth_id,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -177,9 +184,9 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19           20                  53
-            |------|--|-----------------------------|------------|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8)     signer key
+            0      2  3                             19           20                  53                 69                        77
+            |------|--|-----------------------------|------------|-------------------|-------------------|-------------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)     signer key (optional)   max_amount (optional u128)  auth_id (optional u64)
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
@@ -201,16 +208,26 @@ impl StackStxOp {
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
         let num_cycles = data[16];
 
-        let signer_key = if data.len() >= 50 {
-            Some(StacksPublicKeyBuffer::from(&data[17..50]))
-        } else {
-            None
-        };
+        let mut signer_key: Option<StacksPublicKeyBuffer> = None;
+        let mut max_amount: Option<u128> = None;
+        let mut auth_id: Option<u64> = None;
+
+        if data.len() >= 50 {
+            signer_key = Some(StacksPublicKeyBuffer::from(&data[17..50]));
+        }
+        if data.len() >= 66 {
+            max_amount = Some(parse_u128_from_be(&data[50..66]).unwrap());
+        }
+        if data.len() >= 74 {
+            auth_id = Some(parse_u64_from_be(&data[66..74]).unwrap());
+        }
 
         Some(ParsedData {
             stacked_ustx,
             num_cycles,
             signer_key,
+            max_amount,
+            auth_id,
         })
     }
 
@@ -316,6 +333,8 @@ impl StackStxOp {
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
             signer_key: data.signer_key,
+            max_amount: data.max_amount,
+            auth_id: data.auth_id,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -338,9 +357,9 @@ impl StacksMessageCodec for PreStxOp {
 
 impl StacksMessageCodec for StackStxOp {
     /*
-            0      2  3                             19           20                  53
-            |------|--|-----------------------------|------------|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8)      signer key
+            0      2  3                             19           20                  53                 69                        77
+            |------|--|-----------------------------|------------|-------------------|-------------------|-------------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)     signer key (optional)   max_amount (optional u128)  auth_id (optional u64)
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
@@ -351,6 +370,14 @@ impl StacksMessageCodec for StackStxOp {
         if let Some(signer_key) = &self.signer_key {
             fd.write_all(&signer_key.as_bytes()[..])
                 .map_err(codec_error::WriteError)?;
+        }
+        if let Some(max_amount) = &self.max_amount {
+            fd.write_all(&max_amount.to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
+        }
+        if let Some(auth_id) = &self.auth_id {
+            fd.write_all(&auth_id.to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
         }
         Ok(())
     }

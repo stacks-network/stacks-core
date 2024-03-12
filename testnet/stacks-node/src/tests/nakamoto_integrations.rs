@@ -2331,6 +2331,8 @@ fn stack_stx_burn_op_integration_test() {
         stacked_ustx: 100000,
         num_cycles: 6,
         signer_key: Some(signer_key_arg_1),
+        max_amount: Some(u128::MAX),
+        auth_id: Some(0u64),
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),
@@ -2351,16 +2353,14 @@ fn stack_stx_burn_op_integration_test() {
         "Stack STX operation should submit successfully"
     );
 
-    let signer_pk_2 = StacksPublicKey::from_private(&signer_sk_2);
-    let signer_key_arg_2: StacksPublicKeyBuffer =
-        signer_pk_2.to_bytes_compressed().as_slice().into();
-
     let stack_stx_op_with_no_signer_key = StackStxOp {
         sender: signer_addr_2.clone(),
         reward_addr: PoxAddress::Standard(signer_addr_2, None),
         stacked_ustx: 100000,
         num_cycles: 6,
         signer_key: None,
+        max_amount: None,
+        auth_id: None,
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),

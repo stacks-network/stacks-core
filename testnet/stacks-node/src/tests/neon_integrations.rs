@@ -2418,7 +2418,7 @@ fn stack_stx_burn_op_test() {
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
 
     // Wait a few blocks to be registered
-    for _i in 0..5 {
+    for _i in 0..7 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         block_height = channel.get_sortitions_processed();
     }
@@ -2442,6 +2442,8 @@ fn stack_stx_burn_op_test() {
         stacked_ustx: 10000000000000,
         num_cycles: 6,
         signer_key: Some(signer_key),
+        max_amount: Some(u128::MAX),
+        auth_id: Some(0u64),
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),
@@ -2468,6 +2470,8 @@ fn stack_stx_burn_op_test() {
         stacked_ustx: 10000000000000,
         num_cycles: 6,
         signer_key: None,
+        max_amount: None,
+        auth_id: None,
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),

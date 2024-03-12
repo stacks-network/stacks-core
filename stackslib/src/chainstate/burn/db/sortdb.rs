@@ -324,6 +324,14 @@ impl FromRow<StackStxOp> for StackStxOp {
             Some(key_str) => serde_json::from_str(&key_str).ok(),
             None => None,
         };
+        let max_amount_str_opt: Option<String> = row.get("max_amount")?;
+        let max_amount = match max_amount_str_opt {
+            Some(max_amount_str) => u128::from_str_radix(&max_amount_str, 10)
+                .map_err(|_| db_error::ParseError)
+                .ok(),
+            None => None,
+        };
+        let auth_id = u64::from_column(row, "auth_id")?;
 
         Ok(StackStxOp {
             txid,
@@ -335,6 +343,8 @@ impl FromRow<StackStxOp> for StackStxOp {
             stacked_ustx,
             num_cycles,
             signer_key,
+            max_amount,
+            auth_id,
         })
     }
 }
@@ -676,6 +686,8 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         block_height INTEGER NOT NULL
     );"#,
     r#"ALTER TABLE stack_stx ADD signer_key TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD max_amount TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD auth_id INTEGER DEFAULT NULL;"#,
 ];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
@@ -5308,9 +5320,11 @@ impl<'a> SortitionHandleTx<'a> {
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
             &serde_json::to_string(&op.signer_key).unwrap(),
+            &serde_json::to_string(&op.max_amount).unwrap(),
+            &opt_u64_to_sql(op.auth_id)?,
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", args)?;
 
         Ok(())
     }
@@ -9994,6 +10008,8 @@ pub mod tests {
                 stacked_ustx: 456,
                 num_cycles: 6,
                 signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0.into()),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10067,6 +10083,8 @@ pub mod tests {
                 stacked_ustx: 456,
                 num_cycles: 6,
                 signer_key: None,
+                max_amount: None,
+                auth_id: None,
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

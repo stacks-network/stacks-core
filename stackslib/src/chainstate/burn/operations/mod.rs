@@ -186,6 +186,8 @@ pub struct StackStxOp {
     pub stacked_ustx: u128,
     pub num_cycles: u8,
     pub signer_key: Option<StacksPublicKeyBuffer>,
+    pub max_amount: Option<u128>,
+    pub auth_id: Option<u64>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
