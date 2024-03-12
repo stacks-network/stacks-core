@@ -126,7 +126,7 @@ fn test_serialization_stack_stx_op_with_signer_key() {
         burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         num_cycles: 10,
         signer_key: Some(StacksPublicKeyBuffer([0x01; 33])),
-        max_amount: Some(u128::MAX),
+        max_amount: Some(10),
         auth_id: Some(0u64),
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
@@ -145,6 +145,8 @@ fn test_serialization_stack_stx_op_with_signer_key() {
             "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
             "vtxindex": 10,
             "signer_key": "01".repeat(33),
+            "max_amount": 10,
+            "auth_id": 0,
         }
     });
 

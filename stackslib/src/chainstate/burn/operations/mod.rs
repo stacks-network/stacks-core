@@ -449,6 +449,8 @@ impl BlockstackOperationType {
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
                 "signer_key": op.signer_key.as_ref().map(|k| serde_json::Value::String(k.to_hex())).unwrap_or(serde_json::Value::Null),
+                "max_amount": op.max_amount.map_or(serde_json::Value::Null, |amount| serde_json::Value::Number(serde_json::Number::from(amount))),
+                "auth_id": op.auth_id.map_or(serde_json::Value::Null, |id| serde_json::Value::Number(serde_json::Number::from(id))),
             }
         })
     }
