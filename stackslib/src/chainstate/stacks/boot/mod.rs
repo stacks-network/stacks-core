@@ -230,13 +230,10 @@ fn deserialize_optional_u128_from_string<'de, D>(deserializer: D) -> Result<Opti
 where
     D: serde::Deserializer<'de>,
 {
-    use std::str::FromStr;
-    let opt_str = Option::<String>::deserialize(deserializer)?;
-    match opt_str {
-        Some(s) => {
-            let parsed = u128::from_str(&s).map_err(serde::de::Error::custom)?;
-            Ok(Some(parsed))
-        }
+    use serde::de::Error;
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    match s {
+        Some(str_val) => str_val.parse::<u128>().map(Some).map_err(D::Error::custom),
         None => Ok(None),
     }
 }
@@ -258,8 +255,7 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
     #[serde(
         serialize_with = "serialize_optional_u128_as_string",
-        deserialize_with = "deserialize_optional_u128_from_string",
-        skip_serializing_if = "Option::is_none"
+        deserialize_with = "deserialize_optional_u128_from_string"
     )]
     pub pox_stx_threshold: Option<u128>,
 }
