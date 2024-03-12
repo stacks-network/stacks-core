@@ -104,7 +104,10 @@ impl SignerTest {
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-        naka_conf.miner.self_signing_key = None;
+        // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
+        // That's the kind of thing an idiot would have on his luggage!
+        let password = "12345";
+        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
@@ -112,6 +115,7 @@ impl SignerTest {
             &naka_conf.node.rpc_bind,
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
+            password,
         );
 
         let mut running_signers = Vec::new();
@@ -726,7 +730,12 @@ impl SignerTest {
         )
         .unwrap();
 
-        let invalid_stacks_client = StacksClient::new(StacksPrivateKey::new(), host, false);
+        let invalid_stacks_client = StacksClient::new(
+            StacksPrivateKey::new(),
+            host,
+            "12345".to_string(), // That's amazing. I've got the same combination on my luggage!
+            false,
+        );
         let invalid_signer_tx = invalid_stacks_client
             .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
@@ -881,9 +890,9 @@ fn setup_stx_btc_node(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
-        vrfs_submitted,
-        commits_submitted,
-        blocks_processed,
+        vrfs_submitted: vrfs_submitted.0,
+        commits_submitted: commits_submitted.0,
+        blocks_processed: blocks_processed.0,
         coord_channel,
         conf: naka_conf,
     }
@@ -1285,15 +1294,6 @@ fn stackerdb_filter_bad_transactions() {
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
     info!("------------------------- Submit Invalid Transactions -------------------------");
-    let host = signer_test
-        .running_nodes
-        .conf
-        .node
-        .rpc_bind
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap();
 
     let signer_private_key = signer_test
         .signer_stacks_private_keys
@@ -1308,7 +1308,7 @@ fn stackerdb_filter_bad_transactions() {
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
     let mut stackerdb = StackerDB::new(
-        host,
+        &signer_test.running_nodes.conf.node.rpc_bind,
         signer_private_key,
         false,
         next_reward_cycle,
