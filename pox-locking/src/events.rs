@@ -389,9 +389,6 @@ fn create_event_info_data_code(
         "stack-aggregation-commit" | "stack-aggregation-commit-indexed" => {
             format!(
                 r#"
-                (let (
-                    {prepare_offset}
-                )
                 {{
                     data: {{
                         ;; pox addr locked up
@@ -419,7 +416,7 @@ fn create_event_info_data_code(
                         ;; Get start cycle ID
                         start-cycle-id: {reward_cycle},
                     }}
-                }})
+                }}
                 "#,
                 pox_addr = &args[0],
                 reward_cycle = &args[1],
@@ -427,16 +424,11 @@ fn create_event_info_data_code(
                 signer_key = &args.get(3).unwrap_or(&Value::none()),
                 max_amount = &args.get(4).unwrap_or(&Value::none()),
                 auth_id = &args.get(5).unwrap_or(&Value::none()),
-                prepare_offset = prepare_offset.replace("%height%", "burn-block-height"),
             )
         }
         "stack-aggregation-increase" => {
             format!(
                 r#"
-                (let (
-                    (unlock-height (get unlock-height (stx-account tx-sender)))
-                    {prepare_offset}
-                )
                 {{
                     data: {{
                         ;; pox addr locked up
@@ -458,12 +450,11 @@ fn create_event_info_data_code(
                         ;; Get start cycle ID
                         start-cycle-id: {reward_cycle},
                     }}
-                }})
+                }}
                 "#,
                 pox_addr = &args[0],
                 reward_cycle = &args[1],
                 reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
-                prepare_offset = prepare_offset.replace("%height%", "unlock-height"),
             )
         }
         "delegate-stx" => {
