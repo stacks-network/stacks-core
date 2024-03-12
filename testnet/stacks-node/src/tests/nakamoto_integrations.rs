@@ -2212,6 +2212,7 @@ fn vote_for_aggregate_key_burn_op() {
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -2244,6 +2245,7 @@ fn vote_for_aggregate_key_burn_op() {
     .unwrap();
 
     info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &signer_sk, proposals_submitted);
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
