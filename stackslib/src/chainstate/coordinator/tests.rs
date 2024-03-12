@@ -511,6 +511,7 @@ impl RewardSetProvider for StubbedRewardSetProvider {
                 missed_reward_slots: vec![],
             },
             signers: None,
+            pox_stx_threshold: None,
         })
     }
 

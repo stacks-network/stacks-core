@@ -1143,6 +1143,7 @@ mod tests {
                 stacked_amt: rand::thread_rng().next_u64() as u128,
                 weight: 1,
             }]),
+            pox_stx_threshold: None,
         };
         let stackers_response = GetStackersResponse {
             stacker_set: stacker_set.clone(),
