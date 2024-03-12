@@ -658,15 +658,19 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
         }
         TypeSignature::OptionalType(inner) => 4 + get_type_in_memory_size(inner, true),
         TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) => {
-            let mut size =
-                list_data.get_max_len() as i32 * get_type_size(list_data.get_list_item_type());
+            let mut size = list_data.get_max_len() as i32
+                * get_type_in_memory_size(list_data.get_list_item_type(), true);
             if include_repr {
                 size += 8; // offset + length
             }
             size
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(length)) => {
-            u32::from(length) as i32
+            let mut size = u32::from(length) as i32;
+            if include_repr {
+                size += 8; // offset + length
+            }
+            size
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(length))) => {
             let mut size = u32::from(length) as i32 * 4;
