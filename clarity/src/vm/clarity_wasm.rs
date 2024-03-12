@@ -1211,7 +1211,7 @@ fn write_to_wasm(
                 // `offset`.
                 let offset_buffer = (in_mem_offset as i32).to_le_bytes();
                 memory
-                    .write(&mut store, (offset) as usize, &offset_buffer)
+                    .write(&mut store, offset as usize, &offset_buffer)
                     .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
                 let len_buffer = (in_mem_written as i32).to_le_bytes();
