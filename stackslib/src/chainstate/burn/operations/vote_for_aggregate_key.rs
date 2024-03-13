@@ -21,6 +21,7 @@ use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::bitcoin::bits::parse_script;
 use crate::burnchains::bitcoin::{BitcoinTxInput, BitcoinTxInputStructured};
@@ -172,14 +173,27 @@ impl VoteForAggregateKeyOp {
         })
     }
 
+    /// Check the payload of a vote-for-aggregate-key burn op.
+    /// Both `signer_key` and `aggregate_key` are checked for validity against
+    /// `Secp256k1PublicKey` from `stacks_common` as well as `Point` from wsts.
     pub fn check(&self) -> Result<(), op_error> {
         // Check to see if the aggregate key is valid
-        Secp256k1PublicKey::from_slice(self.aggregate_key.as_bytes())
+        let aggregate_key_bytes = self.aggregate_key.as_bytes();
+        Secp256k1PublicKey::from_slice(aggregate_key_bytes)
             .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
 
-        // Check to see if the signer key is valid
-        Secp256k1PublicKey::from_slice(self.signer_key.as_bytes())
+        let compressed = Compressed::try_from(aggregate_key_bytes.clone())
             .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
+        Point::try_from(&compressed).map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
+
+        // Check to see if the signer key is valid
+        let signer_key_bytes = self.signer_key.as_bytes();
+        Secp256k1PublicKey::from_slice(signer_key_bytes)
+            .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
+
+        let compressed = Compressed::try_from(signer_key_bytes.clone())
+            .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
+        Point::try_from(&compressed).map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
 
         Ok(())
     }
@@ -217,8 +231,9 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
 #[cfg(test)]
 mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
+    use stacks_common::types;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-    use stacks_common::types::StacksPublicKeyBuffer;
+    use stacks_common::types::{Address, StacksPublicKeyBuffer};
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
@@ -380,5 +395,29 @@ mod tests {
             &vote_op.signer_key,
             &signer_key.to_bytes_compressed().as_slice().into()
         );
+    }
+
+    #[test]
+    fn test_key_validation() {
+        let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
+        let sender = StacksAddress::from_string(sender_addr).unwrap();
+        let op = VoteForAggregateKeyOp {
+            sender,
+            reward_cycle: 10,
+            round: 1,
+            signer_index: 12,
+            signer_key: StacksPublicKeyBuffer([0x00; 33]),
+            aggregate_key: StacksPublicKeyBuffer([0x00; 33]),
+            txid: Txid([10u8; 32]),
+            vtxindex: 10,
+            block_height: 10,
+            burn_header_hash: BurnchainHeaderHash([0x10; 32]),
+        };
+
+        match op.check() {
+            Ok(_) => panic!("Invalid key should not pass validation"),
+            Err(op_error::VoteForAggregateKeyInvalidKey) => (),
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
     }
 }
