@@ -1901,6 +1901,7 @@ pub mod test {
             _confirmed_mblock_cost: &ExecutionCost,
             pox_constants: &PoxConstants,
             reward_set_data: &Option<RewardSetData>,
+            _signer_bitvec: &Option<BitVec<4000>>,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),

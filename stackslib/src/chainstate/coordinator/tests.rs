@@ -427,6 +427,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
         _reward_set_data: &Option<RewardSetData>,
+        _signer_bitvec: &Option<BitVec<4000>>,
     ) {
         assert!(
             false,

@@ -1437,6 +1437,8 @@ impl NakamotoChainState {
         // succeeds, since *we have already processed* the block.
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
+        let signer_bitvec = (&next_ready_block).header.signer_bitvec.clone();
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -1459,6 +1461,7 @@ impl NakamotoChainState {
                 &receipt.parent_microblocks_cost,
                 &pox_constants,
                 &reward_set_data,
+                &Some(signer_bitvec),
             );
         }
 
