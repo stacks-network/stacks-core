@@ -366,7 +366,7 @@ impl Signer {
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let mut block_info = self
                     .signer_db
-                    .block_lookup(&signer_signature_hash)
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
                     .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
                     .unwrap_or_else(|| BlockInfo::new(block.clone()));
                 if block_info.signed_over {
@@ -388,7 +388,7 @@ impl Signer {
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
-                            .insert_block(&block_info)
+                            .insert_block(self.reward_cycle, &block_info)
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
@@ -447,7 +447,10 @@ impl Signer {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
                 // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -462,7 +465,7 @@ impl Signer {
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 self.signer_db
-                    .insert_block(&block_info)
+                    .insert_block(self.reward_cycle, &block_info)
                     .expect(&format!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
@@ -473,7 +476,10 @@ impl Signer {
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 let signer_signature_hash = block_validate_reject.signer_signature_hash;
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -535,7 +541,7 @@ impl Signer {
             }
         }
         self.signer_db
-            .insert_block(&block_info)
+            .insert_block(self.reward_cycle, &block_info)
             .expect(&format!("{self}: Failed to insert block in DB"));
     }
 
@@ -579,7 +585,7 @@ impl Signer {
                 continue;
             }
             let sig_hash = proposal.block.header.signer_signature_hash();
-            match self.signer_db.block_lookup(&sig_hash) {
+            match self.signer_db.block_lookup(self.reward_cycle, &sig_hash) {
                 Ok(Some(block)) => {
                     debug!(
                         "{self}: Received proposal for block already known, ignoring new proposal.";
@@ -599,7 +605,7 @@ impl Signer {
                 Ok(None) => {
                     // Store the block in our cache
                     self.signer_db
-                        .insert_block(&BlockInfo::new(proposal.block.clone()))
+                        .insert_block(self.reward_cycle, &BlockInfo::new(proposal.block.clone()))
                         .unwrap_or_else(|e| {
                             error!("{self}: Failed to insert block in DB: {e:?}");
                         });
@@ -680,7 +686,7 @@ impl Signer {
 
         match self
             .signer_db
-            .block_lookup(&block_vote.signer_signature_hash)
+            .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
             .expect(&format!("{self}: Failed to connect to DB"))
             .map(|b| b.vote)
         {
@@ -735,7 +741,7 @@ impl Signer {
         let signer_signature_hash = block.header.signer_signature_hash();
         let Some(mut block_info) = self
             .signer_db
-            .block_lookup(&signer_signature_hash)
+            .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         else {
             debug!(
@@ -913,7 +919,7 @@ impl Signer {
                         return None;
                     };
                     self.signer_db
-                        .insert_block(&updated_block_info)
+                        .insert_block(self.reward_cycle, &updated_block_info)
                         .expect(&format!("{self}: Failed to insert block in DB"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
@@ -1154,7 +1160,7 @@ impl Signer {
             };
             let Some(block_info) = self
                 .signer_db
-                .block_lookup(&block_vote.signer_signature_hash)
+                .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
                 .expect(&format!("{self}: Failed to connect to signer DB"))
             else {
                 debug!(
