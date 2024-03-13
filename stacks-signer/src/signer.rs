@@ -46,6 +46,7 @@ use wsts::state_machine::coordinator::{
 };
 use wsts::state_machine::signer::Signer as WSTSSigner;
 use wsts::state_machine::{OperationResult, SignError};
+use wsts::traits::Signer as _;
 use wsts::v2;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
@@ -243,17 +244,8 @@ impl From<SignerConfig> for Signer {
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
-        let signing_round = WSTSSigner::new(
-            threshold,
-            num_signers,
-            num_keys,
-            signer_config.signer_id,
-            signer_config.key_ids,
-            signer_config.ecdsa_private_key,
-            signer_config.signer_entries.public_keys.clone(),
-        );
         let coordinator_selector =
-            CoordinatorSelector::from(signer_config.signer_entries.public_keys);
+            CoordinatorSelector::from(signer_config.signer_entries.public_keys.clone());
 
         debug!(
             "Reward cycle #{} Signer #{}: initial coordinator is signer {}",
@@ -263,6 +255,28 @@ impl From<SignerConfig> for Signer {
         );
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
+
+        let mut signing_round = WSTSSigner::new(
+            threshold,
+            num_signers,
+            num_keys,
+            signer_config.signer_id,
+            signer_config.key_ids,
+            signer_config.ecdsa_private_key,
+            signer_config.signer_entries.public_keys,
+        );
+
+        if let Some(state) = signer_db
+            .get_signer_state(signer_config.reward_cycle)
+            .expect("Failed to load signer state")
+        {
+            debug!(
+                "Reward cycle #{} Signer #{}: Loading signer",
+                signer_config.reward_cycle, signer_config.signer_id
+            );
+            signing_round.signer = v2::Signer::load(&state);
+        }
+
         Self {
             coordinator,
             signing_round,
@@ -670,6 +684,9 @@ impl Signer {
             // We have received a message and are in the middle of an operation. Update our state accordingly
             self.update_operation();
         }
+
+        debug!("{self}: Saving signing round data");
+        self.save_signing_round();
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
     }
@@ -1171,6 +1188,18 @@ impl Signer {
         {
             warn!("{self}: Failed to send block rejection submission to stacker-db: {e:?}");
         }
+    }
+
+    /// Persist state needed to ensure the signer can continue to perform
+    /// DKG and participate in signing rounds accross crashes
+    ///
+    /// # Panics
+    /// Panics if the insertion fails
+    fn save_signing_round(&self) {
+        let state = self.signing_round.signer.save();
+        self.signer_db
+            .insert_signer_state(self.reward_cycle, &state)
+            .expect("Failed to persist signer state");
     }
 
     /// Send any operation results across the provided channel

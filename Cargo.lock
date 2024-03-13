@@ -3451,6 +3451,8 @@ dependencies = [
  "hashbrown 0.14.3",
  "libsigner",
  "libstackerdb",
+ "num-traits",
+ "polynomial",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
