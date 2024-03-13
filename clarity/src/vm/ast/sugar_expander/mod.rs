@@ -205,7 +205,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -217,7 +217,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::tuple(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -305,42 +305,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_pre_atom("let", 1, 4, 1, 6),
                     make_pre_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_pre_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_pre_atom("x", 1, 10, 1, 10),
                                     make_pre_atom_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_pre_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_pre_atom("y", 1, 16, 1, 16),
                                     make_pre_atom_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_pre_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_pre_atom("+", 2, 6, 2, 6),
                             make_pre_atom("x", 2, 8, 2, 8),
                             make_pre_list(
@@ -348,41 +348,41 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_pre_atom("let", 4, 10, 4, 12),
                                     make_pre_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_pre_list(
+                                        vec![make_pre_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_pre_atom("x", 4, 16, 4, 16),
                                                 make_pre_atom_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_pre_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_pre_atom("+", 5, 10, 5, 10),
                                             make_pre_atom("x", 5, 12, 5, 12),
                                             make_pre_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_pre_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_pre_atom("x", 6, 13, 6, 13),
             make_pre_atom("y", 6, 15, 6, 15),
@@ -498,10 +498,10 @@ mod test {
             1,
             1,
             9,
-            Box::new([
+            vec![
                 make_pre_atom("id", 1, 2, 1, 3),
                 make_pre_atom_value(Value::Int(1337), 1, 5, 1, 8),
-            ]),
+            ],
         )];
         let ast = vec![make_list(
             1,
@@ -848,7 +848,7 @@ mod test {
         // )
         let pre_foo = make_pre_atom("foo", 2, 4, 2, 6);
         let pre_comment = make_pre_comment("this is a comment".to_string(), 3, 4, 3, 20);
-        let pre_ast = vec![make_pre_list(1, 1, 4, 1, Box::new([pre_foo, pre_comment]))];
+        let pre_ast = vec![make_pre_list(1, 1, 4, 1, vec![pre_foo, pre_comment])];
         let mut foo = make_atom("foo", 2, 4, 2, 6);
         foo.post_comments = vec![(
             "this is a comment".to_string(),
