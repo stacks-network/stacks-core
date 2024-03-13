@@ -245,16 +245,6 @@ impl From<SignerConfig> for Signer {
             signer_public_keys: signer_config.signer_entries.signer_public_keys,
         };
 
-        info!(
-            "Initializing signer";
-            "num_signers" => num_signers,
-            "num_keys" => num_keys,
-            "threshold" => threshold,
-            "signer_key_ids" => ?coordinator_config.signer_key_ids,
-            "signer_public_keys" => ?coordinator_config.signer_public_keys,
-            "wsts_public_keys" => ?signer_config.signer_entries.public_keys
-        );
-
         let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = WSTSSigner::new(
             threshold,
@@ -505,7 +495,7 @@ impl Signer {
             }
         };
         if let Some(mut nonce_request) = block_info.nonce_request.take() {
-            info!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
+            debug!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
             // We have received validation from the stacks node. Determine our vote and update the request message
             self.determine_vote(&mut block_info, &mut nonce_request);
             // Send the nonce request through with our vote
@@ -531,7 +521,7 @@ impl Signer {
                     merkle_root: None,
                 });
             } else {
-                info!(
+                debug!(
                     "{self}: ignoring block.";
                     "block_hash" => block_info.block.header.block_hash(),
                     "valid" => block_info.valid,
@@ -933,7 +923,7 @@ impl Signer {
             }
             Some(packet)
         } else {
-            warn!(
+            debug!(
                 "{self}: Failed to verify wsts packet with {}: {packet:?}",
                 coordinator_public_key
             );
@@ -1325,7 +1315,7 @@ impl Signer {
                     debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");
                     return Ok(());
                 }
-                info!(
+                debug!(
                     "{self}: Received {} block proposals and {} messages from the miner",
                     blocks.len(),
                     messages.len();

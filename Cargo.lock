@@ -4707,7 +4707,7 @@ dependencies = [
 [[package]]
 name = "wsts"
 version = "8.1.0"
-source = "git+https://github.com/stacks-network/wsts.git?branch=feat/public-sign-ids#0c169162ee9d3d892bfc6bfa1815323954f1b605"
+source = "git+https://github.com/stacks-network/wsts.git?branch=feat/public-sign-ids#99c1ed3d528d98585ba4b50084e8a6c37f8f5793"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",
