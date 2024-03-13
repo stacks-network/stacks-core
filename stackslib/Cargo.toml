@@ -54,10 +54,10 @@ clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
-libsigner = { path = "../libsigner" }
 siphasher = "0.3.7"
 wsts = {workspace = true}
 rand_core = {workspace = true}
+hashbrown = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

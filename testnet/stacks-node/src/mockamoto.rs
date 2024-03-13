@@ -813,8 +813,6 @@ impl MockamotoNode {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: miner_pk_hash,
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         });
         let mut tenure_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -978,7 +976,7 @@ impl MockamotoNode {
 
         let miner_signature = self
             .miner_key
-            .sign(block.header.signature_hash().unwrap().as_bytes())
+            .sign(block.header.miner_signature_hash().unwrap().as_bytes())
             .unwrap();
 
         block.header.miner_signature = miner_signature;

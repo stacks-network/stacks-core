@@ -238,7 +238,7 @@ where
 
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
-fn next_block_and_process_new_stacks_block(
+pub fn next_block_and_process_new_stacks_block(
     btc_controller: &mut BitcoinRegtestController,
     timeout_secs: u64,
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
@@ -263,7 +263,7 @@ fn next_block_and_process_new_stacks_block(
 ///  (1) a new block has been processed by the coordinator
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
 ///      passed since (1) occurred
-fn next_block_and_mine_commit(
+pub fn next_block_and_mine_commit(
     btc_controller: &mut BitcoinRegtestController,
     timeout_secs: u64,
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
@@ -320,7 +320,7 @@ fn next_block_and_mine_commit(
     })
 }
 
-fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
+pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
     let stacker_sk = Secp256k1PrivateKey::new();
     let stacker_address = tests::to_addr(&stacker_sk);
     naka_conf.add_initial_balance(
@@ -333,7 +333,7 @@ fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 ///
 /// * `stacker_sk` - must be a private key for sending a large `stack-stx` transaction in order
 ///   for pox-4 to activate
-fn boot_to_epoch_3(
+pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
     stacker_sk: Secp256k1PrivateKey,

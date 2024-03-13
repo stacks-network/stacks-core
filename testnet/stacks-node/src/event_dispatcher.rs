@@ -10,7 +10,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
-pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -22,7 +21,8 @@ use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
+    TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{

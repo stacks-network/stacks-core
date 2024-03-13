@@ -48,7 +48,7 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
     MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1287,12 +1287,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
 
-            let pox_4_code = if mainnet {
-                &*POX_4_MAINNET_CODE
-            } else {
-                &*POX_4_TESTNET_CODE
-            };
-
+            let pox_4_code = &*POX_4_CODE;
             let pox_4_contract_id = boot_code_id(POX_4_NAME, mainnet);
 
             let payload = TransactionPayload::SmartContract(

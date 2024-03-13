@@ -44,7 +44,7 @@ pub trait SignerSession {
     /// query the replica for zero or more latest chunks
     fn get_latest_chunks(&mut self, slot_ids: &[u32]) -> Result<Vec<Option<Vec<u8>>>, RPCError>;
     /// Upload a chunk to the stacker DB instance
-    fn put_chunk(&mut self, chunk: StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError>;
+    fn put_chunk(&mut self, chunk: &StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError>;
 
     /// Get a single chunk with the given version
     /// Returns Ok(Some(..)) if the chunk exists
@@ -207,9 +207,9 @@ impl SignerSession for StackerDBSession {
     }
 
     /// upload a chunk
-    fn put_chunk(&mut self, chunk: StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError> {
+    fn put_chunk(&mut self, chunk: &StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError> {
         let body =
-            serde_json::to_vec(&chunk).map_err(|e| RPCError::Deserialize(format!("{:?}", &e)))?;
+            serde_json::to_vec(chunk).map_err(|e| RPCError::Deserialize(format!("{:?}", &e)))?;
         let path = stackerdb_post_chunk_path(self.stackerdb_contract_id.clone());
         let resp_bytes = self.rpc_request("POST", &path, Some("application/json"), &body)?;
         let ack: StackerDBChunkAckData = serde_json::from_slice(&resp_bytes)
