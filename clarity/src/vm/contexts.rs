@@ -1726,6 +1726,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.database.roll_back()
     }
 
+    // the allow_private parameter allows private functions calls to return any Clarity type
+    // and not just Response. It only has effect is the devtools feature is enabled. eg:
+    // clarity = { version = "*", features = ["devtools"] }
     pub fn handle_tx_result(
         &mut self,
         result: Result<Value>,
