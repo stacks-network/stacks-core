@@ -412,7 +412,7 @@ impl PreSymbolicExpression {
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[SymbolicExpression]>),
+    List(Vec<SymbolicExpression>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
@@ -544,7 +544,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()
