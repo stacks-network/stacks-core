@@ -37,6 +37,7 @@ use rand::{thread_rng, Rng, RngCore};
 use rusqlite::{Connection, DatabaseName, Error as sqlite_error, OptionalExtension};
 use serde::Serialize;
 use serde_json::json;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, write_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
@@ -183,6 +184,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
         _reward_set_data: &Option<RewardSetData>,
+        _signer_bitvec: &Option<BitVec<4000>>,
     ) {
         assert!(
             false,
@@ -6298,6 +6300,7 @@ impl StacksChainState {
                 &epoch_receipt.parent_microblocks_cost,
                 &pox_constants,
                 &reward_set_data,
+                &None,
             );
         }
 
