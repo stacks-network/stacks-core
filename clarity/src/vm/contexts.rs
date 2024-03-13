@@ -1739,7 +1739,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                     self.roll_back()?;
                 }
                 Ok(Value::Response(data))
-            } else if allow_private && cfg!(feature = "developer-mode") {
+            } else if allow_private && cfg!(feature = "devtools") {
                 self.commit()?;
                 Ok(result)
             } else {
