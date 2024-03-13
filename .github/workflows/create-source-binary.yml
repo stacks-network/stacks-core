@@ -53,71 +53,11 @@ jobs:
             cpu: armv7
 
     steps:
-      ## Setup Docker for the builds
-      - name: Docker setup
-        id: docker_setup
-        uses: stacks-network/actions/docker@main
-
-      - name: Set Local env vars
-        id: set_env
-        run: |
-          case ${{ matrix.cpu }} in
-              x86-64)
-                  ## default x64 builds to use v3 variant. TARGET_CPU is required to build for v3 via RUSTFLAGS
-                  TARGET_CPU="${{ matrix.cpu }}-v3"
-                  DOCKERFILE_CPU="x64"
-                  ARCHIVE_NAME="x64"
-                  ;;
-              x86-64-v2)
-                  ## intel nehalem (2008) and newer
-                  TARGET_CPU="${{ matrix.cpu }}"
-                  DOCKERFILE_CPU="x64"
-                  ARCHIVE_NAME="x64-v2"
-                  ;;
-              x86-64-v3)
-                  ## intel haswell (2013) and newer
-                  TARGET_CPU="${{ matrix.cpu }}"
-                  DOCKERFILE_CPU="x64"
-                  ARCHIVE_NAME="x64-v3"
-                  ;;
-              x86-64-v4)
-                  ## intel skylake (2017) and newer
-                  TARGET_CPU="${{ matrix.cpu }}"
-                  DOCKERFILE_CPU="x64"
-                  ARCHIVE_NAME="x64-v4"
-                  ;;
-              *)
-                  TARGET_CPU=""
-                  DOCKERFILE_CPU="${{ matrix.cpu }}"
-                  ARCHIVE_NAME="${{ matrix.cpu }}"
-                  ;;
-          esac
-          echo "DOCKERFILE=Dockerfile.${{ matrix.arch }}-${DOCKERFILE_CPU}" >> "$GITHUB_ENV"
-          echo "ZIPFILE=${{ matrix.arch }}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
-          echo "TARGET_CPU=${TARGET_CPU}" >> "$GITHUB_ENV"
-
-      ## Build the binaries using defined dockerfiles
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
-        id: build_binaries
-        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # 5.0.0
+        id: build_binary
+        uses: stacks-network/actions/stacks-core/create-source-binary@main
         with:
-          file: build-scripts/${{ env.DOCKERFILE }}
-          outputs: type=local,dest=./release/${{ matrix.arch }}
-          build-args: |
-            STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
-            OS_ARCH=${{ matrix.arch }}
-            TARGET_CPU=${{ env.TARGET_CPU }}
-            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+          arch: ${{ matrix.arch }}
+          cpu: ${{ matrix.cpu }}
+          tag: ${{ inputs.tag }}
 
-      ## Compress the binary artifact
-      - name: Compress artifact
-        id: compress_artifact
-        run: zip --junk-paths ${{ env.ZIPFILE }} ./release/${{ matrix.arch }}/*
-
-      ## Upload the binary artifact to the github action (used in `github-release.yml` to create a release)
-      - name: Upload artifact
-        id: upload_artifact
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
-        with:
-          path: ${{ env.ZIPFILE }}.zip

@@ -240,10 +240,30 @@ where
     }
 }
 
+fn serialize_u128_as_string<S>(value: &u128, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+fn deserialize_u128_from_string<'de, D>(deserializer: D) -> Result<u128, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use std::str::FromStr;
+    let s = String::deserialize(deserializer)?;
+    u128::from_str(&s).map_err(serde::de::Error::custom)
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NakamotoSignerEntry {
     #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
     pub signing_key: [u8; 33],
+    #[serde(
+        serialize_with = "serialize_u128_as_string",
+        deserialize_with = "deserialize_u128_from_string"
+    )]
     pub stacked_amt: u128,
     pub weight: u32,
 }
