@@ -503,7 +503,7 @@ fn create_event_info_data_code(
                         data: {{
                             delegate-to: '{delegate_to},
                             ;; Get end cycle ID
-                            end-cycle-id: (some (+ (current-pox-reward-cycle) u1)),
+                            end-cycle-id: none,
                             ;; Get start cycle ID
                             start-cycle-id: (+ (current-pox-reward-cycle) u1),
                         }},

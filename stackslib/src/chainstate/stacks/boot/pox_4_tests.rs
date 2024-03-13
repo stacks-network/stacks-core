@@ -1780,7 +1780,6 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("prep", Value::UInt(1)),                        // DEBUG
         ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked during the prepare phase
         (
             "end-cycle-id",
@@ -1861,7 +1860,10 @@ fn pox_4_revoke_delegate_stx_events() {
         get_tip(peer.sortdb.as_ref()).block_height
     );
     let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let current_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let next_cycle = current_cycle + 1;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
+
     let steph_stacking = make_pox_4_contract_call(
         &steph,
         0,
@@ -1954,7 +1956,7 @@ fn pox_4_revoke_delegate_stx_events() {
     assert_eq!(revoke_delegation_tx_events.len() as u64, 1);
     let revoke_delegation_tx_event = &revoke_delegation_tx_events[0];
     let revoke_delegate_stx_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(22)),
+        ("start-cycle-id", Value::UInt(next_cycle)),
         ("end-cycle-id", Optional(OptionalData { data: None })),
         (
             "delegate-to",
