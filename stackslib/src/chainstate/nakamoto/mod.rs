@@ -55,7 +55,7 @@ use super::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
-use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
+use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp};
 use super::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
@@ -279,6 +279,8 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
     /// Result of a signer set calculation if one occurred
     pub signer_set_calc: Option<SignerCalculation>,
+    /// vote-for-aggregate-key Stacks-on-Bitcoin txs
+    pub burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2283,6 +2285,7 @@ impl NakamotoChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
         new_tenure: bool,
         block_fees: u128,
     ) -> Result<StacksHeaderInfo, ChainstateError> {
@@ -2367,6 +2370,7 @@ impl NakamotoChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            burn_vote_for_aggregate_key_ops,
         )?;
 
         if let Some(matured_miner_payouts) = mature_miner_payouts_opt {
@@ -2502,7 +2506,7 @@ impl NakamotoChainState {
         };
 
         // TODO: only need to do this if this is a tenure-start block
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops) =
+        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
             StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                 chainstate_tx,
                 &parent_index_hash,
@@ -2629,6 +2633,10 @@ impl NakamotoChainState {
                 burn_header_height.into(),
                 coinbase_height,
             )?;
+            tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
+                &mut clarity_tx,
+                vote_for_agg_key_ops.clone(),
+            ));
         } else {
             signer_set_calc = None;
         }
@@ -2650,6 +2658,7 @@ impl NakamotoChainState {
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
             signer_set_calc,
+            burn_vote_for_aggregate_key_ops: vote_for_agg_key_ops,
         })
     }
 
@@ -2899,6 +2908,7 @@ impl NakamotoChainState {
             burn_delegate_stx_ops,
             mut auto_unlock_events,
             signer_set_calc,
+            burn_vote_for_aggregate_key_ops,
         } = Self::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -3058,6 +3068,7 @@ impl NakamotoChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            burn_vote_for_aggregate_key_ops,
             new_tenure,
             block_fees,
         )

@@ -395,7 +395,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -417,7 +417,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .transpose()
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -447,7 +447,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .transpose()
     }
 
-    fn put_all(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
@@ -563,7 +563,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -593,7 +593,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .transpose()
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -678,7 +678,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         }
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {
