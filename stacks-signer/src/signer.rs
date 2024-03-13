@@ -21,10 +21,12 @@ use std::time::Instant;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
-use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
-use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
+use libsigner::{
+    BlockProposalSigners, BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage,
+};
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -71,7 +73,7 @@ pub struct BlockInfo {
     /// The associated packet nonce request if we have one
     nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
-    signed_over: bool,
+    pub signed_over: bool,
 }
 
 impl BlockInfo {
@@ -126,6 +128,8 @@ pub enum State {
     Idle,
     /// The signer is executing a DKG or Sign round
     OperationInProgress,
+    /// The signer's reward cycle has finished
+    TenureCompleted,
 }
 
 /// The stacks signer registered for the reward cycle
@@ -170,8 +174,10 @@ impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Reward Cycle #{} Signer #{}",
-            self.reward_cycle, self.signer_id,
+            "Cycle #{} Signer #{}(C:{})",
+            self.reward_cycle,
+            self.signer_id,
+            self.coordinator_selector.get_coordinator().0,
         )
     }
 }
@@ -367,7 +373,10 @@ impl Signer {
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish...",);
+                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
+            }
+            State::TenureCompleted => {
+                warn!("{self}: Tenure completed. This signer should have been cleaned up during refresh.",);
             }
         }
     }
@@ -452,8 +461,9 @@ impl Signer {
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
-                    "{self}: triggering a signing round over the block {}",
-                    block_info.block.header.block_hash()
+                    "{self}: attempt to trigger a signing round for block";
+                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
+                    "block_hash" => %block_info.block.header.block_hash(),
                 );
                 self.commands.push_back(Command::Sign {
                     block: block_info.block.clone(),
@@ -497,20 +507,59 @@ impl Signer {
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(&mut self, stacks_client: &StacksClient, blocks: &[NakamotoBlock]) {
-        for block in blocks {
-            // Store the block in our cache
-            self.signer_db
-                .insert_block(&BlockInfo::new(block.clone()))
-                .unwrap_or_else(|e| {
-                    error!("{self}: Failed to insert block in DB: {e:?}");
-                });
-            // Submit the block for validation
-            stacks_client
-                .submit_block_for_validation(block.clone())
-                .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to submit block for validation: {e:?}");
-                });
+    fn handle_proposed_blocks(
+        &mut self,
+        stacks_client: &StacksClient,
+        proposals: &[BlockProposalSigners],
+    ) {
+        for proposal in proposals {
+            if proposal.reward_cycle != self.reward_cycle {
+                debug!(
+                    "{self}: Received proposal for block outside of my reward cycle, ignoring.";
+                    "proposal_reward_cycle" => proposal.reward_cycle,
+                    "proposal_burn_height" => proposal.burn_height,
+                );
+                continue;
+            }
+            let sig_hash = proposal.block.header.signer_signature_hash();
+            match self.signer_db.block_lookup(&sig_hash) {
+                Ok(Some(block)) => {
+                    debug!(
+                        "{self}: Received proposal for block already known, ignoring new proposal.";
+                        "signer_sighash" => %sig_hash,
+                        "proposal_burn_height" => proposal.burn_height,
+                        "vote" => ?block.vote.as_ref().map(|v| {
+                            if v.rejected {
+                                "REJECT"
+                            } else {
+                                "ACCEPT"
+                            }
+                        }),
+                        "signed_over" => block.signed_over,
+                    );
+                    continue;
+                }
+                Ok(None) => {
+                    // Store the block in our cache
+                    self.signer_db
+                        .insert_block(&BlockInfo::new(proposal.block.clone()))
+                        .unwrap_or_else(|e| {
+                            error!("{self}: Failed to insert block in DB: {e:?}");
+                        });
+                    // Submit the block for validation
+                    stacks_client
+                        .submit_block_for_validation(proposal.block.clone())
+                        .unwrap_or_else(|e| {
+                            warn!("{self}: Failed to submit block for validation: {e:?}");
+                        });
+                }
+                Err(e) => {
+                    error!(
+                        "{self}: Failed to lookup block in DB: {e:?}. Dropping proposal request."
+                    );
+                    continue;
+                }
+            }
         }
     }
 
@@ -574,7 +623,10 @@ impl Signer {
         {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
-                debug!("{self}: set vote for {} to {vote:?}", block_vote.rejected);
+                debug!(
+                    "{self}: Set vote (rejected = {}) to {vote:?}", block_vote.rejected;
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 request.message = vote.serialize_to_vec();
                 true
             }
@@ -582,7 +634,10 @@ impl Signer {
                 // We never agreed to sign this block. Reject it.
                 // This can happen if the coordinator received enough votes to sign yes
                 // or no on a block before we received validation from the stacks node.
-                debug!("{self}: Received a signature share request for a block we never agreed to sign. Ignore it.");
+                debug!(
+                    "{self}: Received a signature share request for a block we never agreed to sign. Ignore it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 false
             }
             None => {
@@ -590,7 +645,8 @@ impl Signer {
                 // blocks we have seen a Nonce Request for (and subsequent validation)
                 // We are missing the context here necessary to make a decision. Reject the block
                 debug!(
-                    "{self}: Received a signature share request from an unknown block. Reject it."
+                    "{self}: Received a signature share request from an unknown block. Reject it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
                 );
                 false
             }
@@ -967,22 +1023,27 @@ impl Signer {
             return;
         };
 
-        // TODO: proper garbage collection...This is currently our only cleanup of blocks
-        self.signer_db
-            .remove_block(&block_vote.signer_signature_hash)
-            .expect(&format!("{self}: Failed to remove block from to signer DB"));
+        // WIP: try not deleting a block from signerDB until we have a better garbage collection strategy.
+        // This causes issues when we have to reprocess a block and we have already deleted it from the signerDB
+        // // TODO: proper garbage collection...This is currently our only cleanup of blocks
+        // self.signer_db
+        //     .remove_block(&block_vote.signer_signature_hash)
+        //     .expect(&format!("{self}: Failed to remove block from to signer DB"));
 
         let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message
-            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone())
         } else {
             // we agreed to sign the block hash. Return an approval message
-            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone())
         };
 
         // Submit signature result to miners to observe
-        debug!("{self}: submit block response {block_submission:?}");
-        if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
+        info!("{self}: Submit block response: {block_submission}");
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry(block_submission.into())
+        {
             warn!("{self}: Failed to send block submission to stacker-db: {e:?}");
         }
     }

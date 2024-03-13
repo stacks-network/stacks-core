@@ -135,7 +135,7 @@ fn test_simple_signer() {
 
             let ev = &thread_chunks[num_sent];
             let body = serde_json::to_string(ev).unwrap();
-            let req = format!("POST /stackerdb_chunks HTTP/1.0\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
+            let req = format!("POST /stackerdb_chunks HTTP/1.1\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
             debug!("Send:\n{}", &req);
 
             sock.write_all(req.as_bytes()).unwrap();
@@ -188,13 +188,13 @@ fn test_status_endpoint() {
                 return;
             }
         };
-        let req = "GET /status HTTP/1.0\r\nConnection: close\r\n\r\n";
+        let req = "GET /status HTTP/1.1\r\nConnection: close\r\n\r\n";
 
         sock.write_all(req.as_bytes()).unwrap();
         let mut buf = [0; 128];
         let _ = sock.read(&mut buf).unwrap();
         let res_str = std::str::from_utf8(&buf).unwrap();
-        let expected_status_res = "HTTP/1.0 200 OK\r\n";
+        let expected_status_res = "HTTP/1.1 200 OK\r\n";
         assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
         sock.flush().unwrap();
     });

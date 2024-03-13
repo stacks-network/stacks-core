@@ -23,8 +23,8 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
 use libsigner::{
-    BlockResponse, RejectCode, SignerMessage, SignerSession, StackerDBSession, BLOCK_MSG_ID,
-    TRANSACTIONS_MSG_ID,
+    BlockProposalSigners, BlockResponse, RejectCode, SignerMessage, SignerSession,
+    StackerDBSession, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -193,37 +193,53 @@ impl BlockMinerThread {
             .expect("FATAL: could not open sortition DB");
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
                 .expect("FATAL: could not retrieve chain tip");
+            let reward_cycle = self
+                .burnchain
+                .pox_constants
+                .block_height_to_reward_cycle(
+                    self.burnchain.first_block_height,
+                    self.burn_block.block_height,
+                )
+                .expect("FATAL: building on a burn block that is before the first burn block");
             if let Some(new_block) = new_block {
-                match NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                let proposal_msg = BlockProposalSigners {
+                    block: new_block.clone(),
+                    burn_height: self.burn_block.block_height,
+                    reward_cycle,
+                };
+                let proposal = match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
                     &tip,
                     &stackerdbs,
-                    &new_block,
+                    &proposal_msg,
                     &miner_privkey,
                     &miners_contract_id,
                 ) {
-                    Ok(Some(chunk)) => {
-                        // Propose the block to the observing signers through the .miners stackerdb instance
-                        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-                        let mut miners_stackerdb =
-                            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-                        match miners_stackerdb.put_chunk(&chunk) {
-                            Ok(ack) => {
-                                info!("Proposed block to stackerdb: {ack:?}");
-                            }
-                            Err(e) => {
-                                warn!("Failed to propose block to stackerdb {e:?}");
-                                return;
-                            }
-                        }
-                    }
+                    Ok(Some(chunk)) => chunk,
                     Ok(None) => {
                         warn!("Failed to propose block to stackerdb: no slot available");
+                        continue;
                     }
                     Err(e) => {
                         warn!("Failed to propose block to stackerdb: {e:?}");
+                        continue;
+                    }
+                };
+
+                // Propose the block to the observing signers through the .miners stackerdb instance
+                let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+                let mut miners_stackerdb =
+                    StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+                match miners_stackerdb.put_chunk(&proposal) {
+                    Ok(ack) => {
+                        info!("Proposed block to stackerdb: {ack:?}");
+                    }
+                    Err(e) => {
+                        warn!("Failed to propose block to stackerdb {e:?}");
+                        return;
                     }
                 }
+
                 self.globals.counters.bump_naka_proposed_blocks();
 
                 if let Err(e) =
@@ -231,6 +247,14 @@ impl BlockMinerThread {
                 {
                     warn!("Error broadcasting block: {e:?}");
                 } else {
+                    info!(
+                        "Miner: Block signed by signer set and broadcasted";
+                        "signer_sighash" => %new_block.header.signer_signature_hash(),
+                        "block_hash" => %new_block.header.block_hash(),
+                        "stacks_block_id" => %new_block.header.block_id(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
                     self.globals.coord().announce_new_stacks_block();
                 }
 
@@ -839,15 +863,11 @@ impl BlockMinerThread {
         block.header.miner_signature = miner_signature;
 
         info!(
-            "Miner: Succeeded assembling {} block #{}: {}, with {} txs",
-            if parent_block_info.parent_block_total_burn == 0 {
-                "Genesis"
-            } else {
-                "Stacks"
-            },
+            "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block.header.chain_length,
             block.header.block_hash(),
-            block.txs.len(),
+            block.txs.len();
+            "signer_sighash" => %block.header.signer_signature_hash(),
         );
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
