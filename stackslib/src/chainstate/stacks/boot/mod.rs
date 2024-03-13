@@ -87,6 +87,8 @@ pub const COSTS_3_NAME: &'static str = "costs-3";
 pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
 
+pub const MINERS_NAME: &'static str = "miners";
+
 pub mod docs;
 
 lazy_static! {
@@ -1784,6 +1786,50 @@ pub mod test {
                 addr_tuple,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: Option<PoxAddress>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stx",
+            vec![
+                Value::UInt(amount),
+                Value::Principal(delegate_to.clone()),
+                match until_burn_ht {
+                    Some(burn_ht) => Value::some(Value::UInt(burn_ht)).unwrap(),
+                    None => Value::none(),
+                },
+                match pox_addr {
+                    Some(addr) => {
+                        Value::some(Value::Tuple(addr.as_clarity_tuple().unwrap())).unwrap()
+                    }
+                    None => Value::none(),
+                },
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_revoke_delegate_stx(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "revoke-delegate-stx",
+            vec![],
         )
         .unwrap();
 

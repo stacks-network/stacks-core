@@ -409,8 +409,8 @@ impl TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee: fee,
-            receipt: receipt,
+            fee,
+            receipt,
         })
     }
 
@@ -420,7 +420,7 @@ impl TransactionResult {
         Self::log_transaction_error(transaction, &error);
         TransactionResult::ProcessingError(TransactionError {
             tx: transaction.clone(),
-            error: error,
+            error,
         })
     }
 
@@ -433,7 +433,7 @@ impl TransactionResult {
         Self::log_transaction_skipped(transaction, &error);
         TransactionResult::Skipped(TransactionSkipped {
             tx: transaction.clone(),
-            error: error,
+            error,
         })
     }
 
@@ -446,7 +446,7 @@ impl TransactionResult {
         Self::log_transaction_skipped(transaction, &error);
         TransactionResult::Skipped(TransactionSkipped {
             tx: transaction.clone(),
-            error: error,
+            error,
         })
     }
 
@@ -456,7 +456,7 @@ impl TransactionResult {
         Self::log_transaction_problematic(transaction, &error);
         TransactionResult::Problematic(TransactionProblematic {
             tx: transaction.clone(),
-            error: error,
+            error,
         })
     }
 

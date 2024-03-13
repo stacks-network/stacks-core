@@ -3616,6 +3616,7 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "libc",
+ "libsigner",
  "libstackerdb",
  "mio 0.6.23",
  "nix",

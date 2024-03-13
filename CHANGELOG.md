@@ -53,6 +53,8 @@ the log message (PR #3784).
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 - satoshis_per_byte can be changed in the config file and miners will always use
   the most up to date value
+- New RPC endpoint at /v2/block_proposal for miner to validate proposed block.
+  Only accessible on local loopback interface
 
 ### Changed
 

@@ -33,7 +33,7 @@ use stx_genesis::GenesisData;
 use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::NeonGlobals as Globals;
-use crate::monitoring::start_serving_monitoring_metrics;
+use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
@@ -176,6 +176,7 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
+    monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -224,6 +225,7 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
+            monitoring_thread: None,
         }
     }
 
@@ -614,16 +616,22 @@ impl RunLoop {
 
     /// Start Prometheus logging
     fn start_prometheus(&mut self) {
-        let prometheus_bind = self.config.node.prometheus_bind.clone();
-        if let Some(prometheus_bind) = prometheus_bind {
-            thread::Builder::new()
-                .name("prometheus".to_string())
-                .spawn(move || {
-                    debug!("prometheus thread ID is {:?}", thread::current().id());
-                    start_serving_monitoring_metrics(prometheus_bind);
-                })
-                .unwrap();
-        }
+        let Some(prometheus_bind) = self.config.node.prometheus_bind.clone() else {
+            return;
+        };
+        let monitoring_thread = thread::Builder::new()
+            .name("prometheus".to_string())
+            .spawn(move || {
+                debug!("prometheus thread ID is {:?}", thread::current().id());
+                start_serving_monitoring_metrics(prometheus_bind)
+            })
+            .expect("FATAL: failed to start monitoring thread");
+
+        self.monitoring_thread.replace(monitoring_thread);
+    }
+
+    pub fn take_monitoring_thread(&mut self) -> Option<JoinHandle<Result<(), MonitoringError>>> {
+        self.monitoring_thread.take()
     }
 
     /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the

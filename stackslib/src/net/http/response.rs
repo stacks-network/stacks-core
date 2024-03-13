@@ -34,7 +34,7 @@ use crate::net::http::common::{
 };
 use crate::net::http::request::{HttpRequestContents, HttpRequestPreamble};
 use crate::net::http::stream::HttpChunkGenerator;
-use crate::net::http::{write_headers, Error, HttpContentType, HttpVersion};
+use crate::net::http::{http_reason, write_headers, Error, HttpContentType, HttpVersion};
 
 /// HTTP response preamble.  This captures all HTTP header information, but in a way that
 /// certain fields that nodes rely on are guaranteed to have correct, sensible values.
@@ -185,15 +185,26 @@ impl HttpResponsePreamble {
         )
     }
 
-    pub fn ok_json(preamble: &HttpRequestPreamble) -> HttpResponsePreamble {
+    pub fn success_2xx_json(
+        preamble: &HttpRequestPreamble,
+        status_code: u16,
+    ) -> HttpResponsePreamble {
         HttpResponsePreamble::new(
             preamble.version,
-            200,
-            "OK".to_string(),
+            status_code,
+            http_reason(status_code).to_string(),
             None,
             HttpContentType::JSON,
             preamble.keep_alive,
         )
+    }
+
+    pub fn ok_json(preamble: &HttpRequestPreamble) -> HttpResponsePreamble {
+        Self::success_2xx_json(preamble, 200)
+    }
+
+    pub fn accepted_json(preamble: &HttpRequestPreamble) -> HttpResponsePreamble {
+        Self::success_2xx_json(preamble, 202)
     }
 
     pub fn raw_ok_json(version: HttpVersion, keep_alive: bool) -> HttpResponsePreamble {

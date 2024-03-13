@@ -56,6 +56,7 @@ pub mod getstackerdbmetadata;
 pub mod getstxtransfercost;
 pub mod gettransaction_unconfirmed;
 pub mod postblock;
+pub mod postblock_proposal;
 pub mod postfeerate;
 pub mod postmempoolquery;
 pub mod postmicroblock;
@@ -107,6 +108,7 @@ impl StacksHttp {
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
+        self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new());
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
@@ -120,7 +122,7 @@ impl From<NetError> for Error {
     fn from(e: NetError) -> Error {
         match e {
             NetError::Http(e) => e,
-            x => Error::AppError(format!("{:?}", &x)),
+            x => Error::AppError(format!("{x:?}")),
         }
     }
 }
