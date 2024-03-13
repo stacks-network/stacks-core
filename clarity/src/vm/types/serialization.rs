@@ -559,7 +559,7 @@ impl Value {
                 }
             };
 
-            if expect_size as u64 > bytes_read {
+            if bytes_read > expect_size as u64 {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
                     "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
