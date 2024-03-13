@@ -731,7 +731,7 @@ impl BlockMinerThread {
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
         // build the block itself
-        let (mut block, _, _) = NakamotoBlockBuilder::build_nakamoto_block(
+        let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
             &burn_db.index_conn(),
             &mut mem_pool,
@@ -744,6 +744,8 @@ impl BlockMinerThread {
                 false,
                 self.globals.get_miner_status(),
             ),
+            // we'll invoke the event dispatcher ourselves so that it calculates the
+            //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
         )
@@ -775,6 +777,14 @@ impl BlockMinerThread {
             block.header.block_hash(),
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
+        );
+
+        self.event_dispatcher.process_mined_nakamoto_block_event(
+            self.burn_block.block_height,
+            &block,
+            size,
+            &consumed,
+            tx_events,
         );
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long

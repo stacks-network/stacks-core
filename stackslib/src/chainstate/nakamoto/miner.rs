@@ -60,7 +60,7 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError, TransactionEvent,
     TransactionProblematic, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
@@ -406,7 +406,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_transactions: Vec<StacksTransaction>,
-    ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> {
+    ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -485,16 +485,6 @@ impl NakamotoBlockBuilder {
 
         let ts_end = get_epoch_time_ms();
 
-        if let Some(observer) = event_observer {
-            observer.mined_nakamoto_block_event(
-                SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height + 1,
-                &block,
-                size,
-                &consumed,
-                tx_events,
-            );
-        }
-
         set_last_mined_block_transaction_count(block.txs.len() as u64);
         set_last_mined_execution_cost_observed(&consumed, &block_limit);
 
@@ -511,7 +501,7 @@ impl NakamotoBlockBuilder {
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
         );
 
-        Ok((block, consumed, size))
+        Ok((block, consumed, size, tx_events))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {

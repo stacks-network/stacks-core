@@ -38,7 +38,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
@@ -247,16 +247,15 @@ impl SignerTest {
             .btc_regtest_controller
             .get_headers_height()
             .saturating_add(nmb_blocks_to_mine_to_dkg);
-        info!("Mining {nmb_blocks_to_mine_to_dkg} Nakamoto block(s) to reach DKG calculation at block height {end_block_height}");
+        info!("Mining {nmb_blocks_to_mine_to_dkg} bitcoin block(s) to reach DKG calculation at bitcoin height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
-            info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine_to_dkg}");
-            self.mine_nakamoto_block(timeout);
-            // let hash = self.wait_for_validate_ok_response(timeout);
-            // let signatures = self.wait_for_frost_signatures(timeout);
-            // // Verify the signers accepted the proposed block and are using the new DKG to sign it
-            // for signature in &signatures {
-            //     assert!(signature.verify(&set_dkg, hash.0.as_slice()));
-            // }
+            info!("Mining bitcoin block #{i} and nakamoto tenure of {nmb_blocks_to_mine_to_dkg}");
+            let mined_block = self.mine_nakamoto_block(timeout);
+            let signature =
+                self.wait_for_confirmed_block(&mined_block.signer_signature_hash, timeout);
+            assert!(signature
+                .0
+                .verify(&set_dkg, mined_block.signer_signature_hash.as_bytes()));
         }
         if nmb_blocks_to_mine_to_dkg == 0 {
             None
@@ -302,13 +301,12 @@ impl SignerTest {
                         .get_approved_aggregate_key(curr_reward_cycle)
                         .expect("Failed to get approved aggregate key")
                         .expect("No approved aggregate key found");
-                    self.mine_nakamoto_block(timeout);
-                    // let hash = self.wait_for_validate_ok_response(timeout);
-                    // let signatures = self.wait_for_frost_signatures(timeout);
-                    // // Verify the signers accepted the proposed block and are using the new DKG to sign it
-                    // for signature in &signatures {
-                    //     assert!(signature.verify(&set_dkg, hash.0.as_slice()));
-                    // }
+                    let mined_block = self.mine_nakamoto_block(timeout);
+                    let signature =
+                        self.wait_for_confirmed_block(&mined_block.signer_signature_hash, timeout);
+                    assert!(signature
+                        .0
+                        .verify(&set_dkg, mined_block.signer_signature_hash.as_bytes()));
                 }
                 total_nmb_blocks_to_mine -= nmb_blocks_to_reward_cycle;
                 nmb_blocks_to_reward_cycle = 0;
@@ -322,13 +320,12 @@ impl SignerTest {
                 .get_approved_aggregate_key(curr_reward_cycle)
                 .expect("Failed to get approved aggregate key")
                 .expect("No approved aggregate key found");
-            self.mine_nakamoto_block(timeout);
-            // let hash = self.wait_for_validate_ok_response(timeout);
-            // let signatures = self.wait_for_frost_signatures(timeout);
-            // // Verify the signers accepted the proposed block and are using the new DKG to sign it
-            // for signature in &signatures {
-            //     assert!(signature.verify(&set_dkg, hash.0.as_slice()));
-            // }
+            let mined_block = self.mine_nakamoto_block(timeout);
+            let signature =
+                self.wait_for_confirmed_block(&mined_block.signer_signature_hash, timeout);
+            assert!(signature
+                .0
+                .verify(&set_dkg, mined_block.signer_signature_hash.as_bytes()));
         }
         points
     }
@@ -358,6 +355,41 @@ impl SignerTest {
             mined_block_elapsed_time
         );
         test_observer::get_mined_nakamoto_blocks().pop().unwrap()
+    }
+
+    fn wait_for_confirmed_block(
+        &mut self,
+        block_signer_sighash: &Sha512Trunc256Sum,
+        timeout: Duration,
+    ) -> ThresholdSignature {
+        let t_start = Instant::now();
+        while t_start.elapsed() <= timeout {
+            let blocks = test_observer::get_blocks();
+            if let Some(signature) = blocks.iter().find_map(|block_json| {
+                let block_obj = block_json.as_object().unwrap();
+                let sighash = block_obj
+                    // use the try operator because non-nakamoto blocks
+                    // do not supply this field
+                    .get("signer_signature_hash")?
+                    .as_str()
+                    .unwrap();
+                if sighash != &format!("0x{block_signer_sighash}") {
+                    return None;
+                }
+                let signer_signature_hex =
+                    block_obj.get("signer_signature").unwrap().as_str().unwrap();
+                let signer_signature_bytes = hex_bytes(&signer_signature_hex[2..]).unwrap();
+                let signer_signature = ThresholdSignature::consensus_deserialize(
+                    &mut signer_signature_bytes.as_slice(),
+                )
+                .unwrap();
+                Some(signer_signature)
+            }) {
+                return signature;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
     fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {

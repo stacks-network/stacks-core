@@ -23,7 +23,7 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RewardSetData;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
     TransactionOrigin,
@@ -41,7 +41,8 @@ use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::util::hash::bytes_to_hex;
+use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::MessageSignature;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
@@ -119,6 +120,8 @@ pub struct MinedNakamotoBlockEvent {
     pub stacks_height: u64,
     pub block_size: u64,
     pub cost: ExecutionCost,
+    pub miner_signature: MessageSignature,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
 }
 
@@ -485,14 +488,35 @@ impl EventObserver {
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
         });
 
+        let as_object_mut = payload.as_object_mut().unwrap();
+
         if let Some(reward_set_data) = reward_set_data {
-            payload.as_object_mut().unwrap().insert(
+            as_object_mut.insert(
                 "reward_set".to_string(),
                 serde_json::to_value(&reward_set_data.reward_set).unwrap_or_default(),
             );
-            payload.as_object_mut().unwrap().insert(
+            as_object_mut.insert(
                 "cycle_number".to_string(),
                 serde_json::to_value(reward_set_data.cycle_number).unwrap_or_default(),
+            );
+        }
+
+        if let StacksBlockHeaderTypes::Nakamoto(ref header) = &metadata.anchored_header {
+            as_object_mut.insert(
+                "signer_signature_hash".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "miner_signature".into(),
+                format!("0x{}", &header.miner_signature).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", &header.signer_signature).into(),
             );
         }
 
@@ -1083,6 +1107,8 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
+            miner_signature: block.header.miner_signature.clone(),
+            signer_signature_hash: block.header.signer_signature_hash(),
         })
         .unwrap();
 
