@@ -291,7 +291,6 @@ fn test_nakamoto_tenure_downloader() {
     // * too many blocks
 }
 
-/*
 #[test]
 fn test_nakamoto_unconfirmed_tenure_downloader() {
     let observer = TestEventObserver::new();
@@ -344,6 +343,24 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         .get_all_blocks_in_tenure(&parent_tip_ch)
         .unwrap();
 
+    let parent_parent_header = NakamotoChainState::get_block_header_nakamoto(
+        peer.chainstate().db(),
+        &last_confirmed_tenure
+            .first()
+            .as_ref()
+            .unwrap()
+            .header
+            .parent_block_id,
+    )
+    .unwrap()
+    .unwrap();
+    let parent_parent_start_header = NakamotoChainState::get_nakamoto_tenure_start_block_header(
+        peer.chainstate().db(),
+        &parent_parent_header.consensus_hash,
+    )
+    .unwrap()
+    .unwrap();
+
     assert!(unconfirmed_tenure.len() > 0);
     assert!(last_confirmed_tenure.len() > 0);
 
@@ -367,13 +384,35 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         .block_height_to_reward_cycle(peer.network.burnchain_tip.block_height)
         .expect("FATAL: burnchain tip before system start");
 
+    let highest_confirmed_wanted_tenure = WantedTenure {
+        tenure_id_consensus_hash: peer.network.parent_stacks_tip.0.clone(),
+        winning_block_id: parent_parent_start_header.index_block_hash(),
+        processed: false,
+        burn_height: peer.network.burnchain_tip.block_height - 1,
+    };
+
+    let unconfirmed_wanted_tenure = WantedTenure {
+        tenure_id_consensus_hash: peer.network.stacks_tip.0.clone(),
+        winning_block_id: last_confirmed_tenure
+            .first()
+            .as_ref()
+            .unwrap()
+            .header
+            .parent_block_id
+            .clone(),
+        processed: false,
+        burn_height: peer.network.burnchain_tip.block_height,
+    };
+
     // we've processed the tip already, so we transition straight to the Done state
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(
-            naddr.clone(),
-            Some(tip_block_id),
-        );
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
+
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
 
         let tenure_tip = RPCGetTenureInfo {
             consensus_hash: peer.network.stacks_tip.0.clone(),
@@ -393,8 +432,14 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         let sortdb = peer.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        utd.try_accept_tenure_info(&sortdb, &sort_tip, peer.chainstate(), tenure_tip.clone(), &agg_pubkeys)
-            .unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
 
         peer.sortdb = Some(sortdb);
 
@@ -407,17 +452,15 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
         let ntd = utd
-            .make_highest_complete_tenure_downloader(peer.chainstate())
+            .make_highest_complete_tenure_downloader(
+                &highest_confirmed_wanted_tenure,
+                &unconfirmed_wanted_tenure,
+            )
             .unwrap();
         assert_eq!(
             ntd.state,
-            NakamotoTenureDownloadState::GetTenureBlocks(
-                utd.unconfirmed_tenure_start_block
-                    .as_ref()
-                    .unwrap()
-                    .header
-                    .parent_block_id
-                    .clone()
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                unconfirmed_wanted_tenure.winning_block_id.clone()
             )
         );
     }
@@ -427,10 +470,13 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     {
         let mid_tip_block_id = unconfirmed_tenure.first().as_ref().unwrap().block_id();
 
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(
-            naddr.clone(),
-            Some(mid_tip_block_id),
-        );
+        let mut utd =
+            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id));
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
 
         let tenure_tip = RPCGetTenureInfo {
@@ -451,8 +497,14 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         let sortdb = peer.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        utd.try_accept_tenure_info(&sortdb, &sort_tip, peer.chainstate(), tenure_tip.clone(), &agg_pubkeys)
-            .unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
 
         peer.sortdb = Some(sortdb);
 
@@ -470,7 +522,9 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         // fill in blocks
         for (i, block) in unconfirmed_tenure.iter().enumerate().rev() {
-            let res = utd.try_accept_unconfirmed_tenure_blocks(vec![block.clone()]).unwrap();
+            let res = utd
+                .try_accept_unconfirmed_tenure_blocks(vec![block.clone()])
+                .unwrap();
             if i == 0 {
                 // res won't contain the first block because it stopped processing once it reached
                 // a block that the node knew
@@ -487,17 +541,15 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
         let ntd = utd
-            .make_highest_complete_tenure_downloader(peer.chainstate())
+            .make_highest_complete_tenure_downloader(
+                &highest_confirmed_wanted_tenure,
+                &unconfirmed_wanted_tenure,
+            )
             .unwrap();
         assert_eq!(
             ntd.state,
-            NakamotoTenureDownloadState::GetTenureBlocks(
-                utd.unconfirmed_tenure_start_block
-                    .as_ref()
-                    .unwrap()
-                    .header
-                    .parent_block_id
-                    .clone()
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                unconfirmed_wanted_tenure.winning_block_id.clone()
             )
         );
     }
@@ -507,10 +559,13 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     {
         let mid_tip_block_id = unconfirmed_tenure.get(5).unwrap().block_id();
 
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(
-            naddr.clone(),
-            Some(mid_tip_block_id),
-        );
+        let mut utd =
+            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id));
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
 
         let tenure_tip = RPCGetTenureInfo {
@@ -531,8 +586,14 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         let sortdb = peer.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        utd.try_accept_tenure_info(&sortdb, &sort_tip, peer.chainstate(), tenure_tip.clone(), &agg_pubkeys)
-            .unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
 
         peer.sortdb = Some(sortdb);
 
@@ -550,7 +611,9 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         // fill in blocks
         for (i, block) in unconfirmed_tenure.iter().enumerate().rev() {
-            let res = utd.try_accept_unconfirmed_tenure_blocks(vec![block.clone()]).unwrap();
+            let res = utd
+                .try_accept_unconfirmed_tenure_blocks(vec![block.clone()])
+                .unwrap();
             if i == unconfirmed_tenure.len() - 5 {
                 // got back only the blocks we were missing
                 assert_eq!(
@@ -569,17 +632,15 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
         let ntd = utd
-            .make_highest_complete_tenure_downloader(peer.chainstate())
+            .make_highest_complete_tenure_downloader(
+                &highest_confirmed_wanted_tenure,
+                &unconfirmed_wanted_tenure,
+            )
             .unwrap();
         assert_eq!(
             ntd.state,
-            NakamotoTenureDownloadState::GetTenureBlocks(
-                utd.unconfirmed_tenure_start_block
-                    .as_ref()
-                    .unwrap()
-                    .header
-                    .parent_block_id
-                    .clone()
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                unconfirmed_wanted_tenure.winning_block_id.clone()
             )
         );
     }
@@ -587,8 +648,12 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     // we haven't processed anything yet.
     // serve all of the unconfirmed blocks in one shot.
     {
-        let mut utd =
-            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
 
         let tenure_tip = RPCGetTenureInfo {
@@ -609,15 +674,23 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         let sortdb = peer.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        utd.try_accept_tenure_info(&sortdb, &sort_tip, peer.chainstate(), tenure_tip.clone(), &agg_pubkeys)
-            .unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
 
         peer.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
         let res = utd
-            .try_accept_unconfirmed_tenure_blocks(unconfirmed_tenure.clone().into_iter().rev().collect())
+            .try_accept_unconfirmed_tenure_blocks(
+                unconfirmed_tenure.clone().into_iter().rev().collect(),
+            )
             .unwrap();
         assert_eq!(res.unwrap(), unconfirmed_tenure);
 
@@ -627,26 +700,68 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
         let ntd = utd
-            .make_highest_complete_tenure_downloader(peer.chainstate())
+            .make_highest_complete_tenure_downloader(
+                &highest_confirmed_wanted_tenure,
+                &unconfirmed_wanted_tenure,
+            )
             .unwrap();
         assert_eq!(
             ntd.state,
-            NakamotoTenureDownloadState::GetTenureBlocks(
-                utd.unconfirmed_tenure_start_block
-                    .as_ref()
-                    .unwrap()
-                    .header
-                    .parent_block_id
-                    .clone()
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                unconfirmed_wanted_tenure.winning_block_id.clone()
             )
         );
     }
 
-    // TODO:
-    // * bad block signature
-    // * too many blocks
+    // bad block signature
+    {
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+
+        assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
+
+        let tenure_tip = RPCGetTenureInfo {
+            consensus_hash: peer.network.stacks_tip.0.clone(),
+            tenure_start_block_id: peer.network.tenure_start_block_id.clone(),
+            parent_consensus_hash: peer.network.parent_stacks_tip.0.clone(),
+            parent_tenure_start_block_id: StacksBlockId::new(
+                &peer.network.parent_stacks_tip.0,
+                &peer.network.parent_stacks_tip.1,
+            ),
+            tip_block_id: StacksBlockId::new(
+                &peer.network.stacks_tip.0,
+                &peer.network.stacks_tip.1,
+            ),
+            tip_height: peer.network.stacks_tip.2,
+            reward_cycle: tip_rc,
+        };
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
+
+        peer.sortdb = Some(sortdb);
+
+        assert!(utd.unconfirmed_tenure_start_block.is_some());
+
+        let mut bad_block = unconfirmed_tenure.last().cloned().unwrap();
+        bad_block.header.version += 1;
+
+        assert!(utd
+            .try_accept_unconfirmed_tenure_blocks(vec![bad_block])
+            .is_err());
+    }
 }
-*/
 
 #[test]
 fn test_tenure_start_end_from_inventory() {
@@ -910,8 +1025,6 @@ fn test_tenure_start_end_from_inventory() {
             }
         }
     }
-
-    // TODO: test start and end reward cycles
 }
 
 /// Test all of the functionality needed to transform a peer's reported tenure inventory into a
@@ -943,7 +1056,7 @@ fn test_make_tenure_downloaders() {
     assert_eq!(tip.block_height, 51);
 
     let test_signers = TestSigners::default();
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let agg_pubkeys = peer.network.aggregate_public_keys.clone();
 
     // test load_wanted_tenures()
     {
@@ -1030,12 +1143,12 @@ fn test_make_tenure_downloaders() {
         };
     }
 
-    /*
     // test load_wanted_tenures_at_tip
     {
         let sortdb = peer.sortdb();
         let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, 0).unwrap();
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &vec![])
+                .unwrap();
         assert_eq!(wanted_tenures.len(), 2);
         for i in (tip.block_height - 1)..=(tip.block_height) {
             let w = (i - (tip.block_height - 1)) as usize;
@@ -1051,8 +1164,14 @@ fn test_make_tenure_downloaders() {
             assert_eq!(wanted_tenures[w].processed, false);
         }
 
-        let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, 1).unwrap();
+        let all_wanted_tenures = wanted_tenures;
+        let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(
+            None,
+            &tip,
+            sortdb,
+            &vec![all_wanted_tenures[0].clone()],
+        )
+        .unwrap();
         assert_eq!(wanted_tenures.len(), 1);
 
         assert_eq!(
@@ -1067,11 +1186,15 @@ fn test_make_tenure_downloaders() {
         );
         assert_eq!(wanted_tenures[0].processed, false);
 
-        let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, 2).unwrap();
+        let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(
+            None,
+            &tip,
+            sortdb,
+            &all_wanted_tenures,
+        )
+        .unwrap();
         assert_eq!(wanted_tenures.len(), 0);
     }
-    */
 
     // test inner_update_processed_wanted_tenures
     {
@@ -1116,9 +1239,13 @@ fn test_make_tenure_downloaders() {
         let wanted_tenures_with_blocks = wanted_tenures[1..].to_vec();
 
         let chainstate = peer.chainstate();
-        let tenure_start_blocks =
-            NakamotoDownloadStateMachine::load_tenure_start_blocks(&wanted_tenures, chainstate)
-                .unwrap();
+        let mut tenure_start_blocks = HashMap::new();
+        NakamotoDownloadStateMachine::load_tenure_start_blocks(
+            &wanted_tenures,
+            chainstate,
+            &mut tenure_start_blocks,
+        )
+        .unwrap();
         assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
 
         for wt in wanted_tenures_with_blocks {
@@ -1520,9 +1647,10 @@ fn test_make_tenure_downloaders() {
         }
     }
 
-    /*
     // test make_tenure_downloaders
     {
+        let mut downloaders = NakamotoTenureDownloaderSet::new();
+
         let sortdb = peer.sortdb();
         let rc = sortdb
             .pox_constants
@@ -1535,7 +1663,8 @@ fn test_make_tenure_downloaders() {
         assert_eq!(rc_wanted_tenures.len(), rc_len as usize);
 
         let tip_wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, 0).unwrap();
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
+                .unwrap();
 
         let naddr = NeighborAddress {
             addrbytes: PeerAddress([0xff; 16]),
@@ -1573,6 +1702,8 @@ fn test_make_tenure_downloaders() {
             rc,
             &rc_wanted_tenures,
             Some(&tip_wanted_tenures),
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
             full_inventories.iter(),
         );
         assert_eq!(tenure_block_ids.len(), 1);
@@ -1618,24 +1749,22 @@ fn test_make_tenure_downloaders() {
             &rc_wanted_tenures,
             &available,
         );
-        let mut downloaders = HashMap::new();
 
         let old_schedule = ibd_schedule.clone();
         let sched_len = ibd_schedule.len();
 
         // make 6 downloaders
-        NakamotoDownloadStateMachine::make_tenure_downloaders(
+        downloaders.make_tenure_downloaders(
             &mut ibd_schedule,
             &mut available,
             &tenure_block_ids,
             6,
-            &mut downloaders,
-            aggregate_public_key.clone(),
+            &agg_pubkeys,
         );
 
         // made all 6 downloaders
         assert_eq!(ibd_schedule.len() + 6, sched_len);
-        assert_eq!(downloaders.len(), 6);
+        assert_eq!(downloaders.downloaders.len(), 6);
         for (i, wt) in rc_wanted_tenures.iter().enumerate() {
             let naddrs = available.get(&wt.tenure_id_consensus_hash).unwrap();
             if i < 6 {
@@ -1649,7 +1778,7 @@ fn test_make_tenure_downloaders() {
             let possible_addrs = available_by_index.get(i).unwrap();
             let mut found = false;
             for addr in possible_addrs.iter() {
-                if downloaders.contains_key(addr) {
+                if downloaders.has_downloader(addr) {
                     found = true;
                     break;
                 }
@@ -1663,18 +1792,17 @@ fn test_make_tenure_downloaders() {
         }
 
         // make 6 more downloaders
-        NakamotoDownloadStateMachine::make_tenure_downloaders(
+        downloaders.make_tenure_downloaders(
             &mut ibd_schedule,
             &mut available,
             &tenure_block_ids,
             12,
-            &mut downloaders,
-            aggregate_public_key.clone(),
+            &agg_pubkeys,
         );
 
         // only made 4 downloaders got created
         assert_eq!(ibd_schedule.len(), 0);
-        assert_eq!(downloaders.len(), 10);
+        assert_eq!(downloaders.downloaders.len(), 10);
         for (i, wt) in rc_wanted_tenures.iter().enumerate() {
             let naddrs = available.get(&wt.tenure_id_consensus_hash).unwrap();
             assert_eq!(naddrs.len(), (rc_len as usize) - i);
@@ -1684,206 +1812,13 @@ fn test_make_tenure_downloaders() {
             let possible_addrs = available_by_index.get(i).unwrap();
             let mut found = false;
             for addr in possible_addrs.iter() {
-                if downloaders.contains_key(addr) {
+                if downloaders.has_downloader(addr) {
                     found = true;
                     break;
                 }
             }
 
             assert!(found);
-        }
-    }
-    */
-}
-
-#[test]
-fn test_run_download_state_machine_update_tenures() {
-    let observer = TestEventObserver::new();
-    let bitvecs = vec![
-        vec![true, true, true, true, true, true, true, true, true, true],
-        vec![
-            true, false, true, false, true, false, true, false, true, true,
-        ],
-        vec![
-            false, false, false, false, false, false, true, true, true, true,
-        ],
-        vec![false, true, true, true, true, true, true, false, true, true],
-    ];
-
-    let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        3,
-        bitvecs.clone(),
-    );
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
-
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
-
-    assert_eq!(tip.block_height, 81);
-
-    let sortdb = peer.sortdb();
-    let first_nakamoto_rc = sortdb
-        .pox_constants
-        .block_height_to_reward_cycle(sortdb.first_block_height, nakamoto_start)
-        .unwrap();
-    let tip_rc = sortdb
-        .pox_constants
-        .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
-        .unwrap();
-
-    let mut all_wanted_tenures = vec![];
-    for rc in first_nakamoto_rc..first_nakamoto_rc + 4 {
-        let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(rc, &tip, sortdb)
-                .unwrap();
-        all_wanted_tenures.push(wanted_tenures);
-    }
-    let tip_wanted_tenures =
-        NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[]).unwrap();
-    all_wanted_tenures.push(tip_wanted_tenures);
-
-    // verify that we can find all wanted tenures up to the tip, when the tip advances each time we
-    // check.  This simulates the node's live transition from epoch 2.5 to 3.0
-    {
-        let mut downloader = NakamotoDownloadStateMachine::new(nakamoto_start);
-
-        for burn_height in nakamoto_start..tip.block_height {
-            let sortdb = peer.sortdb.take().unwrap();
-            let ih = sortdb.index_handle(&tip.sortition_id);
-            let sort_tip = ih
-                .get_block_snapshot_by_height(burn_height)
-                .unwrap()
-                .unwrap();
-            let node = peer.stacks_node.take().unwrap();
-            let chainstate = &node.chainstate;
-
-            let last_wanted_tenures = downloader.wanted_tenures.clone();
-            let last_prev_wanted_tenures = downloader.prev_wanted_tenures.clone();
-
-            // test update_wanted_tenures()
-            downloader
-                .update_wanted_tenures(&peer.network, &sortdb, chainstate)
-                .unwrap();
-
-            let rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, burn_height)
-                .unwrap();
-            let next_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, burn_height + 1)
-                .unwrap();
-
-            assert_eq!(downloader.reward_cycle, rc);
-
-            let rc_offset = ((sort_tip.block_height % (u64::from(rc_len))) as usize) + 1;
-
-            if rc == first_nakamoto_rc {
-                assert_eq!(
-                    downloader.wanted_tenures.len(),
-                    (u64::from(rc_len)).min(
-                        sort_tip.block_height - nakamoto_start
-                            + 1
-                            + (nakamoto_start % u64::from(rc_len))
-                    ) as usize
-                );
-            } else {
-                assert_eq!(downloader.wanted_tenures.len(), rc_offset);
-            }
-
-            assert_eq!(
-                &downloader.wanted_tenures[0..rc_offset],
-                &all_wanted_tenures[(rc - first_nakamoto_rc) as usize][0..rc_offset]
-            );
-
-            if rc > first_nakamoto_rc {
-                assert!(downloader.prev_wanted_tenures.is_some());
-                let prev_wanted_tenures = downloader.prev_wanted_tenures.as_ref().unwrap();
-                assert_eq!(
-                    prev_wanted_tenures,
-                    &all_wanted_tenures[(rc - first_nakamoto_rc - 1) as usize]
-                );
-            }
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(node);
-        }
-    }
-
-    // verify that we can find all wanted tenures up to the tip, when the tip is multiple reward
-    // cycles away.  This simulates a node booting up after 3.0 goes live.
-    {
-        let mut downloader = NakamotoDownloadStateMachine::new(nakamoto_start);
-
-        for burn_height in nakamoto_start..tip.block_height {
-            let sortdb = peer.sortdb.take().unwrap();
-            let ih = sortdb.index_handle(&tip.sortition_id);
-            let sort_tip = ih
-                .get_block_snapshot_by_height(burn_height)
-                .unwrap()
-                .unwrap();
-            let node = peer.stacks_node.take().unwrap();
-            let chainstate = &node.chainstate;
-
-            let last_wanted_tenures = downloader.wanted_tenures.clone();
-            let last_prev_wanted_tenures = downloader.prev_wanted_tenures.clone();
-
-            // test update_wanted_tenures()
-            downloader
-                .update_wanted_tenures(&peer.network, &sortdb, chainstate)
-                .unwrap();
-
-            let rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, burn_height)
-                .unwrap();
-            let next_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, burn_height + 1)
-                .unwrap();
-            let rc_offset = ((sort_tip.block_height % (u64::from(rc_len))) as usize) + 1;
-
-            if rc == next_rc {
-                if rc_offset != 1 {
-                    // nothing changes
-                    assert_eq!(last_wanted_tenures, downloader.wanted_tenures);
-                    assert_eq!(last_prev_wanted_tenures, downloader.prev_wanted_tenures);
-                }
-            } else {
-                test_debug!("check rc {}", &rc);
-                if rc < tip_rc {
-                    assert_eq!(
-                        downloader.wanted_tenures,
-                        all_wanted_tenures[(rc - first_nakamoto_rc) as usize]
-                    );
-                } else {
-                    // let rc_offset = (tip.block_height % (u64::from(rc_len))) as usize;
-                    assert_eq!(downloader.wanted_tenures.len(), rc_len as usize);
-                    assert_eq!(
-                        &downloader.wanted_tenures[0..rc_offset],
-                        &all_wanted_tenures[(rc - first_nakamoto_rc) as usize][0..rc_offset]
-                    );
-                }
-
-                if rc > first_nakamoto_rc {
-                    assert!(downloader.prev_wanted_tenures.is_some());
-                    let prev_wanted_tenures = downloader.prev_wanted_tenures.as_ref().unwrap();
-                    assert_eq!(
-                        prev_wanted_tenures,
-                        &all_wanted_tenures[(rc - first_nakamoto_rc - 1) as usize]
-                    );
-                }
-            }
-
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(node);
         }
     }
 }
@@ -2268,142 +2203,3 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
 
     boot_dns_thread_handle.join().unwrap();
 }
-
-/*
-#[test]
-fn test_run_download_state_machine() {
-    let observer = TestEventObserver::new();
-    let bitvecs = vec![
-        vec![true, true, true, true, true, true, true, true, true, true],
-        vec![true, false, true, false, true, false, true, false, true, true],
-        vec![false, false, false, false, false, false, true, true, true, true],
-        vec![false, true, true, true, true, true, true, false, true, true],
-    ];
-
-    let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 3, bitvecs.clone());
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
-
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
-
-    assert_eq!(tip.block_height, 81);
-
-    let sortdb = peer.sortdb();
-    let first_nakamoto_rc = sortdb.pox_constants.block_height_to_reward_cycle(sortdb.first_block_height, nakamoto_start).unwrap();
-    let tip_rc = sortdb.pox_constants.block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height).unwrap();
-
-    let naddr = NeighborAddress {
-        addrbytes: PeerAddress([0xff; 16]),
-        port: 123,
-        public_key_hash: Hash160([0xff; 20]),
-    };
-
-    let mut full_invs = NakamotoTenureInv::new(sortdb.first_block_height, u64::from(rc_len), naddr.clone());
-
-    for i in 0..bitvecs.len() {
-        let rc = first_nakamoto_rc + (i as u64);
-        full_invs.merge_tenure_inv(BitVec::<2100>::try_from(bitvecs[i].as_slice()).unwrap(), rc);
-    }
-
-    let mut full_inventories = HashMap::new();
-    for i in 0..10 {
-        let naddr = NeighborAddress {
-            addrbytes: PeerAddress([0xff; 16]),
-            port: 123 + i,
-            public_key_hash: Hash160([0xff; 20]),
-        };
-
-        full_inventories.insert(naddr.clone(), full_invs.clone());
-    }
-
-    let mut all_wanted_tenures = vec![];
-    for rc in first_nakamoto_rc..first_nakamoto_rc+4 {
-        let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(rc, &tip, sortdb).unwrap();
-        all_wanted_tenures.push(wanted_tenures);
-    }
-    let tip_wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(&tip, sortdb, 0).unwrap();
-    all_wanted_tenures.push(tip_wanted_tenures);
-
-    let mut downloader = NakamotoDownloadStateMachine::new(nakamoto_start);
-
-    for burn_height in nakamoto_start..tip.block_height {
-        let sortdb = peer.sortdb.take().unwrap();
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        let sort_tip = ih.get_block_snapshot_by_height(burn_height).unwrap().unwrap();
-        let chainstate = peer.chainstate();
-
-        let last_wanted_tenures = downloader.wanted_tenures.clone();
-        let last_prev_wanted_tenures = downloader.prev_wanted_tenures.clone();
-
-        // test update_wanted_tenures()
-        downloader.update_wanted_tenures(tip.block_height, &sort_tip, &sortdb, chainstate).unwrap();
-        downloader.update_processed_tenures(chainstate).unwrap();
-
-        let rc = sortdb.pox_constants.block_height_to_reward_cycle(sortdb.first_block_height, burn_height).unwrap();
-        let next_rc = sortdb.pox_constants.block_height_to_reward_cycle(sortdb.first_block_height, burn_height + 1).unwrap();
-
-        assert_eq!(downloader.reward_cycle, rc);
-        if rc == next_rc {
-            // nothing changes
-            assert_eq!(last_wanted_tenures, downloader.wanted_tenures);
-            assert_eq!(last_prev_wanted_tenures, downloader.prev_wanted_tenures);
-        }
-        else {
-            test_debug!("check rc {}", &rc);
-            if rc < tip_rc {
-                assert_eq!(downloader.wanted_tenures, all_wanted_tenures[(rc - first_nakamoto_rc) as usize]);
-            }
-            else {
-                let rc_offset = (tip.block_height % (u64::from(rc_len))) as usize;
-                assert_eq!(downloader.wanted_tenures.len(), rc_len as usize);
-                assert_eq!(&downloader.wanted_tenures[0..rc_offset], &all_wanted_tenures[(rc - first_nakamoto_rc) as usize][0..rc_offset]);
-            }
-
-            if rc > first_nakamoto_rc {
-                assert!(downloader.prev_wanted_tenures.is_some());
-                let prev_wanted_tenures = downloader.prev_wanted_tenures.as_ref().unwrap();
-                assert_eq!(prev_wanted_tenures, &all_wanted_tenures[(rc - first_nakamoto_rc - 1) as usize]);
-            }
-        }
-
-        if downloader.wanted_tenures.len() > 0 {
-            // did an update
-            // test update_available_tenures
-            let available = Self::find_available_tenures(downloader.reward_cycle, &downloader.wanted_tenures, full_inventories.iter());
-            let ibd_schedule = NakamotoDownlaodStateMachine::make_ibd_download_schedule(nakamoto_start, &downloader.wanted_tenures, &available);
-            let rarest_first_schedule = NakamotoDownloadStateMachine::make_rarest_first_download_schedule(nakamoto_start, &downloader.wanted_tenures, &available);
-
-            downloader.update_available_tenures(&full_inventories, rc == tip_rc);
-
-            assert_eq!(downloader.available_tenures, available);
-
-            if rc == first_nakamoto_rc {
-                assert_eq!(downloader.prev_wanted_tenures, None);
-            }
-            else {
-                assert!(downloader.prev_wanted_tenures.is_some());
-            }
-
-            if rc == tip_rc {
-                assert_eq!(downloader.tenure_download_schedule, rarest_first_schedule);
-            }
-            else {
-                assert_eq!(downloader.tenure_download_schedule, ibd_schedule);
-            }
-        }
-        else {
-            // no action taken
-            assert_eq!(downloader.tenure_download_schedule.len(), 0);
-            assert_eq!(downloader.prev_wanted_tenures, None);
-            assert_eq!(downloader.available_tenures.len(), 0);
-        }
-
-        peer.sortdb = Some(sortdb);
-    }
-}
-*/

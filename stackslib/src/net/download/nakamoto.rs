@@ -14,6 +14,102 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! This file contains the Nakamoto block downloader implementation.
+//!
+//! # Overview
+//!
+//! The downloader is implemented as a network state machine, which is called from the main event
+//! loop of the p2p network.  On each pass, the downloader state machine inspects the Stacks chain
+//! state and peer block inventories to see if there are any tenures to download, and if so, it
+//! queues up HTTP requests for the blocks and reacts to their responses.  It yields the downloaded
+//! blocks, which the p2p main loop yields in its `NetworkResult` for the relayer to consume.
+//!
+//! # Design
+//!
+//! The state machine has three layers: a top-level state machine for obtaining managing all of
+//! the requisite state for identifying tenures to download, a pair of low-level state machines for
+//! fetching individual tenures, and a middle layer for using the tenure data to drive the low-level
+//! state machiens to fetch the requisite tenures.
+//!
+//! The three-layer design is meant to provide a degree of encapsulation of each downloader
+//! concern.  Because downloading tenures is a multi-step process, we encapsulate the steps to
+//! download a single tenure into a low-level state machine which can be driven by separate
+//! flow-control.  Because we can drive multiple tenure downloads in parallel (i.e. one per peer),
+//! we have a middle layer for scheduling tenures to peers for download.  This middle layer manages
+//! the lifecycles of the lower layer state machines.  The top layer is needed to interface the
+//! middle layer to the chainstate and the rest of the p2p network, and as such, handles the
+//! bookkpeeing so that the lower layers can operate without needing access to this
+//! otherwise-unrelated concern.
+//!
+//! ## NakamotoDownloadStateMachine
+//!
+//! The top-level download state machine (`NakamotoDownloadStateMachine`) has two states:
+//! Obtaining confirmed tenures, and obtaining unconfirmed tenures.  A _confirmed_ tenure is a
+//! tenure for which we can obtain the start and end block hashes using peer inventories and the
+//! sortition DB.  The hashes are embedded within sortition winners, and the inventories tell us
+//! which sortitions correspond to tenure-starts and tenure-ends (each tenure-end is the
+//! tenure-start of the next tenure).  An _unconfirmed_ tenure is a tenure that is not confirmed --
+//! we do not have one or both of its start/end block hashes available from the sortition history
+//! since they have not been recorded yet.
+//!
+//! The `NakamotoDownloadStateMachine` operates by attempting to download each reward cycle's
+//! tenures, including the current reward cycle.  Once it has obtained them all for the current
+//! reward cycle, it proceeds to fetch the next reward cycle's tenures.  It does this because the
+//! sortition DB itself cannot inform us of the tenure start/end block hashes in a given reward
+//! cycle until the PoX anchor block mined in the previous reward cycle has been downloaded and
+//! processed.
+//!
+//! To achieve this, the `NakamotoDwonloadStateMachine` performs a lot of bookkeeping.  Namely, it
+//! keeps track of:
+//!
+//! * The ongoing and prior reward cycle's sortitions' tenure IDs and winning block hashes
+//! (implemented as lists of `WantedTenure`s)
+//! * Which sortitions corresponds to tenure start and end blocks (implemented as a table of
+//! `TenureStartEnd`s)
+//! * Which neighbors can serve which full tenures
+//! * What order to request tenures in
+//!
+//! This information is consumed by the lower levels of the state machine.
+//!
+//! ## `NakamotoTenureDownloadSet`
+//!
+//! Naturally, the `NakamotoDownloadStateMachine` contains two code paths -- one for each mode.
+//! To facilitate confirmeed tenure downloads, it has a second-layer state machine called
+//! the `NakamotoTenureDownloadSet`.  This is responsible for identifying and issuing requests to
+//! peers which can serve complete tenures, and keeping track of whether or not the current reward
+//! cycle has any remaining tenures to download.  To facilitate unconfirmed tenure downloads (which
+//! is a much simpler task), it simply provides an internal method for issuing requests and
+//! processing responses for its neighbors' unconfirmed tenure data.
+//!
+//! This middle layer consumes the data mantained by the `NakamotoDownloaderStateMachine` in order
+//! to instantiate, drive, and clean up one or more per-tenure download state machines.
+//!
+//! ## NakamotoTenureDownloader and `NakamotoUnconfirmedTenureDownloader`
+//!
+//! Per SIP-021, obtaining a confirmed tenure is a multi-step process.  To carry this out, this
+//! module contains two third-level state machines: `NakamotoTenureDownloader`, which downloads a
+//! single tenure's blocks if the start and end block hash are known, and
+//! `NakamotoUnconfirmedTenureDownloader`, which downloads the ongoing tenure.  The
+//! `NakamotoTenureDownloadSet` uses a set of `NakamotoTenureDownloader` instances (one per
+//! neighbor) to fetch confirmed tenures, and the `NakamotoDownloadStateMachine`'s unconfirmed
+//! tenure download state provides a method for driving a set of
+//! `NakamotoUnconfirmedTenureDownloader` machines to poll neighbors for their latest tenure
+//! blocks.
+//!
+//! # Implementation
+//!
+//! The implementation here plugs directly into the p2p state machine, and is called once per pass.
+//! Unlike in Stacks 2.x, the downloader is consistently running, and can act on newly-discovered
+//! tenures once a peer's inventory reports their availability.  This is because Nakamoto is more
+//! latency-sensitive than Stacks 2.x, and nodes need to obtain blocks as quickly as possible.
+//!
+//! Concerning latency, a lot of attention is paid to reducing the amount of gratuitous I/O
+//! required for the state machine to run.  The bookkeeping steps in the
+//! `NakamotoDownloadStateMachine` may seem tedious, but they are specifically designed to only
+//! load new sortition and chainstate data when it is necessary to do so.  Most of the time, the
+//! downloader never touches disk; it only needs to do so when it is considering new sortitions and
+//! new chain tips.
+
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::fmt;
@@ -62,16 +158,24 @@ use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
-/// Download states for an historic tenure
+/// Download states for an historic tenure.  This is a tenure for which we know the hashes of the
+/// start and end block.  This includes all tenures except for the two most recent ones.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NakamotoTenureDownloadState {
     /// Getting the tenure-start block
     GetTenureStartBlock(StacksBlockId),
     /// Waiting for the child tenure's tenure-start block to arrive, which is usually (but not
     /// always) handled by the execution of another NakamotoTenureDownloader.  The only
-    /// exception is if this tenure contains the anchor block, and it's the last tenure in the
+    /// exceptions are as follows:
+    ///
+    /// * if this tenure contains the anchor block, and it's the last tenure in the
     /// reward cycle.  In this case, the end-block must be directly fetched, since there will be no
     /// follow-on NakamotTenureDownloader in the same reward cycle who can provide this.
+    ///
+    /// * if this tenure is the highest complete tenure, and we just learned the start-block of the
+    /// ongoing tenure, then a NakamotoTenureDownloader will be instantiated with this tenure-end-block
+    /// already known.  This step will be skipped because the end-block is already present in the
+    /// state machine.
     WaitForTenureEndBlock(StacksBlockId),
     /// Gettin the tenure-end block directly.  This only happens for tenures whose end-blocks
     /// cannot be provided by tenure downloaders within the same reward cycle.
@@ -91,6 +195,28 @@ impl fmt::Display for NakamotoTenureDownloadState {
 /// Download state machine for an historic tenure -- a tenure for which the start and end block IDs
 /// can be inferred from the chainstate and a peer's inventory (this excludes the two most recent
 /// tenures).
+///
+/// This state machine works as follows:
+///
+/// 1. Fetch the first block in the given tenure
+/// 2. Obtain the last block in te given tenure, via one of the following means:
+///    a. Another NakamotoTenureDownloader's tenure-start block happens to be the end-block of this
+///    machine's tenure, and can be copied into this machine.
+///    b. This machine is configured to directly fetch the end-block.  This only happens if this
+///    tenure both contains the anchor block for the next reward cycle and happens to be the last
+///    tenure in the current reward cycle.
+///    c. This machine is given the end-block on instantiation.  This only happens when the machine
+///    is configured to fetch the highest complete tenure (i.e. the parent of the ongoing tenure);
+///    in this case, the end-block is the start-block of the ongoing tenure.
+/// 3. Obtain the blocks that lie between the first and last blocks of the tenure, in reverse
+///    order.  As blocks are found, their signer signatures will be validated against the aggregate
+///    public key for this tenure; their hash-chain continuity will be validated against the start
+///    and end block hashes; their quantity will be validated against the tenure-change transaction
+///    in the end-block.
+///
+/// Once the machine has reached the `Done` state, it will have obtained the entire run of Nakamoto
+/// blocks for the given tenure (regardless of how many sortitions it straddles, and regardless of
+/// whether or not it straddles a reward cycle boundary).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NakamotoTenureDownloader {
     /// Consensus hash that identifies this tenure
@@ -101,20 +227,24 @@ pub(crate) struct NakamotoTenureDownloader {
     /// Stacks block ID of the last block in this tenure (this will be the tenure-start block ID
     /// for some other tenure).  Learned from the inventory state machine and sortition DB.
     pub tenure_end_block_id: StacksBlockId,
-    /// Address of who we're asking
+    /// Address of who we're asking for blocks
     pub naddr: NeighborAddress,
     /// Aggregate public key that signed the start-block of this tenure
     pub start_aggregate_public_key: Point,
     /// Aggregate public key that signed the end-block of this tenure
     pub end_aggregate_public_key: Point,
-    /// Whether or not we're idle -- i.e. the next request can begin
+    /// Whether or not we're idle -- i.e. there are no ongoing network requests associated with
+    /// this state machine.
     pub idle: bool,
 
     /// What state we're in for downloading this tenure
     pub state: NakamotoTenureDownloadState,
     /// Tenure-start block
     pub tenure_start_block: Option<NakamotoBlock>,
-    /// Pre-stored tenure end block (used by the unconfirmed block downloader)
+    /// Pre-stored tenure end block (used by the unconfirmed block downloader).
+    /// An instance of this state machine will be used to fetch the highest-confirmed tenure, once
+    /// the start-block for the current tenure is downloaded.  This is that start-block, which is
+    /// used to transition from the `WaitForTenureEndBlock` step to the `GetTenureBlocks` step.
     pub tenure_end_block: Option<NakamotoBlock>,
     /// Tenure-end block header and TenureChange
     pub tenure_end_header: Option<(NakamotoBlockHeader, TenureChangePayload)>,
@@ -152,12 +282,15 @@ impl NakamotoTenureDownloader {
         }
     }
 
+    /// Follow-on constructor used to instantiate a machine for downloading the highest-confirmed
+    /// tenure.  This supplies the tenure end-block if known in advance.
     pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
         self.tenure_end_block = Some(tenure_end_block);
         self
     }
 
-    /// Is this downloader waiting for the tenure-end block data from some other downloader?
+    /// Is this downloader waiting for the tenure-end block data from some other downloader?  Per
+    /// the sturct documentation, this is case 2(a).
     pub fn is_waiting(&self) -> bool {
         if let NakamotoTenureDownloadState::WaitForTenureEndBlock(..) = self.state {
             return true;
@@ -166,44 +299,23 @@ impl NakamotoTenureDownloader {
         }
     }
 
-    /// Create a tenure-downloader with a known start and end block.
-    /// This runs the state-transitions for receiving these two blocks, so they'll be validated
-    /// against the given aggregate public key.
-    /// Returns Ok(downloader) on success
-    /// Returns Err(..) if we fail to validate these blocks
-    pub fn from_start_end_blocks(
-        tenure_start_block: NakamotoBlock,
-        tenure_end_block: NakamotoBlock,
-        naddr: NeighborAddress,
-        start_aggregate_public_key: Point,
-        end_aggregate_public_key: Point,
-    ) -> Result<Self, NetError> {
-        let mut downloader = Self::new(
-            tenure_start_block.header.consensus_hash.clone(),
-            tenure_start_block.header.block_id(),
-            tenure_end_block.header.block_id(),
-            naddr,
-            start_aggregate_public_key,
-            end_aggregate_public_key,
-        );
-        downloader.try_accept_tenure_start_block(tenure_start_block)?;
-        downloader.try_accept_tenure_end_block(&tenure_end_block)?;
-        Ok(downloader)
-    }
-
     /// Validate and accept a given tenure-start block.  If accepted, then advance the state.
+    /// Returns Ok(()) if the start-block is valid.
+    /// Returns Err(..) if it is not valid.
     pub fn try_accept_tenure_start_block(
         &mut self,
         tenure_start_block: NakamotoBlock,
     ) -> Result<(), NetError> {
         let NakamotoTenureDownloadState::GetTenureStartBlock(_) = &self.state else {
+            // not the right state for this
             warn!("Invalid state for this method";
                   "state" => %self.state);
             return Err(NetError::InvalidState);
         };
 
         if self.tenure_start_block_id != tenure_start_block.header.block_id() {
-            warn!("Invalid tenure-start block"; 
+            // not the block we were expecting
+            warn!("Invalid tenure-start block: unexpected"; 
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "tenure_id_start_block" => %self.tenure_start_block_id,
                   "state" => %self.state);
@@ -213,6 +325,7 @@ impl NakamotoTenureDownloader {
         let schnorr_signature = &tenure_start_block.header.signer_signature.0;
         let message = tenure_start_block.header.signer_signature_hash().0;
         if !schnorr_signature.verify(&self.start_aggregate_public_key, &message) {
+            // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "block.header.block_id" => %tenure_start_block.header.block_id(),
@@ -232,6 +345,7 @@ impl NakamotoTenureDownloader {
             // tenure_end_header supplied externally
             self.state = NakamotoTenureDownloadState::GetTenureBlocks(hdr.parent_block_id.clone());
         } else if let Some(tenure_end_block) = self.tenure_end_block.take() {
+            // we already have the tenure-end block, so immediately proceed to accept it.
             test_debug!(
                 "Preemptively process tenure-end block {} for tenure {}",
                 tenure_end_block.block_id(),
@@ -256,6 +370,12 @@ impl NakamotoTenureDownloader {
     /// state-machine to directly fetching it.  This only needs to happen if the tenure this state
     /// machine is downloading contains the PoX anchor block, and it's also the last confirmed
     /// tenurein this reward cycle.
+    ///
+    /// This function is called by `NakamotoTenureDownloadSet`, which instantiates, schedules, and
+    /// runs a set of these machines based on the peers' inventory vectors.  But because we don't
+    /// know if this is the PoX anchor block tenure (or even the last tenure) until we have
+    /// inventory vectors for this tenure's reward cycle, this state-transition must be driven
+    /// after this machine's instantiation.
     pub fn transition_to_fetch_end_block(&mut self) -> Result<(), NetError> {
         let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id) = self.state else {
             return Err(NetError::InvalidState);
@@ -265,6 +385,11 @@ impl NakamotoTenureDownloader {
     }
 
     /// Validate and accept a tenure-end block.  If accepted, then advance the state.
+    /// Once accepted, this function extracts the tenure-change transaction and block header from
+    /// this block (it does not need the entire block).
+    ///
+    /// Returns Ok(()) if the block was valid
+    /// Returns Err(..) if the block was invalid
     pub fn try_accept_tenure_end_block(
         &mut self,
         tenure_end_block: &NakamotoBlock,
@@ -284,9 +409,9 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidState);
         };
 
-        // must be expected
         if self.tenure_end_block_id != tenure_end_block.header.block_id() {
-            warn!("Invalid tenure-end block";
+            // not the block we asked for
+            warn!("Invalid tenure-end block: unexpected";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "tenure_id_end_block" => %self.tenure_end_block_id,
                   "block.header.block_id" => %tenure_end_block.header.block_id(),
@@ -297,6 +422,7 @@ impl NakamotoTenureDownloader {
         let schnorr_signature = &tenure_end_block.header.signer_signature.0;
         let message = tenure_end_block.header.signer_signature_hash().0;
         if !schnorr_signature.verify(&self.end_aggregate_public_key, &message) {
+            // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "block.header.block_id" => %tenure_end_block.header.block_id(),
@@ -357,8 +483,15 @@ impl NakamotoTenureDownloader {
             .map(|(_hdr, tc_payload)| u64::from(tc_payload.previous_tenure_blocks))
     }
 
-    /// Add downloaded tenure blocks.
-    /// If we have collected all tenure blocks, then return them.
+    /// Add downloaded tenure blocks to this machine.
+    /// If we have collected all tenure blocks, then return them and trasition to the Done state.
+    ///
+    /// Returns Ok(Some([blocks])) if we got all the blocks in this tenure. The blocks will be in
+    /// ascending order by height, and will include the tenure-start block but exclude the
+    /// tenure-end block.
+    /// Returns Ok(None) if the given blocks were valid, but we still need more.  The pointer to
+    /// the next block to fetch (stored in self.state) will be updated.
+    /// Returns Err(..) if the blocks were invalid.
     pub fn try_accept_tenure_blocks(
         &mut self,
         mut tenure_blocks: Vec<NakamotoBlock>,
@@ -407,6 +540,8 @@ impl NakamotoTenureDownloader {
                 .saturating_add(count)
                 > self.tenure_length().unwrap_or(0) as usize
             {
+                // there are more blocks downloaded than indicated by the end-blocks tenure-change
+                // transaction.
                 warn!("Invalid blocks: exceeded {} tenure blocks", self.tenure_length().unwrap_or(0);
                       "tenure_id" => %self.tenure_id_consensus_hash,
                       "count" => %count,
@@ -469,14 +604,14 @@ impl NakamotoTenureDownloader {
             .map(|blocks| blocks.into_iter().rev().collect()))
     }
 
-    /// Produce the next HTTP request that, when successfully executed, will advance this state
-    /// machine.
+    /// Produce the next HTTP request that, when successfully executed, will fetch the data needed
+    /// to advance this state machine.
     /// Not all states require an HTTP request for advanceement.
     ///
     /// Returns Ok(Some(request)) if a request is needed
     /// Returns Ok(None) if a request is not needed (i.e. we're waiting for some other machine's
     /// state)
-    /// Returns Err(..) if we're done.
+    /// Returns Err(()) if we're done.
     pub fn make_next_download_request(
         &self,
         peerhost: PeerHost,
@@ -507,10 +642,14 @@ impl NakamotoTenureDownloader {
         Ok(Some(request))
     }
 
-    /// Begin the next download request for this state machine.
+    /// Begin the next download request for this state machine.  The request will be sent to the
+    /// data URL corresponding to self.naddr.
     /// Returns Ok(Some(true)) if we sent the request, or there's already an in-flight request
     /// Returns Ok(Some(false)) if not (e.g. neighbor is known to be dead or broken)
-    /// Returns Ok(None) if this state machine is blocked
+    /// Returns Ok(None) if there is already an in-flight request to this peer.  The caller should
+    /// try again.
+    /// Returns Err(..) if self.naddr is known to be a dead or broken peer, or if we were unable to
+    /// resolve its data URL to a socket address.
     pub fn send_next_download_request(
         &mut self,
         network: &mut PeerNetwork,
@@ -545,8 +684,12 @@ impl NakamotoTenureDownloader {
         Ok(Some(true))
     }
 
-    /// Handle a received StacksHttpResponse.
-    /// If we get the full tenure, return it.
+    /// Handle a received StacksHttpResponse and advance the state machine.
+    /// If we get the full tenure's blocks, then return them.
+    /// Returns Ok(Some([blocks])) if we successfully complete the state machine.
+    /// Returns Ok(None) if we accepted the response and did a state-transition, but we're not done
+    /// yet.  The caller should now call `send_next_download_request()`
+    /// Returns Err(..) on failure to process the response.
     pub fn handle_next_download_response(
         &mut self,
         response: StacksHttpResponse,
@@ -589,7 +732,9 @@ impl NakamotoTenureDownloader {
     }
 }
 
-/// Download states for a unconfirmed tenures
+/// Download states for a unconfirmed tenures.  These include the ongoing tenure, as well as the
+/// last complete tenure whose tenure-end block hash has not yet been written to the burnchain (but
+/// the tenure-start hash has -- it was done so in the block-commit for the ongoing tenure).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NakamotoUnconfirmedDownloadState {
     /// Getting the tenure tip information
@@ -609,7 +754,16 @@ impl fmt::Display for NakamotoUnconfirmedDownloadState {
     }
 }
 
-/// Download state machine for the unconfirmed tenures
+/// Download state machine for the unconfirmed tenures.  It operates in the following steps:
+///
+/// 1. Get /v3/tenures/info to learn the unconfirmed chain tip
+/// 2. Get the tenure-start block for the unconfirmed chain tip
+/// 3. Get the unconfirmed blocks, starting with the one identified by step (1) and ending with the
+///    immediate child of the one obtained in (2)
+///
+/// Once this state-machine finishes execution, the tenure-start block is used to construct a
+/// `NakamotoTenureDownloader` state machine for the highest-confirmed tenure.
+///
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NakamotoUnconfirmedTenureDownloader {
     /// state of this machine
@@ -635,6 +789,8 @@ pub(crate) struct NakamotoUnconfirmedTenureDownloader {
 }
 
 impl NakamotoUnconfirmedTenureDownloader {
+    /// Make a new downloader which will download blocks from the tip back down to the optional
+    /// `highest_processed_block_id` (so we don't re-download the same blocks over and over).
     pub fn new(naddr: NeighborAddress, highest_processed_block_id: Option<StacksBlockId>) -> Self {
         Self {
             state: NakamotoUnconfirmedDownloadState::GetTenureInfo,
@@ -649,6 +805,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
     }
 
+    /// What's the tenure ID of the ongoing tenure?  This is learned from /v3/tenure/info, which is
+    /// checked upon receipt against the burnchain state (so we're not blindly trusting the remote
+    /// node).
     pub fn unconfirmed_tenure_id(&self) -> Option<&ConsensusHash> {
         self.tenure_tip.as_ref().map(|tt| &tt.consensus_hash)
     }
@@ -667,10 +826,10 @@ impl NakamotoUnconfirmedTenureDownloader {
     }
 
     /// Try and accept the tenure info.  It will be validated against the sortition DB and its tip.
-    /// Remember:
+    ///
     /// * tenure_tip.consensus_hash
     ///     This is the consensus hash of the remote node's ongoing tenure. It may not be the
-    ///     sortition tip.
+    ///     sortition tip, e.g. if the tenure spans multiple sortitions.
     /// * tenure_tip.tenure_start_block_id
     ///     This is the first block ID of the ongoing unconfirmed tenure.
     /// * tenure_tip.parent_consensus_hash
@@ -750,6 +909,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         if let Some(highest_processed_block_id) = self.highest_processed_block_id.as_ref() {
+            // we've synchronize this tenure before, so don't get anymore blocks before it.
             let highest_processed_block = chainstate
                 .nakamoto_blocks_db()
                 .get_nakamoto_block(highest_processed_block_id)?
@@ -777,6 +937,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         if self.state != NakamotoUnconfirmedDownloadState::Done {
+            // we're not finished
             let tenure_rc = sortdb
                 .pox_constants
                 .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
@@ -789,6 +950,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 )
                 .expect("FATAL: sortition from before system start");
 
+            // get aggregate public keys for the unconfirmed tenure and highest-complete tenure sortitions
             let Some(Some(confirmed_aggregate_public_key)) =
                 agg_pubkeys.get(&parent_tenure_rc).cloned()
             else {
@@ -812,7 +974,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 .nakamoto_blocks_db()
                 .has_nakamoto_block(&tenure_tip.tenure_start_block_id.clone())?
             {
-                // proceed to get unconfirmed blocks
+                // proceed to get unconfirmed blocks. We already have the tenure-start block.
                 let unconfirmed_tenure_start_block = chainstate
                     .nakamoto_blocks_db()
                     .get_nakamoto_block(&tenure_tip.tenure_start_block_id)?
@@ -844,6 +1006,8 @@ impl NakamotoUnconfirmedTenureDownloader {
     }
 
     /// Validate and accept the unconfirmed tenure-start block.  If accepted, then advance the state.
+    /// Returns Ok(()) if the unconfirmed tenure start block was valid
+    /// Returns Err(..) if it was not valid, or if this function was called out of sequence.
     pub fn try_accept_unconfirmed_tenure_start_block(
         &mut self,
         unconfirmed_tenure_start_block: NakamotoBlock,
@@ -905,8 +1069,10 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Add downloaded unconfirmed tenure blocks.
     /// If we have collected all tenure blocks, then return them.
     /// Returns Ok(Some(list-of-blocks)) on success, in which case, `list-of-blocks` is the
-    /// height-ordered sequence of blocks in this tenure.
-    /// Returns Ok(None) if there are still blocks to fetch
+    /// height-ordered sequence of blocks in this tenure, and includes only the blocks that come
+    /// after the highest-processed block (if set).
+    /// Returns Ok(None) if there are still blocks to fetch, in which case, the caller should call
+    /// `send_next_download_request()`
     /// Returns Err(..) on invalid state or invalid block.
     pub fn try_accept_unconfirmed_tenure_blocks(
         &mut self,
@@ -963,6 +1129,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 return Err(NetError::InvalidMessage);
             };
             if valid {
+                // this is the tenure-start block, so make sure it matches our /v3/tenure/info
                 if block.header.block_id() != tenure_tip.tenure_start_block_id {
                     warn!("Unexpected tenure-start block";
                           "tenure_id" => %tenure_tip.consensus_hash,
@@ -1019,7 +1186,7 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         if at_tenure_start {
             // we have all of the unconfirmed tenure blocks that were requested.
-            // only return those newer than the highest block
+            // only return those newer than the highest block.
             self.state = NakamotoUnconfirmedDownloadState::Done;
             let highest_processed_block_height =
                 *self.highest_processed_block_height.as_ref().unwrap_or(&0);
@@ -1050,7 +1217,13 @@ impl NakamotoUnconfirmedTenureDownloader {
         Ok(None)
     }
 
-    /// Check to sese if we need to get the highest-complete tenure.
+    /// Once this machine runs to completion, examine its state to see if we still need to fetch
+    /// the highest complete tenure.  We may not need to, especially if we're just polling for new
+    /// unconfirmed blocks.
+    ///
+    /// Return Ok(true) if we need it still
+    /// Return Ok(false) if we already have it
+    /// Return Err(..) if we encounter a DB error or if this function was called out of sequence.
     pub fn need_highest_complete_tenure(
         &self,
         chainstate: &StacksChainState,
@@ -1072,8 +1245,12 @@ impl NakamotoUnconfirmedTenureDownloader {
         )?)
     }
 
-    /// Create a NakamotoTenureDownloader for the highest complete tenure
-    /// Its tenure-start block will need to get fetched.
+    /// Create a NakamotoTenureDownloader for the highest complete tenure.  We already have the
+    /// tenure-end block (which will be supplied to the downloader), but we'll still want to go get
+    /// its tenure-start block.
+    ///
+    /// Returns Ok(downloader) on success
+    /// Returns Err(..) if we call this function out of sequence.
     pub fn make_highest_complete_tenure_downloader(
         &self,
         highest_tenure: &WantedTenure,
@@ -1115,38 +1292,31 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Produce the next HTTP request that, when successfully executed, will advance this state
     /// machine.
     ///
-    /// Returns Ok(Some(request)) if a request is needed
-    /// Returns Ok(None) if a request is not needed -- i.e. we've gotten all of the information we
-    /// can get, so go and get the highest full tenure.
-    /// Returns Err(..) if we're done.
-    pub fn make_next_download_request(
-        &self,
-        peerhost: PeerHost,
-    ) -> Result<Option<StacksHttpRequest>, ()> {
+    /// Returns Some(request) if a request must be sent.
+    /// Returns None if we're done
+    pub fn make_next_download_request(&self, peerhost: PeerHost) -> Option<StacksHttpRequest> {
         match &self.state {
             NakamotoUnconfirmedDownloadState::GetTenureInfo => {
                 // need to get the tenure tip
-                return Ok(Some(StacksHttpRequest::new_get_nakamoto_tenure_info(
-                    peerhost,
-                )));
+                return Some(StacksHttpRequest::new_get_nakamoto_tenure_info(peerhost));
             }
             NakamotoUnconfirmedDownloadState::GetTenureStartBlock(block_id) => {
-                return Ok(Some(StacksHttpRequest::new_get_nakamoto_block(
+                return Some(StacksHttpRequest::new_get_nakamoto_block(
                     peerhost,
                     block_id.clone(),
-                )));
+                ));
             }
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(tip_block_id) => {
-                return Ok(Some(StacksHttpRequest::new_get_nakamoto_tenure(
+                return Some(StacksHttpRequest::new_get_nakamoto_tenure(
                     peerhost,
                     tip_block_id.clone(),
                     self.highest_processed_block_id.clone(),
-                )));
+                ));
             }
             NakamotoUnconfirmedDownloadState::Done => {
                 // got all unconfirmed blocks!  Next step is to turn this downloader into a confirmed
                 // tenure downloader using the earliest unconfirmed tenure block.
-                return Ok(None);
+                return None;
             }
         }
     }
@@ -1173,22 +1343,24 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::PeerNotConnected);
         };
 
-        let request = match self.make_next_download_request(peerhost) {
-            Ok(Some(request)) => request,
-            Ok(None) => {
-                return Ok(true);
-            }
-            Err(_) => {
-                return Ok(false);
-            }
+        let Some(request) = self.make_next_download_request(peerhost) else {
+            // treat this downloader as still in-flight since the overall state machine will need
+            // to keep it around long enough to convert it into a tenure downloader for the highest
+            // complete tenure.
+            return Ok(true);
         };
 
         neighbor_rpc.send_request(network, self.naddr.clone(), request)?;
         Ok(true)
     }
 
-    /// Handle a received StacksHttpResponse.
+    /// Handle a received StacksHttpResponse and advance this machine's state
     /// If we get the full tenure, return it.
+    ///
+    /// Returns Ok(Some(blocks)) if we finished downloading the unconfirmed tenure
+    /// Returns Ok(None) if we're still working, in which case the caller should call
+    /// `send_next_download_request()`
+    /// Returns Err(..) on unrecoverable failure to advance state
     pub fn handle_next_download_response(
         &mut self,
         response: StacksHttpResponse,
@@ -1228,12 +1400,13 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
     }
 
+    /// Is this machine finished?
     pub fn is_done(&self) -> bool {
         self.state == NakamotoUnconfirmedDownloadState::Done
     }
 }
 
-/// A tenure that this node wants.
+/// A tenure that this node needs data for.
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct WantedTenure {
     /// Consensus hash that identifies the start of the tenure
@@ -1263,7 +1436,8 @@ impl WantedTenure {
     }
 }
 
-/// A tenure's start and end blocks
+/// A tenure's start and end blocks.  This is constructed from a sequence of `WantedTenure`s and a
+/// node's inventory vector over them.
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct TenureStartEnd {
     /// Consensus hash that identifies the start of the tenure
@@ -1272,7 +1446,9 @@ pub(crate) struct TenureStartEnd {
     pub start_block_id: StacksBlockId,
     /// Last block ID
     pub end_block_id: StacksBlockId,
-    /// Whether or not to fetch the end-block-id directly
+    /// Whether or not to fetch the end-block of this tenure directly.  This is decided based on
+    /// where the tenure falls in the reward cycle (e.g. if it's the last complete tenure in the
+    /// reward cycle).
     pub fetch_end_block: bool,
     /// Reward cycle of the start block
     pub start_reward_cycle: u64,
@@ -1596,30 +1772,23 @@ impl TenureStartEnd {
     }
 }
 
-/// The overall downloader can operate in one of two states:
-/// * it's doing IBD, in which case it's downloading tenures using neighbor inventories and
-/// the start/end block ID hashes obtained from block-commits.  This works up until the last two
-/// tenures.
-/// * it's in steady-state, in which case it's downloading the last two tenures from its neighbors.
-#[derive(Debug, Clone, PartialEq)]
-pub enum NakamotoDownloadState {
-    /// confirmed tenure download
-    Confirmed,
-    /// unconfirmed tenure download
-    Unconfirmed,
-}
-
-impl fmt::Display for NakamotoDownloadState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-/// A set of confirmed downloader state machines assigned to one or more neighbors
+/// A set of confirmed downloader state machines assigned to one or more neighbors.  The block
+/// downloader runs tenure-downloaders in parallel, since the downloader for the N+1'st tenure
+/// needs to feed data into the Nth tenure.  This struct is responsible for scheduling peer
+/// connections to downloader state machines, such that each peer is assigned to at most one
+/// downloader.  A peer is assigned a downloader for the duration of at most one RPC request, at
+/// which point, it will be re-assigned a (possibly different) downloader.  As such, each machine
+/// can make progress even if there is only one available peer (in which case, that peer will get
+/// scheduled across multiple machines to drive their progress in the right sequence such that
+/// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
 pub struct NakamotoTenureDownloaderSet {
-    downloaders: Vec<Option<NakamotoTenureDownloader>>,
-    peers: HashMap<NeighborAddress, usize>,
-    completed_tenures: HashSet<ConsensusHash>,
+    /// A list of instantiated downloaders that are in progress
+    pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
+    /// An assignment of peers to downloader machines in the `downloaders` list.
+    pub(crate) peers: HashMap<NeighborAddress, usize>,
+    /// The set of tenures that have been successfully downloaded (but possibly not yet stored or
+    /// processed)
+    pub(crate) completed_tenures: HashSet<ConsensusHash>,
 }
 
 impl NakamotoTenureDownloaderSet {
@@ -1631,6 +1800,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
+    /// Assign the given peer to the given downloader state machine.  Allocate a slot for it if
+    /// need.
     fn add_downloader(&mut self, naddr: NeighborAddress, downloader: NakamotoTenureDownloader) {
         test_debug!(
             "Add downloader for tenure {} driven by {}",
@@ -1645,7 +1816,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    fn has_downloader(&self, naddr: &NeighborAddress) -> bool {
+    /// Does the given neighbor have an assigned downloader state machine?
+    pub(crate) fn has_downloader(&self, naddr: &NeighborAddress) -> bool {
         let Some(idx) = self.peers.get(naddr) else {
             return false;
         };
@@ -1655,6 +1827,7 @@ impl NakamotoTenureDownloaderSet {
         downloader_opt.is_some()
     }
 
+    /// Drop the downloader associated with the given neighbor, if any.
     pub fn clear_downloader(&mut self, naddr: &NeighborAddress) {
         let Some(index) = self.peers.remove(naddr) else {
             return;
@@ -1662,6 +1835,7 @@ impl NakamotoTenureDownloaderSet {
         self.downloaders[index] = None;
     }
 
+    /// Add a sequence of (address, downloader) pairs to this downloader set.
     pub(crate) fn add_downloaders(
         &mut self,
         iter: impl IntoIterator<Item = (NeighborAddress, NakamotoTenureDownloader)>,
@@ -1675,6 +1849,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
+    /// Count up the number of in-flight messages, based on the states of each instantiated
+    /// downloader.
     pub fn inflight(&self) -> usize {
         let mut cnt = 0;
         for downloader_opt in self.downloaders.iter() {
@@ -1695,6 +1871,8 @@ impl NakamotoTenureDownloaderSet {
         cnt
     }
 
+    /// Determine whether or not there exists a downloader for the given tenure, identified by its
+    /// consensus hash.
     pub fn is_tenure_inflight(&self, ch: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
             let Some(downloader) = downloader_opt else {
@@ -1707,10 +1885,17 @@ impl NakamotoTenureDownloaderSet {
         false
     }
 
+    /// Determine if this downloader set is empty -- i.e. there's no in-flight requests.
     pub fn is_empty(&self) -> bool {
         self.inflight() == 0
     }
 
+    /// Try to resume processing a download state machine with a given peer.  Since a peer is
+    /// detached from the machine after a single RPC call, this call is needed to re-attach it to a
+    /// (potentially different, unblocked) machine for the next RPC call to this peer.
+    ///
+    /// Returns true if the peer gets scheduled.
+    /// Returns false if not.
     pub fn try_resume_peer(&mut self, naddr: NeighborAddress) -> bool {
         if let Some(idx) = self.peers.get(&naddr) {
             let Some(Some(_downloader)) = self.downloaders.get(*idx) else {
@@ -1749,6 +1934,8 @@ impl NakamotoTenureDownloaderSet {
         return false;
     }
 
+    /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
+    /// blocked downloaders.
     pub fn clear_available_peers(&mut self) {
         let mut idled: Vec<NeighborAddress> = vec![];
         for (naddr, i) in self.peers.iter() {
@@ -1776,6 +1963,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
+    /// Clear out downloaders (but not their peers) that have finished.  The caller should follow
+    /// this up with a call to `clear_available_peers()`.
     pub fn clear_finished_downloaders(&mut self) {
         for downloader_opt in self.downloaders.iter_mut() {
             let Some(downloader) = downloader_opt else {
@@ -1787,6 +1976,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
+    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
+    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
     pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
         let mut ret = HashMap::new();
         for downloader_opt in self.downloaders.iter() {
@@ -1801,6 +1992,8 @@ impl NakamotoTenureDownloaderSet {
         ret
     }
 
+    /// Given a set of tenure-start blocks, pass them into downloaders that are waiting for their
+    /// tenure-end blocks.
     pub(crate) fn handle_tenure_end_blocks(
         &mut self,
         tenure_start_blocks: &HashMap<StacksBlockId, NakamotoBlock>,
@@ -1835,6 +2028,7 @@ impl NakamotoTenureDownloaderSet {
         dead
     }
 
+    /// Does there exist a downloader (possibly unscheduled) for the given tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
             let Some(downloader) = downloader_opt else {
@@ -2008,8 +2202,16 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Run all confirmed downloaders.  Remove dead downloaders.
-    /// Returns the set of downloaded blocks
+    /// Run all confirmed downloaders.
+    /// * Identify neighbors for which we do not have an inflight request
+    /// * Get each such neighbor's downloader, and generate its next HTTP reqeust. Send that
+    /// request to the neighbor and begin driving the underlying socket I/O.
+    /// * Get each HTTP reply, and pass it into the corresponding downloader's handler to advance
+    /// its state.
+    /// * Identify and remove misbehaving neighbors and neighbors whose connections have broken.
+    ///
+    /// Returns the set of downloaded blocks obtained for completed downloaders.  These will be
+    /// full confirmed tenures.
     pub fn run(
         &mut self,
         network: &mut PeerNetwork,
@@ -2130,6 +2332,26 @@ impl NakamotoTenureDownloaderSet {
     }
 }
 
+/// The overall downloader can operate in one of two states:
+/// * it's doing IBD, in which case it's downloading tenures using neighbor inventories and
+/// the start/end block ID hashes obtained from block-commits.  This works up until the last two
+/// tenures.
+/// * it's in steady-state, in which case it's downloading the last two tenures from its neighbors.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NakamotoDownloadState {
+    /// confirmed tenure download (IBD)
+    Confirmed,
+    /// unconfirmed tenure download (steady-state)
+    Unconfirmed,
+}
+
+impl fmt::Display for NakamotoDownloadState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+/// The top-level block download state machine
 pub struct NakamotoDownloadStateMachine {
     /// What's the start burn block height for Nakamoto?
     nakamoto_start_height: u64,
@@ -2147,9 +2369,9 @@ pub struct NakamotoDownloadStateMachine {
     /// Map a tenure ID to its tenure start-block and end-block for each of our neighbors' invs
     tenure_block_ids: HashMap<NeighborAddress, AvailableTenures>,
     /// Who can serve a given tenure
-    available_tenures: HashMap<ConsensusHash, Vec<NeighborAddress>>,
+    pub(crate) available_tenures: HashMap<ConsensusHash, Vec<NeighborAddress>>,
     /// Confirmed tenure download schedule
-    tenure_download_schedule: VecDeque<ConsensusHash>,
+    pub(crate) tenure_download_schedule: VecDeque<ConsensusHash>,
     /// Unconfirmed tenure download schedule
     unconfirmed_tenure_download_schedule: VecDeque<NeighborAddress>,
     /// Ongoing unconfirmed tenure downloads, prioritized in who announces the latest block
@@ -2182,9 +2404,14 @@ impl NakamotoDownloadStateMachine {
         }
     }
 
-    /// Get a range of wanted tenures
-    /// Does not set the .processed bits.
-    /// Returns the tenures from first_block_height (inclusive) to last_block_height (exclusive)
+    /// Get a range of wanted tenures between two burnchain blocks.
+    /// Each wanted tenure's .processed flag will be set to false.
+    ///
+    /// Returns the tenures from first_block_height (inclusive) to last_block_height (exclusive) on
+    /// success.
+    ///
+    /// Returns Err(..) on DB error, or if one or both of these heights do not correspond to a
+    /// sortition.
     pub(crate) fn load_wanted_tenures(
         ih: &SortitionHandleConn,
         first_block_height: u64,
@@ -2216,14 +2443,12 @@ impl NakamotoDownloadStateMachine {
         Ok(wanted_tenures)
     }
 
-    /// Find the list of wanted tenures and processed tenures for a given complete reward cycle
-    /// (i.e. not the one at the burnchain tip).  Used only in IBD.
+    /// Find the list of wanted tenures for the given reward cycle.  The reward cycle must
+    /// be complete already.  Used for testing.
     ///
-    /// Returns
-    /// * list of (consensus hash, tenure-start block ID of parent tenure) ordered by sortition
-    /// * set of tenure ID consensus hashes for tenures we already have processed
-    ///
-    /// Returns None if `tip.block_height` matches `burnchain_block`
+    /// Returns a reward cycle's wanted tenures.
+    /// Returns a DB error if the snapshot does not correspond to a full reward cycle.
+    #[cfg(test)]
     pub(crate) fn load_wanted_tenures_for_reward_cycle(
         cur_rc: u64,
         tip: &BlockSnapshot,
@@ -2252,10 +2477,12 @@ impl NakamotoDownloadStateMachine {
         Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
     }
 
-    /// Update the list of wanted tenures and processed tenures for a given reward cycle.
+    /// Update a given list of wanted tenures (`wanted_tenures`), which may already have wanted
+    /// tenures.
     ///
-    /// `wanted_tenures` needs to be sorted by block height.
-    ///
+    /// Returns Ok(()) on sucess, and appends new tenures in the given reward cycle (`cur_rc`) to
+    /// `wanted_tenures`.
+    /// Returns Err(..) on DB errors.
     pub(crate) fn update_wanted_tenures_for_reward_cycle(
         cur_rc: u64,
         tip: &BlockSnapshot,
@@ -2303,8 +2530,14 @@ impl NakamotoDownloadStateMachine {
         Ok(())
     }
 
-    /// Update an existing list of wanted tenures and processed tenures for the chain tip.
-    /// Call this in steady state.
+    /// Given the last-considered sortition tip and the current sortition tip, and a list of wanted
+    /// tenures loaded so far, load up any new wanted tenure data _in the same reward cycle_.  Used
+    /// during steady-state to load up new tenures after the sorittion DB advances.
+    ///
+    /// It may return zero tenures.
+    ///
+    /// Returns Ok(new-tenures) on success.
+    /// Returns Err(..) on error.
     pub(crate) fn load_wanted_tenures_at_tip(
         last_tip: Option<&BlockSnapshot>,
         tip: &BlockSnapshot,
@@ -2362,10 +2595,15 @@ impl NakamotoDownloadStateMachine {
         Ok(wanted_tenures)
     }
 
-    /// Update the .processed state for each wanted tenure.
+    /// Update the .processed state for each given wanted tenure.
     /// Set it to true if any of the following are true:
-    /// * we have processed the tenure already
-    /// * we have downloaded and stored the full tenure
+    /// * the tenure is before the nakamoto start height
+    /// * we have processed the entire tenure
+    ///
+    /// This function exists as a static function for ease of testing.
+    ///
+    /// Returns Ok(()) on success
+    /// Returns Err(..) on DB error
     pub(crate) fn inner_update_processed_wanted_tenures(
         nakamoto_start: u64,
         wanted_tenures: &mut [WantedTenure],
@@ -2393,7 +2631,11 @@ impl NakamotoDownloadStateMachine {
         Ok(())
     }
 
-    /// Update the .processed state for each wanted tenure
+    /// Update the .processed state for each wanted tenure in the `prev_wanted_tenures` and
+    /// `wanted_tenures` lists.
+    ///
+    /// Returns Ok(()) on success
+    /// Returns Err(..) on DB error
     pub(crate) fn update_processed_tenures(
         &mut self,
         chainstate: &StacksChainState,
@@ -2414,13 +2656,25 @@ impl NakamotoDownloadStateMachine {
         )
     }
 
-    /// Find all tenure-start blocks for a list of wanted tenures.
+    /// Find all stored (but not necessarily processed) tenure-start blocks for a list
+    /// of wanted tenures that this node has locally.  NOTE: these tenure-start blocks
+    /// do not correspond to the tenure; they correspond to the _parent_ tenure (since a
+    /// `WantedTenure` captures the tenure-start block hash of the parent tenure; the same data
+    /// captured by a sortition).
+    ///
+    /// This method is static to ease testing.
+    ///
+    /// Returns Ok(()) on success and fills in newly-discovered blocks into `tenure_start_blocks`.
+    /// Returns Err(..) on DB error.
     pub(crate) fn load_tenure_start_blocks(
         wanted_tenures: &[WantedTenure],
         chainstate: &StacksChainState,
-    ) -> Result<HashMap<StacksBlockId, NakamotoBlock>, NetError> {
-        let mut tenure_start_blocks = HashMap::new();
+        tenure_start_blocks: &mut HashMap<StacksBlockId, NakamotoBlock>,
+    ) -> Result<(), NetError> {
         for wt in wanted_tenures {
+            if tenure_start_blocks.contains_key(&wt.winning_block_id) {
+                continue;
+            }
             let Some(tenure_start_block) = chainstate
                 .nakamoto_blocks_db()
                 .get_nakamoto_tenure_start_block(&wt.tenure_id_consensus_hash)?
@@ -2429,7 +2683,7 @@ impl NakamotoDownloadStateMachine {
             };
             tenure_start_blocks.insert(tenure_start_block.block_id(), tenure_start_block);
         }
-        Ok(tenure_start_blocks)
+        Ok(())
     }
 
     /// Update our local tenure start block data
@@ -2437,13 +2691,39 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         chainstate: &StacksChainState,
     ) -> Result<(), NetError> {
-        let tenure_start_blocks = Self::load_tenure_start_blocks(&self.wanted_tenures, chainstate)?;
-        self.tenure_start_blocks
-            .extend(tenure_start_blocks.into_iter());
-        Ok(())
+        Self::load_tenure_start_blocks(
+            &self.wanted_tenures,
+            chainstate,
+            &mut self.tenure_start_blocks,
+        )
     }
 
-    /// Extended wanted tenures for the current reward cycle
+    /// Update `self.wanted_tenures` and `self.prev_wanted_tenures` with newly-discovered sortition
+    /// data.  These lists are extended in three possible ways, depending on the sortition tip:
+    ///
+    /// * If the sortition tip is in the same reward cycle that the block downloader is tracking,
+    /// then any newly-available sortitions are loaded via `load_wnated_tenures_at_tip()` and appended
+    /// to `self.wanted_tenures`.  This is what happens most of the time in steady-state.
+    ///
+    /// * Otherwise, if the sortition tip is different (i.e. ahead) of the block downloader's
+    /// tracked reward cycle, _and_ if it's safe to do so (discussed below), then the next reward
+    /// cycle's sortitions are loaded.  `self.prev_wanted_tenures` is populated with all of the
+    /// wanted tenures from the prior reward cycle, and `self.wanted_tenures` is populated with all
+    /// of the wanted tenures from the current reward cycle.
+    ///
+    /// Due to the way the chains coordinator works, the sortition DB will never be more than one
+    /// reward cycle ahead of the block downloader.  This is because sortitions cannot be processed
+    /// (and will not be processed) until their corresponding PoX anchor block has been processed.
+    /// As such, the second case above only occurs at a reward cycle boundary -- specifically, the
+    /// sortition DB is in the process of being updated by the chains coordinator with the next
+    /// reward cycle's sortitions.
+    ///
+    /// Naturally, processing a new reward cycle is disruptive to the download state machine, which
+    /// can be in the process of finishing up downloading the prepare phase for a reward cycle at
+    /// the same time as the sortition DB processing the next reward cycle.  To ensure that the
+    /// downloader doesn't miss anything, this code checks (via `have_unprocessed_tenures()`) that
+    /// all wanted tenures for which we have inventory data have been downloaded before advancing
+    /// `self.wanted_tenures` and `self.prev_wanted_tenures.`
     fn extend_wanted_tenures(
         &mut self,
         network: &PeerNetwork,
@@ -2470,8 +2750,6 @@ impl NakamotoDownloadStateMachine {
             sortdb,
             &self.wanted_tenures,
         )?;
-        let new_tenure_start_blocks =
-            Self::load_tenure_start_blocks(&new_wanted_tenures, chainstate)?;
 
         let can_advance_wanted_tenures =
             if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() {
@@ -2536,14 +2814,11 @@ impl NakamotoDownloadStateMachine {
             test_debug!("wanted_tenures is now {:?}", &self.wanted_tenures);
         }
 
-        self.tenure_start_blocks
-            .extend(new_tenure_start_blocks.into_iter());
-
         Ok(())
     }
 
     /// Initialize `self.wanted_tenures` and `self.prev_wanted_tenures` for the first time, if they
-    /// do not exist.  At all times, `self.prev_wanted_tenures` ought to be initialized to the last
+    /// are not set up yet.  At all times, `self.prev_wanted_tenures` ought to be initialized to the last
     /// full reward cycle's tenures, and `self.wanted_tenures` ought to be initialized to the
     /// ongoing reward cycle's tenures.
     pub(crate) fn initialize_wanted_tenures(
@@ -2711,14 +2986,22 @@ impl NakamotoDownloadStateMachine {
     /// Update the state machine's wanted tenures and processed tenures, if it's time to do so.
     /// This will only happen when the sortition DB has finished processing a reward cycle of
     /// tenures when in IBD mode, _OR_ when the sortition tip advances when in steady-state mode.
+    /// This is the top-level method for managing `self.wanted_tenures` and
+    /// `self.prev_wanted_tenures`.
     ///
     /// In the first case, this function will load up the whole list of wanted
     /// tenures for this reward cycle, and proceed to download them.  This happens only on reward
-    /// cycle boundaries.  The current list of wanted tenures will be saved as
-    /// `self.prev_wanted_tenures` so that any tenures not yet downloaded from the ongoing reward
-    /// cycle can be fetched.
+    /// cycle boundaries, where the sortition DB is about to begin processing a new reward cycle.
+    /// The list of wanted tenures for the current reward cycle will be saved as
+    /// `self.prev_wanted_tenures`, and the set of wanted tenures for the next reward cycle
+    /// will be stored to `self.wanted_tenures`.  It will only update these two lists if it is safe
+    /// to do so, as determined by `have_unprocessed_tenures()`.
     ///
-    /// In the second case, this function will load up _new_
+    /// In the second case (i.e. not a reward cycle boundary), this function will load up _new_
+    /// wanted tenure data and append it to `self.wanted_tenures` via
+    /// `self.extend_wanted_tenures()` above.  If it turns out that the downloader's tracked reward
+    /// cycle is behind the sortition DB tip's reward cycle, then this will update
+    /// `self.wnated_tenures` and `self.prev_wanted_tenures` if it is safe to do so.
     pub(crate) fn update_wanted_tenures(
         &mut self,
         network: &PeerNetwork,
@@ -2765,8 +3048,11 @@ impl NakamotoDownloadStateMachine {
         );
 
         if sort_rc == next_sort_rc {
+            // not at a reward cycle boundary, os just extend self.wanted_tenures
             test_debug!("Extend wanted tenures since no sort_rc change and we have tenure data");
-            return self.extend_wanted_tenures(network, sortdb, chainstate);
+            self.extend_wanted_tenures(network, sortdb, chainstate)?;
+            self.update_tenure_start_blocks(chainstate)?;
+            return Ok(());
         }
 
         let can_advance_wanted_tenures =
@@ -2825,7 +3111,7 @@ impl NakamotoDownloadStateMachine {
     /// Given a set of inventory bit vectors for the current reward cycle, find out which neighbors
     /// can serve each tenure (identified by the tenure ID consensus hash).
     /// Every tenure ID consensus hash in `wanted_tenures` will be mapped to the returned hash
-    /// table, but the list of addresses may be empty.
+    /// table, but the list of addresses may be empty if no neighbor reports having that tenure.
     pub(crate) fn find_available_tenures<'a>(
         reward_cycle: u64,
         wanted_tenures: &[WantedTenure],
@@ -2880,7 +3166,9 @@ impl NakamotoDownloadStateMachine {
     }
 
     /// Find each peer's mapping between tenure ID consensus hashes for the tenures it claims to
-    /// have, and its tenure start block ID
+    /// have in its inventory vector, and its tenure start block ID.
+    ///
+    /// This is a static method to facilitate testing.
     pub(crate) fn find_tenure_block_ids<'a>(
         rc: u64,
         wanted_tenures: &[WantedTenure],
@@ -2937,7 +3225,6 @@ impl NakamotoDownloadStateMachine {
         nakamoto_start: u64,
         wanted_tenures: &[WantedTenure],
         available: &HashMap<ConsensusHash, Vec<NeighborAddress>>,
-        // TODO: unconfirmed tenure downloader
     ) -> VecDeque<ConsensusHash> {
         let mut schedule = Vec::with_capacity(available.len());
         for wt in wanted_tenures.iter() {
@@ -2958,7 +3245,8 @@ impl NakamotoDownloadStateMachine {
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 
-    /// How many neighbors can we contact still?
+    /// How many neighbors can we contact still, given the map of tenures to neighbors which can
+    /// serve it?
     fn count_available_tenure_neighbors(
         available: &HashMap<ConsensusHash, Vec<NeighborAddress>>,
     ) -> usize {
@@ -2967,9 +3255,19 @@ impl NakamotoDownloadStateMachine {
             .fold(0, |count, (_ch, naddrs)| count.saturating_add(naddrs.len()))
     }
 
-    /// Update our available tenure set and download schedule.
-    /// Call after Self::update_wanted_tenures()
-    fn update_available_tenures(
+    /// This function examines the contents of `self.wanted_tenures` and
+    /// `self.prev_wanted_tenures`, and calculates the following:
+    ///
+    /// * The set of `TenureStartEnd`s for both `self.wanted_tenures` and
+    /// `self.prev_wanted_tenures`, given the peers' inventory vectors.
+    ///
+    /// * The set of which tenures are available from which neighbors
+    ///
+    /// * The order in which to fetch tenure data, based on whether or not we're in IBD or
+    /// steady-state.
+    ///
+    /// This function should be called immediately after `update_wanted_tenures()`.
+    pub(crate) fn update_available_tenures(
         &mut self,
         inventories: &HashMap<NeighborAddress, NakamotoTenureInv>,
         pox_constants: &PoxConstants,
@@ -2996,6 +3294,7 @@ impl NakamotoDownloadStateMachine {
             return;
         }
 
+        // calculate self.available
         // get available tenures for both the current and previous reward cycles
         let prev_available = self
             .prev_wanted_tenures
@@ -3021,6 +3320,7 @@ impl NakamotoDownloadStateMachine {
         );
         available.extend(prev_available.into_iter());
 
+        // calculate self.tenure_block_ids
         let prev_tenure_block_ids = self.prev_wanted_tenures
             .as_ref()
             .map(|prev_wanted_tenures| {
@@ -3116,7 +3416,8 @@ impl NakamotoDownloadStateMachine {
         self.available_tenures = available;
     }
 
-    /// Update our tenure download state machines
+    /// Update our tenure download state machines, given our download schedule, our peers' tenure
+    /// availabilities, and our computed `TenureStartEnd`s
     fn update_tenure_downloaders(
         &mut self,
         count: usize,
@@ -3137,6 +3438,8 @@ impl NakamotoDownloadStateMachine {
     ///
     /// To fully determine if it's appropriate to download unconfirmed tenures, the caller should
     /// additionally ensure that there are no in-flight confirmed tenure downloads.
+    ///
+    /// This method is static to facilitate testing.
     pub(crate) fn need_unconfirmed_tenures<'a>(
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
@@ -3258,6 +3561,11 @@ impl NakamotoDownloadStateMachine {
     ///
     /// The caller will need to ensure that no request to the ongoing unconfirmed tenure
     /// downloaders gets created, lest it replace the unconfirmed tenure request.
+    ///
+    /// This method removes items from `schedule` and adds unconfirmed downloaders to
+    /// `downloaders`.
+    ///
+    /// This method is static to facilitate testing.
     pub(crate) fn make_unconfirmed_tenure_downloaders(
         schedule: &mut VecDeque<NeighborAddress>,
         count: usize,
@@ -3296,18 +3604,32 @@ impl NakamotoDownloadStateMachine {
         );
     }
 
-    /// Run unconfirmed tenure downloads.
+    /// Run unconfirmed tenure download state machines.
+    /// * Update the highest-processed block in each downloader to our highest-processed block
+    /// * Send any HTTP requests that the downloaders indicate are needed (if they are not blocked
+    /// waiting for a response)
+    /// * Obtain any HTTP responses and pass them into the downloaders, thereby advancing their
+    /// states
+    /// * Obtain downloaded blocks, and create new confirmed tenure downloaders for the
+    /// highest-complete tenure downloader.
+    /// * Clear out downloader state for peers who have disconnected or have finished processing
+    /// their machines.
+    ///
     /// As the local node processes blocks, update each downloader's view of the highest-processed
-    /// block so it can cancel itself early if it finds that we've already got the blocks.
-    /// Returns the map from neighbors to the unconfirmed blocks they serve, as well as a map from
-    /// neighbors to the instantiated confirmed tenure downloaders for their highest completed
-    /// tenures (this information cannot be determined from sortition history and block inventories
-    /// alone, since we need to know the tenure-start block from the ongoing tenure).
+    /// block so it can cancel itself early if it finds that we've already got the blocks, or if
+    /// another peer indicates that it has a higher block.
     ///
     /// This method guarantees that the highest confirmed tenure downloaders instantiated here can
     /// be safely run without clobbering ongoing conversations with other neighbors, _provided
     /// that_ the download state machine is currently concerned with running unconfirmed tenure
     /// downloaders (i.e. it's not in IBD).
+    ///
+    /// This method is static to facilitate testing.
+    ///
+    /// Returns the map from neighbors to the unconfirmed blocks they serve, as well as a map from
+    /// neighbors to the instantiated confirmed tenure downloaders for their highest completed
+    /// tenures (this information cannot be determined from sortition history and block inventories
+    /// alone, since we need to know the tenure-start block from the ongoing tenure).
     pub(crate) fn run_unconfirmed_downloaders(
         downloaders: &mut HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
         network: &mut PeerNetwork,
@@ -3444,7 +3766,12 @@ impl NakamotoDownloadStateMachine {
         (unconfirmed_blocks, highest_completed_tenure_downloaders)
     }
 
-    /// Run and process all confirmed tenure downloaders
+    /// Run and process all confirmed tenure downloaders, and do the necessary bookkeeping to deal
+    /// with failed peer connections.
+    ///
+    /// At most `max_count` downloaders will be instantiated at once.
+    ///
+    /// Returns the set of downloaded confirmed tenures obtained.
     fn download_confirmed_tenures(
         &mut self,
         network: &mut PeerNetwork,
@@ -3474,7 +3801,8 @@ impl NakamotoDownloadStateMachine {
         new_blocks
     }
 
-    /// Run and process all unconfirmed tenure downloads, and highest-confirmed tenure downloads
+    /// Run and process all unconfirmed tenure downloads, and highest complete tenure downloads.
+    /// Do the needful bookkeeping to remove dead peers.
     fn download_unconfirmed_tenures(
         &mut self,
         network: &mut PeerNetwork,
@@ -3490,7 +3818,7 @@ impl NakamotoDownloadStateMachine {
         );
 
         // run all unconfirmed downloaders, and start confirmed downloaders for the
-        // highest-confirmed tenure
+        // highest complete tenure
         let burnchain_tip = network.burnchain_tip.clone();
         let Some(unconfirmed_tenure) = self
             .wanted_tenures
@@ -3512,6 +3840,22 @@ impl NakamotoDownloadStateMachine {
             return HashMap::new();
         };
 
+        // Get the highest WantedTenure.  This will be the WantedTenure whose winning block hash is
+        // the start block hash of the highest complete tenure, and whose consensus hash is the
+        // tenure ID of the ongoing tenure.  It corresponds to the highest sortition for which
+        // there exists a tenure.
+        //
+        // There are three possibilities for obtaining this, based on what we know about tenures
+        // from the sortition DB and the peers' inventories:
+        //
+        // Case 1: There are no sortitions yet in the current reward cycle, so this is the
+        // second-to-last WantedTenure in the last reward cycle's WantedTenure list.
+        //
+        // Case 2: There is one sortition in the current reward cycle, so this is the last
+        // WantedTenure in the last reward cycle's WantedTenure list
+        //
+        // Case 3: There are two or more sortitions in the current reward cycle, so this is the
+        // second-to-last WantedTenure in the current reward cycle's WantedTenure list.
         let highest_wanted_tenure = if self.wanted_tenures.len() == 0 {
             // highest complete wanted tenure is the second-to-last tenure in prev_wanted_tenures
             let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() else {
@@ -3546,12 +3890,21 @@ impl NakamotoDownloadStateMachine {
             wt.clone()
         };
 
+        // Run the confirmed downloader state machine set, since we could already be processing the
+        // highest complete tenure download.  NOTE: due to the way that we call this method, we're
+        // guaranteed that if the `tenure_downloads` downloader set has any downloads at all, they
+        // will only be for the highest complete tenure (i.e. we only call this method if we've
+        // already downloaded all confirmed tenures), so there's no risk of clobberring any other
+        // in-flight requests.
         let new_confirmed_blocks = if self.tenure_downloads.inflight() > 0 {
             self.download_confirmed_tenures(network, 0)
         } else {
             HashMap::new()
         };
 
+        // Only run unconfirmed downloaders if we're _not_ busy obtaining the highest confirmed
+        // tenure.  The behavior here ensures that we first obtain the highest complete tenure, and
+        // then poll for new unconfirmed tenure blocks.
         let (new_unconfirmed_blocks, new_highest_confirmed_downloaders) =
             if self.tenure_downloads.inflight() > 0 {
                 (HashMap::new(), HashMap::new())
@@ -3568,7 +3921,7 @@ impl NakamotoDownloadStateMachine {
                 )
             };
 
-        // run downloaders for the highest-confirmed tenure
+        // schedule downloaders for the highest-confirmed tenure, if we generated any
         self.tenure_downloads
             .add_downloaders(new_highest_confirmed_downloaders.into_iter());
 
@@ -3605,8 +3958,17 @@ impl NakamotoDownloadStateMachine {
             .collect()
     }
 
-    /// Run all downloads, and transition the downloader in-between `confirmed` and `unconfirmed`
-    /// modes as needed
+    /// Top-level download state machine execution.
+    ///
+    /// The downloader transitions between two states in perpetuity: obtaining confirmed tenures,
+    /// and obtaining the unconfirmed tenure and the highest complete tenure.
+    ///
+    /// The system starts out in the "confirmed" mode, since the node must first download all
+    /// confirmed tenures before it can process the chain tip.  But once all confirmed tenures have
+    /// been downloaded, the system transitions to "unconfirmed" mode whereby it attempts to
+    /// download the highest complete tenure and any new unconfirmed tenure blocks.  It stays in
+    /// "unconfirmed" mode until there are new confirmed tenures to fetch (which shouldn't happen
+    /// unless this node misses a few sortitions, such as due to a restart).
     fn run_downloads(
         &mut self,
         burnchain_height: u64,
