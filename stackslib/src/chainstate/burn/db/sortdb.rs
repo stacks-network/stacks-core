@@ -175,7 +175,8 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
-        let miner_pk_hash = row.get("miner_pk_hash")?;
+        let miner_pk_hash = row.get("miner_pk_hash")
+            .unwrap_or(None);
 
         let snapshot = BlockSnapshot {
             block_height,
