@@ -332,7 +332,7 @@ The changelog for this release is a high-level summary of these SIPs.
 ### Added
 
 - Added prometheus output for "transactions in last block" (#3138).
-- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+- Added environment variable STACKS_LOG_FORMAT_TIME to set the time format
   stacks-node uses for logging. (#3219)
   Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
 - Added mock-miner sample config (#3225)
