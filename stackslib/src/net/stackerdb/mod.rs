@@ -419,10 +419,12 @@ impl PeerNetwork {
                     Ok(Some(result)) => {
                         // clear broken nodes
                         for broken in result.broken.iter() {
+                            debug!("StackerDB replica is broken: {:?}", broken);
                             self.deregister_and_ban_neighbor(broken);
                         }
                         // clear dead nodes
                         for dead in result.dead.iter() {
+                            debug!("StackerDB replica is dead: {:?}", dead);
                             self.deregister_neighbor(dead);
                         }
                         results.push(result);
@@ -433,12 +435,7 @@ impl PeerNetwork {
                             "Failed to run StackerDB state machine for {}: {:?}",
                             &sc, &e
                         );
-                        if let Err(e) = stacker_db_sync.reset(Some(self), config) {
-                            info!(
-                                "Failed to reset StackerDB state machine for {}: {:?}",
-                                &sc, &e
-                            );
-                        }
+                        stacker_db_sync.reset(Some(self), config);
                     }
                 }
             } else {

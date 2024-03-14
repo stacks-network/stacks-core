@@ -150,7 +150,7 @@ impl TryFrom<u8> for AddressHashMode {
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
 /// single-sig address (p2pkh)
 /// Get back the hash of the address
-fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
+pub fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
     Hash160::from_data(&pubk.to_bytes())
 }
 

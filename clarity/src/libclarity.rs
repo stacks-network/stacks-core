@@ -58,11 +58,13 @@ pub mod boot_util {
     use crate::vm::representations::ContractName;
     use crate::vm::types::QualifiedContractIdentifier;
 
+    #[allow(clippy::expect_used)]
     pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
         let addr = boot_code_addr(mainnet);
         QualifiedContractIdentifier::new(
             addr.into(),
-            ContractName::try_from(name.to_string()).unwrap(),
+            ContractName::try_from(name.to_string())
+                .expect("FATAL: boot contract name is not a legal ContractName"),
         )
     }
 

@@ -297,7 +297,7 @@ impl BurnchainStateTransition {
 }
 
 impl BurnchainSigner {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn mock_parts(
         hash_mode: AddressHashMode,
         num_sigs: usize,
@@ -311,7 +311,7 @@ impl BurnchainSigner {
         BurnchainSigner(repr)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
         BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
     }
@@ -487,6 +487,18 @@ impl Burnchain {
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
         self.pox_constants
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
+    }
+
+    pub fn next_reward_cycle(&self, block_height: u64) -> Option<u64> {
+        let cycle = self.block_height_to_reward_cycle(block_height)?;
+        let effective_height = block_height.checked_sub(self.first_block_height)?;
+        let next_bump = if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0
+        {
+            0
+        } else {
+            1
+        };
+        Some(cycle + next_bump)
     }
 
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {

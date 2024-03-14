@@ -14,19 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch, Error as CodecError,
     StacksMessageCodec, MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
@@ -46,51 +47,61 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
+use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
-use super::stacks::boot::{BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME};
+use super::stacks::boot::{
+    PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::events::StacksTransactionReceipt;
+use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
     TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
 };
-use crate::burnchains::{PoxConstants, Txid};
+use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
-use crate::chainstate::stacks::boot::POX_4_NAME;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
+use crate::clarity_vm::clarity::{
+    ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
+};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
-use crate::monitoring;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
+use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod miner;
 pub mod tenure;
 
+pub mod signer_set;
 #[cfg(test)]
 pub mod tests;
 
@@ -153,6 +164,14 @@ lazy_static! {
 
                      PRIMARY KEY(block_hash,consensus_hash)
     );"#.into(),
+    r#"
+    -- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
+    --   during block processing.
+    CREATE TABLE nakamoto_reward_sets (
+                     index_block_hash TEXT NOT NULL,
+                     reward_set TEXT NOT NULL,
+                     PRIMARY KEY (index_block_hash)
+    );"#.into(),
     NAKAMOTO_TENURES_SCHEMA.into(),
     r#"
       -- Table for Nakamoto block headers
@@ -189,6 +208,8 @@ lazy_static! {
                      miner_signature TEXT NOT NULL,
                      -- signers' signature over the block
                      signer_signature TEXT NOT NULL,
+                     -- bitvec capturing stacker participation in signature
+                     signer_bitvec TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
                      -- what kind of header this is (nakamoto or stacks 2.x)
@@ -287,6 +308,8 @@ pub struct SetupBlockResult<'a, 'b> {
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
     /// STX auto-unlock events from PoX
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
+    /// Result of a signer set calculation if one occurred
+    pub signer_set_calc: Option<SignerCalculation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -313,6 +336,9 @@ pub struct NakamotoBlockHeader {
     pub miner_signature: MessageSignature,
     /// Schnorr signature over the block header from the signer set active during the tenure.
     pub signer_signature: ThresholdSignature,
+    /// A bitvec which represents the signers that participated in this block signature.
+    /// The maximum number of entries in the bitvec is 4000.
+    pub signer_bitvec: BitVec<4000>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -330,6 +356,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let state_index_root = row.get("state_index_root")?;
         let signer_signature = row.get("signer_signature")?;
         let miner_signature = row.get("miner_signature")?;
+        let signer_bitvec = row.get("signer_bitvec")?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -341,6 +368,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             state_index_root,
             signer_signature,
             miner_signature,
+            signer_bitvec,
         })
     }
 }
@@ -364,6 +392,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
 
         Ok(())
     }
@@ -379,6 +408,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
+            signer_bitvec: read_next(fd)?,
         })
     }
 }
@@ -386,7 +416,21 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 impl NakamotoBlockHeader {
     /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
-    pub fn miner_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    pub fn miner_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.miner_signature_hash_inner()
+            .expect("BUG: failed to calculate miner signature hash")
+    }
+
+    /// Calculate the message digest for signers to sign.
+    /// This includes all fields _except_ the signer signature.
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.signer_signature_hash_inner()
+            .expect("BUG: failed to calculate signer signature hash")
+    }
+
+    /// Inner calculation of the message digest for miners to sign.
+    /// This includes all fields _except_ the signatures.
+    fn miner_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -399,9 +443,9 @@ impl NakamotoBlockHeader {
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
-    /// Calculate the message digest for stackers to sign.
+    /// Inner calculation of the message digest for stackers to sign.
     /// This includes all fields _except_ the stacker signature.
-    pub fn signer_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    fn signer_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -412,11 +456,12 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
-        let signed_hash = self.miner_signature_hash().ok()?;
+        let signed_hash = self.miner_signature_hash();
         let recovered_pk =
             StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
 
@@ -438,7 +483,7 @@ impl NakamotoBlockHeader {
 
     /// Sign the block header by the miner
     pub fn sign_miner(&mut self, privk: &StacksPrivateKey) -> Result<(), ChainstateError> {
-        let sighash = self.miner_signature_hash()?.0;
+        let sighash = self.miner_signature_hash().0;
         let sig = privk
             .sign(&sighash)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
@@ -463,8 +508,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            // TODO: `mock()` should be updated to `empty()` and rustdocs updated
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -479,7 +524,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -494,7 +540,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 }
@@ -1715,7 +1762,7 @@ impl NakamotoChainState {
         if !db_handle.expects_signer_signature(
             &block.header.consensus_hash,
             schnorr_signature,
-            &block.header.signer_signature_hash()?.0,
+            &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
@@ -2173,6 +2220,7 @@ impl NakamotoChainState {
             &header.parent_block_id,
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
+            &header.signer_bitvec,
         ];
 
         chainstate_tx.execute(
@@ -2192,8 +2240,10 @@ impl NakamotoChainState {
                      tenure_tx_fees,
                      parent_block_id,
                      tenure_changed,
-                     vrf_proof)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                     vrf_proof,
+                     signer_bitvec
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             args
         )?;
 
@@ -2350,6 +2400,33 @@ impl NakamotoChainState {
             &new_tip.consensus_hash, new_block_hash,
         );
         Ok(new_tip_info)
+    }
+
+    pub fn write_reward_set(
+        tx: &mut ChainstateTx,
+        block_id: &StacksBlockId,
+        reward_set: &RewardSet,
+    ) -> Result<(), ChainstateError> {
+        let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
+        let args = rusqlite::params![block_id, &reward_set.metadata_serialize(),];
+        tx.execute(sql, args)?;
+        Ok(())
+    }
+
+    pub fn get_reward_set(
+        chainstate_db: &Connection,
+        block_id: &StacksBlockId,
+    ) -> Result<Option<RewardSet>, ChainstateError> {
+        let sql = "SELECT reward_set FROM nakamoto_reward_sets WHERE index_block_hash = ?";
+        chainstate_db
+            .query_row(sql, &[block_id], |row| {
+                let reward_set: String = row.get(0)?;
+                let reward_set = RewardSet::metadata_deserialize(&reward_set)
+                    .map_err(|s| FromSqlError::Other(s.into()))?;
+                Ok(reward_set)
+            })
+            .optional()
+            .map_err(ChainstateError::from)
     }
 
     /// Begin block-processing and return all of the pre-processed state within a
@@ -2541,6 +2618,20 @@ impl NakamotoChainState {
             );
         }
 
+        // Handle signer stackerdb updates
+        let signer_set_calc;
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height,
+                &pox_constants,
+                burn_header_height.into(),
+                coinbase_height,
+            )?;
+        } else {
+            signer_set_calc = None;
+        }
+
         debug!(
             "Setup block: completed setup";
             "parent_consensus_hash" => %parent_consensus_hash,
@@ -2557,6 +2648,7 @@ impl NakamotoChainState {
             burn_transfer_stx_ops: transfer_burn_ops,
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
+            signer_set_calc,
         })
     }
 
@@ -2641,10 +2733,13 @@ impl NakamotoChainState {
             )
             .ok()
             .map(|agg_key_value| {
-                let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
-                    Value::buff_from(agg_key_buff.expect_buff(33))
-                        .expect("failed to reconstruct buffer")
-                });
+                let agg_key_opt = agg_key_value
+                    .expect_optional()
+                    .expect("FATAL: not an optional")
+                    .map(|agg_key_buff| {
+                        Value::buff_from(agg_key_buff.expect_buff(33).expect("FATAL: not a buff"))
+                            .expect("failed to reconstruct buffer")
+                    });
                 agg_key_opt
             })
             .flatten()
@@ -2848,6 +2943,7 @@ impl NakamotoChainState {
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
             mut auto_unlock_events,
+            signer_set_calc,
         } = Self::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -3014,6 +3110,13 @@ impl NakamotoChainState {
 
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
+
+        // store the reward set calculated during this block if it happened
+        // NOTE: miner and proposal evaluation should not invoke this because
+        //  it depends on knowing the StacksBlockId.
+        if let Some(signer_calculation) = signer_set_calc {
+            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
+        }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
         monitoring::set_last_execution_cost_observed(&block_execution_cost, &block_limit);

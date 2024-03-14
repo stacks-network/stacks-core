@@ -1041,10 +1041,10 @@ fn test_get_block_info_v210() {
                     )
                     .unwrap();
 
-                    let list = list_val.expect_list();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional();
-                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().expect_u128();
-                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().expect_u128();
+                    let list = list_val.expect_list().unwrap();
+                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
+                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
                     eprintln!("i = {}, block_reward = {:?}, miner_spend_winner = {:?}, miner_spend_total = {:?}", i, &block_reward_opt, &miner_spend_winner, &miner_spend_total);
 
@@ -1083,7 +1083,7 @@ fn test_get_block_info_v210() {
                             };
 
                         eprintln!("i = {}, {} + {} + {} + {}", i, coinbase, tx_fees_anchored, tx_fees_streamed_produced, tx_fees_streamed_confirmed);
-                        assert_eq!(block_reward_opt.unwrap().expect_u128(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
+                        assert_eq!(block_reward_opt.unwrap().expect_u128().unwrap(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
                     }
                     else {
                         // genesis, or not yet mature
@@ -1343,10 +1343,10 @@ fn test_get_block_info_v210_no_microblocks() {
                     )
                     .unwrap();
 
-                    let list = list_val.expect_list();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional();
-                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().expect_u128();
-                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().expect_u128();
+                    let list = list_val.expect_list().unwrap();
+                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
+                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
                     eprintln!("i = {}, block_reward = {:?}, miner_spend_winner = {:?}, miner_spend_total = {:?}", i, &block_reward_opt, &miner_spend_winner, &miner_spend_total);
 
@@ -1373,7 +1373,7 @@ fn test_get_block_info_v210_no_microblocks() {
                         let tx_fees_streamed_confirmed = 0;
 
                         eprintln!("i = {}, {} + {} + {} + {}", i, coinbase, tx_fees_anchored, tx_fees_streamed_produced, tx_fees_streamed_confirmed);
-                        assert_eq!(block_reward_opt.unwrap().expect_u128(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
+                        assert_eq!(block_reward_opt.unwrap().expect_u128().unwrap(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
                     }
                     else {
                         // genesis, or not yet mature
@@ -1811,10 +1811,10 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     )
                     .unwrap();
 
-                    let list = list_val.expect_list();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional();
-                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().expect_u128();
-                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().expect_u128();
+                    let list = list_val.expect_list().unwrap();
+                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
+                    let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
                     if i >= 1 {
                         assert_eq!(miner_spend_winner, (1000 + i - 1) as u128);
@@ -1837,7 +1837,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             |env| env.eval_raw(&format!("(get-block-info? miner-address u{})", i))
                         )
                         .unwrap();
-                        let miner_address = miner_val.expect_optional().unwrap().expect_principal();
+                        let miner_address = miner_val.expect_optional().unwrap().unwrap().expect_principal().unwrap();
 
                         eprintln!("i = {}, block_reward = {:?}, miner_spend_winner = {:?}, miner_spend_total = {:?}, miner address = {}", i, &block_reward_opt, &miner_spend_winner, &miner_spend_total, miner_address);
                         assert_eq!(miner_address, coinbase_addresses[i - 1].to_account_principal());
@@ -1873,11 +1873,11 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         }
 
                         eprintln!("i = {}, {} + {} + {} + {}", i, coinbase, tx_fees_anchored, tx_fees_streamed_produced, tx_fees_streamed_confirmed);
-                        assert_eq!(block_reward_opt.clone().unwrap().expect_u128(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
+                        assert_eq!(block_reward_opt.clone().unwrap().expect_u128().unwrap(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
 
                         if i > 2 {
-                            eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128());
-                            recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128();
+                            eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128().unwrap(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128().unwrap());
+                            recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128().unwrap();
                         }
                     }
                     else {
@@ -1922,7 +1922,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     },
                 )
                 .unwrap();
-            recipient_balance_val.expect_u128()
+            recipient_balance_val.expect_u128().unwrap()
         })
         .unwrap();
 

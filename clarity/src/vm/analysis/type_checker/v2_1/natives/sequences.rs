@@ -42,7 +42,7 @@ fn get_simple_native_or_user_define(
         NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
     {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(native_function)
+            TypedNativeFunction::type_native_function(native_function)?
         {
             Ok(function_type)
         } else {
@@ -82,12 +82,12 @@ pub fn check_special_map(
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
                     ListType(list_data) => list_data.destruct(),
-                    BufferType(buffer_data) => (TypeSignature::min_buffer(), buffer_data.into()),
+                    BufferType(buffer_data) => (TypeSignature::min_buffer()?, buffer_data.into()),
                     StringType(ASCII(ascii_data)) => {
-                        (TypeSignature::min_string_ascii(), ascii_data.into())
+                        (TypeSignature::min_string_ascii()?, ascii_data.into())
                     }
                     StringType(UTF8(utf8_data)) => {
-                        (TypeSignature::min_string_utf8(), utf8_data.into())
+                        (TypeSignature::min_string_utf8()?, utf8_data.into())
                     }
                 };
                 min_args = min_args.min(len);
@@ -130,7 +130,7 @@ pub fn check_special_filter(
 
     {
         let input_type = match argument_type {
-            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
@@ -167,7 +167,7 @@ pub fn check_special_fold(
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
+        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(argument_type)),
     }?;
 
@@ -382,12 +382,14 @@ pub fn check_special_element_at(
         }
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(1u32).unwrap(),
+                BufferLength::try_from(1u32)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(1u32).unwrap(),
+                StringUTF8Length::try_from(1u32)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             )))),
         )),
         _ => Err(CheckErrors::ExpectedSequence(collection_type).into()),
@@ -405,7 +407,7 @@ pub fn check_special_index_of(
     let list_type = checker.type_check(&args[0], context)?;
 
     let expected_input_type = match list_type {
-        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(list_type)),
     }?;
 
@@ -455,7 +457,7 @@ pub fn check_special_replace_at(
         TypeSignature::SequenceType(seq) => seq,
         _ => return Err(CheckErrors::ExpectedSequence(input_type).into()),
     };
-    let unit_seq = seq_type.unit_type();
+    let unit_seq = seq_type.unit_type()?;
     // Check index argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check element argument

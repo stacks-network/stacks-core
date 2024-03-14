@@ -1,0 +1,4 @@
+{
+  "response": "error",
+  "err_msg": "Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = 22, Err = PoXAnchorBlockRequired"
+}
