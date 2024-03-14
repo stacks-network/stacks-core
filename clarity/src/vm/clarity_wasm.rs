@@ -656,14 +656,15 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
             }
             size
         }
-        TypeSignature::OptionalType(inner) => 4 + get_type_in_memory_size(inner, true),
+        TypeSignature::OptionalType(inner) => 4 + get_type_in_memory_size(inner, include_repr),
         TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) => {
-            let mut size = list_data.get_max_len() as i32
-                * get_type_in_memory_size(list_data.get_list_item_type(), true);
             if include_repr {
-                size += 8; // offset + length
+                8 // offset + length
+                 + list_data.get_max_len() as i32
+                    * get_type_in_memory_size(list_data.get_list_item_type(), true)
+            } else {
+                list_data.get_max_len() as i32 * get_type_size(list_data.get_list_item_type())
             }
-            size
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(length)) => {
             let mut size = u32::from(length) as i32;
@@ -684,14 +685,14 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
         TypeSignature::TupleType(tuple_ty) => {
             let mut size = 0;
             for inner_type in tuple_ty.get_type_map().values() {
-                size += get_type_in_memory_size(inner_type, true);
+                size += get_type_in_memory_size(inner_type, include_repr);
             }
             size
         }
         TypeSignature::ResponseType(res_types) => {
             // indicator: i32, ok_val: inner_types.0, err_val: inner_types.1
-            4 + get_type_in_memory_size(&res_types.0, true)
-                + get_type_in_memory_size(&res_types.1, true)
+            4 + get_type_in_memory_size(&res_types.0, include_repr)
+                + get_type_in_memory_size(&res_types.1, include_repr)
         }
         TypeSignature::ListUnionType(_) => unreachable!("not a value type"),
     }
