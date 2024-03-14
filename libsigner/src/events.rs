@@ -225,7 +225,9 @@ impl EventReceiver for SignerEventReceiver {
             if event_receiver.is_stopped() {
                 return Err(EventError::Terminated);
             }
+            debug!("Request handling");
             let request = http_server.recv()?;
+            debug!("Got request"; "method" => %request.method(), "path" => request.url());
 
             if request.url() == "/status" {
                 request
