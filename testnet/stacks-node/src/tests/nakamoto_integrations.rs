@@ -2652,7 +2652,7 @@ fn stack_stx_burn_op_integration_test() {
         num_cycles: 6,
         signer_key: Some(signer_key_arg_1),
         max_amount: Some(u128::MAX),
-        auth_id: Some(0u64),
+        auth_id: Some(0u32),
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),

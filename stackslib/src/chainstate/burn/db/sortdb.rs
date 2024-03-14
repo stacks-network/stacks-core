@@ -331,7 +331,7 @@ impl FromRow<StackStxOp> for StackStxOp {
                 .ok(),
             None => None,
         };
-        let auth_id = u64::from_column(row, "auth_id")?;
+        let auth_id = row.get("auth_id")?;
 
         Ok(StackStxOp {
             txid,
@@ -5393,7 +5393,7 @@ impl<'a> SortitionHandleTx<'a> {
             &op.num_cycles,
             &serde_json::to_string(&op.signer_key).unwrap(),
             &serde_json::to_string(&op.max_amount).unwrap(),
-            &opt_u64_to_sql(op.auth_id)?,
+            &op.auth_id,
         ];
 
         self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", args)?;
@@ -10109,7 +10109,7 @@ pub mod tests {
                 num_cycles: 6,
                 signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
                 max_amount: Some(u128::MAX),
-                auth_id: Some(0u64),
+                auth_id: Some(0u32),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

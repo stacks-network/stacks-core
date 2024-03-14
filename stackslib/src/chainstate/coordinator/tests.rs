@@ -2888,7 +2888,7 @@ fn test_pox_btc_ops() {
                 num_cycles: 4,
                 signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
                 max_amount: Some(u128::MAX),
-                auth_id: Some(0u64),
+                auth_id: Some(0u32),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,

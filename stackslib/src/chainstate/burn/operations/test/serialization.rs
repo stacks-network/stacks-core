@@ -128,7 +128,7 @@ fn test_serialization_stack_stx_op_with_signer_key() {
         num_cycles: 10,
         signer_key: Some(StacksPublicKeyBuffer([0x01; 33])),
         max_amount: Some(10),
-        auth_id: Some(0u64),
+        auth_id: Some(0u32),
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
     let constructed_json = serde_json::json!({
