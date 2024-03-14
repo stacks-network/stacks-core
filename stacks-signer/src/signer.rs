@@ -1123,6 +1123,7 @@ impl Signer {
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
+        let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(reward_cycle)?;
         if self.approved_aggregate_public_key.is_some() {
@@ -1131,11 +1132,12 @@ impl Signer {
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
-            // We have an approved aggregate public key. Do nothing further
-            debug!(
-                "{self}: Have updated DKG value to {:?}.",
-                self.approved_aggregate_public_key
-            );
+            if old_dkg != self.approved_aggregate_public_key {
+                debug!(
+                    "{self}: updated DKG value to {:?}.",
+                    self.approved_aggregate_public_key
+                );
+            }
             return Ok(());
         };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
@@ -1224,6 +1226,9 @@ impl Signer {
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")
+            }
+            Some(SignerEvent::NewBurnBlock) => {
+                // Already handled this case in the main loop
             }
             None => {
                 // No event. Do nothing.

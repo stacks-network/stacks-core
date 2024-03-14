@@ -73,6 +73,8 @@ pub enum SignerEvent {
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
     StatusCheck,
+    /// A new burn block event was received
+    NewBurnBlock,
 }
 
 impl StacksMessageCodec for BlockProposalSigners {
@@ -281,6 +283,8 @@ impl EventReceiver for SignerEventReceiver {
                 process_stackerdb_event(event_receiver.local_addr, request, is_mainnet)
             } else if request.url() == "/proposal_response" {
                 process_proposal_response(request)
+            } else if request.url() == "/new_burn_block" {
+                process_new_burn_block_event(request)
             } else {
                 let url = request.url().to_string();
 
@@ -436,6 +440,16 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     }
 
     Ok(SignerEvent::BlockValidationResponse(event))
+}
+
+/// Process a new burn block event from the node
+fn process_new_burn_block_event(mut request: HttpRequest) -> Result<SignerEvent, EventError> {
+    debug!("Got burn_block event");
+    let event = SignerEvent::NewBurnBlock;
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    }
+    Ok(event)
 }
 
 fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {

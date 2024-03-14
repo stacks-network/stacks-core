@@ -44,12 +44,14 @@ pub struct RunLoopCommand {
 }
 
 /// The runloop state
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum State {
     /// The runloop is uninitialized
     Uninitialized,
-    /// The runloop is initialized
-    Initialized,
+    /// The runloop has no registered signers
+    NoRegisteredSigners,
+    /// The runloop has registered signers
+    RegisteredSigners,
 }
 
 /// The runloop for the stacks signer
@@ -262,9 +264,9 @@ impl RunLoop {
                         signer.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
                     }
                 }
-                self.stacks_signers
-                    .insert(reward_index, Signer::from(new_signer_config));
-                debug!("Reward cycle #{reward_cycle} Signer #{signer_id} initialized.");
+                let new_signer = Signer::from(new_signer_config);
+                info!("{new_signer} initialized.");
+                self.stacks_signers.insert(reward_index, new_signer);
             } else {
                 // TODO: Update `current` here once the signer binary is tracking its own latest burnchain/stacks views.
                 if current {
@@ -277,7 +279,6 @@ impl RunLoop {
     }
 
     /// Refresh the signer configuration by retrieving the necessary information from the stacks node
-    /// Note: this will trigger DKG if required
     fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
         self.refresh_signer_config(current_reward_cycle, true);
@@ -307,28 +308,15 @@ impl RunLoop {
                 signer.coordinator.state = CoordinatorState::Idle;
                 signer.state = SignerState::Idle;
             }
-            if signer.approved_aggregate_public_key.is_none() {
-                retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client)
-                        .map_err(backoff::Error::transient)
-                })?;
-            }
         }
-        for i in to_delete.into_iter() {
-            if let Some(signer) = self.stacks_signers.remove(&i) {
-                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
-            }
+        for idx in to_delete {
+            self.stacks_signers.remove(&idx);
         }
-        if self.stacks_signers.is_empty() {
-            info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
-            self.state = State::Uninitialized;
-            return Err(ClientError::NotRegistered);
-        }
-        if self.state != State::Initialized {
-            info!("Signer runloop successfully initialized!");
-        }
-        self.state = State::Initialized;
+        self.state = if self.stacks_signers.is_empty() {
+            State::NoRegisteredSigners
+        } else {
+            State::RegisteredSigners
+        };
         Ok(())
     }
 }
@@ -362,19 +350,39 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 .map_err(backoff::Error::transient)
         }) else {
             error!("Failed to retrieve current reward cycle");
-            warn!("Ignoring event: {event:?}");
             return None;
         };
-        if let Err(e) = self.refresh_signers(current_reward_cycle) {
+        if self.state == State::Uninitialized || event == Some(SignerEvent::NewBurnBlock) {
+            let old_state = self.state;
             if self.state == State::Uninitialized {
-                // If we were never actually initialized, we cannot process anything. Just return.
-                warn!("Failed to initialize signers. Are you sure this signer is correctly registered for the current or next reward cycle?");
-                warn!("Ignoring event: {event:?}");
+                info!("Initializing signer...");
+            } else {
+                info!("New burn block event received. Refreshing signer state...");
+            }
+            if let Err(e) = self.refresh_signers(current_reward_cycle) {
+                error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network");
+            }
+            if self.state == State::NoRegisteredSigners {
+                let next_reward_cycle = current_reward_cycle.saturating_add(1);
+                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
                 return None;
             }
-            error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
+            if old_state == State::Uninitialized {
+                info!("Signer successfully initialized.");
+            } else {
+                info!("Signer state successfully refreshed.");
+            };
         }
         for signer in self.stacks_signers.values_mut() {
+            if signer.approved_aggregate_public_key.is_none() {
+                if let Err(e) = retry_with_exponential_backoff(|| {
+                    signer
+                        .update_dkg(&self.stacks_client)
+                        .map_err(backoff::Error::transient)
+                }) {
+                    error!("{signer}: failed to update DKG: {e}");
+                }
+            }
             if signer.state == SignerState::TenureCompleted {
                 warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
                 continue;
@@ -383,12 +391,13 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
                 //  and the vec could be heterogenous, so, don't differentiate.
-                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::ProposedBlocks(_))
+                | Some(SignerEvent::NewBurnBlock)
+                | Some(SignerEvent::StatusCheck)
+                | None => None,
                 Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
                     Some(u64::from(msg_parity) % 2)
                 }
-                Some(SignerEvent::StatusCheck) => None,
-                None => None,
             };
             let other_signer_parity = (signer.reward_cycle + 1) % 2;
             if event_parity == Some(other_signer_parity) {

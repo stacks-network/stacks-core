@@ -804,7 +804,11 @@ fn setup_stx_btc_node(
 
         naka_conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
-            events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+            events_keys: vec![
+                EventKeyType::StackerDBChunks,
+                EventKeyType::BlockProposal,
+                EventKeyType::BurnchainBlocks,
+            ],
         });
     }
 
