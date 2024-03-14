@@ -1,5 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -10,6 +12,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
+use lazy_static::lazy_static;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -20,7 +23,7 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RewardSetData;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
     TransactionOrigin,
@@ -39,7 +42,8 @@ use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::util::hash::bytes_to_hex;
+use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::MessageSignature;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
@@ -74,6 +78,21 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
+lazy_static! {
+    pub static ref STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
+}
+
+/// This struct receives StackerDB event callbacks without registering
+/// over the JSON/RPC interface. To ensure that any event observer
+/// uses the same channel, we use a lazy_static global for the channel.
+///
+/// This channel (currently) only supports receiving events on the
+/// boot .signers-* contracts.
+pub struct StackerDBChannel {
+    pub receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
+    pub sender: Sender<StackerDBChunksEvent>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
     pub target_burn_height: u64,
@@ -102,8 +121,44 @@ pub struct MinedNakamotoBlockEvent {
     pub stacks_height: u64,
     pub block_size: u64,
     pub cost: ExecutionCost,
+    pub miner_signature: MessageSignature,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
+}
+
+impl StackerDBChannel {
+    pub fn new() -> Self {
+        let (sender, recv_channel) = std::sync::mpsc::channel();
+        Self {
+            receiver: Mutex::new(Some(recv_channel)),
+            sender,
+        }
+    }
+
+    pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
+        let mut guard = self
+            .receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        guard.replace(receiver);
+    }
+
+    pub fn take_receiver(&self) -> Option<Receiver<StackerDBChunksEvent>> {
+        self.receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock")
+            .take()
+    }
+
+    /// Is there a thread holding the receiver?
+    pub fn is_active(&self) -> bool {
+        // if the receiver field is empty (i.e., None), then a thread must have taken it.
+        self.receiver
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock")
+            .is_none()
+    }
 }
 
 impl EventObserver {
@@ -436,21 +491,42 @@ impl EventObserver {
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
         });
 
+        let as_object_mut = payload.as_object_mut().unwrap();
+
         if let Some(signer_bitvec) = signer_bitvec_opt {
-            payload.as_object_mut().unwrap().insert(
+            as_object_mut.insert(
                 "signer_bitvec".to_string(),
                 serde_json::to_value(signer_bitvec).unwrap_or_default(),
             );
         }
 
         if let Some(reward_set_data) = reward_set_data {
-            payload.as_object_mut().unwrap().insert(
+            as_object_mut.insert(
                 "reward_set".to_string(),
                 serde_json::to_value(&reward_set_data.reward_set).unwrap_or_default(),
             );
-            payload.as_object_mut().unwrap().insert(
+            as_object_mut.insert(
                 "cycle_number".to_string(),
                 serde_json::to_value(reward_set_data.cycle_number).unwrap_or_default(),
+            );
+        }
+
+        if let StacksBlockHeaderTypes::Nakamoto(ref header) = &metadata.anchored_header {
+            as_object_mut.insert(
+                "signer_signature_hash".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "miner_signature".into(),
+                format!("0x{}", &header.miner_signature).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", &header.signer_signature).into(),
             );
         }
 
@@ -1051,6 +1127,8 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
+            miner_signature: block.header.miner_signature.clone(),
+            signer_signature_hash: block.header.signer_signature_hash(),
             signer_bitvec,
         })
         .unwrap();
@@ -1065,19 +1143,30 @@ impl EventDispatcher {
     pub fn process_new_stackerdb_chunks(
         &self,
         contract_id: QualifiedContractIdentifier,
-        new_chunks: Vec<StackerDBChunkData>,
+        modified_slots: Vec<StackerDBChunkData>,
     ) {
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        if interested_observers.len() < 1 {
+        let interested_receiver = STACKER_DB_CHANNEL.is_active();
+        if interested_observers.is_empty() && !interested_receiver {
             return;
         }
 
-        let payload = serde_json::to_value(StackerDBChunksEvent {
+        let event = StackerDBChunksEvent {
             contract_id,
-            modified_slots: new_chunks,
-        })
-        .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+            modified_slots,
+        };
+        let payload = serde_json::to_value(&event)
+            .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+
+        if interested_receiver {
+            if let Err(send_err) = STACKER_DB_CHANNEL.sender.send(event) {
+                error!(
+                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have crashed.";
+                    "err" => ?send_err
+                );
+            }
+        }
 
         for observer in interested_observers.iter() {
             observer.send_stackerdb_chunks(&payload);

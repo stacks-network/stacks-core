@@ -277,9 +277,14 @@ impl RunLoop {
 
     /// Refresh the signer configuration by retrieving the necessary information from the stacks node
     /// Note: this will trigger DKG if required
-    fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
+    fn refresh_signers(
+        &mut self,
+        current_reward_cycle: u64,
+        _in_prepare_phase: bool,
+    ) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
         self.refresh_signer_config(current_reward_cycle, true);
+        // don't try to refresh the next reward cycle's signer state if there's no state for that cycle yet.
         self.refresh_signer_config(next_reward_cycle, false);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
@@ -309,7 +314,7 @@ impl RunLoop {
             if signer.approved_aggregate_public_key.is_none() {
                 retry_with_exponential_backoff(|| {
                     signer
-                        .update_dkg(&self.stacks_client)
+                        .update_dkg(&self.stacks_client, current_reward_cycle)
                         .map_err(backoff::Error::transient)
                 })?;
             }
@@ -355,16 +360,16 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             self.commands.push_back(cmd);
         }
         // TODO: queue events and process them potentially after initialization success (similar to commands)?
-        let Ok(current_reward_cycle) = retry_with_exponential_backoff(|| {
+        let Ok((current_reward_cycle, in_prepare_phase)) = retry_with_exponential_backoff(|| {
             self.stacks_client
-                .get_current_reward_cycle()
+                .get_current_reward_cycle_and_prepare_status()
                 .map_err(backoff::Error::transient)
         }) else {
             error!("Failed to retrieve current reward cycle");
             warn!("Ignoring event: {event:?}");
             return None;
         };
-        if let Err(e) = self.refresh_signers(current_reward_cycle) {
+        if let Err(e) = self.refresh_signers(current_reward_cycle, in_prepare_phase) {
             if self.state == State::Uninitialized {
                 // If we were never actually initialized, we cannot process anything. Just return.
                 warn!("Failed to initialize signers. Are you sure this signer is correctly registered for the current or next reward cycle?");
@@ -382,7 +387,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
                 //  and the vec could be heterogenous, so, don't differentiate.
-                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::ProposedBlocks(..)) => None,
                 Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
                     Some(u64::from(msg_parity) % 2)
                 }
@@ -421,7 +426,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 }
             }
             // After processing event, run the next command for each signer
-            signer.process_next_command(&self.stacks_client);
+            signer.process_next_command(&self.stacks_client, current_reward_cycle);
         }
         None
     }

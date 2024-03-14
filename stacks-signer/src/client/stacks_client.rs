@@ -375,6 +375,22 @@ impl StacksClient {
         Ok(blocks_mined / reward_cycle_length)
     }
 
+    /// Get the current reward cycle and whether the prepare phase has started for the next cycle
+    pub fn get_current_reward_cycle_and_prepare_status(&self) -> Result<(u64, bool), ClientError> {
+        let pox_data = self.get_pox_data()?;
+        let blocks_mined = pox_data
+            .current_burnchain_block_height
+            .saturating_sub(pox_data.first_burnchain_block_height);
+        let reward_cycle_length = pox_data
+            .reward_phase_block_length
+            .saturating_add(pox_data.prepare_phase_block_length);
+        let reward_phase_length = pox_data.reward_phase_block_length;
+        let reward_cycle = blocks_mined / reward_cycle_length;
+        let reward_cycle_index = blocks_mined % reward_cycle_length;
+        let in_prepare_for_next = reward_cycle_index >= reward_phase_length;
+        Ok((reward_cycle, in_prepare_for_next))
+    }
+
     /// Helper function to retrieve the account info from the stacks node for a specific address
     fn get_account_entry(
         &self,

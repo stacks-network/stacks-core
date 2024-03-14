@@ -516,6 +516,7 @@ pub(crate) struct BlockMinerThread {
     burn_block: BlockSnapshot,
     /// Handle to the node's event dispatcher
     event_dispatcher: EventDispatcher,
+    failed_to_submit_last_attempt: bool,
 }
 
 /// State representing the microblock miner.
@@ -1020,6 +1021,7 @@ impl BlockMinerThread {
             registered_key,
             burn_block,
             event_dispatcher: rt.event_dispatcher.clone(),
+            failed_to_submit_last_attempt: false,
         }
     }
 
@@ -1543,7 +1545,9 @@ impl BlockMinerThread {
             Self::find_inflight_mined_blocks(self.burn_block.block_height, &self.last_mined_blocks);
 
         // has the tip changed from our previously-mined block for this epoch?
-        let (attempt, max_txs) = if last_mined_blocks.len() <= 1 {
+        let should_unconditionally_mine = last_mined_blocks.is_empty()
+            || (last_mined_blocks.len() == 1 && !self.failed_to_submit_last_attempt);
+        let (attempt, max_txs) = if should_unconditionally_mine {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we
             // can use `subsequent_miner_time_ms` in this attempt)
@@ -2482,12 +2486,15 @@ impl BlockMinerThread {
 
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         if res.is_none() {
+            self.failed_to_submit_last_attempt = true;
             if !self.config.node.mock_mining {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
                 return None;
             } else {
                 debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
             }
+        } else {
+            self.failed_to_submit_last_attempt = false;
         }
 
         Some(MinerThreadResult::Block(
