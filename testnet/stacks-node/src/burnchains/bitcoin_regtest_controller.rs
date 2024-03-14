@@ -1256,7 +1256,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 300;
+        let max_tx_size = 250;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1635,7 +1635,7 @@ impl BitcoinRegtestController {
             ) {
                 Some(utxos) => utxos,
                 None => {
-                    debug!(
+                    warn!(
                         "No UTXOs for {} ({}) in epoch {}",
                         &public_key.to_hex(),
                         &addr2str(&addr),

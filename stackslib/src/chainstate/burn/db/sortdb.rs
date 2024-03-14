@@ -39,7 +39,6 @@ use stacks_common::types::chainstate::{
     TrieHash, VRFSeed,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;

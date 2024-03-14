@@ -26,9 +26,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
-use stacks::burnchains::{
-    Txid, {MagicBytes, Txid},
-};
+use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, PreStxOp, StackStxOp, VoteForAggregateKeyOp,
@@ -38,7 +36,7 @@ use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
@@ -2439,6 +2437,7 @@ fn stack_stx_burn_op_integration_test() {
 
     let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.burnchain.satoshis_per_byte = 2;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let signer_sk_1 = Secp256k1PrivateKey::new();
     let signer_addr_1 = tests::to_addr(&signer_sk_1);
@@ -2514,6 +2513,7 @@ fn stack_stx_burn_op_integration_test() {
 
     // submit a pre-stx op
     let mut miner_signer_1 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
+
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
         output: signer_addr_1.clone(),
@@ -2536,6 +2536,14 @@ fn stack_stx_burn_op_integration_test() {
         "Pre-stx operation should submit successfully"
     );
 
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
     let mut miner_signer_2 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting second pre-stx op");
     let pre_stx_op_2 = PreStxOp {
@@ -2549,7 +2557,7 @@ fn stack_stx_burn_op_integration_test() {
     assert!(
         btc_regtest_controller
             .submit_operation(
-                StacksEpochId::Epoch25,
+                StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_2),
                 &mut miner_signer_2,
                 1
@@ -2604,6 +2612,39 @@ fn stack_stx_burn_op_integration_test() {
     let signer_key_arg_1: StacksPublicKeyBuffer =
         signer_pk_1.to_bytes_compressed().as_slice().into();
 
+    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
+    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
+
+    info!(
+        "Before stack-stx op, signer 1 total: {}",
+        btc_regtest_controller
+            .get_utxos(
+                StacksEpochId::Epoch30,
+                &signer_burnop_signer_1.get_public_key(),
+                1,
+                None,
+                block_height
+            )
+            .unwrap()
+            .total_available(),
+    );
+    info!(
+        "Before stack-stx op, signer 2 total: {}",
+        btc_regtest_controller
+            .get_utxos(
+                StacksEpochId::Epoch30,
+                &signer_burnop_signer_2.get_public_key(),
+                1,
+                None,
+                block_height
+            )
+            .unwrap()
+            .total_available(),
+    );
+
+    info!("Signer 1 addr: {}", signer_addr_1.to_b58());
+    info!("Signer 2 addr: {}", signer_addr_2.to_b58());
+
     let stack_stx_op_with_some_signer_key = StackStxOp {
         sender: signer_addr_1.clone(),
         reward_addr: PoxAddress::Standard(signer_addr_1, None),
@@ -2619,7 +2660,6 @@ fn stack_stx_burn_op_integration_test() {
         burn_header_hash: BurnchainHeaderHash::zero(),
     };
 
-    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -2647,7 +2687,6 @@ fn stack_stx_burn_op_integration_test() {
         burn_header_hash: BurnchainHeaderHash::zero(),
     };
 
-    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
     assert!(
         btc_regtest_controller
             .submit_operation(
