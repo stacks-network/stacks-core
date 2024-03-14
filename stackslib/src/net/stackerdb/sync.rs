@@ -248,7 +248,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let local_write_timestamps = self
             .stackerdbs
             .get_slot_write_timestamps(&self.smart_contract_id)?;
-        assert_eq!(local_slot_versions.len(), local_write_timestamps.len());
+
+        if local_slot_versions.len() != local_write_timestamps.len() {
+            let msg = format!("Local slot versions ({}) out of sync with DB slot versions ({}); abandoning sync and trying again", local_slot_versions.len(), local_write_timestamps.len());
+            warn!("{}", &msg);
+            return Err(net_error::Transient(msg));
+        }
 
         let mut need_chunks: HashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
             HashMap::new();
@@ -270,11 +275,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
 
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
-                assert_eq!(
-                    chunk_inv.slot_versions.len(),
-                    local_slot_versions.len(),
-                    "FATAL: did not validate StackerDBChunkInvData"
-                );
+                if chunk_inv.slot_versions.len() != local_slot_versions.len() {
+                    // remote peer and our DB are out of sync, so just skip this
+                    continue;
+                }
 
                 if *local_version >= chunk_inv.slot_versions[i] {
                     // remote peer has same view as local peer, or stale
@@ -358,11 +362,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         for (i, local_version) in local_slot_versions.iter().enumerate() {
             let mut local_chunk = None;
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
-                assert_eq!(
-                    chunk_inv.slot_versions.len(),
-                    local_slot_versions.len(),
-                    "FATAL: did not validate StackerDBChunkData"
-                );
+                if chunk_inv.slot_versions.len() != local_slot_versions.len() {
+                    // remote peer and our DB are out of sync, so just skip this
+                    continue;
+                }
 
                 if *local_version <= chunk_inv.slot_versions[i] {
                     // remote peer has same or newer view than local peer
