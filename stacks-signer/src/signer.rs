@@ -165,24 +165,12 @@ pub struct Signer {
     pub coordinator_selector: CoordinatorSelector,
     /// The approved key registered to the contract
     pub approved_aggregate_public_key: Option<Point>,
-    /// This is the signer's current view of the burn chain
-    pub current_burn_block_info: Option<BurnBlockInfo>,
     /// The current active miner's key (if we know it!)
     pub miner_key: Option<PublicKey>,
     /// Signer DB path
     pub db_path: PathBuf,
     /// SignerDB for state management
     pub signer_db: SignerDb,
-}
-
-/// The signer's view of the current burn block
-pub struct BurnBlockInfo {
-    /// The burn block height
-    pub burn_block_height: u32,
-    /// The active miner
-    pub active_miner: PublicKey,
-    /// The reward cycle
-    pub reward_cycle: u64,
 }
 
 impl std::fmt::Display for Signer {
@@ -286,7 +274,6 @@ impl From<SignerConfig> for Signer {
             tx_fee_ustx: signer_config.tx_fee_ustx,
             coordinator_selector,
             approved_aggregate_public_key: None,
-            current_burn_block_info: None,
             miner_key: None,
             db_path: signer_config.db_path.clone(),
             signer_db,
