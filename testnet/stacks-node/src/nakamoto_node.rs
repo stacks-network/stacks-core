@@ -95,7 +95,11 @@ pub enum Error {
     CannotSelfSign,
     MiningFailure(ChainstateError),
     MinerSignatureError(&'static str),
-    SignerSignatureError(&'static str),
+    SignerSignatureError(String),
+    /// A failure occurred while configuring the miner thread
+    MinerConfigurationFailed(&'static str),
+    /// An error occurred while operating as the signing coordinator
+    SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }
