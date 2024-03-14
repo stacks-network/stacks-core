@@ -17,7 +17,7 @@ use rand_core::RngCore;
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::boot::{
     SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
@@ -46,12 +46,9 @@ use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::common::Signature;
-use wsts::compute::tweaked_public_key;
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::OperationResult;
-use wsts::taproot::SchnorrProof;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
@@ -449,94 +446,6 @@ impl SignerTest {
         }
         debug!("Finished waiting for DKG!");
         key
-    }
-
-    fn wait_for_frost_signatures(&mut self, timeout: Duration) -> Vec<Signature> {
-        debug!("Waiting for frost signatures...");
-        let mut results = Vec::new();
-        let sign_now = Instant::now();
-        for recv in self.result_receivers.iter() {
-            let mut frost_signature = None;
-            loop {
-                let results = recv
-                    .recv_timeout(timeout)
-                    .expect("failed to recv signature results");
-                for result in results {
-                    match result {
-                        OperationResult::Sign(sig) => {
-                            info!("Received Signature ({},{})", &sig.R, &sig.z);
-                            frost_signature = Some(sig);
-                        }
-                        OperationResult::SignTaproot(proof) => {
-                            panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                        }
-                        OperationResult::DkgError(dkg_error) => {
-                            panic!("Received DkgError {:?}", dkg_error);
-                        }
-                        OperationResult::SignError(sign_error) => {
-                            panic!("Received SignError {}", sign_error);
-                        }
-                        OperationResult::Dkg(point) => {
-                            // should not panic, because DKG may have just run for the
-                            //   next reward cycle.
-                            info!("Received aggregate_group_key {point}");
-                        }
-                    }
-                }
-                if frost_signature.is_some() || sign_now.elapsed() > timeout {
-                    break;
-                }
-            }
-
-            let frost_signature = frost_signature
-                .expect(&format!("Failed to get frost signature within {timeout:?}"));
-            results.push(frost_signature);
-        }
-        debug!("Finished waiting for frost signatures!");
-        results
-    }
-
-    fn wait_for_taproot_signatures(&mut self, timeout: Duration) -> Vec<SchnorrProof> {
-        debug!("Waiting for taproot signatures...");
-        let mut results = vec![];
-        let sign_now = Instant::now();
-        for recv in self.result_receivers.iter() {
-            let mut schnorr_proof = None;
-            loop {
-                let results = recv
-                    .recv_timeout(timeout)
-                    .expect("failed to recv signature results");
-                for result in results {
-                    match result {
-                        OperationResult::Sign(sig) => {
-                            panic!("Received Signature ({},{})", &sig.R, &sig.z);
-                        }
-                        OperationResult::SignTaproot(proof) => {
-                            info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                            schnorr_proof = Some(proof);
-                        }
-                        OperationResult::DkgError(dkg_error) => {
-                            panic!("Received DkgError {:?}", dkg_error);
-                        }
-                        OperationResult::SignError(sign_error) => {
-                            panic!("Received SignError {}", sign_error);
-                        }
-                        OperationResult::Dkg(point) => {
-                            panic!("Received aggregate_group_key {point}");
-                        }
-                    }
-                }
-                if schnorr_proof.is_some() || sign_now.elapsed() > timeout {
-                    break;
-                }
-            }
-            let schnorr_proof = schnorr_proof.expect(&format!(
-                "Failed to get schnorr proof signature within {timeout:?}"
-            ));
-            results.push(schnorr_proof);
-        }
-        debug!("Finished waiting for taproot signatures!");
-        results
     }
 
     fn run_until_epoch_3_boundary(&mut self) {
@@ -1050,21 +959,9 @@ fn stackerdb_sign() {
     };
     block2.header.tx_merkle_root = tx_merkle_root2;
 
-    // The block is invalid so the signers should return a signature across a rejection
-    let block1_vote = NakamotoBlockVote {
-        signer_signature_hash: block1.header.signer_signature_hash(),
-        rejected: true,
-    };
-    let msg1 = block1_vote.serialize_to_vec();
-    let block2_vote = NakamotoBlockVote {
-        signer_signature_hash: block2.header.signer_signature_hash(),
-        rejected: true,
-    };
-    let msg2 = block2_vote.serialize_to_vec();
-
     let timeout = Duration::from_secs(200);
     let mut signer_test = SignerTest::new(10);
-    let key = signer_test.boot_to_epoch_3(timeout);
+    let _key = signer_test.boot_to_epoch_3(timeout);
 
     info!("------------------------- Test Sign -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
@@ -1095,22 +992,14 @@ fn stackerdb_sign() {
             .send(sign_taproot_command.clone())
             .expect("failed to send sign taproot command");
     }
-    let frost_signatures = signer_test.wait_for_frost_signatures(timeout);
-    let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
 
-    for frost_signature in frost_signatures {
-        assert!(frost_signature.verify(&key, &msg1));
-    }
-    for schnorr_proof in schnorr_proofs {
-        let tweaked_key = tweaked_public_key(&key, None);
-        assert!(
-            schnorr_proof.verify(&tweaked_key.x(), &msg2),
-            "Schnorr proof verification failed"
-        );
-    }
+    // Don't wait for signatures. Because the block miner is acting as
+    //  the coordinator, signers won't directly sign commands issued by someone
+    //  other than the miner. Rather, they'll just broadcast their rejections.
+
     let sign_elapsed = sign_now.elapsed();
 
-    info!("------------------------- Test Block Accepted -------------------------");
+    info!("------------------------- Test Block Rejected -------------------------");
 
     // Verify the signers rejected the proposed block
     let t_start = Instant::now();

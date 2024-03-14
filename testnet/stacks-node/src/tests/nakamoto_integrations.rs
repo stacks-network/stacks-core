@@ -69,7 +69,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -2140,7 +2140,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
-    proposed_zero_block.header.miner_signature = MessageSignature::empty();
     proposed_zero_block.header.signer_signature = ThresholdSignature::empty();
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
