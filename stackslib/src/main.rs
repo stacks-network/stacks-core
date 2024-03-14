@@ -70,7 +70,7 @@ use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use stacks_common::codec::{DeserializeWithEpoch, read_next, StacksMessageCodec};
+use stacks_common::codec::{read_next, DeserializeWithEpoch, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
