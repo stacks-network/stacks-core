@@ -29,7 +29,7 @@ use stacks::burnchains::{
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp,
+    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -900,7 +900,8 @@ impl BitcoinRegtestController {
             BlockstackOperationType::LeaderBlockCommit(_)
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
-            | BlockstackOperationType::DelegateStx(_) => {
+            | BlockstackOperationType::DelegateStx(_)
+            | BlockstackOperationType::VoteForAggregateKey(_) => {
                 unimplemented!();
             }
             BlockstackOperationType::PreStx(payload) => {
@@ -1083,6 +1084,92 @@ impl BitcoinRegtestController {
         );
 
         Some(tx)
+    }
+
+    #[cfg(test)]
+    /// Build a vote-for-aggregate-key burn op tx
+    fn build_vote_for_aggregate_key_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: VoteForAggregateKeyOp,
+        signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
+            (
+                Transaction {
+                    input: vec![],
+                    output: vec![],
+                    version: 1,
+                    lock_time: 0,
+                },
+                UTXOSet {
+                    bhh: BurnchainHeaderHash::zero(),
+                    utxos: vec![utxo],
+                },
+            )
+        } else {
+            self.prepare_tx(
+                epoch_id,
+                &public_key,
+                DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config),
+                None,
+                None,
+                0,
+            )?
+        };
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            payload.consensus_serialize(&mut bytes).ok()?;
+            bytes
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            DUST_UTXO_LIMIT,
+            0,
+            max_tx_size,
+            get_satoshis_per_byte(&self.config),
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting vote for aggregate key op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    /// Build a vote-for-aggregate-key burn op tx
+    fn build_vote_for_aggregate_key_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: VoteForAggregateKeyOp,
+        _signer: &mut BurnchainOpSigner,
+        _utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        unimplemented!()
     }
 
     #[cfg(not(test))]
@@ -1916,6 +2003,9 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::DelegateStx(payload) => {
                 self.build_delegate_stacks_tx(epoch_id, payload, op_signer, None)
+            }
+            BlockstackOperationType::VoteForAggregateKey(payload) => {
+                self.build_vote_for_aggregate_key_tx(epoch_id, payload, op_signer, None)
             }
         };
 

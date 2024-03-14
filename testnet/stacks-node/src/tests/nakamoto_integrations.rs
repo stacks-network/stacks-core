@@ -26,9 +26,13 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
-use stacks::burnchains::{MagicBytes, Txid};
+use stacks::burnchains::{
+    Txid, {MagicBytes, Txid},
+};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, StackStxOp};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, PreStxOp, StackStxOp, VoteForAggregateKeyOp,
+};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -53,11 +57,13 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
@@ -655,11 +661,12 @@ fn get_signer_index(
         })
 }
 
-fn is_key_set_for_cycle(
+/// Use the read-only API to get the aggregate key for a given reward cycle
+pub fn get_key_for_cycle(
     reward_cycle: u64,
     is_mainnet: bool,
     http_origin: &str,
-) -> Result<bool, String> {
+) -> Result<Option<Vec<u8>>, String> {
     let client = reqwest::blocking::Client::new();
     let boot_address = StacksAddress::burn_address(is_mainnet);
     let path = format!("http://{http_origin}/v2/contracts/call-read/{boot_address}/signers-voting/get-approved-aggregate-key");
@@ -685,10 +692,29 @@ fn is_key_set_for_cycle(
     )
     .map_err(|_| "Failed to deserialize Clarity value")?;
 
-    result_value
+    let buff_opt = result_value
         .expect_optional()
-        .map(|v| v.is_some())
-        .map_err(|_| "Response is not optional".to_string())
+        .expect("Expected optional type");
+
+    match buff_opt {
+        Some(buff_val) => {
+            let buff = buff_val
+                .expect_buff(33)
+                .map_err(|_| "Failed to get buffer value")?;
+            Ok(Some(buff))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Use the read-only to check if the aggregate key is set for a given reward cycle
+pub fn is_key_set_for_cycle(
+    reward_cycle: u64,
+    is_mainnet: bool,
+    http_origin: &str,
+) -> Result<bool, String> {
+    let key = get_key_for_cycle(reward_cycle, is_mainnet, &http_origin)?;
+    Ok(key.is_some())
 }
 
 fn signer_vote_if_needed(
@@ -2146,11 +2172,262 @@ fn miner_writes_proposed_block_to_stackerdb() {
         "proposed_block_hash" => &proposed_block_hash,
     );
 
+    let signer_bitvec_str = observed_block.signer_bitvec.clone();
+    let signer_bitvec_bytes = hex_bytes(&signer_bitvec_str).unwrap();
+    let signer_bitvec = BitVec::<4000>::consensus_deserialize(&mut signer_bitvec_bytes.as_slice())
+        .expect("Failed to deserialize signer bitvec");
+
+    assert_eq!(signer_bitvec.len(), 1);
+
     assert_eq!(
         format!("0x{}", observed_block.block_hash),
         proposed_zero_block_hash,
         "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
     );
+}
+
+#[test]
+#[ignore]
+fn vote_for_aggregate_key_burn_op() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        Some(&signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let _sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (_chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &signer_sk, proposals_submitted);
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // submit a pre-stx op
+    let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
+    info!("Submitting pre-stx op");
+    let pre_stx_op = PreStxOp {
+        output: signer_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Pre-stx operation should submit successfully"
+    );
+
+    // Mine until the next prepare phase
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    let blocks_until_prepare = prepare_phase_start + 1 - block_height;
+
+    info!(
+        "Mining until prepare phase start.";
+        "prepare_phase_start" => prepare_phase_start,
+        "block_height" => block_height,
+        "blocks_until_prepare" => blocks_until_prepare,
+    );
+
+    for _i in 0..(blocks_until_prepare) {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+    }
+
+    let reward_cycle = reward_cycle + 1;
+
+    let signer_index = 0;
+
+    info!(
+        "Submitting vote for aggregate key op";
+        "block_height" => block_height,
+        "reward_cycle" => reward_cycle,
+        "signer_index" => %signer_index,
+    );
+
+    let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
+    let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
+    let aggregate_key = signer_key.clone();
+
+    let vote_for_aggregate_key_op =
+        BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+            signer_key,
+            signer_index,
+            sender: signer_addr.clone(),
+            round: 0,
+            reward_cycle,
+            aggregate_key,
+            // to be filled in
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash::zero(),
+        });
+
+    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk.clone(), false);
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                vote_for_aggregate_key_op,
+                &mut signer_burnop_signer,
+                1
+            )
+            .is_some(),
+        "Vote for aggregate key operation should submit successfully"
+    );
+
+    info!("Submitted vote for aggregate key op at height {block_height}, mining a few blocks...");
+
+    // the second block should process the vote, after which the vote should be set
+    for _i in 0..2 {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+    }
+
+    let mut vote_for_aggregate_key_found = false;
+    let blocks = test_observer::get_blocks();
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                info!("Found a burn op: {:?}", tx);
+                let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
+                if !burnchain_op.contains_key("vote_for_aggregate_key") {
+                    warn!("Got unexpected burnchain op: {:?}", burnchain_op);
+                    panic!("unexpected btc transaction type");
+                }
+                let vote_obj = burnchain_op.get("vote_for_aggregate_key").unwrap();
+                let agg_key = vote_obj
+                    .get("aggregate_key")
+                    .expect("Expected aggregate_key key in burn op")
+                    .as_str()
+                    .unwrap();
+                assert_eq!(agg_key, aggregate_key.to_hex());
+
+                vote_for_aggregate_key_found = true;
+            }
+        }
+    }
+    assert!(
+        vote_for_aggregate_key_found,
+        "Expected vote for aggregate key op"
+    );
+
+    // Check that the correct key was set
+    let saved_key = get_key_for_cycle(reward_cycle, false, &naka_conf.node.rpc_bind)
+        .expect("Expected to be able to check key is set after voting")
+        .expect("Expected aggregate key to be set");
+
+    assert_eq!(saved_key, aggregate_key.as_bytes().to_vec());
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }
 
 #[test]
