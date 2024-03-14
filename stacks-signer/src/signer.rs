@@ -21,7 +21,7 @@ use std::time::Instant;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
-use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
 use libsigner::{
@@ -317,7 +317,7 @@ impl Signer {
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let mut block_info = self
                     .signer_db
-                    .block_lookup(&signer_signature_hash)
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
                     .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
                     .unwrap_or_else(|| BlockInfo::new(block.clone()));
                 if block_info.signed_over {
@@ -339,7 +339,7 @@ impl Signer {
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
-                            .insert_block(&block_info)
+                            .insert_block(self.reward_cycle, &block_info)
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
@@ -392,7 +392,10 @@ impl Signer {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
                 // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -407,7 +410,7 @@ impl Signer {
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 self.signer_db
-                    .insert_block(&block_info)
+                    .insert_block(self.reward_cycle, &block_info)
                     .expect(&format!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
@@ -418,7 +421,10 @@ impl Signer {
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 let signer_signature_hash = block_validate_reject.signer_signature_hash;
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -481,7 +487,7 @@ impl Signer {
             }
         }
         self.signer_db
-            .insert_block(&block_info)
+            .insert_block(self.reward_cycle, &block_info)
             .expect(&format!("{self}: Failed to insert block in DB"));
     }
 
@@ -522,7 +528,7 @@ impl Signer {
                 continue;
             }
             let sig_hash = proposal.block.header.signer_signature_hash();
-            match self.signer_db.block_lookup(&sig_hash) {
+            match self.signer_db.block_lookup(self.reward_cycle, &sig_hash) {
                 Ok(Some(block)) => {
                     debug!(
                         "{self}: Received proposal for block already known, ignoring new proposal.";
@@ -542,7 +548,7 @@ impl Signer {
                 Ok(None) => {
                     // Store the block in our cache
                     self.signer_db
-                        .insert_block(&BlockInfo::new(proposal.block.clone()))
+                        .insert_block(self.reward_cycle, &BlockInfo::new(proposal.block.clone()))
                         .unwrap_or_else(|e| {
                             error!("{self}: Failed to insert block in DB: {e:?}");
                         });
@@ -617,7 +623,7 @@ impl Signer {
 
         match self
             .signer_db
-            .block_lookup(&block_vote.signer_signature_hash)
+            .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
             .expect(&format!("{self}: Failed to connect to DB"))
             .map(|b| b.vote)
         {
@@ -671,7 +677,7 @@ impl Signer {
         let signer_signature_hash = block.header.signer_signature_hash();
         let mut block_info = match self
             .signer_db
-            .block_lookup(&signer_signature_hash)
+            .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         {
             Some(block_info) => block_info,
@@ -679,7 +685,7 @@ impl Signer {
                 debug!("{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
-                    .insert_block(&block_info)
+                    .insert_block(self.reward_cycle, &block_info)
                     .expect(&format!("{self}: Failed to insert block in DB"));
                 stacks_client
                     .submit_block_for_validation(block)
@@ -699,7 +705,7 @@ impl Signer {
 
         self.determine_vote(&mut block_info, nonce_request);
         self.signer_db
-            .insert_block(&block_info)
+            .insert_block(self.reward_cycle, &block_info)
             .expect(&format!("{self}: Failed to insert block in DB"));
         true
     }
@@ -1023,13 +1029,6 @@ impl Signer {
             return;
         };
 
-        // WIP: try not deleting a block from signerDB until we have a better garbage collection strategy.
-        // This causes issues when we have to reprocess a block and we have already deleted it from the signerDB
-        // // TODO: proper garbage collection...This is currently our only cleanup of blocks
-        // self.signer_db
-        //     .remove_block(&block_vote.signer_signature_hash)
-        //     .expect(&format!("{self}: Failed to remove block from to signer DB"));
-
         let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message
             BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone())
@@ -1066,7 +1065,7 @@ impl Signer {
             };
             let Some(block_info) = self
                 .signer_db
-                .block_lookup(&block_vote.signer_signature_hash)
+                .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
                 .expect(&format!("{self}: Failed to connect to signer DB"))
             else {
                 debug!(
