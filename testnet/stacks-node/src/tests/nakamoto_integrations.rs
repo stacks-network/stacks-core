@@ -26,6 +26,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
+use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -47,7 +48,7 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -66,9 +67,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::sleep_ms;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::sleep_ms;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -79,12 +80,8 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
     run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
 };
-use crate::tests::{make_stacks_transfer, to_addr};
+use crate::tests::{get_chain_info, make_stacks_transfer, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
-
-use rand::RngCore;
-use crate::tests::get_chain_info;
-use stacks::core::PEER_VERSION_TESTNET;
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
@@ -381,6 +378,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.burnchain.pox_prepare_length = Some(5);
     conf.burnchain.pox_reward_length = Some(20);
+
+    conf.connection_options.inv_sync_interval = 1;
 
     (conf, miner_account)
 }
@@ -2537,11 +2536,11 @@ fn follower_bootup() {
     follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
-    
+
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 8];
     rng.fill_bytes(&mut buf);
-    
+
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
 
@@ -2552,14 +2551,28 @@ fn follower_bootup() {
     follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
 
     let node_info = get_chain_info(&naka_conf);
-    follower_conf.node.add_bootstrap_node(&format!("{}@{}", &node_info.node_public_key.unwrap(), naka_conf.node.p2p_bind), CHAIN_ID_TESTNET, PEER_VERSION_TESTNET);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        CHAIN_ID_TESTNET,
+        PEER_VERSION_TESTNET,
+    );
 
     let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
     let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
     let follower_coord_channel = follower_run_loop.coordinator_channels();
 
-    debug!("Booting follower-thread ({},{})", &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind);
-    debug!("Booting follower-thread: neighbors = {:?}", &follower_conf.node.bootstrap_node);
+    debug!(
+        "Booting follower-thread ({},{})",
+        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
+    );
+    debug!(
+        "Booting follower-thread: neighbors = {:?}",
+        &follower_conf.node.bootstrap_node
+    );
 
     // spawn a follower thread
     let follower_thread = thread::Builder::new()
@@ -2639,9 +2652,14 @@ fn follower_bootup() {
     loop {
         sleep_ms(1000);
         let follower_node_info = get_chain_info(&follower_conf);
-        
-        info!("Follower tip is now {}/{}", &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip);
-        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash && follower_node_info.stacks_tip == tip.anchored_header.block_hash() {
+
+        info!(
+            "Follower tip is now {}/{}",
+            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+        );
+        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
+        {
             break;
         }
     }
@@ -2651,7 +2669,7 @@ fn follower_bootup() {
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
     run_loop_stopper.store(false, Ordering::SeqCst);
-    
+
     follower_coord_channel
         .lock()
         .expect("Mutex poisoned")
