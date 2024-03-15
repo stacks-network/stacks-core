@@ -1048,7 +1048,6 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
-        // let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
 
