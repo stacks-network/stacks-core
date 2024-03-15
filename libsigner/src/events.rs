@@ -50,11 +50,22 @@ use wsts::state_machine::signer;
 use crate::http::{decode_http_body, decode_http_request};
 use crate::{EventError, SignerMessage};
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// BlockProposal sent to signers
+pub struct BlockProposalSigners {
+    /// The block itself
+    pub block: NakamotoBlock,
+    /// The burn height the block is mined during
+    pub burn_height: u64,
+    /// The reward cycle the block is mined during
+    pub reward_cycle: u64,
+}
+
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
-    ProposedBlocks(Vec<NakamotoBlock>),
+    ProposedBlocks(Vec<BlockProposalSigners>),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<SignerMessage>),
@@ -62,6 +73,26 @@ pub enum SignerEvent {
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
     StatusCheck,
+}
+
+impl StacksMessageCodec for BlockProposalSigners {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.block.consensus_serialize(fd)?;
+        self.burn_height.consensus_serialize(fd)?;
+        self.reward_cycle.consensus_serialize(fd)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let block = NakamotoBlock::consensus_deserialize(fd)?;
+        let burn_height = u64::consensus_deserialize(fd)?;
+        let reward_cycle = u64::consensus_deserialize(fd)?;
+        Ok(BlockProposalSigners {
+            block,
+            burn_height,
+            reward_cycle,
+        })
+    }
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -195,11 +226,15 @@ impl EventStopSignaler for SignerStopSignaler {
             // We need to send actual data to trigger the event receiver
             let body = "Yo. Shut this shit down!".to_string();
             let req = format!(
-                "POST /shutdown HTTP/1.0\r\nContent-Length: {}\r\n\r\n{}",
-                &body.len(),
+                "POST /shutdown HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+                self.local_addr,
+                body.len(),
                 body
             );
-            stream.write_all(req.as_bytes()).unwrap();
+            match stream.write_all(req.as_bytes()) {
+                Err(e) => error!("Failed to send shutdown request: {}", e),
+                _ => (),
+            };
         }
     }
 }
@@ -337,10 +372,10 @@ fn process_stackerdb_event(
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
     let signer_event = if event.contract_id == boot_code_id(MINERS_NAME, is_mainnet) {
-        let blocks: Vec<NakamotoBlock> = event
+        let blocks: Vec<BlockProposalSigners> = event
             .modified_slots
             .iter()
-            .filter_map(|chunk| read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok())
+            .filter_map(|chunk| read_next::<BlockProposalSigners, _>(&mut &chunk.data[..]).ok())
             .collect();
         SignerEvent::ProposedBlocks(blocks)
     } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
