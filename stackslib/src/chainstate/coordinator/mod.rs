@@ -26,6 +26,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
@@ -177,6 +178,7 @@ pub trait BlockEventDispatcher {
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     );
 
     /// called whenever a burn block is about to be

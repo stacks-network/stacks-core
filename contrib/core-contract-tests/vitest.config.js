@@ -1,7 +1,10 @@
 /// <reference types="vitest" />
 
 import { defineConfig } from "vite";
-import { vitestSetupFilePath, getClarinetVitestsArgv } from "@hirosystems/clarinet-sdk/vitest";
+import {
+  vitestSetupFilePath,
+  getClarinetVitestsArgv,
+} from "@hirosystems/clarinet-sdk/vitest";
 
 /*
   In this file, Vitest is configured so that it works seamlessly with Clarinet and the Simnet.
@@ -11,7 +14,7 @@ import { vitestSetupFilePath, getClarinetVitestsArgv } from "@hirosystems/clarin
 
   `vitestSetupFilePath` points to a file in the `@hirosystems/clarinet-sdk` package that does two things:
     - run `before` hooks to initialize the simnet and `after` hooks to collect costs and coverage reports.
-    - load custom Vitest matchers to work with Clarity values (such as `expect(...).toBeUint()`).
+    - load custom vitest matchers to work with Clarity values (such as `expect(...).toBeUint()`)
 
   The `getClarinetVitestsArgv()` will parse options passed to the command `vitest run --`
     - vitest run -- --manifest ./Clarinet.toml  # pass a custom path
@@ -21,7 +24,11 @@ import { vitestSetupFilePath, getClarinetVitestsArgv } from "@hirosystems/clarin
 export default defineConfig({
   test: {
     environment: "clarinet", // use vitest-environment-clarinet
-    singleThread: true,
+    pool: "forks",
+    poolOptions: {
+      threads: { singleThread: true },
+      forks: { singleFork: true },
+    },
     setupFiles: [
       vitestSetupFilePath,
       // custom setup files can be added here
