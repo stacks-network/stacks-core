@@ -89,7 +89,7 @@ use crate::clarity_vm::clarity::{
 };
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
-use crate::net::stackerdb::StackerDBConfig;
+use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
@@ -3160,7 +3160,7 @@ impl NakamotoChainState {
                         version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
                         bytes: hash160
                     },
-                    2
+                    MINER_SLOT_COUNT,
                 ))
             .collect();
 
