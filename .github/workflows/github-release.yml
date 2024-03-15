@@ -59,12 +59,7 @@ jobs:
       ## Generate a checksums file to be added to the release page
       - name: Generate Checksums
         id: generate_checksum
-        uses: jmgilman/actions-generate-checksum@3ea6dc9bf8eecf28e2ecc982fab683484a1a8561 # v1.0.1
-        with:
-          method: sha512
-          output: CHECKSUMS.txt
-          patterns: |
-            release/*.zip
+        uses: stacks-network/actions/generate-checksum@main
 
       ## Upload the release archives with the checksums file
       - name: Upload Release
