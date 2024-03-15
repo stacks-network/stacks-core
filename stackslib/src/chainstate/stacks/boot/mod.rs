@@ -277,7 +277,8 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
     #[serde(
         serialize_with = "serialize_optional_u128_as_string",
-        deserialize_with = "deserialize_optional_u128_from_string"
+        deserialize_with = "deserialize_optional_u128_from_string",
+        default
     )]
     pub pox_ustx_threshold: Option<u128>,
 }
