@@ -5431,11 +5431,14 @@ impl PeerNetwork {
         let stacks_tip =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
-        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height || self.num_state_machine_passes == 0;
+        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height
+            || self.num_state_machine_passes == 0;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
         let need_stackerdb_refresh = sn.canonical_stacks_tip_consensus_hash
-            != self.burnchain_tip.canonical_stacks_tip_consensus_hash || burnchain_tip_changed || stacks_tip_changed;
+            != self.burnchain_tip.canonical_stacks_tip_consensus_hash
+            || burnchain_tip_changed
+            || stacks_tip_changed;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
         let aggregate_public_keys =
@@ -5719,8 +5722,7 @@ impl PeerNetwork {
                     warn!("Failed to run Stacker DB sync: {:?}", &e);
                 }
             }
-        }
-        else {
+        } else {
             debug!("{}: skip StackerDB sync in IBD", self.get_local_peer());
         }
 
@@ -5905,6 +5907,55 @@ impl PeerNetwork {
 
         network_result.pushed_transactions.extend(ret);
         Ok(())
+    }
+
+    /// Static helper to check to see if there has been a reorg
+    pub fn is_reorg(
+        last_sort_tip: Option<&BlockSnapshot>,
+        sort_tip: &BlockSnapshot,
+        sortdb: &SortitionDB,
+    ) -> bool {
+        let reorg = if let Some(last_sort_tip) = last_sort_tip {
+            if last_sort_tip.block_height == sort_tip.block_height
+                && last_sort_tip.consensus_hash != sort_tip.consensus_hash
+            {
+                debug!(
+                    "Reorg detected at burn height {}: {} != {}",
+                    sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
+                );
+                true
+            } else if last_sort_tip.block_height != sort_tip.block_height {
+                // last_sort_tip must be an ancestor
+                let ih = sortdb.index_handle(&sort_tip.sortition_id);
+                if let Ok(Some(ancestor_sn)) =
+                    ih.get_block_snapshot_by_height(last_sort_tip.block_height)
+                {
+                    if ancestor_sn.consensus_hash != last_sort_tip.consensus_hash {
+                        info!(
+                            "Reorg detected at burn block {}: ancestor tip at {}: {} != {}",
+                            sort_tip.block_height,
+                            last_sort_tip.block_height,
+                            &ancestor_sn.consensus_hash,
+                            &last_sort_tip.consensus_hash
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    info!(
+                        "Reorg detected: no ancestor of burn block {} ({}) found",
+                        sort_tip.block_height, &sort_tip.consensus_hash
+                    );
+                    true
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        reorg
     }
 
     /// Top-level main-loop circuit to take.
