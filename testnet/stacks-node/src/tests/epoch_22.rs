@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::{env, thread};
 
@@ -397,8 +396,8 @@ fn disable_pox() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if let Entry::Vacant(e) = reward_cycle_pox_addrs.entry(reward_cycle) {
-            e.insert(HashMap::new());
+        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
+            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
         let iconn = sortdb.index_conn();
@@ -1066,8 +1065,8 @@ fn pox_2_unlock_all() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if let Entry::Vacant(e) = reward_cycle_pox_addrs.entry(reward_cycle) {
-            e.insert(HashMap::new());
+        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
+            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
         let iconn = sortdb.index_conn();

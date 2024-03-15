@@ -1696,58 +1696,50 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        match downloader.blocks_to_try.entry(height) {
-                            Entry::Occupied(_) => {
-                                debug!("Block download already in-flight for {}", height);
+                        if downloader.blocks_to_try.contains_key(&height) {
+                            debug!("Block download already in-flight for {}", height);
+                            height += 1;
+                            continue;
+                        }
+
+                        let requests = next_blocks_to_try.remove(&height).expect(
+                            "BUG: hashmap both contains and does not contain sortition height",
+                        );
+                        if requests.len() == 0 {
+                            height += 1;
+                            continue;
+                        }
+                        assert_eq!(height, requests.front().as_ref().unwrap().sortition_height);
+
+                        let index_block_hash =
+                            requests.front().as_ref().unwrap().index_block_hash.clone();
+                        if let Some(deadline) = downloader.requested_blocks.get(&index_block_hash) {
+                            if now < *deadline {
+                                debug!(
+                                    "{:?}: already inflight: {}",
+                                    &network.local_peer, &index_block_hash
+                                );
                                 height += 1;
                                 continue;
                             }
-                            Entry::Vacant(e) => {
-                                let requests = next_blocks_to_try.remove(&height).expect(
-                                    "BUG: hashmap both contains and does not contain sortition height",
-                                );
-                                if requests.len() == 0 {
-                                    height += 1;
-                                    continue;
-                                }
-                                assert_eq!(
-                                    height,
-                                    requests.front().as_ref().unwrap().sortition_height
-                                );
-
-                                let index_block_hash =
-                                    requests.front().as_ref().unwrap().index_block_hash.clone();
-                                if let Some(deadline) =
-                                    downloader.requested_blocks.get(&index_block_hash)
-                                {
-                                    if now < *deadline {
-                                        debug!(
-                                            "{:?}: already inflight: {}",
-                                            &network.local_peer, &index_block_hash
-                                        );
-                                        height += 1;
-                                        continue;
-                                    }
-                                }
-
-                                debug!(
-                                    "{:?}: will request anchored block for sortition {}: {}/{} ({}) from {:?}",
-                                    &network.local_peer,
-                                    height,
-                                    &requests.front().as_ref().unwrap().consensus_hash,
-                                    &requests.front().as_ref().unwrap().anchor_block_hash,
-                                    &index_block_hash,
-                                    requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
-                                );
-
-                                e.insert(requests);
-                                downloader
-                                    .requested_blocks
-                                    .insert(index_block_hash, now + BLOCK_REREQUEST_INTERVAL);
-
-                                height += 1;
-                            }
                         }
+
+                        debug!(
+                            "{:?}: will request anchored block for sortition {}: {}/{} ({}) from {:?}",
+                            &network.local_peer,
+                            height,
+                            &requests.front().as_ref().unwrap().consensus_hash,
+                            &requests.front().as_ref().unwrap().anchor_block_hash,
+                            &index_block_hash,
+                            requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                        );
+
+                        downloader.blocks_to_try.insert(height, requests);
+                        downloader
+                            .requested_blocks
+                            .insert(index_block_hash, now + BLOCK_REREQUEST_INTERVAL);
+
+                        height += 1;
                     }
 
                     // queue up microblock requests in order by sortition height.
@@ -1763,58 +1755,57 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        match downloader.microblocks_to_try.entry(mblock_height) {
-                            Entry::Occupied(_) => {
-                                mblock_height += 1;
+                        if downloader.microblocks_to_try.contains_key(&mblock_height) {
+                            mblock_height += 1;
+                            debug!(
+                                "Microblocks download already in-flight for {}",
+                                mblock_height
+                            );
+                            continue;
+                        }
+
+                        let requests = next_microblocks_to_try.remove(&mblock_height).expect(
+                            "BUG: hashmap both contains and does not contain sortition height",
+                        );
+                        if requests.len() == 0 {
+                            debug!("No microblock requests for {}", mblock_height);
+                            mblock_height += 1;
+                            continue;
+                        }
+
+                        assert_eq!(
+                            mblock_height,
+                            requests.front().as_ref().unwrap().sortition_height
+                        );
+
+                        let index_block_hash =
+                            requests.front().as_ref().unwrap().index_block_hash.clone();
+                        if let Some(deadline) =
+                            downloader.requested_microblocks.get(&index_block_hash)
+                        {
+                            if now < *deadline {
                                 debug!(
-                                    "Microblocks download already in-flight for {}",
-                                    mblock_height
+                                    "{:?}: already inflight: {}",
+                                    &network.local_peer, &index_block_hash
                                 );
+                                mblock_height += 1;
                                 continue;
                             }
-                            Entry::Vacant(e) => {
-                                let requests = next_microblocks_to_try.remove(&mblock_height).expect(
-                                    "BUG: hashmap both contains and does not contain sortition height",
-                                );
-                                if requests.len() == 0 {
-                                    debug!("No microblock requests for {}", mblock_height);
-                                    mblock_height += 1;
-                                    continue;
-                                }
-
-                                assert_eq!(
-                                    mblock_height,
-                                    requests.front().as_ref().unwrap().sortition_height
-                                );
-
-                                let index_block_hash =
-                                    requests.front().as_ref().unwrap().index_block_hash.clone();
-                                if let Some(deadline) =
-                                    downloader.requested_microblocks.get(&index_block_hash)
-                                {
-                                    if now < *deadline {
-                                        debug!(
-                                            "{:?}: already inflight: {}",
-                                            &network.local_peer, &index_block_hash
-                                        );
-                                        mblock_height += 1;
-                                        continue;
-                                    }
-                                }
-
-                                debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
-                                       &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
-                                        requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
-                                       );
-
-                                e.insert(requests);
-                                downloader
-                                    .requested_microblocks
-                                    .insert(index_block_hash, now + BLOCK_REREQUEST_INTERVAL);
-
-                                mblock_height += 1;
-                            }
                         }
+
+                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
+                               &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
+                                requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                               );
+
+                        downloader
+                            .microblocks_to_try
+                            .insert(mblock_height, requests);
+                        downloader
+                            .requested_microblocks
+                            .insert(index_block_hash, now + BLOCK_REREQUEST_INTERVAL);
+
+                        mblock_height += 1;
                     }
 
                     debug!(

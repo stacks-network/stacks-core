@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -293,15 +292,18 @@ impl DNSClient {
         loop {
             match self.requests_rx.try_recv() {
                 Ok(resp) => {
-                    if let Some(e) = self.requests.get_mut(&resp.request) {
+                    if self.requests.contains_key(&resp.request) {
                         if !resp.request.is_timed_out() {
-                            *e = Some(resp);
+                            self.requests.insert(resp.request.clone(), Some(resp));
                             num_recved += 1;
                         } else {
-                            *e = Some(DNSResponse::error(
-                                resp.request,
-                                "DNS lookup timed out".to_string(),
-                            ));
+                            self.requests.insert(
+                                resp.request.clone(),
+                                Some(DNSResponse::error(
+                                    resp.request,
+                                    "DNS lookup timed out".to_string(),
+                                )),
+                            );
                         }
                     }
                 }
@@ -322,19 +324,30 @@ impl DNSClient {
 
     pub fn poll_lookup(&mut self, host: &str, port: u16) -> Result<Option<DNSResponse>, net_error> {
         let req = DNSRequest::new(host.to_string(), port, 0);
-        match self.requests.entry(req.to_owned()) {
-            Entry::Occupied(e) => {
-                if e.get().is_none() {
-                    return Ok(None);
-                }
-                let resp = e.remove().expect("BUG: had response but then didn't");
-                Ok(Some(resp))
-            }
-            Entry::Vacant(_) => Err(net_error::LookupError(format!(
+        if !self.requests.contains_key(&req) {
+            return Err(net_error::LookupError(format!(
                 "No such pending lookup: {}:{}",
                 host, port
-            ))),
+            )));
         }
+
+        let _ = match self.requests.get(&req) {
+            Some(None) => {
+                return Ok(None);
+            }
+            Some(Some(resp)) => resp,
+            None => {
+                unreachable!();
+            }
+        };
+
+        let resp = self
+            .requests
+            .remove(&req)
+            .expect("BUG: had key but then didn't")
+            .expect("BUG: had response but then didn't");
+
+        Ok(Some(resp))
     }
 
     pub fn clear_all_requests(&mut self) -> () {
@@ -344,7 +357,6 @@ impl DNSClient {
 
 #[cfg(test)]
 mod test {
-    use std::collections::hash_map::Entry;
     use std::collections::HashMap;
     use std::error::Error;
 
@@ -411,15 +423,16 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if let Entry::Vacant(e) = resolved_addrs.entry(name.to_string()) {
-                    match client.poll_lookup(name, 80).unwrap() {
-                        Some(addrs) => {
-                            test_debug!("name {} addrs: {:?}", name, &addrs);
-                            e.insert(addrs);
-                            break;
-                        }
-                        None => {}
+                if resolved_addrs.contains_key(&name.to_string()) {
+                    continue;
+                }
+                match client.poll_lookup(name, 80).unwrap() {
+                    Some(addrs) => {
+                        test_debug!("name {} addrs: {:?}", name, &addrs);
+                        resolved_addrs.insert(name.to_string(), addrs);
+                        break;
                     }
+                    None => {}
                 }
             }
 

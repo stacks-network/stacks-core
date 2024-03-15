@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::mpsc::{
@@ -3235,8 +3234,9 @@ impl PeerNetwork {
 
                                     local_blocks.push(BlocksDatum(consensus_hash, block));
 
-                                    if let Entry::Vacant(e) = lowest_reward_cycle_with_missing_block.entry(nk) {
-                                        e.insert(reward_cycle);
+                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                        lowest_reward_cycle_with_missing_block
+                                            .insert(nk.clone(), reward_cycle);
                                     }
 
                                     total_blocks_to_broadcast += 1;
@@ -3295,8 +3295,9 @@ impl PeerNetwork {
 
                                     local_microblocks.push((index_block_hash, microblocks));
 
-                                    if let Entry::Vacant(e) = lowest_reward_cycle_with_missing_block.entry(nk) {
-                                        e.insert(reward_cycle);
+                                    if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
+                                        lowest_reward_cycle_with_missing_block
+                                            .insert(nk.clone(), reward_cycle);
                                     }
 
                                     total_microblocks_to_broadcast += 1;

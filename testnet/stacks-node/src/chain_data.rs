@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 
@@ -363,9 +362,10 @@ impl MinerStats {
 
         for (_, commit) in active_miners_and_commits.iter() {
             let addr = commit.apparent_sender.to_string();
-            if let Entry::Vacant(e) = dist.entry(addr.to_owned()) {
-                e.insert(commit.burn_fee);
+            if dist.contains_key(&addr) {
+                continue;
             }
+            dist.insert(addr, commit.burn_fee);
         }
 
         for (_, spend) in dist.iter() {
@@ -434,7 +434,7 @@ impl MinerStats {
         };
 
         for (miner, last_commit) in active_miners_and_commits.iter() {
-            if let Entry::Vacant(e) = commit_table.entry(miner.to_owned()) {
+            if !commit_table.contains_key(miner) {
                 let mocked_commit = LeaderBlockCommitOp {
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
@@ -456,7 +456,7 @@ impl MinerStats {
                         as u8,
                     burn_header_hash: BurnchainHeaderHash(DEADBEEF.clone()),
                 };
-                e.insert(mocked_commit);
+                commit_table.insert(miner.to_string(), mocked_commit);
             }
         }
 

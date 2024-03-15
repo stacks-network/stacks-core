@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::hash_map::Entry;
-
 use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
 use rand::prelude::*;
 use rand::thread_rng;
@@ -2585,33 +2583,27 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
             }
         }
         for inbound in inbound_neighbor_index.iter() {
-            match inbound_hist.entry(*inbound) {
-                Entry::Occupied(mut e) => {
-                    *e.get_mut() += 1;
-                }
-                Entry::Vacant(e) => {
-                    e.insert(1);
-                }
+            if inbound_hist.contains_key(inbound) {
+                let c = inbound_hist.get(inbound).unwrap().to_owned();
+                inbound_hist.insert(*inbound, c + 1);
+            } else {
+                inbound_hist.insert(*inbound, 1);
             }
         }
         for outbound in outbound_neighbor_index.iter() {
-            match outbound_hist.entry(*outbound) {
-                Entry::Occupied(mut e) => {
-                    *e.get_mut() += 1;
-                }
-                Entry::Vacant(e) => {
-                    e.insert(1);
-                }
+            if outbound_hist.contains_key(outbound) {
+                let c = outbound_hist.get(outbound).unwrap().to_owned();
+                outbound_hist.insert(*outbound, c + 1);
+            } else {
+                outbound_hist.insert(*outbound, 1);
             }
         }
         for n in neighbor_index.iter() {
-            match all_hist.entry(*n) {
-                Entry::Occupied(mut e) => {
-                    *e.get_mut() += 1;
-                }
-                Entry::Vacant(e) => {
-                    e.insert(1);
-                }
+            if all_hist.contains_key(n) {
+                let c = all_hist.get(n).unwrap().to_owned();
+                all_hist.insert(*n, c + 1);
+            } else {
+                all_hist.insert(*n, 1);
             }
         }
     }
@@ -2656,8 +2648,8 @@ where
         for j in 0..peers[i].config.initial_neighbors.len() {
             let initial = &peers[i].config.initial_neighbors[j];
             if initial.allowed < 0 {
-                if let Entry::Vacant(e) = initial_allowed.entry(nk.to_owned()) {
-                    e.insert(vec![]);
+                if !initial_allowed.contains_key(&nk) {
+                    initial_allowed.insert(nk.clone(), vec![]);
                 }
                 initial_allowed
                     .get_mut(&nk)
@@ -2665,8 +2657,8 @@ where
                     .push(initial.addr.clone());
             }
             if initial.denied < 0 {
-                if let Entry::Vacant(e) = initial_denied.entry(nk.to_owned()) {
-                    e.insert(vec![]);
+                if !initial_denied.contains_key(&nk) {
+                    initial_denied.insert(nk.clone(), vec![]);
                 }
                 initial_denied
                     .get_mut(&nk)
