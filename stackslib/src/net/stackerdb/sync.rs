@@ -250,7 +250,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
         if local_slot_versions.len() != local_write_timestamps.len() {
             // interleaved DB write?
-            return Err(net_error::Transient("Interleaved DB write has led to an inconsistent view of the stackerdb. Try again.".into()));
+            return Err(net_error::Transient(
+                "Interleaved DB write has led to an inconsistent view of the stackerdb. Try again."
+                    .into(),
+            ));
         }
 
         let mut need_chunks: HashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
@@ -797,8 +800,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     if data.slot_versions.len() != self.num_slots {
                         info!("{:?}: Received malformed StackerDBChunkInv for {} from {:?}: expected {} chunks, got {}", network.get_local_peer(), &self.smart_contract_id, &naddr, self.num_slots, data.slot_versions.len());
                         None
-                    }
-                    else {
+                    } else {
                         Some(data)
                     }
                 }
