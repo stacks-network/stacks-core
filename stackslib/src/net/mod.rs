@@ -3026,45 +3026,12 @@ pub mod test {
                     TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
                 }
 
-                /*
-                let mut indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
-                */
-
                 let block_header = Self::make_next_burnchain_block(
                     &self.config.burnchain,
                     tip.block_height,
                     &tip.burn_header_hash,
                     blockstack_ops.len() as u64,
                 );
-
-                /*
-                let parent_hdr = indexer
-                    .read_burnchain_header(tip.block_height)
-                    .unwrap()
-                    .unwrap();
-
-                test_debug!("parent hdr ({}): {:?}", &tip.block_height, &parent_hdr);
-                assert_eq!(parent_hdr.block_hash, tip.burn_header_hash);
-
-                let now = BURNCHAIN_TEST_BLOCK_TIME;
-                let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
-                    &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
-                        .bitcoin_hash(),
-                );
-                test_debug!(
-                    "Block header hash at {} is {}",
-                    tip.block_height + 1,
-                    &block_header_hash
-                );
-
-                let block_header = BurnchainBlockHeader {
-                    block_height: tip.block_height + 1,
-                    block_hash: block_header_hash.clone(),
-                    parent_block_hash: parent_hdr.block_hash.clone(),
-                    num_txs: blockstack_ops.len() as u64,
-                    timestamp: now,
-                };
-                */
 
                 if set_burn_hash {
                     TestPeer::set_ops_burn_header_hash(
@@ -3079,34 +3046,6 @@ pub mod test {
                         &block_header,
                         blockstack_ops.clone(),
                     );
-                    /*
-                    let mut burnchain_db =
-                        BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), true).unwrap();
-
-                    test_debug!(
-                        "Store header and block ops for {}-{} ({})",
-                        &block_header.block_hash,
-                        &block_header.parent_block_hash,
-                        block_header.block_height
-                    );
-                    indexer.raw_store_header(block_header.clone()).unwrap();
-                    burnchain_db
-                        .raw_store_burnchain_block(
-                            &self.config.burnchain,
-                            &indexer,
-                            block_header.clone(),
-                            blockstack_ops,
-                        )
-                        .unwrap();
-
-                    Burnchain::process_affirmation_maps(
-                        &self.config.burnchain,
-                        &mut burnchain_db,
-                        &indexer,
-                        block_header.block_height,
-                    )
-                    .unwrap();
-                    */
                 }
                 (block_header.block_height, block_header.block_hash, epoch_id)
             };
