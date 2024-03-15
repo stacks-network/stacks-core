@@ -374,14 +374,14 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
-            end_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+            end_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0

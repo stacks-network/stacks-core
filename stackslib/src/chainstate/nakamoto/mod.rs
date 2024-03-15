@@ -54,9 +54,9 @@ use super::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
-use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
+use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp};
 use super::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
@@ -278,6 +278,8 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
     /// Result of a signer set calculation if one occurred
     pub signer_set_calc: Option<SignerCalculation>,
+    /// vote-for-aggregate-key Stacks-on-Bitcoin txs
+    pub burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1402,7 +1404,7 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit) = ok_opt.expect("FATAL: unreachable");
+        let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -1437,6 +1439,8 @@ impl NakamotoChainState {
         // succeeds, since *we have already processed* the block.
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
+        let signer_bitvec = (&next_ready_block).header.signer_bitvec.clone();
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -1458,6 +1462,8 @@ impl NakamotoChainState {
                 &receipt.anchored_block_cost,
                 &receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set_data,
+                &Some(signer_bitvec),
             );
         }
 
@@ -2269,6 +2275,7 @@ impl NakamotoChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
         new_tenure: bool,
         block_fees: u128,
     ) -> Result<StacksHeaderInfo, ChainstateError> {
@@ -2353,6 +2360,7 @@ impl NakamotoChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            burn_vote_for_aggregate_key_ops,
         )?;
 
         if let Some(matured_miner_payouts) = mature_miner_payouts_opt {
@@ -2488,7 +2496,7 @@ impl NakamotoChainState {
         };
 
         // TODO: only need to do this if this is a tenure-start block
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops) =
+        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
             StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                 chainstate_tx,
                 &parent_index_hash,
@@ -2615,6 +2623,10 @@ impl NakamotoChainState {
                 burn_header_height.into(),
                 coinbase_height,
             )?;
+            tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
+                &mut clarity_tx,
+                vote_for_agg_key_ops.clone(),
+            ));
         } else {
             signer_set_calc = None;
         }
@@ -2636,6 +2648,7 @@ impl NakamotoChainState {
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
             signer_set_calc,
+            burn_vote_for_aggregate_key_ops: vote_for_agg_key_ops,
         })
     }
 
@@ -2684,7 +2697,14 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        ChainstateError,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
@@ -2836,6 +2856,7 @@ impl NakamotoChainState {
             burn_delegate_stx_ops,
             mut auto_unlock_events,
             signer_set_calc,
+            burn_vote_for_aggregate_key_ops,
         } = Self::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -2995,6 +3016,7 @@ impl NakamotoChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            burn_vote_for_aggregate_key_ops,
             new_tenure,
             block_fees,
         )
@@ -3007,8 +3029,30 @@ impl NakamotoChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set_data = None;
         if let Some(signer_calculation) = signer_set_calc {
-            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
+            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
+
+            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                chain_tip_burn_header_height.into(),
+            ) {
+                Some(cycle)
+            } else {
+                pox_constants
+                    .block_height_to_reward_cycle(
+                        first_block_height.into(),
+                        chain_tip_burn_header_height.into(),
+                    )
+                    .map(|cycle| cycle + 1)
+            };
+
+            if let Some(cycle) = cycle_number {
+                reward_set_data = Some(RewardSetData::new(
+                    signer_calculation.reward_set.clone(),
+                    cycle,
+                ));
+            }
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
@@ -3050,7 +3094,7 @@ impl NakamotoChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((epoch_receipt, clarity_commit, reward_set_data))
     }
 
     /// Create a StackerDB config for the .miners contract.

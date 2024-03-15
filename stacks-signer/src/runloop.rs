@@ -224,18 +224,19 @@ impl RunLoop {
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
             tx_fee_ustx: self.config.tx_fee_ustx,
+            db_path: self.config.db_path.clone(),
         })
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(&mut self, reward_cycle: u64) {
+    fn refresh_signer_config(&mut self, reward_cycle: u64, current: bool) {
         let reward_index = reward_cycle % 2;
         let mut needs_refresh = false;
         if let Some(signer) = self.stacks_signers.get_mut(&reward_index) {
             let old_reward_cycle = signer.reward_cycle;
             if old_reward_cycle == reward_cycle {
                 //If the signer is already registered for the reward cycle, we don't need to do anything further here
-                debug!("Signer is configured for reward cycle {reward_cycle}.")
+                debug!("Signer is already configured for reward cycle {reward_cycle}.")
             } else {
                 needs_refresh = true;
             }
@@ -251,7 +252,7 @@ impl RunLoop {
                 if let Some(signer) = self.stacks_signers.get_mut(&prior_reward_set) {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
-                        debug!("Signer #{}: Next reward cycle ({reward_cycle}) signer set calculated. Updating current reward cycle ({prior_reward_cycle}) signer.", signer.signer_id);
+                        debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring signer.");
                         signer.next_signer_addresses = new_signer_config
                             .signer_entries
                             .signer_ids
@@ -263,9 +264,14 @@ impl RunLoop {
                 }
                 self.stacks_signers
                     .insert(reward_index, Signer::from(new_signer_config));
-                debug!("Signer #{signer_id} for reward cycle {reward_cycle} initialized. Initialized {} signers", self.stacks_signers.len());
+                debug!("Reward cycle #{reward_cycle} Signer #{signer_id} initialized.");
             } else {
-                warn!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                // TODO: Update `current` here once the signer binary is tracking its own latest burnchain/stacks views.
+                if current {
+                    warn!("Signer is not registered for the current reward cycle ({reward_cycle}). Waiting for confirmed registration...");
+                } else {
+                    debug!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                }
             }
         }
     }
@@ -274,18 +280,26 @@ impl RunLoop {
     /// Note: this will trigger DKG if required
     fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
-        self.refresh_signer_config(current_reward_cycle);
-        self.refresh_signer_config(next_reward_cycle);
+        self.refresh_signer_config(current_reward_cycle, true);
+        self.refresh_signer_config(next_reward_cycle, false);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
-        for signer in self.stacks_signers.values_mut() {
+        let mut to_delete = Vec::new();
+        for (idx, signer) in &mut self.stacks_signers {
+            if signer.reward_cycle < current_reward_cycle {
+                debug!("{signer}: Signer's tenure has completed.");
+                // We don't really need this state, but it's useful for debugging
+                signer.state = SignerState::TenureCompleted;
+                to_delete.push(*idx);
+                continue;
+            }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
                 .coordinator_selector
                 .refresh_coordinator(&pox_consensus_hash);
             if old_coordinator_id != updated_coordinator_id {
                 debug!(
-                    "Signer #{}: Coordinator updated. Resetting state to Idle.", signer.signer_id;
+                    "{signer}: Coordinator updated. Resetting state to Idle.";
                     "old_coordinator_id" => {old_coordinator_id},
                     "updated_coordinator_id" => {updated_coordinator_id},
                     "pox_consensus_hash" => %pox_consensus_hash
@@ -301,13 +315,20 @@ impl RunLoop {
                 })?;
             }
         }
+        for i in to_delete.into_iter() {
+            if let Some(signer) = self.stacks_signers.remove(&i) {
+                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
+            }
+        }
         if self.stacks_signers.is_empty() {
-            info!("Signer is not registered for the current {current_reward_cycle} or next {next_reward_cycle} reward cycles. Waiting for confirmed registration...");
+            info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
             self.state = State::Uninitialized;
             return Err(ClientError::NotRegistered);
         }
+        if self.state != State::Initialized {
+            info!("Signer runloop successfully initialized!");
+        }
         self.state = State::Initialized;
-        info!("Runloop successfully initialized!");
         Ok(())
     }
 }
@@ -354,27 +375,43 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
         for signer in self.stacks_signers.values_mut() {
+            if signer.state == SignerState::TenureCompleted {
+                warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
+                continue;
+            }
+            let event_parity = match event {
+                Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
+                // Block proposal events do have reward cycles, but each proposal has its own cycle,
+                //  and the vec could be heterogenous, so, don't differentiate.
+                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
+                    Some(u64::from(msg_parity) % 2)
+                }
+                Some(SignerEvent::StatusCheck) => None,
+                None => None,
+            };
+            let other_signer_parity = (signer.reward_cycle + 1) % 2;
+            if event_parity == Some(other_signer_parity) {
+                continue;
+            }
+
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),
                 res.clone(),
                 current_reward_cycle,
             ) {
-                error!(
-                    "Signer #{} for reward cycle {} errored processing event: {e}",
-                    signer.signer_id, signer.reward_cycle
-                );
+                error!("{signer}: errored processing event: {e}");
             }
             if let Some(command) = self.commands.pop_front() {
                 let reward_cycle = command.reward_cycle;
                 if signer.reward_cycle != reward_cycle {
                     warn!(
-                        "Signer #{}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}", signer.signer_id
+                        "{signer}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
                     );
                 } else {
                     info!(
-                        "Signer #{}: Queuing an external runloop command ({:?}): {command:?}",
-                        signer.signer_id,
+                        "{signer}: Queuing an external runloop command ({:?}): {command:?}",
                         signer
                             .signing_round
                             .public_keys

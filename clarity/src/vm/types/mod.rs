@@ -23,6 +23,7 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::{char, cmp, fmt, str};
 
+use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;

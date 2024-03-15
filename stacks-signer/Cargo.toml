@@ -47,6 +47,10 @@ url = "2.1.0"
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
 
+[dependencies.rusqlite]
+version = "=0.24.2"
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
+
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
@@ -55,3 +59,5 @@ features = ["arbitrary_precision", "unbounded_depth"]
 version = "0.24.3"
 features = ["serde", "recovery"]
 
+[features]
+portable = []

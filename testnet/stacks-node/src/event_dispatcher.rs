@@ -17,7 +17,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::RewardSet;
+use stacks::chainstate::stacks::boot::RewardSetData;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -36,6 +36,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::util::hash::bytes_to_hex;
@@ -72,7 +73,6 @@ pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
-pub const PATH_POX_ANCHOR: &str = "new_pox_set";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -103,6 +103,7 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
+    pub signer_bitvec: String,
 }
 
 impl EventObserver {
@@ -388,6 +389,8 @@ impl EventObserver {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec_opt: &Option<BitVec<4000>>,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -408,7 +411,7 @@ impl EventObserver {
         }
 
         // Wrap events
-        json!({
+        let mut payload = json!({
             "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
@@ -431,7 +434,27 @@ impl EventObserver {
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
-        })
+        });
+
+        if let Some(signer_bitvec) = signer_bitvec_opt {
+            payload.as_object_mut().unwrap().insert(
+                "signer_bitvec".to_string(),
+                serde_json::to_value(signer_bitvec).unwrap_or_default(),
+            );
+        }
+
+        if let Some(reward_set_data) = reward_set_data {
+            payload.as_object_mut().unwrap().insert(
+                "reward_set".to_string(),
+                serde_json::to_value(&reward_set_data.reward_set).unwrap_or_default(),
+            );
+            payload.as_object_mut().unwrap().insert(
+                "cycle_number".to_string(),
+                serde_json::to_value(reward_set_data.cycle_number).unwrap_or_default(),
+            );
+        }
+
+        payload
     }
 }
 
@@ -449,7 +472,6 @@ pub struct EventDispatcher {
     mined_microblocks_observers_lookup: HashSet<u16>,
     stackerdb_observers_lookup: HashSet<u16>,
     block_proposal_observers_lookup: HashSet<u16>,
-    pox_stacker_set_observers_lookup: HashSet<u16>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -589,6 +611,8 @@ impl BlockEventDispatcher for EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     ) {
         self.process_chain_tip(
             block,
@@ -604,7 +628,9 @@ impl BlockEventDispatcher for EventDispatcher {
             anchored_consumed,
             mblock_confirmed_consumed,
             pox_constants,
-        )
+            reward_set_data,
+            signer_bitvec,
+        );
     }
 
     fn announce_burn_block(
@@ -623,15 +649,6 @@ impl BlockEventDispatcher for EventDispatcher {
             recipient_info,
         )
     }
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        self.process_stacker_set(reward_set, block_id, cycle_number)
-    }
 }
 
 impl EventDispatcher {
@@ -649,7 +666,6 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
-            pox_stacker_set_observers_lookup: HashSet::new(),
         }
     }
 
@@ -794,6 +810,8 @@ impl EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -843,6 +861,8 @@ impl EventDispatcher {
                         anchored_consumed,
                         mblock_confirmed_consumed,
                         pox_constants,
+                        reward_set_data,
+                        signer_bitvec,
                     );
 
                 // Send payload
@@ -931,30 +951,6 @@ impl EventDispatcher {
             .collect()
     }
 
-    fn process_stacker_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        let interested_observers =
-            self.filter_observers(&self.pox_stacker_set_observers_lookup, false);
-
-        if interested_observers.is_empty() {
-            return;
-        }
-
-        let payload = json!({
-            "stacker_set": reward_set,
-            "block_id": block_id,
-            "cycle_number": cycle_number
-        });
-
-        for observer in interested_observers.iter() {
-            observer.send_payload(&payload, PATH_POX_ANCHOR);
-        }
-    }
-
     pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
@@ -1041,6 +1037,12 @@ impl EventDispatcher {
             return;
         }
 
+        let signer_bitvec = serde_json::to_value(block.header.signer_bitvec.clone())
+            .unwrap_or_default()
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+
         let payload = serde_json::to_value(MinedNakamotoBlockEvent {
             target_burn_height,
             block_hash: block.header.block_hash().to_string(),
@@ -1049,6 +1051,7 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
+            signer_bitvec,
         })
         .unwrap();
 
@@ -1199,9 +1202,6 @@ impl EventDispatcher {
                 EventKeyType::BlockProposal => {
                     self.block_proposal_observers_lookup.insert(observer_index);
                 }
-                EventKeyType::StackerSet => {
-                    self.pox_stacker_set_observers_lookup.insert(observer_index);
-                }
             }
         }
 
@@ -1215,6 +1215,7 @@ mod test {
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
     use stacks::chainstate::stacks::StacksBlock;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
     use crate::event_dispatcher::EventObserver;
@@ -1238,6 +1239,7 @@ mod test {
         let anchored_consumed = ExecutionCost::zero();
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
+        let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1253,6 +1255,8 @@ mod test {
             &anchored_consumed,
             &mblock_confirmed_consumed,
             &pox_constants,
+            &None,
+            &Some(signer_bitvec.clone()),
         );
         assert_eq!(
             payload
@@ -1261,6 +1265,16 @@ mod test {
                 .as_u64()
                 .unwrap(),
             pox_constants.v1_unlock_height as u64
+        );
+
+        let expected_bitvec_str = serde_json::to_value(signer_bitvec)
+            .unwrap_or_default()
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            payload.get("signer_bitvec").unwrap().as_str().unwrap(),
+            expected_bitvec_str
         );
     }
 }

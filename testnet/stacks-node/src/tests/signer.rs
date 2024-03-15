@@ -104,7 +104,10 @@ impl SignerTest {
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-        naka_conf.miner.self_signing_key = None;
+        // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
+        // That's the kind of thing an idiot would have on his luggage!
+        let password = "12345";
+        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
@@ -112,6 +115,7 @@ impl SignerTest {
             &naka_conf.node.rpc_bind,
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
+            password,
         );
 
         let mut running_signers = Vec::new();
@@ -443,7 +447,9 @@ impl SignerTest {
                             panic!("Received SignError {}", sign_error);
                         }
                         OperationResult::Dkg(point) => {
-                            panic!("Received aggregate_group_key {point}");
+                            // should not panic, because DKG may have just run for the
+                            //   next reward cycle.
+                            info!("Received aggregate_group_key {point}");
                         }
                     }
                 }
@@ -726,7 +732,12 @@ impl SignerTest {
         )
         .unwrap();
 
-        let invalid_stacks_client = StacksClient::new(StacksPrivateKey::new(), host, false);
+        let invalid_stacks_client = StacksClient::new(
+            StacksPrivateKey::new(),
+            host,
+            "12345".to_string(), // That's amazing. I've got the same combination on my luggage!
+            false,
+        );
         let invalid_signer_tx = invalid_stacks_client
             .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
@@ -881,9 +892,9 @@ fn setup_stx_btc_node(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
-        vrfs_submitted,
-        commits_submitted,
-        blocks_processed,
+        vrfs_submitted: vrfs_submitted.0,
+        commits_submitted: commits_submitted.0,
+        blocks_processed: blocks_processed.0,
         coord_channel,
         conf: naka_conf,
     }
@@ -954,8 +965,8 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Setup -------------------------");
 
-    info!("Creating an invalid block to sign...");
-    let header = NakamotoBlockHeader {
+    info!("Creating invalid blocks to sign...");
+    let header1 = NakamotoBlockHeader {
         version: 1,
         chain_length: 2,
         burn_spent: 3,
@@ -967,12 +978,12 @@ fn stackerdb_sign() {
         signer_signature: ThresholdSignature::empty(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
-    let mut block = NakamotoBlock {
-        header,
+    let mut block1 = NakamotoBlock {
+        header: header1,
         txs: vec![],
     };
-    let tx_merkle_root = {
-        let txid_vecs = block
+    let tx_merkle_root1 = {
+        let txid_vecs = block1
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -980,14 +991,46 @@ fn stackerdb_sign() {
 
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
-    block.header.tx_merkle_root = tx_merkle_root;
+    block1.header.tx_merkle_root = tx_merkle_root1;
+
+    let header2 = NakamotoBlockHeader {
+        version: 1,
+        chain_length: 3,
+        burn_spent: 4,
+        consensus_hash: ConsensusHash([0x05; 20]),
+        parent_block_id: StacksBlockId([0x06; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
+        state_index_root: TrieHash([0x08; 32]),
+        miner_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1).unwrap(),
+    };
+    let mut block2 = NakamotoBlock {
+        header: header2,
+        txs: vec![],
+    };
+    let tx_merkle_root2 = {
+        let txid_vecs = block2
+            .txs
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+    };
+    block2.header.tx_merkle_root = tx_merkle_root2;
 
     // The block is invalid so the signers should return a signature across a rejection
-    let block_vote = NakamotoBlockVote {
-        signer_signature_hash: block.header.signer_signature_hash(),
+    let block1_vote = NakamotoBlockVote {
+        signer_signature_hash: block1.header.signer_signature_hash(),
         rejected: true,
     };
-    let msg = block_vote.serialize_to_vec();
+    let msg1 = block1_vote.serialize_to_vec();
+    let block2_vote = NakamotoBlockVote {
+        signer_signature_hash: block2.header.signer_signature_hash(),
+        rejected: true,
+    };
+    let msg2 = block2_vote.serialize_to_vec();
 
     let timeout = Duration::from_secs(200);
     let mut signer_test = SignerTest::new(10);
@@ -1001,7 +1044,7 @@ fn stackerdb_sign() {
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block.clone(),
+            block: block1,
             is_taproot: false,
             merkle_root: None,
         },
@@ -1009,7 +1052,7 @@ fn stackerdb_sign() {
     let sign_taproot_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block.clone(),
+            block: block2,
             is_taproot: true,
             merkle_root: None,
         },
@@ -1026,12 +1069,12 @@ fn stackerdb_sign() {
     let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
 
     for frost_signature in frost_signatures {
-        assert!(frost_signature.verify(&key, &msg));
+        assert!(frost_signature.verify(&key, &msg1));
     }
     for schnorr_proof in schnorr_proofs {
         let tweaked_key = tweaked_public_key(&key, None);
         assert!(
-            schnorr_proof.verify(&tweaked_key.x(), &msg),
+            schnorr_proof.verify(&tweaked_key.x(), &msg2),
             "Schnorr proof verification failed"
         );
     }

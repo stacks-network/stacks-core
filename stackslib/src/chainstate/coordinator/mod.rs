@@ -26,13 +26,14 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
-use super::stacks::boot::RewardSet;
+use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -176,6 +177,8 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     );
 
     /// called whenever a burn block is about to be
@@ -189,13 +192,6 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
-    );
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
     );
 }
 
@@ -360,10 +356,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
                 error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
                 return Err(Error::PoXAnchorBlockRequired);
             }
-        }
-
-        if let Some(dispatcher) = self.0 {
-            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
         Ok(reward_set)

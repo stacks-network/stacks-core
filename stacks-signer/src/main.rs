@@ -46,7 +46,7 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, SignArgs, StackerDBArgs,
+    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
 };
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
@@ -252,7 +252,7 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.running_signer.stop();
 }
 
-fn handle_run(args: RunDkgArgs) {
+fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let spawned_signer = spawn_running_signer(&args.config);
     println!("Signer spawned successfully. Waiting for messages to process...");
@@ -291,6 +291,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.host.to_string(),
         args.timeout.map(Duration::from_millis),
         &args.network,
+        &args.password,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -314,6 +315,8 @@ fn handle_generate_stacking_signature(
         args.method.topic(),
         config.network.to_chain_id(),
         args.period.into(),
+        args.max_amount,
+        args.auth_id,
     )
     .expect("Failed to generate signature");
 
@@ -402,11 +405,14 @@ pub mod tests {
         lock_period: u128,
         public_key: &Secp256k1PublicKey,
         signature: Vec<u8>,
+        amount: u128,
+        max_amount: u128,
+        auth_id: u128,
     ) -> bool {
         let program = format!(
             r#"
             {}
-            (verify-signer-key-sig {} u{} "{}" u{} (some 0x{}) 0x{})
+            (verify-signer-key-sig {} u{} "{}" u{} (some 0x{}) 0x{} u{} u{} u{})
         "#,
             &*POX_4_CODE,                                               //s
             Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
@@ -415,6 +421,9 @@ pub mod tests {
             lock_period,
             to_hex(signature.as_slice()),
             to_hex(public_key.to_bytes_compressed().as_slice()),
+            amount,
+            max_amount,
+            auth_id,
         );
         execute_v2(&program)
             .expect("FATAL: could not execute program")
@@ -435,6 +444,8 @@ pub mod tests {
             reward_cycle: 6,
             method: Pox4SignatureTopic::StackStx.into(),
             period: 12,
+            max_amount: u128::MAX,
+            auth_id: 1,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
@@ -447,6 +458,9 @@ pub mod tests {
             args.period.into(),
             &public_key,
             signature.to_rsv(),
+            100,
+            args.max_amount,
+            args.auth_id,
         );
         assert!(valid);
 
@@ -454,6 +468,8 @@ pub mod tests {
         args.period = 6;
         args.method = Pox4SignatureTopic::AggregationCommit.into();
         args.reward_cycle = 7;
+        args.auth_id = 2;
+        args.max_amount = 100;
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
         let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
@@ -465,6 +481,9 @@ pub mod tests {
             args.period.into(),
             &public_key,
             signature.to_rsv(),
+            100,
+            args.max_amount,
+            args.auth_id,
         );
         assert!(valid);
     }
@@ -479,6 +498,8 @@ pub mod tests {
             reward_cycle: 6,
             method: Pox4SignatureTopic::StackStx.into(),
             period: 12,
+            max_amount: u128::MAX,
+            auth_id: 1,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
@@ -491,6 +512,8 @@ pub mod tests {
             &Pox4SignatureTopic::StackStx,
             CHAIN_ID_TESTNET,
             args.period.into(),
+            args.max_amount,
+            args.auth_id,
         );
 
         let verify_result = public_key.verify(&message_hash.0, &signature);
