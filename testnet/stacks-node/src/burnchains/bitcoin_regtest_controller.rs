@@ -1677,11 +1677,11 @@ impl BitcoinRegtestController {
     /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on successful send; None on
     /// failure.
     pub fn send_transaction(&self, transaction: SerializedTx) -> Option<Txid> {
-        test_debug!("Send raw transaction: {}", transaction.to_hex());
+        debug!("Send raw transaction: {}", transaction.to_hex());
         let result = BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex());
         match result {
             Ok(_) => {
-                test_debug!("Sent transaction {}", &transaction.txid);
+                debug!("Sent transaction {}", &transaction.txid);
                 Some(transaction.txid())
             }
             Err(e) => {

@@ -69,11 +69,14 @@ use stacks::net::atlas::{AtlasConfig, AtlasDB};
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
+use stacks::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
+};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
+    CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
@@ -81,7 +84,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use self::signer::SelfSigner;
@@ -832,10 +835,27 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
-        let mut signer_key = miner_nonce.to_be_bytes().to_vec();
-        signer_key.resize(33, 0);
+        let signer_sk = Secp256k1PrivateKey::from_seed(&miner_nonce.to_be_bytes());
+        let signer_key = Secp256k1PublicKey::from_private(&signer_sk).to_bytes_compressed();
+
+        let block_height = sortition_tip.block_height;
+        let reward_cycle = self
+            .sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(self.sortdb.first_block_height, block_height)
+            .unwrap();
 
         let stack_stx_payload = if parent_chain_length < 2 {
+            let signature = make_pox_4_signer_key_signature(
+                &pox_address,
+                &signer_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                12_u128,
+            )
+            .unwrap()
+            .to_rsv();
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
                 contract_name: "pox-4".try_into().unwrap(),
@@ -845,10 +865,21 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
+                    ClarityValue::buff_from(signature).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
         } else {
+            let signature = make_pox_4_signer_key_signature(
+                &pox_address,
+                &signer_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackExtend,
+                CHAIN_ID_TESTNET,
+                5_u128,
+            )
+            .unwrap()
+            .to_rsv();
             // NOTE: stack-extend doesn't currently work, because the PoX-4 lockup
             //  special functions have not been implemented.
             TransactionPayload::ContractCall(TransactionContractCall {
@@ -858,6 +889,7 @@ impl MockamotoNode {
                 function_args: vec![
                     ClarityValue::UInt(5),
                     pox_address.as_clarity_tuple().unwrap().into(),
+                    ClarityValue::buff_from(signature).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
@@ -1007,12 +1039,13 @@ impl MockamotoNode {
             aggregate_public_key
         };
         self.self_signer.sign_nakamoto_block(&mut block);
-        let staging_tx = self.chainstate.staging_db_tx_begin()?;
+        let (headers_conn, staging_tx) = self.chainstate.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;

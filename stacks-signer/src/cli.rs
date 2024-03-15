@@ -17,7 +17,9 @@ use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use clap::Parser;
+use blockstack_lib::chainstate::stacks::address::PoxAddress;
+use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use clap::{Parser, ValueEnum};
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::address::b58;
 use stacks_common::types::chainstate::StacksPrivateKey;
@@ -56,6 +58,8 @@ pub enum Command {
     Run(RunDkgArgs),
     /// Generate necessary files for running a collection of signers
     GenerateFiles(GenerateFilesArgs),
+    /// Generate a signature for Stacking transactions
+    GenerateStackingSignature(GenerateStackingSignatureArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -170,9 +174,81 @@ pub struct GenerateFilesArgs {
     pub timeout: Option<u64>,
 }
 
+#[derive(Clone, Debug)]
+/// Wrapper around `Pox4SignatureTopic` to implement `ValueEnum`
+pub struct StackingSignatureMethod(Pox4SignatureTopic);
+
+impl StackingSignatureMethod {
+    /// Get the inner `Pox4SignatureTopic`
+    pub fn topic(&self) -> &Pox4SignatureTopic {
+        &self.0
+    }
+}
+
+impl From<Pox4SignatureTopic> for StackingSignatureMethod {
+    fn from(topic: Pox4SignatureTopic) -> Self {
+        StackingSignatureMethod(topic)
+    }
+}
+
+impl ValueEnum for StackingSignatureMethod {
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(self.0.get_name_str()))
+    }
+
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            StackingSignatureMethod(Pox4SignatureTopic::StackStx),
+            StackingSignatureMethod(Pox4SignatureTopic::StackExtend),
+            StackingSignatureMethod(Pox4SignatureTopic::AggregationCommit),
+        ]
+    }
+
+    fn from_str(input: &str, _ignore_case: bool) -> Result<Self, String> {
+        let topic = match input {
+            "stack-stx" => Pox4SignatureTopic::StackStx,
+            "stack-extend" => Pox4SignatureTopic::StackExtend,
+            "aggregation-commit" => Pox4SignatureTopic::AggregationCommit,
+            "agg-commit" => Pox4SignatureTopic::AggregationCommit,
+            _ => return Err(format!("Invalid topic: {}", input)),
+        };
+        Ok(topic.into())
+    }
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the generate-stacking-signature command
+pub struct GenerateStackingSignatureArgs {
+    /// BTC address used to receive rewards
+    #[arg(short, long, value_parser = parse_pox_addr)]
+    pub pox_address: PoxAddress,
+    /// The reward cycle to be used in the signature's message hash
+    #[arg(short, long)]
+    pub reward_cycle: u64,
+    /// Path to config file
+    #[arg(long, value_name = "FILE")]
+    pub config: PathBuf,
+    /// Topic for signature
+    #[arg(long)]
+    pub method: StackingSignatureMethod,
+    /// Number of cycles used as a lock period.
+    /// Use `1` for stack-aggregation-commit
+    #[arg(long)]
+    pub period: u64,
+}
+
 /// Parse the contract ID
 fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
     QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
+}
+
+/// Parse a BTC address argument and return a `PoxAddress`
+pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
+    if let Some(pox_address) = PoxAddress::from_b58(pox_address_literal) {
+        Ok(pox_address)
+    } else {
+        Err(format!("Invalid pox address: {}", pox_address_literal))
+    }
 }
 
 /// Parse the hexadecimal Stacks private key
@@ -208,4 +284,61 @@ fn parse_network(network: &str) -> Result<Network, String> {
             ))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
+
+    use super::*;
+
+    #[test]
+    fn test_parse_pox_addr() {
+        let tr = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
+        let pox_addr = parse_pox_addr(tr).expect("Failed to parse segwit address");
+        match pox_addr {
+            PoxAddress::Addr32(_, addr_type, _) => {
+                assert_eq!(addr_type, PoxAddressType32::P2TR);
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let legacy = "1N8GMS991YDY1E696e9SB9EsYY5ckSU7hZ";
+        let pox_addr = parse_pox_addr(legacy).expect("Failed to parse legacy address");
+        match pox_addr {
+            PoxAddress::Standard(stacks_addr, hash_mode) => {
+                assert_eq!(stacks_addr.version, 22);
+                assert!(hash_mode.is_none());
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let p2sh = "33JNgVMNMC9Xm6mJG9oTVf5zWbmt5xi1Mv";
+        let pox_addr = parse_pox_addr(p2sh).expect("Failed to parse legacy address");
+        match pox_addr {
+            PoxAddress::Standard(stacks_addr, hash_mode) => {
+                assert_eq!(stacks_addr.version, 20);
+                assert!(hash_mode.is_none());
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let wsh = "bc1qvnpcphdctvmql5gdw6chtwvvsl6ra9gwa2nehc99np7f24juc4vqrx29cs";
+        let pox_addr = parse_pox_addr(wsh).expect("Failed to parse segwit address");
+        match pox_addr {
+            PoxAddress::Addr32(_, addr_type, _) => {
+                assert_eq!(addr_type, PoxAddressType32::P2WSH);
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let wpkh = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4";
+        let pox_addr = parse_pox_addr(wpkh).expect("Failed to parse segwit address");
+        match pox_addr {
+            PoxAddress::Addr20(_, addr_type, _) => {
+                assert_eq!(addr_type, PoxAddressType20::P2WPKH);
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+    }
 }

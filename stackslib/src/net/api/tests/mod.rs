@@ -113,14 +113,14 @@ const TEST_CONTRACT: &'static str = "
     ;; stacker DB
     (define-read-only (stackerdb-get-signer-slots)
         (ok (list
-            {
-                signer: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R,
-                num-slots: u3
-            }
-            {
-                signer: 'STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW,
-                num-slots: u3
-            })))
+          {
+            signer: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R,
+            num-slots: u3
+          }
+          {
+            signer: 'STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW,
+            num-slots: u3
+          })))
 
     (define-read-only (stackerdb-get-config)
         (ok {
@@ -246,18 +246,18 @@ impl<'a> TestRPC<'a> {
         peer_1_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 1500,
+            read_length: 2000,
             read_count: 3,
-            runtime: 1500000,
+            runtime: 2000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
 
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 1500,
+            read_length: 2000,
             read_count: 3,
-            runtime: 1500000,
+            runtime: 2000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
 

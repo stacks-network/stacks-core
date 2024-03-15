@@ -90,7 +90,6 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
-
         // figure out the block ID
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
@@ -578,6 +577,12 @@ impl<
                 break;
             };
 
+            if block_receipt.signers_updated {
+                // notify p2p thread via globals
+                self.refresh_stacker_db
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+
             let block_hash = block_receipt.header.anchored_header.block_hash();
             let (
                 canonical_stacks_block_id,
@@ -882,7 +887,7 @@ impl<
 
             // mark this burn block as processed in the nakamoto chainstate
             let tx = self.chain_state_db.staging_db_tx_begin()?;
-            NakamotoChainState::set_burn_block_processed(&tx, &next_snapshot.consensus_hash)?;
+            tx.set_burn_block_processed(&next_snapshot.consensus_hash)?;
             tx.commit().map_err(DBError::SqliteError)?;
 
             let sortition_id = next_snapshot.sortition_id;

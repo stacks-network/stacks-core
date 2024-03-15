@@ -21,7 +21,6 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -30,7 +29,7 @@ use blockstack_lib::net::api::postblock_proposal::{
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_at_most_with_epoch, read_next_exact, write_next,
@@ -42,12 +41,13 @@ use stacks_common::util::retry::BoundReader;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
-use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare};
+use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare, TupleProof};
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 use wsts::net::{
-    DkgBegin, DkgEnd, DkgEndBegin, DkgPrivateBegin, DkgPrivateShares, DkgPublicShares, DkgStatus,
-    Message, NonceRequest, NonceResponse, Packet, SignatureShareRequest, SignatureShareResponse,
+    BadPrivateShare, DkgBegin, DkgEnd, DkgEndBegin, DkgFailure, DkgPrivateBegin, DkgPrivateShares,
+    DkgPublicShares, DkgStatus, Message, NonceRequest, NonceResponse, Packet,
+    SignatureShareRequest, SignatureShareResponse,
 };
 use wsts::schnorr::ID;
 use wsts::state_machine::signer;
@@ -55,26 +55,21 @@ use wsts::state_machine::signer;
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 12;
-
 // The slot IDS for each message type
-const DKG_BEGIN_SLOT_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_SLOT_ID: u32 = 1;
-const DKG_END_BEGIN_SLOT_ID: u32 = 2;
-const DKG_END_SLOT_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 5;
-const NONCE_REQUEST_SLOT_ID: u32 = 6;
-const NONCE_RESPONSE_SLOT_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
+const DKG_BEGIN_MSG_ID: u32 = 0;
+const DKG_PRIVATE_BEGIN_MSG_ID: u32 = 1;
+const DKG_END_BEGIN_MSG_ID: u32 = 2;
+const DKG_END_MSG_ID: u32 = 3;
+const DKG_PUBLIC_SHARES_MSG_ID: u32 = 4;
+const DKG_PRIVATE_SHARES_MSG_ID: u32 = 5;
+const NONCE_REQUEST_MSG_ID: u32 = 6;
+const NONCE_RESPONSE_MSG_ID: u32 = 7;
+const SIGNATURE_SHARE_REQUEST_MSG_ID: u32 = 8;
+const SIGNATURE_SHARE_RESPONSE_MSG_ID: u32 = 9;
 /// The slot ID for the block response for miners to observe
-pub const BLOCK_SLOT_ID: u32 = 10;
+pub const BLOCK_MSG_ID: u32 = 10;
 /// The slot ID for the transactions list for miners and signers to observe
-pub const TRANSACTIONS_SLOT_ID: u32 = 11;
+pub const TRANSACTIONS_MSG_ID: u32 = 11;
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
@@ -180,6 +175,29 @@ pub enum SignerMessage {
     Transactions(Vec<StacksTransaction>),
 }
 
+impl SignerMessage {
+    /// Helper function to determine the slot ID for the provided stacker-db writer id
+    pub fn msg_id(&self) -> u32 {
+        let msg_id = match self {
+            Self::Packet(packet) => match packet.msg {
+                Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
+                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
+                Message::DkgEndBegin(_) => DKG_END_BEGIN_MSG_ID,
+                Message::DkgEnd(_) => DKG_END_MSG_ID,
+                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_MSG_ID,
+                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_MSG_ID,
+                Message::NonceRequest(_) => NONCE_REQUEST_MSG_ID,
+                Message::NonceResponse(_) => NONCE_RESPONSE_MSG_ID,
+                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_MSG_ID,
+                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_MSG_ID,
+            },
+            Self::BlockResponse(_) => BLOCK_MSG_ID,
+            Self::Transactions(_) => TRANSACTIONS_MSG_ID,
+        };
+        msg_id
+    }
+}
+
 impl StacksMessageCodec for SignerMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &(SignerMessageTypePrefix::from(self) as u8))?;
@@ -253,6 +271,119 @@ impl StacksMessageCodecExtensions for Point {
     }
 }
 
+#[allow(non_snake_case)]
+impl StacksMessageCodecExtensions for TupleProof {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.R.inner_consensus_serialize(fd)?;
+        self.rB.inner_consensus_serialize(fd)?;
+        self.z.inner_consensus_serialize(fd)
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let R = Point::inner_consensus_deserialize(fd)?;
+        let rB = Point::inner_consensus_deserialize(fd)?;
+        let z = Scalar::inner_consensus_deserialize(fd)?;
+        Ok(Self { R, rB, z })
+    }
+}
+
+impl StacksMessageCodecExtensions for BadPrivateShare {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.shared_key.inner_consensus_serialize(fd)?;
+        self.tuple_proof.inner_consensus_serialize(fd)
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let shared_key = Point::inner_consensus_deserialize(fd)?;
+        let tuple_proof = TupleProof::inner_consensus_deserialize(fd)?;
+        Ok(Self {
+            shared_key,
+            tuple_proof,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for HashSet<u32> {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(self.len() as u32))?;
+        for i in self {
+            write_next(fd, i)?;
+        }
+        Ok(())
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let mut set = Self::new();
+        let len = read_next::<u32, _>(fd)?;
+        for _ in 0..len {
+            let i = read_next::<u32, _>(fd)?;
+            set.insert(i);
+        }
+        Ok(set)
+    }
+}
+
+impl StacksMessageCodecExtensions for DkgFailure {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        match self {
+            DkgFailure::BadState => write_next(fd, &0u8),
+            DkgFailure::MissingPublicShares(shares) => {
+                write_next(fd, &1u8)?;
+                shares.inner_consensus_serialize(fd)
+            }
+            DkgFailure::BadPublicShares(shares) => {
+                write_next(fd, &2u8)?;
+                shares.inner_consensus_serialize(fd)
+            }
+            DkgFailure::MissingPrivateShares(shares) => {
+                write_next(fd, &3u8)?;
+                shares.inner_consensus_serialize(fd)
+            }
+            DkgFailure::BadPrivateShares(shares) => {
+                write_next(fd, &4u8)?;
+                write_next(fd, &(shares.len() as u32))?;
+                for (id, share) in shares {
+                    write_next(fd, id)?;
+                    share.inner_consensus_serialize(fd)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let failure_type_prefix = read_next::<u8, _>(fd)?;
+        let failure_type = match failure_type_prefix {
+            0 => DkgFailure::BadState,
+            1 => {
+                let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
+                DkgFailure::MissingPublicShares(set)
+            }
+            2 => {
+                let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
+                DkgFailure::BadPublicShares(set)
+            }
+            3 => {
+                let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
+                DkgFailure::MissingPrivateShares(set)
+            }
+            4 => {
+                let mut map = HashMap::new();
+                let len = read_next::<u32, _>(fd)?;
+                for _ in 0..len {
+                    let i = read_next::<u32, _>(fd)?;
+                    let bad_share = BadPrivateShare::inner_consensus_deserialize(fd)?;
+                    map.insert(i, bad_share);
+                }
+                DkgFailure::BadPrivateShares(map)
+            }
+            _ => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Unknown DkgFailure type prefix: {}",
+                    failure_type_prefix
+                )))
+            }
+        };
+        Ok(failure_type)
+    }
+}
+
 impl StacksMessageCodecExtensions for DkgBegin {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.dkg_id)
@@ -307,7 +438,7 @@ impl StacksMessageCodecExtensions for DkgEnd {
             DkgStatus::Success => write_next(fd, &0u8),
             DkgStatus::Failure(failure) => {
                 write_next(fd, &1u8)?;
-                write_next(fd, &failure.as_bytes().to_vec())
+                failure.inner_consensus_serialize(fd)
             }
         }
     }
@@ -318,9 +449,7 @@ impl StacksMessageCodecExtensions for DkgEnd {
         let status = match status_type_prefix {
             0 => DkgStatus::Success,
             1 => {
-                let failure_bytes: Vec<u8> = read_next(fd)?;
-                let failure = String::from_utf8(failure_bytes)
-                    .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
+                let failure = DkgFailure::inner_consensus_deserialize(fd)?;
                 DkgStatus::Failure(failure)
             }
             _ => {
@@ -920,29 +1049,6 @@ impl From<BlockValidateReject> for SignerMessage {
     }
 }
 
-impl SignerMessage {
-    /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn slot_id(&self, id: u32) -> u32 {
-        let slot_id = match self {
-            Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
-                Message::DkgEnd(_) => DKG_END_SLOT_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
-            },
-            Self::BlockResponse(_) => BLOCK_SLOT_ID,
-            Self::Transactions(_) => TRANSACTIONS_SLOT_ID,
-        };
-        SIGNER_SLOTS_PER_USER * id + slot_id
-    }
-}
-
 #[cfg(test)]
 mod test {
 
@@ -1133,7 +1239,7 @@ mod test {
         test_fixture_packet(Message::DkgEnd(DkgEnd {
             dkg_id,
             signer_id,
-            status: DkgStatus::Failure("failure".to_string()),
+            status: DkgStatus::Failure(DkgFailure::BadState),
         }));
 
         // Test DKG public shares Packet

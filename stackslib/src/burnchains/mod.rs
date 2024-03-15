@@ -327,7 +327,6 @@ impl PoxConstants {
         v2_unlock_height: u32,
         v3_unlock_height: u32,
         pox_3_activation_height: u32,
-        pox_4_activation_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -335,7 +334,6 @@ impl PoxConstants {
         assert!(v2_unlock_height >= v1_unlock_height);
         assert!(v3_unlock_height >= v2_unlock_height);
         assert!(pox_3_activation_height >= v2_unlock_height);
-        assert!(pox_4_activation_height >= v3_unlock_height);
 
         PoxConstants {
             reward_cycle_length,
@@ -349,7 +347,7 @@ impl PoxConstants {
             v2_unlock_height,
             v3_unlock_height,
             pox_3_activation_height,
-            pox_4_activation_height,
+            pox_4_activation_height: v3_unlock_height,
             _shadow: PhantomData,
         }
     }
@@ -365,6 +363,25 @@ impl PoxConstants {
             5000,
             10000,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
+    }
+
+    #[cfg(test)]
+    /// Create a PoX constants used in tests with 5-block cycles,
+    ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
+    ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.
+    pub(crate) fn test_20_no_sunset() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::MAX,
+            u64::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -430,9 +447,6 @@ impl PoxConstants {
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
-            BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT
-                .try_into()
-                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
@@ -451,9 +465,6 @@ impl PoxConstants {
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
-            BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT
-                .try_into()
-                .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
@@ -468,9 +479,8 @@ impl PoxConstants {
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             1_000_000,
             2_000_000,
-            3_000_000,
             4_000_000,
-            5_000_000,
+            3_000_000,
         )
     }
 

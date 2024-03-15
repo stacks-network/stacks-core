@@ -167,7 +167,6 @@ fn disable_pox() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -702,7 +701,6 @@ fn pox_2_unlock_all() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
@@ -1402,7 +1400,6 @@ fn test_pox_reorg_one_flap() {
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
             v2_unlock_height.try_into().unwrap(),
-            u32::MAX,
             u32::MAX,
             u32::MAX,
         );

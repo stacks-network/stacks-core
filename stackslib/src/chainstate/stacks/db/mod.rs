@@ -33,7 +33,7 @@ use clarity::vm::database::{
 use clarity::vm::events::*;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
-use clarity::vm::Value;
+use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
@@ -51,7 +51,7 @@ use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStx
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -115,6 +115,7 @@ pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
+    pub nakamoto_staging_blocks_conn: NakamotoStagingBlocksConn,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
@@ -220,6 +221,8 @@ pub struct StacksEpochReceipt {
     /// in.
     pub evaluated_epoch: StacksEpochId,
     pub epoch_transition: bool,
+    /// Was .signers updated during this block?
+    pub signers_updated: bool,
 }
 
 /// Headers we serve over the network
@@ -1787,6 +1790,11 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
+        let nakamoto_staging_blocks_path =
+            StacksChainState::get_nakamoto_staging_blocks_path(path.clone())?;
+        let nakamoto_staging_blocks_conn =
+            StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
+
         let init_required = match fs::metadata(&clarity_state_index_marf) {
             Ok(_) => false,
             Err(_) => true,
@@ -1810,6 +1818,7 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
+            nakamoto_staging_blocks_conn,
             state_index: state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
@@ -1914,6 +1923,49 @@ impl StacksChainState {
             code,
             ASTRules::PrecheckSize,
         )
+    }
+
+    /// Execute a public function in `contract` from a read-only DB context
+    ///  Any mutations that occur will be rolled-back before returning, regardless of
+    ///  an okay or error result.
+    pub fn eval_fn_read_only(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_id_bhh: &StacksBlockId,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, clarity_error> {
+        let headers_db = HeadersDBConn(self.state_index.sqlite_conn());
+        let mut conn = self.clarity_state.read_only_connection_checked(
+            parent_id_bhh,
+            &headers_db,
+            burn_dbconn,
+        )?;
+
+        let args: Vec<_> = args
+            .iter()
+            .map(|x| SymbolicExpression::atom_value(x.clone()))
+            .collect();
+
+        let result = conn.with_readonly_clarity_env(
+            self.mainnet,
+            self.chain_id,
+            ClarityVersion::latest(),
+            contract.clone().into(),
+            None,
+            LimitedCostTracker::Free,
+            |env| {
+                env.execute_contract(
+                    contract, function, &args,
+                    // read-only is set to `false` so that non-read-only functions
+                    //  can be executed. any transformation is rolled back.
+                    false,
+                )
+            },
+        )?;
+
+        Ok(result)
     }
 
     pub fn db(&self) -> &DBConn {

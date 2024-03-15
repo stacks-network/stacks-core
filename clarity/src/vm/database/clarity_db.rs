@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use serde_json;
@@ -619,6 +618,22 @@ impl<'a> ClarityDatabase<'a> {
             .map_err(|e| e.into())
     }
 
+    /// Set a metadata entry if it hasn't already been set, yielding
+    ///  a runtime error if it was. This should only be called by post-nakamoto
+    ///  contexts.
+    pub fn try_set_metadata(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        key: &str,
+        data: &str,
+    ) -> Result<()> {
+        if self.store.has_metadata_entry(contract_identifier, key) {
+            Err(Error::Runtime(RuntimeErrorType::MetadataAlreadySet, None))
+        } else {
+            Ok(self.store.insert_metadata(contract_identifier, key, data)?)
+        }
+    }
+
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -900,7 +915,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Return the height for PoX v3 -> v4 auto unlocks
     ///   from the burn state db
     pub fn get_v3_unlock_height(&mut self) -> Result<u32> {
-        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch24 {
+        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch25 {
             Ok(self.burn_state_db.get_v3_unlock_height())
         } else {
             Ok(u32::MAX)

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 

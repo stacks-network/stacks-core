@@ -31,8 +31,9 @@ name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
 [dependencies]
-rand = "0.7.3"
-rand_chacha = "=0.2.2"
+rand = { workspace = true }
+rand_core = { workspace = true }
+rand_chacha = { workspace = true }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -55,9 +56,8 @@ stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
-wsts = {workspace = true}
-rand_core = {workspace = true}
-hashbrown = "0.14"
+wsts = { workspace = true }
+hashbrown = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -81,8 +81,7 @@ version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
-version = "=1.0.0-pre.3"
-features = ["serde"]
+workspace = true
 
 [dependencies.curve25519-dalek]
 version = "=2.0.0"
