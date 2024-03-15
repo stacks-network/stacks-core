@@ -649,7 +649,7 @@ impl NakamotoChainState {
 
     /// Check a Nakamoto tenure transaction's validity with respect to the last-processed tenure
     /// and the sortition DB.  This validates the following fields:
-    /// * tenure_id_consensus_hash
+    /// * tenure_consensus_hash
     /// * prev_tenure_consensus_hash
     /// * previous_tenure_end
     /// * previous_tenure_blocks
