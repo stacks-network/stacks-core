@@ -363,7 +363,10 @@ impl NakamotoTenureInv {
     /// can talk to the peer again
     pub fn try_reset_comms(&mut self, inv_sync_interval: u64, start_rc: u64, cur_rc: u64) {
         let now = get_epoch_time_secs();
-        if self.start_sync_time + inv_sync_interval <= now && self.cur_reward_cycle > cur_rc {
+        if self.start_sync_time + inv_sync_interval <= now
+            && (self.cur_reward_cycle >= cur_rc || !self.online)
+        {
+            test_debug!("Reset inv comms for {}", &self.neighbor_address);
             self.state = NakamotoInvState::GetNakamotoInvBegin;
             self.online = true;
             self.start_sync_time = now;
@@ -486,6 +489,8 @@ pub struct NakamotoInvStateMachine<NC: NeighborComms> {
     pub(crate) inventories: HashMap<NeighborAddress, NakamotoTenureInv>,
     /// Reward cycle consensus hashes
     reward_cycle_consensus_hashes: BTreeMap<u64, ConsensusHash>,
+    /// last observed sortition tip
+    last_sort_tip: Option<BlockSnapshot>,
 }
 
 impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
@@ -494,6 +499,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             comms,
             inventories: HashMap::new(),
             reward_cycle_consensus_hashes: BTreeMap::new(),
+            last_sort_tip: None,
         }
     }
 
@@ -535,23 +541,38 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Returns the current reward cycle.
     fn update_reward_cycle_consensus_hashes(
         &mut self,
+        tip: &BlockSnapshot,
         sortdb: &SortitionDB,
     ) -> Result<u64, NetError> {
+        // check for reorg
+        let reorg = PeerNetwork::is_reorg(self.last_sort_tip.as_ref(), tip, sortdb);
+        if reorg {
+            // drop the last two reward cycles
+            test_debug!("Detected reorg! Refreshing inventory consensus hashes");
+            let highest_rc = self
+                .reward_cycle_consensus_hashes
+                .last_key_value()
+                .map(|(highest_rc, _)| *highest_rc)
+                .unwrap_or(0);
+
+            self.reward_cycle_consensus_hashes.remove(&highest_rc);
+            self.reward_cycle_consensus_hashes
+                .remove(&highest_rc.saturating_sub(1));
+        }
+
         let highest_rc = self
             .reward_cycle_consensus_hashes
             .last_key_value()
             .map(|(highest_rc, _)| *highest_rc)
             .unwrap_or(0);
 
-        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-
-        // NOTE: reward cycles start at block height mod 1, not mod 0, but
+        // NOTE: reward cycles start when (sortition_height % reward_cycle_len) == 1, not 0, but
         // .block_height_to_reward_cycle does not account for this.
         let tip_rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(
                 sortdb.first_block_height,
-                sn.block_height.saturating_sub(1),
+                tip.block_height.saturating_sub(1),
             )
             .expect("FATAL: snapshot occurred before system start");
 
@@ -596,8 +617,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         ibd: bool,
     ) -> Result<(), NetError> {
         // make sure we know all consensus hashes for all reward cycles.
-        let current_reward_cycle = self.update_reward_cycle_consensus_hashes(sortdb)?;
-
+        let current_reward_cycle =
+            self.update_reward_cycle_consensus_hashes(&network.burnchain_tip, sortdb)?;
         let nakamoto_start_height = network
             .get_epoch_by_epoch_id(StacksEpochId::Epoch30)
             .start_height;
@@ -647,12 +668,16 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 )
             });
 
-            let proceed = inv.getnakamotoinv_begin(network, inv.reward_cycle());
+            let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle);
             let inv_rc = inv.reward_cycle();
             new_inventories.insert(naddr.clone(), inv);
 
             if self.comms.has_inflight(&naddr) {
-                test_debug!("{:?}: still waiting for reply from {}", network.get_local_peer(), &naddr);
+                test_debug!(
+                    "{:?}: still waiting for reply from {}",
+                    network.get_local_peer(),
+                    &naddr
+                );
                 continue;
             }
 
@@ -666,8 +691,9 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             };
 
             debug!(
-                "{:?}: send GetNakamotoInv for reward cycle {} to {}",
+                "{:?}: send GetNakamotoInv ({:?})) for reward cycle {} to {}",
                 network.get_local_peer(),
+                &getnakamotoinv,
                 inv_rc,
                 &naddr
             );
@@ -748,8 +774,10 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             );
             e
         }) else {
+            self.last_sort_tip = Some(network.burnchain_tip.clone());
             return false;
         };
+        self.last_sort_tip = Some(network.burnchain_tip.clone());
         learned
     }
 }
