@@ -17,7 +17,9 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::RewardSetData;
+use stacks::chainstate::stacks::boot::{
+    NakamotoSignerEntry, PoxStartCycleInfo, RewardSet, RewardSetData,
+};
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -36,6 +38,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
+use stacks::util::hash::to_hex;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
@@ -104,6 +107,79 @@ pub struct MinedNakamotoBlockEvent {
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
+}
+
+fn serialize_u128_as_string<S>(value: &u128, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+fn serialize_pox_addresses<S>(value: &Vec<PoxAddress>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.collect_seq(value.iter().cloned().map(|a| a.to_b58()))
+}
+
+fn serialize_optional_u128_as_string<S>(
+    value: &Option<u128>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(v) => serializer.serialize_str(&v.to_string()),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn hex_serialize<S: serde::Serializer>(addr: &[u8; 33], s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&to_hex(addr))
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct RewardSetEventPayload {
+    #[serde(serialize_with = "serialize_pox_addresses")]
+    pub rewarded_addresses: Vec<PoxAddress>,
+    pub start_cycle_state: PoxStartCycleInfo,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    // only generated for nakamoto reward sets
+    pub signers: Option<Vec<NakamotoSignerEntryPayload>>,
+    #[serde(serialize_with = "serialize_optional_u128_as_string")]
+    pub pox_ustx_threshold: Option<u128>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct NakamotoSignerEntryPayload {
+    #[serde(serialize_with = "hex_serialize")]
+    pub signing_key: [u8; 33],
+    #[serde(serialize_with = "serialize_u128_as_string")]
+    pub stacked_amt: u128,
+    pub weight: u32,
+}
+
+impl RewardSetEventPayload {
+    pub fn signer_entry_to_payload(entry: &NakamotoSignerEntry) -> NakamotoSignerEntryPayload {
+        NakamotoSignerEntryPayload {
+            signing_key: entry.signing_key,
+            stacked_amt: entry.stacked_amt,
+            weight: entry.weight,
+        }
+    }
+    pub fn from_reward_set(reward_set: &RewardSet) -> Self {
+        Self {
+            rewarded_addresses: reward_set.rewarded_addresses.clone(),
+            start_cycle_state: reward_set.start_cycle_state.clone(),
+            signers: reward_set
+                .signers
+                .as_ref()
+                .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
+            pox_ustx_threshold: reward_set.pox_ustx_threshold,
+        }
+    }
 }
 
 impl EventObserver {
@@ -410,8 +486,22 @@ impl EventObserver {
             tx_index += 1;
         }
 
+        let signer_bitvec_value = signer_bitvec_opt
+            .as_ref()
+            .map(|bitvec| serde_json::to_value(bitvec).unwrap_or_default())
+            .unwrap_or_default();
+
+        let (reward_set_value, cycle_number_value) = match &reward_set_data {
+            Some(data) => (
+                serde_json::to_value(&RewardSetEventPayload::from_reward_set(&data.reward_set))
+                    .unwrap_or_default(),
+                serde_json::to_value(data.cycle_number).unwrap_or_default(),
+            ),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
+
         // Wrap events
-        let mut payload = json!({
+        let payload = json!({
             "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
@@ -434,25 +524,10 @@ impl EventObserver {
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+            "signer_bitvec": signer_bitvec_value,
+            "reward_set": reward_set_value,
+            "cycle_number": cycle_number_value,
         });
-
-        if let Some(signer_bitvec) = signer_bitvec_opt {
-            payload.as_object_mut().unwrap().insert(
-                "signer_bitvec".to_string(),
-                serde_json::to_value(signer_bitvec).unwrap_or_default(),
-            );
-        }
-
-        if let Some(reward_set_data) = reward_set_data {
-            payload.as_object_mut().unwrap().insert(
-                "reward_set".to_string(),
-                serde_json::to_value(&reward_set_data.reward_set).unwrap_or_default(),
-            );
-            payload.as_object_mut().unwrap().insert(
-                "cycle_number".to_string(),
-                serde_json::to_value(reward_set_data.cycle_number).unwrap_or_default(),
-            );
-        }
 
         payload
     }
