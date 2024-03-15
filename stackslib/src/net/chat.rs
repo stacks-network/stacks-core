@@ -2726,7 +2726,7 @@ impl ConversationP2P {
                 // have IPv6 address already
                 Some(SocketAddr::new(IpAddr::V6(addr), port))
             }
-            _ => None
+            _ => None,
         };
         ip_addr_opt
     }
@@ -2745,7 +2745,10 @@ impl ConversationP2P {
         }
         if let Some(ipaddr) = Self::try_decode_data_url_ipaddr(&self.data_url) {
             // don't need to resolve!
-            debug!("{}: Resolved data URL {} to {}", &self, &self.data_url, &ipaddr);
+            debug!(
+                "{}: Resolved data URL {} to {}",
+                &self, &self.data_url, &ipaddr
+            );
             self.data_ip = Some(ipaddr);
             return;
         }
