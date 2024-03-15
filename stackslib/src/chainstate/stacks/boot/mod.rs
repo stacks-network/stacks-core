@@ -256,6 +256,27 @@ where
     u128::from_str(&s).map_err(serde::de::Error::custom)
 }
 
+fn serialize_pox_addresses<S>(value: &Vec<PoxAddress>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.collect_seq(value.iter().cloned().map(|a| a.to_b58()))
+}
+
+fn deserialize_pox_addresses<'de, D>(deserializer: D) -> Result<Vec<PoxAddress>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|s| {
+            PoxAddress::from_b58(&s).ok_or_else(|| {
+                serde::de::Error::custom(format!("Failed to decode PoxAddress from Base58: {}", s))
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NakamotoSignerEntry {
     #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
@@ -270,6 +291,10 @@ pub struct NakamotoSignerEntry {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardSet {
+    #[serde(
+        serialize_with = "serialize_pox_addresses",
+        deserialize_with = "deserialize_pox_addresses"
+    )]
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
     #[serde(skip_serializing_if = "Option::is_none", default)]
