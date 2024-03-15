@@ -55,7 +55,7 @@ pub enum Command {
     /// Run a DKG round through the stacker-db instance
     Dkg(RunDkgArgs),
     /// Run the signer, waiting for events from the stacker-db instance
-    Run(RunDkgArgs),
+    Run(RunSignerArgs),
     /// Generate necessary files for running a collection of signers
     GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
@@ -124,7 +124,7 @@ pub struct PutChunkArgs {
 /// Arguments for the dkg-sign and sign command
 pub struct SignArgs {
     /// Path to config file
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
     /// The reward cycle the signer is registered for and wants to sign for
     /// Note: this must be the current reward cycle of the node
@@ -138,14 +138,22 @@ pub struct SignArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the Run and Dkg commands
+/// Arguments for the Dkg command
 pub struct RunDkgArgs {
     /// Path to config file
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
     /// The reward cycle the signer is registered for and wants to peform DKG for
     #[arg(long, short)]
     pub reward_cycle: u64,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the Run command
+pub struct RunSignerArgs {
+    /// Path to config file
+    #[arg(long, short, value_name = "FILE")]
+    pub config: PathBuf,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -230,7 +238,7 @@ pub struct GenerateStackingSignatureArgs {
     #[arg(short, long)]
     pub reward_cycle: u64,
     /// Path to config file
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
     /// Topic for signature
     #[arg(long)]
