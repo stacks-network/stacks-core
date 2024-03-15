@@ -190,7 +190,7 @@ impl NeighborRPC {
     /// with bytes, and poll the event loop for any completed messages.  If we get one, then return
     /// it.
     ///
-    /// Returns Ok(Some(resposne)) if the HTTP request completed
+    /// Returns Ok(Some(response)) if the HTTP request completed
     /// Returns Ok(None) if we are still connecting to the remote peer, or waiting for it to reply
     /// Returns Err(NetError::WaitingForDNS) if we're still waiting to resolve the peer's data URL
     /// Returns Err(..) if we fail to connect, or if we are unable to receive a reply.
