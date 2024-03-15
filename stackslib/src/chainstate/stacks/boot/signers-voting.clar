@@ -20,7 +20,6 @@
 (define-constant ERR_DUPLICATE_VOTE u15)
 (define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u16)
 (define-constant ERR_INVALID_ROUND u17)
-(define-constant ERR_GET_SIGNER_WEIGHT u18)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
@@ -144,7 +143,7 @@
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
-            (signer-weight (unwrap! (get-signer-weight signer-index reward-cycle) (err ERR_GET_SIGNER_WEIGHT)))
+            (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
             (cached-weight (try! (get-and-cache-total-weight reward-cycle)))
             (threshold-weight (get-threshold-weight reward-cycle))
