@@ -17,22 +17,21 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
+use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::{debug, error, info, warn};
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
-use wsts::state_machine::coordinator::State as CoordinatorState;
 use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, SignerSlotID, State as SignerState};
+use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -54,6 +53,43 @@ pub enum State {
     RegisteredSigners,
 }
 
+/// The current reward cycle info
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct RewardCycleInfo {
+    /// The current reward cycle
+    pub reward_cycle: u64,
+    /// The reward phase cycle length
+    pub reward_phase_block_length: u64,
+    /// The prepare phase length
+    pub prepare_phase_block_length: u64,
+    /// The first burn block height
+    pub first_burnchain_block_height: u64,
+    /// The burnchain block height of the last query
+    pub last_burnchain_block_height: u64,
+}
+
+impl RewardCycleInfo {
+    /// Check if the provided burnchain block height is part of the reward cycle
+    pub fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
+        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
+        let reward_cycle_length = self
+            .reward_phase_block_length
+            .saturating_add(self.prepare_phase_block_length);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+        self.reward_cycle == reward_cycle
+    }
+
+    /// Check if the provided burnchain block height is in the prepare phase
+    pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
+        PoxConstants::static_is_in_prepare_phase(
+            self.first_burnchain_block_height,
+            self.reward_phase_block_length,
+            self.prepare_phase_block_length,
+            burnchain_block_height,
+        )
+    }
+}
+
 /// The runloop for the stacks signer
 pub struct RunLoop {
     /// Configuration info
@@ -67,6 +103,8 @@ pub struct RunLoop {
     pub state: State,
     /// The commands received thus far
     pub commands: VecDeque<RunLoopCommand>,
+    /// The current reward cycle info. Only None if the runloop is uninitialized
+    pub current_reward_cycle_info: Option<RewardCycleInfo>,
 }
 
 impl From<GlobalConfig> for RunLoop {
@@ -79,6 +117,7 @@ impl From<GlobalConfig> for RunLoop {
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
             commands: VecDeque::new(),
+            current_reward_cycle_info: None,
         }
     }
 }
@@ -231,30 +270,18 @@ impl RunLoop {
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(&mut self, reward_cycle: u64, current: bool) {
+    fn refresh_signer_config(&mut self, reward_cycle: u64) {
         let reward_index = reward_cycle % 2;
-        let mut needs_refresh = false;
-        if let Some(signer) = self.stacks_signers.get_mut(&reward_index) {
-            let old_reward_cycle = signer.reward_cycle;
-            if old_reward_cycle == reward_cycle {
-                //If the signer is already registered for the reward cycle, we don't need to do anything further here
-                debug!("Signer is already configured for reward cycle {reward_cycle}.")
-            } else {
-                needs_refresh = true;
-            }
-        } else {
-            needs_refresh = true;
-        };
-        if needs_refresh {
-            if let Some(new_signer_config) = self.get_signer_config(reward_cycle) {
-                let signer_id = new_signer_config.signer_id;
-                debug!("Signer is registered for reward cycle {reward_cycle} as signer #{signer_id}. Initializing signer state.");
+        if let Some(new_signer_config) = self.get_signer_config(reward_cycle) {
+            let signer_id = new_signer_config.signer_id;
+            debug!("Signer is registered for reward cycle {reward_cycle} as signer #{signer_id}. Initializing signer state.");
+            if reward_cycle != 0 {
                 let prior_reward_cycle = reward_cycle.saturating_sub(1);
                 let prior_reward_set = prior_reward_cycle % 2;
                 if let Some(signer) = self.stacks_signers.get_mut(&prior_reward_set) {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
-                        debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring signer.");
+                        debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring current reward cycle signer.");
                         signer.next_signer_addresses = new_signer_config
                             .signer_entries
                             .signer_ids
@@ -264,60 +291,86 @@ impl RunLoop {
                         signer.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
                     }
                 }
-                let new_signer = Signer::from(new_signer_config);
-                info!("{new_signer} initialized.");
-                self.stacks_signers.insert(reward_index, new_signer);
-            } else {
-                // TODO: Update `current` here once the signer binary is tracking its own latest burnchain/stacks views.
-                if current {
-                    warn!("Signer is not registered for the current reward cycle ({reward_cycle}). Waiting for confirmed registration...");
-                } else {
-                    debug!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
-                }
             }
+            let new_signer = Signer::from(new_signer_config);
+            info!("{new_signer} initialized.");
+            self.stacks_signers.insert(reward_index, new_signer);
+        } else {
+            warn!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
         }
     }
 
-    /// Refresh the signer configuration by retrieving the necessary information from the stacks node
-    fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
-        let next_reward_cycle = current_reward_cycle.saturating_add(1);
-        self.refresh_signer_config(current_reward_cycle, true);
-        self.refresh_signer_config(next_reward_cycle, false);
-        // TODO: do not use an empty consensus hash
-        let pox_consensus_hash = ConsensusHash::empty();
+    fn initialize_runloop(&mut self) -> Result<(), ClientError> {
+        debug!("Initializing signer runloop...");
+        let reward_cycle_info = retry_with_exponential_backoff(|| {
+            self.stacks_client
+                .get_current_reward_cycle_info()
+                .map_err(backoff::Error::transient)
+        })?;
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        self.refresh_signer_config(current_reward_cycle);
+        // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
+        if reward_cycle_info.is_in_prepare_phase(reward_cycle_info.last_burnchain_block_height) {
+            self.refresh_signer_config(current_reward_cycle.saturating_add(1));
+        }
+        self.current_reward_cycle_info = Some(reward_cycle_info);
+        if self.stacks_signers.is_empty() {
+            self.state = State::NoRegisteredSigners;
+        } else {
+            self.state = State::RegisteredSigners;
+        }
+        Ok(())
+    }
+
+    fn refresh_runloop(&mut self, current_burn_block_height: u64) -> Result<(), ClientError> {
+        let reward_cycle_info = self
+            .current_reward_cycle_info
+            .as_mut()
+            .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
+        // First ensure we refresh our view of the current reward cycle information
+        if !reward_cycle_info.is_in_reward_cycle(current_burn_block_height) {
+            let new_reward_cycle_info = retry_with_exponential_backoff(|| {
+                self.stacks_client
+                    .get_current_reward_cycle_info()
+                    .map_err(backoff::Error::transient)
+            })?;
+            *reward_cycle_info = new_reward_cycle_info;
+        }
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        // We should only attempt to refresh the signer if we are not configured for the next reward cycle yet and we received a new burn block for its prepare phase
+        if reward_cycle_info.is_in_prepare_phase(current_burn_block_height) {
+            let next_reward_cycle = current_reward_cycle.saturating_add(1);
+            if self
+                .stacks_signers
+                .get(&(next_reward_cycle % 2))
+                .map(|signer| signer.reward_cycle != next_reward_cycle)
+                .unwrap_or(true)
+            {
+                info!("Received a new burnchain block height ({current_burn_block_height}) in the prepare phase of the next reward cycle ({next_reward_cycle}). Checking for signer registration...");
+                self.refresh_signer_config(next_reward_cycle);
+            }
+        }
+        self.cleanup_stale_signers(current_reward_cycle);
+        if self.stacks_signers.is_empty() {
+            self.state = State::NoRegisteredSigners;
+        } else {
+            self.state = State::RegisteredSigners;
+        }
+        Ok(())
+    }
+
+    fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             if signer.reward_cycle < current_reward_cycle {
                 debug!("{signer}: Signer's tenure has completed.");
-                // We don't really need this state, but it's useful for debugging
-                signer.state = SignerState::TenureCompleted;
                 to_delete.push(*idx);
                 continue;
-            }
-            let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
-            let updated_coordinator_id = signer
-                .coordinator_selector
-                .refresh_coordinator(&pox_consensus_hash);
-            if old_coordinator_id != updated_coordinator_id {
-                debug!(
-                    "{signer}: Coordinator updated. Resetting state to Idle.";
-                    "old_coordinator_id" => {old_coordinator_id},
-                    "updated_coordinator_id" => {updated_coordinator_id},
-                    "pox_consensus_hash" => %pox_consensus_hash
-                );
-                signer.coordinator.state = CoordinatorState::Idle;
-                signer.state = SignerState::Idle;
             }
         }
         for idx in to_delete {
             self.stacks_signers.remove(&idx);
         }
-        self.state = if self.stacks_signers.is_empty() {
-            State::NoRegisteredSigners
-        } else {
-            State::RegisteredSigners
-        };
-        Ok(())
     }
 }
 
@@ -343,56 +396,40 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         if let Some(cmd) = cmd {
             self.commands.push_back(cmd);
         }
-        // TODO: queue events and process them potentially after initialization success (similar to commands)?
-        let Ok(current_reward_cycle) = retry_with_exponential_backoff(|| {
-            self.stacks_client
-                .get_current_reward_cycle()
-                .map_err(backoff::Error::transient)
-        }) else {
-            error!("Failed to retrieve current reward cycle");
-            return None;
-        };
-        if self.state == State::Uninitialized || event == Some(SignerEvent::NewBurnBlock) {
-            let old_state = self.state;
-            if self.state == State::Uninitialized {
-                info!("Initializing signer...");
-            } else {
-                info!("New burn block event received. Refreshing signer state...");
-            }
-            if let Err(e) = self.refresh_signers(current_reward_cycle) {
-                error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network");
-            }
-            if self.state == State::NoRegisteredSigners {
-                let next_reward_cycle = current_reward_cycle.saturating_add(1);
-                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
+        if self.state == State::Uninitialized {
+            if let Err(e) = self.initialize_runloop() {
+                error!("Failed to initialize signer runloop: {e}.");
+                if let Some(event) = event {
+                    warn!("Ignoring event: {event:?}");
+                }
                 return None;
             }
-            if old_state == State::Uninitialized {
-                info!("Signer successfully initialized.");
-            } else {
-                info!("Signer state successfully refreshed.");
-            };
+        } else if let Some(SignerEvent::NewBurnBlock(current_burn_block_height)) = event {
+            if let Err(e) = self.refresh_runloop(current_burn_block_height) {
+                error!("Failed to refresh signer runloop: {e}.");
+                warn!("Signer may have an outdated view of the network.");
+            }
+        }
+        let current_reward_cycle = self
+            .current_reward_cycle_info
+            .as_ref()
+            .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
+            .reward_cycle;
+        if self.state == State::NoRegisteredSigners {
+            let next_reward_cycle = current_reward_cycle.saturating_add(1);
+            if let Some(event) = event {
+                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
+                warn!("Ignoring event: {event:?}");
+            }
+            return None;
         }
         for signer in self.stacks_signers.values_mut() {
-            if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client)
-                        .map_err(backoff::Error::transient)
-                }) {
-                    error!("{signer}: failed to update DKG: {e}");
-                }
-            }
-            if signer.state == SignerState::TenureCompleted {
-                warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
-                continue;
-            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
                 //  and the vec could be heterogenous, so, don't differentiate.
                 Some(SignerEvent::ProposedBlocks(_))
-                | Some(SignerEvent::NewBurnBlock)
+                | Some(SignerEvent::NewBurnBlock(_))
                 | Some(SignerEvent::StatusCheck)
                 | None => None,
                 Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
@@ -404,6 +441,16 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 continue;
             }
 
+            if signer.approved_aggregate_public_key.is_none() {
+                if let Err(e) = retry_with_exponential_backoff(|| {
+                    signer
+                        .update_dkg(&self.stacks_client)
+                        .map_err(backoff::Error::transient)
+                }) {
+                    error!("{signer}: failed to update DKG: {e}");
+                }
+            }
+            signer.refresh_coordinator();
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),
