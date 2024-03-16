@@ -266,6 +266,7 @@ impl RunLoop {
                     .insert(reward_index, Signer::from(new_signer_config));
                 debug!("Reward cycle #{reward_cycle} Signer #{signer_id} initialized.");
             } else {
+                // TODO: Update `current` here once the signer binary is tracking its own latest burnchain/stacks views.
                 if current {
                     warn!("Signer is not registered for the current reward cycle ({reward_cycle}). Waiting for confirmed registration...");
                 } else {
