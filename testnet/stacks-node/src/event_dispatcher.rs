@@ -84,10 +84,13 @@ lazy_static! {
 
 /// This struct receives StackerDB event callbacks without registering
 /// over the JSON/RPC interface. To ensure that any event observer
-/// uses the same channel, we use a lazy_static global for the channel.
+/// uses the same channel, we use a lazy_static global for the channel (this
+/// implements a singleton using STACKER_DB_CHANNEL).
 ///
-/// This channel (currently) only supports receiving events on the
-/// boot .signers-* contracts.
+/// This is in place because a Nakamoto miner needs to receive
+/// StackerDB events. It could either poll the database (seems like a
+/// bad idea) or listen for events. Registering for RPC callbacks
+/// seems bad. So instead, it uses a singleton sync channel.
 pub struct StackerDBChannel {
     pub receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
     pub sender: Sender<StackerDBChunksEvent>,
@@ -136,6 +139,11 @@ impl StackerDBChannel {
         }
     }
 
+    /// Return the receiver to the StackerDBChannel. This must be done before
+    ///  another interested thread can subscribe to events.
+    ///
+    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
+    /// be taken by different threads without unsafety.
     pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
         let mut guard = self
             .receiver
@@ -144,6 +152,11 @@ impl StackerDBChannel {
         guard.replace(receiver);
     }
 
+    /// Try to take ownership of the event receiver channel. If another thread
+    ///  already has the channel (or failed to return it), this will return None.
+    ///
+    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
+    /// be taken by different threads without unsafety.
     pub fn take_receiver(&self) -> Option<Receiver<StackerDBChunksEvent>> {
         self.receiver
             .lock()
@@ -152,6 +165,9 @@ impl StackerDBChannel {
     }
 
     /// Is there a thread holding the receiver?
+    ///
+    /// This method is used by the event dispatcher to decide whether or not to send a StackerDB
+    ///  event to the channel.
     pub fn is_active(&self) -> bool {
         // if the receiver field is empty (i.e., None), then a thread must have taken it.
         self.receiver
