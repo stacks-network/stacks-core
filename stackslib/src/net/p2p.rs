@@ -543,10 +543,12 @@ impl PeerNetwork {
     /// Get the current epoch
     pub fn get_current_epoch(&self) -> StacksEpoch {
         let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
-            .expect(&format!(
-                "BUG: block {} is not in a known epoch",
-                &self.chain_view.burn_block_height
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: block {} is not in a known epoch",
+                    &self.chain_view.burn_block_height
+                )
+            });
         let epoch = self
             .epochs
             .get(epoch_index)
@@ -3949,14 +3951,14 @@ impl PeerNetwork {
                     self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
                 }
                 PeerNetworkWorkState::BlockDownload => {
-                    info!(
+                    debug!(
                         "{:?}: Block download for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );
                     self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
                 }
                 PeerNetworkWorkState::AntiEntropy => {
-                    info!(
+                    debug!(
                         "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );

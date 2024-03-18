@@ -1622,6 +1622,7 @@ pub mod test {
     use wsts::curve::point::Point;
     use {mio, rand};
 
+    use self::nakamoto::test_signers::TestSigners;
     use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -1638,7 +1639,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+    use crate::chainstate::nakamoto::tests::node::TestStacker;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -1973,6 +1974,7 @@ pub mod test {
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
         pub test_stackers: Option<Vec<TestStacker>>,
+        pub test_signers: Option<TestSigners>,
     }
 
     impl TestPeerConfig {
@@ -2024,6 +2026,7 @@ pub mod test {
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
                 test_stackers: None,
+                test_signers: None,
             }
         }
 
@@ -3619,6 +3622,25 @@ pub mod test {
                     .unwrap(),
                 vec![],
             )
+        }
+
+        pub fn get_burn_block_height(&self) -> u64 {
+            SortitionDB::get_canonical_burn_chain_tip(
+                &self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
+            )
+            .expect("Failed to get canonical burn chain tip")
+            .block_height
+        }
+
+        pub fn get_reward_cycle(&self) -> u64 {
+            let block_height = self.get_burn_block_height();
+            self.config
+                .burnchain
+                .block_height_to_reward_cycle(block_height)
+                .expect(&format!(
+                    "Failed to get reward cycle for block height {}",
+                    block_height
+                ))
         }
     }
 

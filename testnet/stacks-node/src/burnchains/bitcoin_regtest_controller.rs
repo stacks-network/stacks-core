@@ -152,7 +152,7 @@ pub fn make_bitcoin_indexer(
     let (_, network_type) = config.burnchain.get_bitcoin_network();
     let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
     let burnchain_indexer = BitcoinIndexer {
-        config: indexer_config.clone(),
+        config: indexer_config,
         runtime: indexer_runtime,
         should_keep_running: should_keep_running,
     };
@@ -314,7 +314,7 @@ impl BitcoinRegtestController {
         let (_, network_type) = config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
-            config: indexer_config.clone(),
+            config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: should_keep_running.clone(),
         };
@@ -360,7 +360,7 @@ impl BitcoinRegtestController {
         let (_, network_type) = config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
-            config: indexer_config.clone(),
+            config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: None,
         };
@@ -516,7 +516,7 @@ impl BitcoinRegtestController {
                     // don't wait for heights beyond the burnchain tip.
                     if block_for_sortitions {
                         self.wait_for_sortitions(
-                            coordinator_comms.clone(),
+                            coordinator_comms,
                             target_block_height_opt.unwrap_or(x.block_height),
                         )?;
                     }
@@ -2094,7 +2094,7 @@ impl ParsedUTXO {
     }
 
     pub fn serialized_btc_to_sat(amount: &str) -> Option<u64> {
-        let comps: Vec<&str> = amount.split(".").collect();
+        let comps: Vec<&str> = amount.split('.').collect();
         match comps[..] {
             [lhs, rhs] => {
                 if rhs.len() > 8 {
@@ -2170,7 +2170,7 @@ impl BitcoinRPCRequest {
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
-            Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
+            Url::parse(&url).unwrap_or_else(|_| panic!("Unable to parse {} as a URL", url))
         };
         debug!(
             "BitcoinRPC builder '{}': {:?}:{:?}@{}",

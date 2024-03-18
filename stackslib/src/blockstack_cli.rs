@@ -600,7 +600,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
 }}",
         sk.to_hex(),
         pk.to_hex(),
-        address.to_string()
+        address
     ))
 }
 
@@ -678,7 +678,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -717,7 +717,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -755,7 +755,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -794,7 +794,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -833,7 +833,7 @@ fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<S
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}\n", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -898,7 +898,7 @@ mod test {
     fn generate_should_work() {
         assert!(main_handler(vec!["generate-sk".into(), "--testnet".into()]).is_ok());
         assert!(main_handler(vec!["generate-sk".into()]).is_ok());
-        assert!(generate_secret_key(&vec!["-h".into()], TransactionVersion::Mainnet).is_err());
+        assert!(generate_secret_key(&["-h".into()], TransactionVersion::Mainnet).is_err());
     }
 
     fn to_string_vec(x: &[&str]) -> Vec<String> {

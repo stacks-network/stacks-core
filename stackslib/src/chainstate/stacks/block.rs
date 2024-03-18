@@ -257,7 +257,7 @@ impl StacksBlockHeader {
         let valid = match VRF::verify(
             &leader_key.public_key,
             &self.proof,
-            &sortition_chain_tip.sortition_hash.as_bytes().to_vec(),
+            sortition_chain_tip.sortition_hash.as_bytes().as_ref(),
         ) {
             Ok(v) => {
                 if !v {

@@ -570,10 +570,15 @@ impl<'a> BurnchainDBTransaction<'a> {
 
         let parent_metadata =
             BurnchainDB::get_commit_metadata(&self.sql_tx, &parent.burn_header_hash, &parent.txid)?
-                .expect(&format!(
-                    "BUG: no metadata found for parent block-commit {},{},{} in {}",
-                    parent.block_height, parent.vtxindex, &parent.txid, &parent.burn_header_hash
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: no metadata found for parent block-commit {},{},{} in {}",
+                        parent.block_height,
+                        parent.vtxindex,
+                        &parent.txid,
+                        &parent.burn_header_hash
+                    )
+                });
 
         let (am, affirmed_reward_cycle) = if anchor_block.is_some() && descends_from_anchor_block {
             // this block-commit assumes the affirmation map of the anchor block as a prefix of its
@@ -630,7 +635,7 @@ impl<'a> BurnchainDBTransaction<'a> {
                 Some(parent_ab_rc) => {
                     // parent affirmed some past anchor block
                     let ab_metadata = BurnchainDB::get_canonical_anchor_block_commit_metadata(&self.sql_tx, indexer, parent_ab_rc)?
-                        .expect(&format!("BUG: parent descends from a reward cycle with an anchor block ({}), but no anchor block found", parent_ab_rc));
+                        .unwrap_or_else(|| panic!("BUG: parent descends from a reward cycle with an anchor block ({}), but no anchor block found", parent_ab_rc));
 
                     let mut am =
                         BurnchainDB::get_affirmation_map(&self.sql_tx, ab_metadata.affirmation_id)?
@@ -709,7 +714,7 @@ impl<'a> BurnchainDBTransaction<'a> {
             // affirmation map already exists.
             if cfg!(test) {
                 let _am_weight = BurnchainDB::get_affirmation_weight(&self.sql_tx, am_id)?
-                    .expect(&format!("BUG: no affirmation map {}", &am_id));
+                    .unwrap_or_else(|| panic!("BUG: no affirmation map {}", &am_id));
 
                 test_debug!("Affirmation map of prepare-phase block-commit {},{},{} (parent {},{}) is old: {:?} weight {} affirmed {:?}",
                             &block_commit.txid, block_commit.block_height, block_commit.vtxindex, block_commit.parent_block_ptr, block_commit.parent_vtxindex, &am, _am_weight, &affirmed_reward_cycle);
@@ -741,10 +746,15 @@ impl<'a> BurnchainDBTransaction<'a> {
 
         let parent_metadata =
             BurnchainDB::get_commit_metadata(&self.sql_tx, &parent.burn_header_hash, &parent.txid)?
-                .expect(&format!(
-                    "BUG: no metadata found for existing block commit {},{},{} in {}",
-                    parent.block_height, parent.vtxindex, &parent.txid, &parent.burn_header_hash
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: no metadata found for existing block commit {},{},{} in {}",
+                        parent.block_height,
+                        parent.vtxindex,
+                        &parent.txid,
+                        &parent.burn_header_hash
+                    )
+                });
 
         test_debug!(
             "Reward-phase commit {},{},{} has parent {},{}, anchor block {:?}",
@@ -823,7 +833,7 @@ impl<'a> BurnchainDBTransaction<'a> {
             // affirmation map already exists.
             if cfg!(test) {
                 let _am_weight = BurnchainDB::get_affirmation_weight(&self.sql_tx, am_id)?
-                    .expect(&format!("BUG: no affirmation map {}", &am_id));
+                    .unwrap_or_else(|| panic!("BUG: no affirmation map {}", &am_id));
 
                 test_debug!("Affirmation map of reward-phase block-commit {},{},{} (parent {},{}) is old: {:?} weight {}",
                             &block_commit.txid, block_commit.block_height, block_commit.vtxindex, block_commit.parent_block_ptr, block_commit.parent_vtxindex, &am, _am_weight);
@@ -984,7 +994,7 @@ impl BurnchainDB {
                         let ppath = Path::new(path);
                         let pparent_path = ppath
                             .parent()
-                            .expect(&format!("BUG: no parent of '{}'", path));
+                            .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
                         fs::create_dir_all(&pparent_path)
                             .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
@@ -1572,21 +1582,23 @@ impl BurnchainDB {
                     return Ok(am);
                 }
 
-                let am = BurnchainDB::get_affirmation_map(conn, metadata.affirmation_id)?.expect(
-                    &format!(
-                        "BUG: failed to load affirmation map {}",
-                        metadata.affirmation_id
-                    ),
-                );
+                let am = BurnchainDB::get_affirmation_map(conn, metadata.affirmation_id)?
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "BUG: failed to load affirmation map {}",
+                            metadata.affirmation_id
+                        )
+                    });
 
                 if cfg!(test) {
                     let _weight =
-                        BurnchainDB::get_affirmation_weight(conn, metadata.affirmation_id)?.expect(
-                            &format!(
-                                "BUG: have affirmation map {} but no weight",
-                                &metadata.affirmation_id
-                            ),
-                        );
+                        BurnchainDB::get_affirmation_weight(conn, metadata.affirmation_id)?
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "BUG: have affirmation map {} but no weight",
+                                    &metadata.affirmation_id
+                                )
+                            });
 
                     test_debug!(
                         "Heaviest anchor block affirmation map is {:?} (ID {}, weight {})",

@@ -16,6 +16,8 @@
 
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use serde::Serialize;
 use sha2::Sha512;
 use stacks_common::address::AddressHashMode;

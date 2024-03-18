@@ -847,13 +847,13 @@ impl TypeSignature {
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
     type Error = CheckErrors;
-    fn try_from(mut type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
+    fn try_from(type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
         if type_data.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
         let mut type_map = BTreeMap::new();
-        for (name, type_info) in type_data.drain(..) {
+        for (name, type_info) in type_data.into_iter() {
             if let Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {
@@ -2139,10 +2139,7 @@ mod test {
         ];
         let list_union2 = ListUnionType(callables2.clone().into());
         let list_union_merged = ListUnionType(HashSet::from_iter(
-            [callables.clone(), callables2.clone()]
-                .concat()
-                .iter()
-                .cloned(),
+            [callables, callables2].concat().iter().cloned(),
         ));
         let callable_principals = [
             CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
@@ -2515,11 +2512,8 @@ mod test {
                     )
                     .unwrap(),
                 ),
-                TypeSignature::new_response(
-                    TypeSignature::PrincipalType,
-                    list_union_merged.clone(),
-                )
-                .unwrap(),
+                TypeSignature::new_response(TypeSignature::PrincipalType, list_union_merged)
+                    .unwrap(),
             ),
         ];
 
@@ -2589,7 +2583,7 @@ mod test {
             (list_union.clone(), TypeSignature::PrincipalType),
             (
                 TypeSignature::min_string_ascii().unwrap(),
-                list_union_principals.clone(),
+                list_union_principals,
             ),
             (
                 TypeSignature::list_of(
@@ -2619,10 +2613,9 @@ mod test {
                 TypeSignature::new_option(TypeSignature::min_string_utf8().unwrap()).unwrap(),
             ),
             (
-                TypeSignature::new_response(TypeSignature::PrincipalType, list_union.clone())
-                    .unwrap(),
+                TypeSignature::new_response(TypeSignature::PrincipalType, list_union).unwrap(),
                 TypeSignature::new_response(
-                    list_union2.clone(),
+                    list_union2,
                     TypeSignature::CallableType(CallableSubtype::Principal(
                         QualifiedContractIdentifier::transient(),
                     )),
