@@ -5021,6 +5021,18 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
+    /// Are microblocks disabled by Epoch 2.5 at the height specified
+    /// in `at_burn_height`?
+    pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
+        match Self::get_stacks_epoch_by_epoch_id(conn, &StacksEpochId::Epoch25)? {
+            Some(epoch_25) => Ok(at_burn_height >= epoch_25.start_height),
+            None => {
+                // Epoch 2.5 is not defined, so it cannot disable microblocks
+                Ok(false)
+            }
+        }
+    }
+
     /// Get the last reward cycle in epoch 2.05
     pub fn get_last_epoch_2_05_reward_cycle(&self) -> Result<u64, db_error> {
         Self::static_get_last_epoch_2_05_reward_cycle(

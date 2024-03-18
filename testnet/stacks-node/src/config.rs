@@ -1111,6 +1111,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
             },
             miner_status,
+            confirm_microblocks: true,
         }
     }
 
