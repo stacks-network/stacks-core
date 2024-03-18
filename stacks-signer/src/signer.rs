@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
+use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
@@ -30,7 +31,7 @@ use libsigner::{
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
@@ -128,8 +129,6 @@ pub enum State {
     Idle,
     /// The signer is executing a DKG or Sign round
     OperationInProgress,
-    /// The signer's reward cycle has finished
-    TenureCompleted,
 }
 
 /// The stacks signer registered for the reward cycle
@@ -256,6 +255,26 @@ impl From<SignerConfig> for Signer {
 }
 
 impl Signer {
+    /// Refresh the coordinator selector
+    pub fn refresh_coordinator(&mut self) {
+        // TODO: do not use an empty consensus hash
+        let pox_consensus_hash = ConsensusHash::empty();
+        let old_coordinator_id = self.coordinator_selector.get_coordinator().0;
+        let updated_coordinator_id = self
+            .coordinator_selector
+            .refresh_coordinator(&pox_consensus_hash);
+        if old_coordinator_id != updated_coordinator_id {
+            debug!(
+                "{self}: Coordinator updated. Resetting state to Idle.";
+                "old_coordinator_id" => {old_coordinator_id},
+                "updated_coordinator_id" => {updated_coordinator_id},
+                "pox_consensus_hash" => %pox_consensus_hash
+            );
+            self.coordinator.state = CoordinatorState::Idle;
+            self.state = State::Idle;
+        }
+    }
+
     /// Finish an operation and update the coordinator selector accordingly
     fn finish_operation(&mut self) {
         self.state = State::Idle;
@@ -374,9 +393,6 @@ impl Signer {
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
                 debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
-            }
-            State::TenureCompleted => {
-                warn!("{self}: Tenure completed. This signer should have been cleaned up during refresh.",);
             }
         }
     }
@@ -1123,6 +1139,7 @@ impl Signer {
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
+        let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(reward_cycle)?;
         if self.approved_aggregate_public_key.is_some() {
@@ -1131,11 +1148,12 @@ impl Signer {
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
-            // We have an approved aggregate public key. Do nothing further
-            debug!(
-                "{self}: Have updated DKG value to {:?}.",
-                self.approved_aggregate_public_key
-            );
+            if old_dkg != self.approved_aggregate_public_key {
+                debug!(
+                    "{self}: updated DKG value to {:?}.",
+                    self.approved_aggregate_public_key
+                );
+            }
             return Ok(());
         };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
@@ -1224,6 +1242,9 @@ impl Signer {
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")
+            }
+            Some(SignerEvent::NewBurnBlock(height)) => {
+                debug!("{self}: Receved a new burn block event for block height {height}")
             }
             None => {
                 // No event. Do nothing.
