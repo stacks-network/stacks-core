@@ -3,6 +3,7 @@ import { Real, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxCommand } from "./pox_StackStxCommand";
+import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -38,6 +39,27 @@ export function PoxCommands(
         r.wallet,
         r.authId,
         r.period,
+        r.margin,
+      )
+    ),
+    // DelegateStxCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      delegateTo: fc.constantFrom(...wallets.values()),
+      untilBurnHt: fc.integer({ min: 1 }),
+      margin: fc.integer({ min: 2, max: 9 }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        delegateTo: Wallet;
+        untilBurnHt: number;
+        margin: number;
+      },
+    ) =>
+      new DelegateStxCommand(
+        r.wallet,
+        r.delegateTo,
+        r.untilBurnHt,
         r.margin,
       )
     ),
