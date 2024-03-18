@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -32,6 +31,8 @@ use stacks_common::types::PrivateKey;
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
+
+use crate::signer::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee in microstacks (if unspecificed in the config file)
@@ -111,22 +112,20 @@ impl Network {
     }
 }
 
-/// The registered signer information for a specific reward cycle
+/// Parsed Reward Set
 #[derive(Debug, Clone)]
-pub struct RegisteredSignersInfo {
-    /// The signer to key ids mapping for the coordinator
-    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
-    /// The signer to key ids mapping for the signers
-    pub signer_key_ids: HashMap<u32, Vec<u32>>,
-    /// The signer ids to wsts pubilc keys mapping
-    pub signer_public_keys: HashMap<u32, Point>,
-    /// The signer addresses mapped to their signer ids
+pub struct ParsedSignerEntries {
+    /// The signer addresses mapped to signer id
     pub signer_ids: HashMap<StacksAddress, u32>,
-    /// The signer slot id for a signer address registered in stackerdb
-    /// This corresponds to their unique index when voting in a reward cycle
-    pub signer_slot_ids: HashMap<StacksAddress, u32>,
-    /// The public keys for the reward cycle
+    /// The signer ids mapped to public key and key ids mapped to public keys
     pub public_keys: PublicKeys,
+    /// The signer ids mapped to key ids
+    pub signer_key_ids: HashMap<u32, Vec<u32>>,
+    /// The signer ids mapped to wsts public keys
+    pub signer_public_keys: HashMap<u32, Point>,
+    /// The signer ids mapped to a hash set of key ids
+    /// The wsts coordinator uses a hash set for each signer since it needs to do lots of lookups
+    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
 }
 
 /// The Configuration info needed for an individual signer per reward cycle
@@ -134,20 +133,22 @@ pub struct RegisteredSignersInfo {
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
-    /// The signer ID assigned to this signer
+    /// The signer ID assigned to this signer to be used in DKG and Sign rounds
     pub signer_id: u32,
-    /// The index into the signers list of this signer's key (may be different from signer_id)
-    pub signer_slot_id: u32,
+    /// The signer stackerdb slot id (may be different from signer_id)
+    pub signer_slot_id: SignerSlotID,
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
-    pub registered_signers: RegisteredSignersInfo,
+    pub signer_entries: ParsedSignerEntries,
+    /// The signer slot ids of all signers registered for this reward cycle
+    pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication
     pub ecdsa_private_key: Scalar,
     /// The private key for this signer
     pub stacks_private_key: StacksPrivateKey,
     /// The node host for this signer
-    pub node_host: SocketAddr,
+    pub node_host: String,
     /// Whether this signer is running on mainnet or not
     pub mainnet: bool,
     /// timeout to gather DkgPublicShares messages
@@ -168,7 +169,7 @@ pub struct SignerConfig {
 #[derive(Clone, Debug)]
 pub struct GlobalConfig {
     /// endpoint to the stacks node
-    pub node_host: SocketAddr,
+    pub node_host: String,
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
     /// The Scalar representation of the private key for signer communication
@@ -193,6 +194,8 @@ pub struct GlobalConfig {
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: u64,
+    /// the authorization password for the block proposal endpoint
+    pub auth_password: String,
 }
 
 /// Internal struct for loading up the config file
@@ -221,6 +224,8 @@ struct RawConfigFile {
     pub sign_timeout_ms: Option<u64>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ustx: Option<u64>,
+    /// The authorization password for the block proposal endpoint
+    pub auth_password: String,
 }
 
 impl RawConfigFile {
@@ -253,17 +258,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
     /// Attempt to decode the raw config file's primitive types into our types.
     /// NOTE: network access is required for this to work
     fn try_from(raw_data: RawConfigFile) -> Result<Self, Self::Error> {
-        let node_host = raw_data
-            .node_host
-            .to_socket_addrs()
-            .map_err(|_| {
-                ConfigError::BadField("node_host".to_string(), raw_data.node_host.clone())
-            })?
-            .next()
-            .ok_or(ConfigError::BadField(
-                "node_host".to_string(),
-                raw_data.node_host.clone(),
-            ))?;
+        url::Url::parse(&format!("http://{}", raw_data.node_host)).map_err(|_| {
+            ConfigError::BadField("node_host".to_string(), raw_data.node_host.clone())
+        })?;
 
         let endpoint = raw_data
             .endpoint
@@ -306,7 +303,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         Ok(Self {
-            node_host,
+            node_host: raw_data.node_host,
             endpoint,
             stacks_private_key,
             ecdsa_private_key,
@@ -319,6 +316,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             nonce_timeout,
             sign_timeout,
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
+            auth_password: raw_data.auth_password,
         })
     }
 }
@@ -349,6 +347,7 @@ pub fn build_signer_config_tomls(
     node_host: &str,
     timeout: Option<Duration>,
     network: &Network,
+    password: &str,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -363,6 +362,7 @@ stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
+auth_password = "{password}"
 "#
         );
 

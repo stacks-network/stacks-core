@@ -47,6 +47,7 @@ stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
+mutants = "0.0.3"
 
 [dependencies.rusqlite]
 version = "=0.24.2"
@@ -64,4 +65,5 @@ path = "src/stacks_events.rs"
 monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
+portable = []
 default = []

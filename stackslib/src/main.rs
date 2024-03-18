@@ -34,7 +34,6 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -1727,9 +1726,6 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         last_microblock_seq
     );
 
-    // user supports were never activated
-    let user_supports = vec![];
-
     let block_am = StacksChainState::find_stacks_tip_affirmation_map(
         &burnchain_blocks_db,
         sort_tx.tx(),
@@ -1755,11 +1751,10 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         &next_microblocks,
         next_staging_block.commit_burn,
         next_staging_block.sortition_burn,
-        &user_supports,
         block_am.weight(),
         true,
     ) {
-        Ok((_receipt, _)) => {
+        Ok((_receipt, _, _)) => {
             info!("Block processed successfully! block = {index_block_hash}");
         }
         Err(e) => {

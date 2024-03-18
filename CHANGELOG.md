@@ -13,9 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
 - Stacker bitvec in NakamotoBlock
 - New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
-  - `stack-stx`, `stack-extend`, and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
+  - `stack-stx`, `stack-extend`, `stack-increase` and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
   - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
   - Signer key authorizations can be added via `set-signer-key-authorization` to omit the need for `signer-key` signatures
+  - A `max-amount` field is a field in signer key authorizations and defines the maximum amount of STX that can be locked in a single transaction.
 
 ### Modified
 

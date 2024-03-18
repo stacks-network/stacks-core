@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::marker::Send;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -55,7 +53,7 @@ use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -101,14 +99,13 @@ impl BurnchainStateTransition {
         block_ops: &Vec<BlockstackOperationType>,
         missed_commits: &[MissedBlockCommit],
     ) -> Result<BurnchainStateTransition, burnchain_error> {
-        // block commits and support burns discovered in this block.
+        // block commits discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
         assert!(Burnchain::ops_are_sorted(block_ops));
 
-        // identify which user burns and block commits are consumed and which are not
-        let mut all_user_burns: HashMap<Txid, UserBurnSupportOp> = HashMap::new();
+        // identify which block commits are consumed and which are not
         let mut all_block_commits: HashMap<Txid, LeaderBlockCommitOp> = HashMap::new();
 
         // accept all leader keys we found.
@@ -135,11 +132,6 @@ impl BurnchainStateTransition {
                     // the burn distribution, so just account for them for now.
                     all_block_commits.insert(op.txid.clone(), op.clone());
                     block_commits.push(op.clone());
-                }
-                BlockstackOperationType::UserBurnSupport(ref op) => {
-                    // we don't know yet which user burns are going to be accepted until we have
-                    // the burn distribution, so just account for them for now.
-                    all_user_burns.insert(op.txid.clone(), op.clone());
                 }
             };
         }
@@ -254,7 +246,7 @@ impl BurnchainStateTransition {
         );
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
-        // find out which user burns and block commits we're going to take
+        // find out which block commits we're going to take
         for i in 0..burn_dist.len() {
             let burn_point = &burn_dist[i];
 
@@ -263,27 +255,15 @@ impl BurnchainStateTransition {
                 burn_point.candidate.clone(),
             ));
             all_block_commits.remove(&burn_point.candidate.txid);
-
-            // taking each user burn in this sample point
-            for j in 0..burn_point.user_burns.len() {
-                accepted_ops.push(BlockstackOperationType::UserBurnSupport(
-                    burn_point.user_burns[j].clone(),
-                ));
-                all_user_burns.remove(&burn_point.user_burns[j].txid);
-            }
         }
 
-        // accepted_ops contains all accepted commits and user burns now.
-        // only rejected ones remain in all_user_burns and all_block_commits
+        // accepted_ops contains all accepted commits now.
+        // only rejected ones remain in all_block_commits
         for op in all_block_commits.values() {
             warn!(
                 "REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key",
                 op.block_height, &op.txid, op.block_height, op.vtxindex
             );
-        }
-
-        for op in all_user_burns.values() {
-            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid, op.block_height, op.vtxindex);
         }
 
         accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
@@ -751,20 +731,6 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse leader block commit tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
-            }
-            x if x == Opcodes::UserBurnSupport as u8 => {
-                match UserBurnSupportOp::from_tx(block_header, burn_tx) {
-                    Ok(op) => Some(BlockstackOperationType::UserBurnSupport(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse user burn support tx";
                             "txid" => %burn_tx.txid(),
                             "data" => %to_hex(&burn_tx.data()),
                             "error" => ?e,

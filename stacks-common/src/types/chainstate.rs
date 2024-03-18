@@ -190,14 +190,12 @@ impl PoxId {
 impl FromStr for PoxId {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err("Unexpected character in PoX ID serialization");
+        let mut result = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '0' => result.push(false),
+                '1' => result.push(true),
+                _ => return Err("Unexpected character in PoX ID serialization"),
             }
         }
         Ok(PoxId::new(result))
@@ -363,9 +361,7 @@ impl BlockHeaderHash {
 
     pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
         let h = Sha512Trunc256Sum::from_data(buf);
-        let mut b = [0u8; 32];
-        b.copy_from_slice(h.as_bytes());
-        BlockHeaderHash(b)
+        BlockHeaderHash(h.to_bytes())
     }
 }
 
@@ -379,8 +375,7 @@ impl BurnchainHeaderHash {
     }
 
     pub fn to_bitcoin_hash(&self) -> Sha256dHash {
-        let mut bytes = self.0.to_vec();
-        bytes.reverse();
+        let bytes = self.0.iter().rev().copied().collect::<Vec<_>>();
         let mut buf = [0u8; 32];
         buf.copy_from_slice(&bytes[0..32]);
         Sha256dHash(buf)
@@ -401,10 +396,7 @@ impl BurnchainHeaderHash {
         bytes.extend_from_slice(index_root.as_bytes());
         bytes.extend_from_slice(&noise.to_be_bytes());
         let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
-
-        BurnchainHeaderHash(hb)
+        BurnchainHeaderHash(h.to_bytes())
     }
 }
 

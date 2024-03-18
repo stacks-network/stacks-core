@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
@@ -34,8 +33,7 @@ pub mod mempool;
 #[cfg(test)]
 pub mod tests;
 
-use std::cmp::{Ord, Ordering, PartialOrd};
-
+use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
@@ -376,14 +374,14 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
-            end_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+            end_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0

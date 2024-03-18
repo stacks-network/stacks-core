@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
@@ -6162,6 +6161,7 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
+    let burnchain = burnchain_config.clone();
 
     eprintln!("Chain bootstrapped...");
 
@@ -6219,9 +6219,12 @@ fn pox_integration_test() {
         pox_info.rejection_fraction,
         Some(pox_constants.pox_rejection_fraction)
     );
-    assert_eq!(pox_info.reward_cycle_id, 0);
-    assert_eq!(pox_info.current_cycle.id, 0);
-    assert_eq!(pox_info.next_cycle.id, 1);
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(sort_height)
+        .expect("Expected to be able to get reward cycle");
+    assert_eq!(pox_info.reward_cycle_id, reward_cycle);
+    assert_eq!(pox_info.current_cycle.id, reward_cycle);
+    assert_eq!(pox_info.next_cycle.id, reward_cycle + 1);
     assert_eq!(
         pox_info.reward_cycle_length as u32,
         pox_constants.reward_cycle_length
@@ -6264,6 +6267,9 @@ fn pox_integration_test() {
     }
 
     let pox_info = get_pox_info(&http_origin).unwrap();
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(sort_height)
+        .expect("Expected to be able to get reward cycle");
 
     assert_eq!(
         &pox_info.contract_id,
@@ -6287,9 +6293,9 @@ fn pox_integration_test() {
         pox_info.rejection_fraction,
         Some(pox_constants.pox_rejection_fraction)
     );
-    assert_eq!(pox_info.reward_cycle_id, 14);
-    assert_eq!(pox_info.current_cycle.id, 14);
-    assert_eq!(pox_info.next_cycle.id, 15);
+    assert_eq!(pox_info.reward_cycle_id, reward_cycle);
+    assert_eq!(pox_info.current_cycle.id, reward_cycle);
+    assert_eq!(pox_info.next_cycle.id, reward_cycle + 1);
     assert_eq!(
         pox_info.reward_cycle_length as u32,
         pox_constants.reward_cycle_length

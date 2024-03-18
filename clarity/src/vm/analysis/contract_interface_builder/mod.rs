@@ -237,14 +237,13 @@ pub struct ContractInterfaceFunctionArg {
 
 impl ContractInterfaceFunctionArg {
     pub fn from_function_args(fnArgs: &[FunctionArg]) -> Vec<ContractInterfaceFunctionArg> {
-        let mut args: Vec<ContractInterfaceFunctionArg> = Vec::new();
-        for fnArg in fnArgs.iter() {
-            args.push(ContractInterfaceFunctionArg {
+        fnArgs
+            .iter()
+            .map(|fnArg| ContractInterfaceFunctionArg {
                 name: fnArg.name.to_string(),
                 type_f: ContractInterfaceAtomType::from_type_signature(&fnArg.signature),
-            });
-        }
-        args
+            })
+            .collect()
     }
 }
 

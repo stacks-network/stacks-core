@@ -1,7 +1,5 @@
 use std::cmp;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use clarity::vm::costs::ExecutionCost;

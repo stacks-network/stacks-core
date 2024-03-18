@@ -7,30 +7,42 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::Value;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
     BLOCK_MSG_ID,
 };
+use rand::thread_rng;
+use rand_core::RngCore;
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
-use stacks::chainstate::stacks::boot::SIGNERS_NAME;
+use stacks::chainstate::stacks::boot::{
+    SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use stacks::chainstate::stacks::miner::TransactionEvent;
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, ThresholdSignature};
+use stacks::chainstate::stacks::{
+    StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
+    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
+    TransactionVersion,
+};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
+};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::Command as SignerCommand;
+use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::common::Signature;
@@ -92,7 +104,10 @@ impl SignerTest {
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-        naka_conf.miner.self_signing_key = None;
+        // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
+        // That's the kind of thing an idiot would have on his luggage!
+        let password = "12345";
+        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
@@ -100,6 +115,7 @@ impl SignerTest {
             &naka_conf.node.rpc_bind,
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
+            password,
         );
 
         let mut running_signers = Vec::new();
@@ -519,7 +535,7 @@ impl SignerTest {
             .unwrap()
     }
 
-    fn get_signer_index(&self, reward_cycle: u64) -> u32 {
+    fn get_signer_index(&self, reward_cycle: u64) -> SignerSlotID {
         let valid_signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
@@ -529,7 +545,9 @@ impl SignerTest {
             .expect("FATAL: failed to get signer slots from stackerdb")
             .iter()
             .position(|(address, _)| address == self.stacks_client.get_signer_address())
-            .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            })
             .expect("FATAL: signer not registered")
     }
 
@@ -545,38 +563,195 @@ impl SignerTest {
             .unwrap();
         // Get the signer indices
         let reward_cycle = self.get_current_reward_cycle();
-        let valid_signer_index = self.get_signer_index(reward_cycle);
-        let round = self
-            .stacks_client
-            .get_last_round(reward_cycle)
-            .expect("FATAL: failed to get round")
-            .unwrap_or(0)
-            .saturating_add(1);
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let invalid_nonce_tx = self
-            .stacks_client
-            .build_vote_for_aggregate_public_key(
-                valid_signer_index,
-                round,
-                point,
-                reward_cycle,
+
+        let signer_private_key = self.signer_stacks_private_keys[0];
+
+        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, false);
+        let contract_addr = vote_contract_id.issuer.into();
+        let contract_name = vote_contract_id.name.clone();
+
+        let signer_index = thread_rng().next_u64();
+        let signer_index_arg = Value::UInt(signer_index as u128);
+
+        let point = Point::from(Scalar::random(&mut thread_rng()));
+        let point_arg =
+            Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+
+        let round = thread_rng().next_u64();
+        let round_arg = Value::UInt(round as u128);
+
+        let reward_cycle_arg = Value::UInt(reward_cycle as u128);
+        let valid_function_args = vec![
+            signer_index_arg.clone(),
+            point_arg.clone(),
+            round_arg.clone(),
+            reward_cycle_arg.clone(),
+        ];
+
+        // Create a invalid transaction that is not a contract call
+        let invalid_not_contract_call = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: CHAIN_ID_TESTNET,
+            auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
                 None,
-                0, // Old nonce
+            ),
+        };
+        let invalid_contract_address = StacksClient::build_signed_contract_call_transaction(
+            &StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key)),
+            contract_name.clone(),
+            SIGNERS_VOTING_FUNCTION_NAME.into(),
+            &valid_function_args,
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            1,
+            10,
+        )
+        .unwrap();
+
+        let invalid_contract_name = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            "bad-signers-contract-name".into(),
+            SIGNERS_VOTING_FUNCTION_NAME.into(),
+            &valid_function_args,
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            1,
+            10,
+        )
+        .unwrap();
+
+        let invalid_signers_vote_function = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            "some-other-function".into(),
+            &valid_function_args,
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            1,
+            10,
+        )
+        .unwrap();
+
+        let invalid_function_arg_signer_index =
+            StacksClient::build_signed_contract_call_transaction(
+                &contract_addr,
+                contract_name.clone(),
+                SIGNERS_VOTING_FUNCTION_NAME.into(),
+                &[
+                    point_arg.clone(),
+                    point_arg.clone(),
+                    round_arg.clone(),
+                    reward_cycle_arg.clone(),
+                ],
+                &signer_private_key,
+                TransactionVersion::Testnet,
+                CHAIN_ID_TESTNET,
+                1,
+                10,
             )
-            .expect("FATAL: failed to build vote for aggregate public key");
-        let invalid_stacks_client = StacksClient::new(StacksPrivateKey::new(), host, false);
+            .unwrap();
+
+        let invalid_function_arg_key = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            SIGNERS_VOTING_FUNCTION_NAME.into(),
+            &[
+                signer_index_arg.clone(),
+                signer_index_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            1,
+            10,
+        )
+        .unwrap();
+
+        let invalid_function_arg_round = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            SIGNERS_VOTING_FUNCTION_NAME.into(),
+            &[
+                signer_index_arg.clone(),
+                point_arg.clone(),
+                point_arg.clone(),
+                reward_cycle_arg.clone(),
+            ],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            1,
+            10,
+        )
+        .unwrap();
+
+        let invalid_function_arg_reward_cycle =
+            StacksClient::build_signed_contract_call_transaction(
+                &contract_addr,
+                contract_name.clone(),
+                SIGNERS_VOTING_FUNCTION_NAME.into(),
+                &[
+                    signer_index_arg.clone(),
+                    point_arg.clone(),
+                    round_arg.clone(),
+                    point_arg.clone(),
+                ],
+                &signer_private_key,
+                TransactionVersion::Testnet,
+                CHAIN_ID_TESTNET,
+                1,
+                10,
+            )
+            .unwrap();
+
+        let invalid_nonce = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            SIGNERS_VOTING_FUNCTION_NAME.into(),
+            &valid_function_args,
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            0, // Old nonce
+            10,
+        )
+        .unwrap();
+
+        let invalid_stacks_client = StacksClient::new(
+            StacksPrivateKey::new(),
+            host,
+            "12345".to_string(), // That's amazing. I've got the same combination on my luggage!
+            false,
+        );
         let invalid_signer_tx = invalid_stacks_client
-            .build_vote_for_aggregate_public_key(
-                valid_signer_index,
-                round,
-                point,
-                reward_cycle,
-                None,
-                0,
-            )
+            .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
-        // TODO: add invalid contract calls (one with non 'vote-for-aggregate-public-key' function call and one with invalid function args)
-        vec![invalid_nonce_tx, invalid_signer_tx]
+
+        vec![
+            invalid_nonce,
+            invalid_not_contract_call,
+            invalid_contract_name,
+            invalid_contract_address,
+            invalid_signers_vote_function,
+            invalid_function_arg_key,
+            invalid_function_arg_reward_cycle,
+            invalid_function_arg_round,
+            invalid_function_arg_signer_index,
+            invalid_signer_tx,
+        ]
     }
 
     fn shutdown(self) {
@@ -715,9 +890,9 @@ fn setup_stx_btc_node(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
-        vrfs_submitted,
-        commits_submitted,
-        blocks_processed,
+        vrfs_submitted: vrfs_submitted.0,
+        commits_submitted: commits_submitted.0,
+        blocks_processed: blocks_processed.0,
         coord_channel,
         conf: naka_conf,
     }
@@ -1119,15 +1294,6 @@ fn stackerdb_filter_bad_transactions() {
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
     info!("------------------------- Submit Invalid Transactions -------------------------");
-    let host = signer_test
-        .running_nodes
-        .conf
-        .node
-        .rpc_bind
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap();
 
     let signer_private_key = signer_test
         .signer_stacks_private_keys
@@ -1142,7 +1308,7 @@ fn stackerdb_filter_bad_transactions() {
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
     let mut stackerdb = StackerDB::new(
-        host,
+        &signer_test.running_nodes.conf.node.rpc_bind,
         signer_private_key,
         false,
         next_reward_cycle,

@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::boxed::Box;
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::{TryFrom, TryInto};
+use std::collections::BTreeMap;
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -80,6 +78,7 @@ pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
 pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
+pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -92,7 +91,7 @@ const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
-const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
+pub const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -121,7 +120,6 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
-    pub static ref SIGNER_VOTING_CODE: String = format!("{}", SIGNERS_VOTING_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -232,6 +230,11 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RewardSetData {
+    pub reward_set: RewardSet,
+    pub cycle_number: u64,
+}
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
 
 impl PoxStartCycleInfo {
@@ -268,6 +271,15 @@ impl RewardSet {
     /// Deserializer corresponding to `RewardSet::metadata_serialize`
     pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
         serde_json::from_str(from).map_err(|e| e.to_string())
+    }
+}
+
+impl RewardSetData {
+    pub fn new(reward_set: RewardSet, cycle_number: u64) -> RewardSetData {
+        RewardSetData {
+            reward_set,
+            cycle_number,
+        }
     }
 }
 
@@ -1326,7 +1338,6 @@ pub mod signers_voting_tests;
 #[cfg(test)]
 pub mod test {
     use std::collections::{HashMap, HashSet};
-    use std::convert::From;
     use std::fs;
 
     use clarity::boot_util::boot_code_addr;
@@ -1848,6 +1859,8 @@ pub mod test {
         signer_key: &StacksPublicKey,
         burn_ht: u64,
         signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -1865,6 +1878,8 @@ pub mod test {
                 Value::UInt(lock_period),
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -1936,7 +1951,7 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
-            "vote-for-aggregate-public-key",
+            SIGNERS_VOTING_FUNCTION_NAME,
             vec![
                 Value::UInt(signer_index),
                 aggregate_public_key,
@@ -2008,6 +2023,8 @@ pub mod test {
         lock_period: u128,
         signer_key: StacksPublicKey,
         signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -2023,6 +2040,8 @@ pub mod test {
                 addr_tuple,
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -2117,6 +2136,8 @@ pub mod test {
         reward_cycle: u128,
         signature_opt: Option<Vec<u8>>,
         signer_key: &Secp256k1PublicKey,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let signature = match signature_opt {
@@ -2132,6 +2153,8 @@ pub mod test {
                 Value::UInt(reward_cycle),
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();
@@ -2143,12 +2166,25 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
+        signer_key: &Secp256k1PublicKey,
+        signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
+        let signature = signature_opt
+            .map(|sig| Value::some(Value::buff_from(sig).unwrap()).unwrap())
+            .unwrap_or_else(|| Value::none());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-increase",
-            vec![Value::UInt(amount)],
+            vec![
+                Value::UInt(amount),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
         )
         .unwrap();
 
@@ -2195,6 +2231,8 @@ pub mod test {
         reward_cycle: u128,
         topic: &Pox4SignatureTopic,
         period: u128,
+        max_amount: u128,
+        auth_id: u128,
     ) -> Vec<u8> {
         let signature = make_pox_4_signer_key_signature(
             pox_addr,
@@ -2203,6 +2241,8 @@ pub mod test {
             topic,
             CHAIN_ID_TESTNET,
             period,
+            max_amount,
+            auth_id,
         )
         .unwrap();
 
@@ -2218,6 +2258,8 @@ pub mod test {
         enabled: bool,
         nonce: u64,
         sender_key: Option<&StacksPrivateKey>,
+        max_amount: u128,
+        auth_id: u128,
     ) -> StacksTransaction {
         let signer_pubkey = StacksPublicKey::from_private(signer_key);
         let payload = TransactionPayload::new_contract_call(
@@ -2231,6 +2273,8 @@ pub mod test {
                 Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 Value::buff_from(signer_pubkey.to_bytes_compressed()).unwrap(),
                 Value::Bool(enabled),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
             ],
         )
         .unwrap();

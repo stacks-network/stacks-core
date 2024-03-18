@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::{error, fmt, thread};
 
 use clarity::vm::analysis::errors::{CheckError, CheckErrors};
@@ -51,7 +50,7 @@ use crate::chainstate::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
     MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
     POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
-    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
+    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1458,59 +1457,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 }
             }
 
-            let initialized_agg_key = if !mainnet {
-                let agg_key_value_opt = self
-                    .with_readonly_clarity_env(
-                        false,
-                        self.chain_id,
-                        ClarityVersion::Clarity2,
-                        StacksAddress::burn_address(false).into(),
-                        None,
-                        LimitedCostTracker::Free,
-                        |vm_env| {
-                            vm_env.execute_contract_allow_private(
-                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
-                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
-                                &[],
-                                true,
-                            )
-                        },
-                    )
-                    .map(|agg_key_value| {
-                        agg_key_value
-                            .expect_buff(33)
-                            .expect("FATAL: test aggregate pub key must be a buffer")
-                    })
-                    .ok();
-                agg_key_value_opt
-            } else {
-                None
-            };
-
-            let mut signers_voting_code = SIGNER_VOTING_CODE.clone();
-            if !mainnet {
-                if let Some(ref agg_pub_key) = initialized_agg_key {
-                    let hex_agg_pub_key = to_hex(agg_pub_key);
-                    for set_in_reward_cycle in 0..pox_4_first_cycle {
-                        info!(
-                            "Setting initial aggregate-public-key in PoX-4";
-                            "agg_pub_key" => &hex_agg_pub_key,
-                            "reward_cycle" => set_in_reward_cycle,
-                            "pox_4_first_cycle" => pox_4_first_cycle,
-                        );
-                        let set_str = format!("(map-set aggregate-public-keys u{set_in_reward_cycle} 0x{hex_agg_pub_key})");
-                        signers_voting_code.push_str("\n");
-                        signers_voting_code.push_str(&set_str);
-                    }
-                }
-            }
-
             let signers_voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(SIGNERS_VOTING_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&signers_voting_code)
+                    code_body: StacksString::from_str(SIGNERS_VOTING_BODY)
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity2),

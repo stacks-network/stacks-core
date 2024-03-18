@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;
 use std::{io, mem};

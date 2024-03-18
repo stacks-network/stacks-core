@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::{Ord, Ordering};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryFrom, TryInto};
 use std::io::{ErrorKind, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
@@ -59,7 +58,7 @@ use crate::chainstate::burn::operations::leader_block_commit::{
 };
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, Opcodes, OpsHash, SortitionHash,
@@ -303,44 +302,6 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             burn_header_hash,
         };
         Ok(block_commit)
-    }
-}
-
-impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
-    fn from_row<'a>(row: &'a Row) -> Result<UserBurnSupportOp, db_error> {
-        let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
-        let block_height = u64::from_column(row, "block_height")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-
-        let address = StacksAddress::from_column(row, "address")?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let public_key = VRFPublicKey::from_column(row, "public_key")?;
-        let key_block_ptr: u32 = row.get_unwrap("key_block_ptr");
-        let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
-        let block_header_hash_160 = Hash160::from_column(row, "block_header_hash_160")?;
-
-        let burn_fee_str: String = row.get_unwrap("burn_fee");
-
-        let burn_fee = burn_fee_str
-            .parse::<u64>()
-            .map_err(|_e| db_error::ParseError)?;
-
-        let user_burn = UserBurnSupportOp {
-            address: address,
-            consensus_hash: consensus_hash,
-            public_key: public_key,
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
-            block_header_hash_160: block_header_hash_160,
-            burn_fee: burn_fee,
-
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
-        };
-        Ok(user_burn)
     }
 }
 
@@ -590,26 +551,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
-    CREATE TABLE user_burn_support(
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-        sortition_id TEXT NOT NULL,
-
-        address TEXT NOT NULL,
-        consensus_hash TEXT NOT NULL,
-        public_key TEXT NOT NULL,
-        key_block_ptr INTEGER NOT NULL,
-        key_vtxindex INTEGER NOT NULL,
-        block_header_hash_160 TEXT NOT NULL,
-
-        burn_fee TEXT NOT NULL,
-
-        PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
-    );"#,
-    r#"
     CREATE TABLE stack_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -740,9 +681,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
     "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
@@ -2081,64 +2019,6 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
     }
 
-    /// Get all user burns that burned for the winning block in the chain_tip sortition
-    /// Returns list of user burns in order by vtxindex.
-    pub fn get_winning_user_burns_by_block(&self) -> Result<Vec<UserBurnSupportOp>, db_error> {
-        let snapshot = match self.get_tip_snapshot()? {
-            Some(sn) => sn,
-            None => {
-                // no such snapshot, so no such users
-                return Ok(vec![]);
-            }
-        };
-
-        if !snapshot.sortition {
-            // no winner
-            return Ok(vec![]);
-        }
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2";
-        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &snapshot.winning_block_txid];
-        let winning_commit: LeaderBlockCommitOp = query_row(self, qry, &args)?
-            .expect("BUG: sortition exists, but winner cannot be found");
-
-        let winning_block_hash160 =
-            Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
-
-        let qry = "SELECT * FROM user_burn_support \
-                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4 \
-                   ORDER BY vtxindex ASC";
-        let args: [&dyn ToSql; 4] = [
-            &snapshot.sortition_id,
-            &winning_block_hash160,
-            &winning_commit.key_vtxindex,
-            &winning_commit.key_block_ptr,
-        ];
-
-        let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
-
-        // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
-        let qry = "SELECT COUNT(*) FROM block_commits \
-                   WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
-        let args: [&dyn ToSql; 4] = [
-            &snapshot.sortition_id,
-            &snapshot.winning_stacks_block_hash,
-            &winning_commit.key_vtxindex,
-            &winning_commit.key_block_ptr,
-        ];
-        let shared_miners = query_count(self, qry, &args)? as u64;
-
-        assert!(
-            shared_miners >= 1,
-            "BUG: Should be at least 1 matching miner for the winning block commit"
-        );
-
-        for winning_user_burn in winning_user_burns.iter_mut() {
-            winning_user_burn.burn_fee /= shared_miners;
-        }
-
-        Ok(winning_user_burns)
-    }
-
     /// Get the block snapshot of the parent stacks block of the given stacks block.
     /// The returned block-commit is for the given (consensus_hash, block_hash).
     /// The returned BlockSnapshot is for the parent of the block identified by (consensus_hash,
@@ -3119,6 +2999,7 @@ impl SortitionDB {
     }
 
     /// Get the height of a consensus hash, even if it's not on the canonical PoX fork.
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
         let mut heights: Vec<u64> = query_rows(self.conn(), qry, &[ch])?;
@@ -3302,6 +3183,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         // the schema 5 changes simply **replace** the contents of the epochs table
         //  by dropping all the current rows and then revalidating and inserting
@@ -3320,6 +3202,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_6(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_6 {
             tx.execute_batch(sql_exec)?;
@@ -3335,6 +3218,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_7(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_7 {
             tx.execute_batch(sql_exec)?;
@@ -3720,6 +3604,7 @@ impl<'a> SortitionDBConn<'a> {
         Ok(Some(parent_block_snapshot))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_reward_set_size_at(&mut self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -3830,6 +3715,7 @@ impl SortitionDB {
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
     /// height and block-accepted flag.
+    #[cfg_attr(test, mutants::skip)]
     pub fn revalidate_snapshot_with_block(
         tx: &DBTx,
         sortition_id: &SortitionId,
@@ -4200,6 +4086,7 @@ impl SortitionDB {
         Ok(result.is_some())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn latest_stacks_blocks_processed(
         &self,
         sortition_id: &SortitionId,
@@ -4727,34 +4614,16 @@ impl SortitionDB {
         conn: &Connection,
         block_snapshot: &BlockSnapshot,
     ) -> Result<u64, db_error> {
-        let user_burns = SortitionDB::get_user_burns_by_block(conn, &block_snapshot.sortition_id)?;
         let block_commits =
             SortitionDB::get_block_commits_by_block(conn, &block_snapshot.sortition_id)?;
         let mut burn_total: u64 = 0;
 
-        for i in 0..user_burns.len() {
-            burn_total = burn_total
-                .checked_add(user_burns[i].burn_fee)
-                .expect("Way too many tokens burned");
-        }
         for i in 0..block_commits.len() {
             burn_total = burn_total
                 .checked_add(block_commits[i].burn_fee)
                 .expect("Way too many tokens burned");
         }
         Ok(burn_total)
-    }
-
-    /// Get all user burns registered in a block on is fork.
-    /// Returns list of user burns in order by vtxindex.
-    pub fn get_user_burns_by_block(
-        conn: &Connection,
-        sortition: &SortitionId,
-    ) -> Result<Vec<UserBurnSupportOp>, db_error> {
-        let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
-        let args: &[&dyn ToSql] = &[sortition];
-
-        query_rows(conn, qry, args)
     }
 
     /// Get all block commitments registered in a block on the burn chain's history in this fork.
@@ -5039,16 +4908,6 @@ impl SortitionDB {
             return Ok(Some(BlockstackOperationType::LeaderBlockCommit(
                 block_commit,
             )));
-        }
-
-        // user burn?
-        let user_burn_sql = "SELECT * FROM user_burn_support WHERE txid = ?1 LIMIT 1".to_string();
-
-        let user_burn_res = query_row_panic(conn, &user_burn_sql, &args, || {
-            "Multiple user burns with same txid".to_string()
-        })?;
-        if let Some(user_burn) = user_burn_res {
-            return Ok(Some(BlockstackOperationType::UserBurnSupport(user_burn)));
         }
 
         Ok(None)
@@ -5370,13 +5229,6 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_block_commit(op, sort_id)
             }
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                info!(
-                    "ACCEPTED({}) user burn support {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
-                self.insert_user_burn(op, sort_id)
-            }
             BlockstackOperationType::StackStx(ref op) => {
                 info!(
                     "ACCEPTED({}) stack stx opt {} at {},{}",
@@ -5566,42 +5418,6 @@ impl<'a> SortitionHandleTx<'a> {
         if !cfg!(test) {
             res?;
         }
-
-        Ok(())
-    }
-
-    /// Insert a user support burn.
-    /// No validity checking will be done, beyond what is encoded in the user_burn_support table
-    /// constraints.  That is, type mismatches and serialization errors will be caught, but nothing
-    /// else.
-    /// The corresponding snapshot must already be inserted
-    fn insert_user_burn(
-        &mut self,
-        user_burn: &UserBurnSupportOp,
-        sort_id: &SortitionId,
-    ) -> Result<(), db_error> {
-        assert!(user_burn.block_height < BLOCK_HEIGHT_MAX);
-
-        // represent burn fee as TEXT
-        let burn_fee_str = format!("{}", user_burn.burn_fee);
-
-        let args: &[&dyn ToSql] = &[
-            &user_burn.txid,
-            &user_burn.vtxindex,
-            &u64_to_sql(user_burn.block_height)?,
-            &user_burn.burn_header_hash,
-            &user_burn.address.to_string(),
-            &user_burn.consensus_hash,
-            &user_burn.public_key.to_hex(),
-            &user_burn.key_block_ptr,
-            &user_burn.key_vtxindex,
-            &user_burn.block_header_hash_160,
-            &burn_fee_str,
-            sort_id,
-        ];
-
-        self.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee, sortition_id) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", args)?;
 
         Ok(())
     }
@@ -6379,7 +6195,7 @@ pub mod tests {
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::index::TrieHashExtension;
@@ -6804,95 +6620,6 @@ pub mod tests {
                 .get_consumed_leader_keys(&fork_snapshot, &vec![block_commit.clone()])
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
-        }
-    }
-
-    #[test]
-    fn test_insert_user_burn() {
-        let block_height = 123;
-        let vtxindex = 456;
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-
-        let leader_key = LeaderKeyRegisterOp {
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex,
-            block_height: block_height + 1,
-            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
-        };
-
-        let user_burn = UserBurnSupportOp {
-            address: StacksAddress::new(1, Hash160([1u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: (block_height + 1) as u32,
-            key_vtxindex: vtxindex as u16,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex,
-            block_height: block_height + 2,
-            burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-        };
-
-        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
-
-        let snapshot = test_append_snapshot(
-            &mut db,
-            BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
-                leader_key.clone(),
-            )],
-        );
-
-        let user_burn_snapshot = test_append_snapshot(
-            &mut db,
-            BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())],
-        );
-
-        {
-            let res_user_burns =
-                SortitionDB::get_user_burns_by_block(db.conn(), &user_burn_snapshot.sortition_id)
-                    .unwrap();
-            assert_eq!(res_user_burns.len(), 1);
-            assert_eq!(res_user_burns[0], user_burn);
-
-            let no_user_burns =
-                SortitionDB::get_user_burns_by_block(db.conn(), &snapshot.sortition_id).unwrap();
-            assert_eq!(no_user_burns.len(), 0);
         }
     }
 
@@ -7463,35 +7190,6 @@ pub mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
 
-        let user_burn = UserBurnSupportOp {
-            address: StacksAddress::new(2, Hash160([2u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: (block_height + 1) as u32,
-            key_vtxindex: vtxindex as u16,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex + 1,
-            block_height: block_height + 2,
-            burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-        };
-
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
         let key_snapshot = test_append_snapshot(
@@ -7505,15 +7203,14 @@ pub mod tests {
         let commit_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![
-                BlockstackOperationType::LeaderBlockCommit(block_commit.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn.clone()),
-            ],
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit.clone(),
+            )],
         );
 
         {
             let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
-            assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
+            assert_eq!(burn_amt, block_commit.burn_fee);
 
             let no_burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &key_snapshot).unwrap();
             assert_eq!(no_burn_amt, 0);

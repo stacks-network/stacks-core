@@ -396,7 +396,6 @@ impl StacksChainState {
     pub fn insert_miner_payment_schedule(
         tx: &mut DBTx,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &[StagingUserBurnSupport],
     ) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
@@ -458,53 +457,6 @@ impl StacksChainState {
             args,
         )
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        for user_support in user_burns.iter() {
-            assert!(user_support.burn_amount < i64::MAX as u64);
-
-            let args: &[&dyn ToSql] = &[
-                &user_support.address.to_string(),
-                &user_support.address.to_string(),
-                &block_reward.block_hash,
-                &block_reward.consensus_hash,
-                &block_reward.parent_block_hash,
-                &block_reward.parent_consensus_hash,
-                &format!("{}", block_reward.coinbase),
-                &"0".to_string(),
-                &"0".to_string(),
-                &u64_to_sql(user_support.burn_amount)?,
-                &u64_to_sql(block_reward.burnchain_sortition_burn)?,
-                &u64_to_sql(block_reward.stacks_block_height)?,
-                &false,
-                &user_support.vtxindex,
-                &index_block_hash,
-                &"0".to_string(),
-            ];
-
-            tx.execute(
-                "INSERT INTO payments (
-                            address,
-                            recipient,
-                            block_hash,
-                            consensus_hash,
-                            parent_block_hash,
-                            parent_consensus_hash,
-                            coinbase,
-                            tx_fees_anchored,
-                            tx_fees_streamed,
-                            burnchain_commit_burn,
-                            burnchain_sortition_burn,
-                            stacks_block_height,
-                            miner,
-                            vtxindex,
-                            index_block_hash,
-                            stx_burns
-                        )
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
-                args,
-            )
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
 
         Ok(())
     }
@@ -1147,23 +1099,10 @@ mod test {
         sched
     }
 
-    impl StagingUserBurnSupport {
-        pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
-            StagingUserBurnSupport {
-                consensus_hash: user.consensus_hash.clone(),
-                anchored_block_hash: user.block_hash.clone(),
-                address: user.address.clone(),
-                burn_amount: user.burnchain_commit_burn,
-                vtxindex: user.vtxindex,
-            }
-        }
-    }
-
     fn advance_tip(
         chainstate: &mut StacksChainState,
         parent_header_info: &StacksHeaderInfo,
         block_reward: &mut MinerPaymentSchedule,
-        user_burns: &mut Vec<StagingUserBurnSupport>,
     ) -> StacksHeaderInfo {
         let mut new_tip = parent_header_info.clone();
 
@@ -1191,11 +1130,6 @@ mod test {
         block_reward.block_hash = new_tip.anchored_header.block_hash();
         block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
-        for ref mut user_burn in user_burns.iter_mut() {
-            user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
-            user_burn.consensus_hash = new_tip.consensus_hash.clone();
-        }
-
         let mut tx = chainstate.index_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(
             &mut tx,
@@ -1211,7 +1145,6 @@ mod test {
             new_tip.burn_header_timestamp,
             new_tip.microblock_tail.clone(),
             &block_reward,
-            &user_burns,
             None,
             &ExecutionCost::zero(),
             123,
@@ -1251,9 +1184,6 @@ mod test {
             0,
         );
 
-        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
-        let mut user_supports = vec![user_support];
-
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
@@ -1269,7 +1199,6 @@ mod test {
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut user_supports,
         );
 
         {
@@ -1283,7 +1212,7 @@ mod test {
             assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
         }
 
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
@@ -1306,23 +1235,15 @@ mod test {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
-        let user_1 =
-            StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
-                .unwrap();
 
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
         let initial_tip = StacksHeaderInfo::regtest_genesis();
-
-        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
-        let mut user_supports = vec![user_support];
 
         let parent_tip = advance_tip(
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut user_supports,
         );
 
         // dummy reward
@@ -1337,7 +1258,7 @@ mod test {
             0,
             0,
         );
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
@@ -1351,15 +1272,8 @@ mod test {
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
                     .unwrap();
 
-            let mut expected_user_support = user_reward.clone();
-            expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
-            expected_user_support.parent_consensus_hash =
-                miner_reward.parent_consensus_hash.clone();
-            expected_user_support.block_hash = miner_reward.block_hash.clone();
-            expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
-
             assert_eq!(payments_0, vec![]);
-            assert_eq!(payments_1, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_1, vec![miner_reward]);
             assert_eq!(payments_2, vec![tip_reward]);
         };
     }
@@ -1380,7 +1294,6 @@ mod test {
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut vec![],
         );
 
         // dummy reward
@@ -1395,7 +1308,7 @@ mod test {
             0,
             0,
         );
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();

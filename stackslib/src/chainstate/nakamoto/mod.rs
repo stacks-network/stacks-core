@@ -56,11 +56,10 @@ use super::burn::db::sortdb::{
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
-use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
@@ -1403,7 +1402,7 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit) = ok_opt.expect("FATAL: unreachable");
+        let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -1459,6 +1458,7 @@ impl NakamotoChainState {
                 &receipt.anchored_block_cost,
                 &receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set_data,
             );
         }
 
@@ -2346,11 +2346,7 @@ impl NakamotoChainState {
             tenure_fees,
         )?;
         if let Some(block_reward) = block_reward {
-            StacksChainState::insert_miner_payment_schedule(
-                headers_tx.deref_mut(),
-                block_reward,
-                &[],
-            )?;
+            StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),
@@ -2689,7 +2685,14 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        ChainstateError,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
@@ -3012,8 +3015,30 @@ impl NakamotoChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set_data = None;
         if let Some(signer_calculation) = signer_set_calc {
-            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
+            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
+
+            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                chain_tip_burn_header_height.into(),
+            ) {
+                Some(cycle)
+            } else {
+                pox_constants
+                    .block_height_to_reward_cycle(
+                        first_block_height.into(),
+                        chain_tip_burn_header_height.into(),
+                    )
+                    .map(|cycle| cycle + 1)
+            };
+
+            if let Some(cycle) = cycle_number {
+                reward_set_data = Some(RewardSetData::new(
+                    signer_calculation.reward_set.clone(),
+                    cycle,
+                ));
+            }
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
@@ -3055,7 +3080,7 @@ impl NakamotoChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((epoch_receipt, clarity_commit, reward_set_data))
     }
 
     /// Create a StackerDB config for the .miners contract.

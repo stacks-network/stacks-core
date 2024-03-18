@@ -15,15 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use crate::vm::analysis::errors::{CheckError, CheckErrors};
-use crate::vm::execute_v2;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
 use crate::vm::types::StringSubtype::ASCII;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::ClarityVersion;
-use std::convert::TryFrom;
+use crate::vm::{execute_v2, ClarityVersion};
 
 #[test]
 fn test_simple_buff_to_int_le() {

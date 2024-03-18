@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::{Ord, Ordering};
+use std::cmp::Ordering;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};

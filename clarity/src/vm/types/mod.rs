@@ -19,10 +19,11 @@ pub mod serialization;
 #[allow(clippy::result_large_err)]
 pub mod signatures;
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::{char, cmp, fmt, str};
 
+use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
@@ -1034,12 +1035,14 @@ impl Value {
             Ok(string) => string,
             _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
         };
-        let mut data = vec![];
-        for char in validated_utf8_str.chars() {
-            let mut encoded_char: Vec<u8> = vec![0; char.len_utf8()];
-            char.encode_utf8(&mut encoded_char[..]);
-            data.push(encoded_char);
-        }
+        let data = validated_utf8_str
+            .chars()
+            .map(|char| {
+                let mut encoded_char = vec![0u8; char.len_utf8()];
+                char.encode_utf8(&mut encoded_char);
+                encoded_char
+            })
+            .collect::<Vec<_>>();
         // check the string size
         StringUTF8Length::try_from(data.len())?;
 
@@ -1526,11 +1529,11 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
-            if type_map.contains_key(&name) {
-                return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
-            } else {
-                type_map.insert(name.clone(), type_info);
-            }
+            let entry = type_map.entry(name.clone());
+            match entry {
+                Entry::Vacant(e) => e.insert(type_info),
+                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
+            };
             data_map.insert(name, value);
         }
 

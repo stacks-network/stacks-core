@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;
@@ -33,7 +32,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
-use super::stacks::boot::RewardSet;
+use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -177,6 +176,7 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
     );
 
     /// called whenever a burn block is about to be
@@ -190,13 +190,6 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
-    );
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
     );
 }
 
@@ -361,10 +354,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
                 error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
                 return Err(Error::PoXAnchorBlockRequired);
             }
-        }
-
-        if let Some(dispatcher) = self.0 {
-            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
         Ok(reward_set)
@@ -3026,6 +3015,7 @@ impl<
 
     /// Try and replay a newly-discovered (or re-affirmed) sortition's associated Stacks block, if
     /// we have it.
+    #[cfg_attr(test, mutants::skip)]
     fn try_replay_stacks_block(
         &mut self,
         canonical_snapshot: &BlockSnapshot,
@@ -3128,6 +3118,7 @@ impl<
     /// block."
     ///
     /// Returning None means "we can keep processing Stacks blocks"
+    #[cfg_attr(test, mutants::skip)]
     fn consider_pox_anchor(
         &self,
         pox_anchor: &BlockHeaderHash,
@@ -3459,6 +3450,7 @@ pub fn check_chainstate_db_versions(
 
 /// Migrate all databases to their latest schemas.
 /// Verifies that this is possible as well
+#[cfg_attr(test, mutants::skip)]
 pub fn migrate_chainstate_dbs(
     epochs: &[StacksEpoch],
     sortdb_path: &str,

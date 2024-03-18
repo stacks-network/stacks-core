@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -110,15 +109,6 @@ pub struct StagingBlock {
     pub block_data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct StagingUserBurnSupport {
-    pub consensus_hash: ConsensusHash,
-    pub anchored_block_hash: BlockHeaderHash,
-    pub address: StacksAddress,
-    pub burn_amount: u64,
-    pub vtxindex: u32,
-}
-
 #[derive(Debug)]
 pub enum MemPoolRejection {
     SerializationFailure(codec_error),
@@ -191,6 +181,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set_data: &Option<RewardSetData>,
     ) {
         assert!(
             false,
@@ -205,18 +196,6 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
-    ) {
-        assert!(
-            false,
-            "We should never try to announce to the dummy dispatcher"
-        );
-    }
-
-    fn announce_reward_set(
-        &self,
-        _reward_set: &RewardSet,
-        _block_id: &StacksBlockId,
-        _cycle_number: u64,
     ) {
         assert!(
             false,
@@ -423,25 +402,6 @@ impl FromRow<StagingBlock> for StagingBlock {
             commit_burn,
             sortition_burn,
             block_data,
-        })
-    }
-}
-
-impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
-    fn from_row<'a>(row: &'a Row) -> Result<StagingUserBurnSupport, db_error> {
-        let anchored_block_hash: BlockHeaderHash =
-            BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-        let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let address: StacksAddress = StacksAddress::from_column(row, "address")?;
-        let burn_amount = u64::from_column(row, "burn_amount")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
-
-        Ok(StagingUserBurnSupport {
-            anchored_block_hash,
-            consensus_hash,
-            address,
-            burn_amount,
-            vtxindex,
         })
     }
 }
@@ -1125,19 +1085,6 @@ impl StacksChainState {
         }
     }
 
-    /// Load up the list of users who burned for an unprocessed block.
-    fn load_staging_block_user_supports(
-        block_conn: &DBConn,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> Result<Vec<StagingUserBurnSupport>, Error> {
-        let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND consensus_hash = ?2".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
-        let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, args)
-            .map_err(Error::DBError)?;
-        Ok(rows)
-    }
-
     /// Load up a queued block's queued pubkey hash
     fn load_staging_block_pubkey_hash(
         block_conn: &DBConn,
@@ -1799,34 +1746,6 @@ impl StacksChainState {
 
         tx.execute(&block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        Ok(())
-    }
-
-    /// Store users who burned in support of a block
-    fn store_staging_block_user_burn_supports<'a>(
-        tx: &mut DBTx<'a>,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        burn_supports: &[UserBurnSupportOp],
-    ) -> Result<(), Error> {
-        for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < u64::try_from(i64::MAX).expect("unreachable"));
-        }
-
-        for burn_support in burn_supports.iter() {
-            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, consensus_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[
-                &consensus_hash,
-                &block_hash,
-                &burn_support.address.to_string(),
-                &u64_to_sql(burn_support.burn_fee)?,
-                &burn_support.vtxindex,
-            ];
-
-            tx.execute(&sql, args)
-                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
 
         Ok(())
     }
@@ -3535,9 +3454,6 @@ impl StacksChainState {
             return Ok(false);
         }
 
-        // find all user burns that supported this block
-        let user_burns = sort_handle.get_winning_user_burns_by_block()?;
-
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
             &block_tx,
@@ -3590,14 +3506,6 @@ impl StacksChainState {
             commit_burn,
             sortition_burn,
             download_time,
-        )?;
-
-        // store users who burned for this block so they'll get rewarded if we process it
-        StacksChainState::store_staging_block_user_burn_supports(
-            &mut block_tx,
-            consensus_hash,
-            &block.block_hash(),
-            &user_burns,
         )?;
 
         block_tx.commit()?;
@@ -5328,10 +5236,16 @@ impl StacksChainState {
         microblocks: &Vec<StacksMicroblock>, // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
         do_not_advance: bool,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        Error,
+    > {
         debug!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
@@ -5718,7 +5632,7 @@ impl StacksChainState {
                 signers_updated: false,
             };
 
-            return Ok((epoch_receipt, clarity_commit));
+            return Ok((epoch_receipt, clarity_commit, None));
         }
 
         let parent_block_header = parent_chain_tip
@@ -5737,7 +5651,6 @@ impl StacksChainState {
             chain_tip_burn_header_timestamp,
             microblock_tail_opt,
             &scheduled_miner_reward,
-            user_burns,
             miner_payouts_opt,
             &block_execution_cost,
             block_size,
@@ -5755,13 +5668,36 @@ impl StacksChainState {
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
         let signers_updated = signer_set_calc.is_some();
+        let mut reward_set_data = None;
         if let Some(signer_calculation) = signer_set_calc {
             let new_block_id = new_tip.index_block_hash();
             NakamotoChainState::write_reward_set(
                 chainstate_tx,
                 &new_block_id,
                 &signer_calculation.reward_set,
-            )?
+            )?;
+
+            let first_block_height = burn_dbconn.get_burn_start_height();
+            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                parent_burn_block_height.into(),
+            ) {
+                Some(cycle)
+            } else {
+                pox_constants
+                    .block_height_to_reward_cycle(
+                        first_block_height.into(),
+                        parent_burn_block_height.into(),
+                    )
+                    .map(|cycle| cycle + 1)
+            };
+
+            if let Some(cycle) = cycle_number {
+                reward_set_data = Some(RewardSetData::new(
+                    signer_calculation.reward_set.clone(),
+                    cycle,
+                ));
+            }
         }
 
         set_last_block_transaction_count(
@@ -5784,7 +5720,7 @@ impl StacksChainState {
             signers_updated,
         };
 
-        Ok((epoch_receipt, clarity_commit))
+        Ok((epoch_receipt, clarity_commit, reward_set_data))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -6099,13 +6035,6 @@ impl StacksChainState {
             last_microblock_seq
         );
 
-        // find users that burned in support of this block, so we can calculate the miner reward
-        let user_supports = StacksChainState::load_staging_block_user_supports(
-            chainstate_tx.deref().deref(),
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )?;
-
         test_debug!(
             "About to load affirmation map for {}/{}",
             &next_staging_block.consensus_hash,
@@ -6128,7 +6057,7 @@ impl StacksChainState {
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
         let pox_constants = sort_tx.context.pox_constants.clone();
-        let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
+        let (epoch_receipt, clarity_commit, reward_set_data) = match StacksChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -6143,7 +6072,6 @@ impl StacksChainState {
             &next_microblocks,
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
-            &user_supports,
             block_am.weight(),
             false,
         ) {
@@ -6265,6 +6193,7 @@ impl StacksChainState {
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
                 &pox_constants,
+                &reward_set_data,
             );
         }
 
