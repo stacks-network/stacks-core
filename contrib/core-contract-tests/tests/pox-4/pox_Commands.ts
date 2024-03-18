@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { Real, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
+import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxCommand } from "./pox_StackStxCommand";
 
 export function PoxCommands(
@@ -38,6 +39,18 @@ export function PoxCommands(
         r.authId,
         r.period,
         r.margin,
+      )
+    ),
+    // GetStxAccountCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+    }).map((
+      r: {
+        wallet: Wallet;
+      },
+    ) =>
+      new GetStxAccountCommand(
+        r.wallet,
       )
     ),
   ];
