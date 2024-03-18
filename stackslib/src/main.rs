@@ -26,10 +26,10 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
@@ -1589,7 +1589,6 @@ fn parse_input_epoch(epoch_arg_index: usize) -> StacksEpochId {
 }
 
 fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
-    /*
     let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{stacks_path}/mainnet/chainstate/");
     let sort_db_path = format!("{stacks_path}/mainnet/burnchain/sortition");
@@ -1678,7 +1677,8 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         .expect("Error getting Epoch")
         .expect("No Epoch found")
         .epoch_id;
-    let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id);
+    let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id)
+        .expect("Failed to get block");
     let block_size = next_staging_block.block_data.len() as u64;
 
     let parent_block_header = match &parent_header_info.anchored_header {
@@ -1762,5 +1762,4 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
             process::exit(1);
         }
     };
-    */
 }

@@ -524,11 +524,11 @@ impl NakamotoBlockBuilder {
     /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
     /// Returns None if not
     /// Returns an error on signing or DB error
-    pub fn make_stackerdb_block_proposal(
+    pub fn make_stackerdb_block_proposal<T: StacksMessageCodec>(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
-        block: &NakamotoBlock,
+        block: &T,
         miner_privkey: &StacksPrivateKey,
         miners_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<StackerDBChunkData>, Error> {

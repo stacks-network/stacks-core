@@ -34,6 +34,7 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use clarity::vm::Value::Optional;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
@@ -53,9 +54,9 @@ use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
-    check_pox_print_event, generate_pox_clarity_value, get_reward_set_entries_at,
-    get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro, PoxPrintFields,
-    StackingStateCheckData,
+    check_pox_print_event, generate_pox_clarity_value, get_partial_stacked,
+    get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
+    PoxPrintFields, StackingStateCheckData,
 };
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
@@ -503,6 +504,8 @@ fn pox_extend_transition() {
         u128::MAX,
         auth_id,
     );
+    let alice_stack_signature = alice_signature.clone();
+    let alice_stack_signer_key = alice_signer_key.clone();
     let alice_lockup = make_pox_4_lockup(
         &alice,
         2,
@@ -613,8 +616,8 @@ fn pox_extend_transition() {
         3,
         alice_pox_addr.clone(),
         6,
-        alice_signer_key,
-        Some(alice_signature),
+        alice_signer_key.clone(),
+        Some(alice_signature.clone()),
         u128::MAX,
         3,
     );
@@ -731,6 +734,16 @@ fn pox_extend_transition() {
         ),
         ("pox-addr", pox_addr_val.clone()),
         ("lock-period", Value::UInt(4)),
+        (
+            "signer-sig",
+            Value::some(Value::buff_from(alice_stack_signature).unwrap()).unwrap(),
+        ),
+        (
+            "signer-key",
+            Value::buff_from(alice_stack_signer_key.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount", Value::UInt(u128::MAX)),
+        ("auth-id", Value::UInt(1)),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-stx".to_string(),
@@ -1277,6 +1290,516 @@ fn pox_3_unlocks() {
     }
 }
 
+// This tests calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
+// in emitted pox events.
+// In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
+// Alice delegates to Bob via `delegate-stx`
+// And Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
+#[test]
+fn pox_4_check_cycle_id_range_in_print_events() {
+    // Config for this test
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+    let mut coinbase_nonce = 0;
+    let mut latest_block = None;
+
+    // alice
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_pox_addr = pox_addr_from(&alice);
+
+    // bob
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_pox_addr = pox_addr_from(&bob);
+    let bob_signing_key = Secp256k1PublicKey::from_private(&bob);
+    let bob_pox_addr_val = Value::Tuple(bob_pox_addr.as_clarity_tuple().unwrap());
+
+    // steph the solo stacker stacks stx so nakamoto signer set stays stacking.
+    let steph_key = keys.pop().unwrap();
+    let steph_address = key_to_stacks_addr(&steph_key);
+    let steph_principal = PrincipalData::from(steph_address.clone());
+    let steph_pox_addr_val =
+        make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes.clone());
+    let steph_pox_addr = pox_addr_from(&steph_key);
+    let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
+    let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
+
+    let mut alice_nonce = 0;
+    let mut steph_nonce = 0;
+    let mut bob_nonce = 0;
+
+    // Advance into pox4
+    let target_height = burnchain.pox_constants.pox_4_activation_height;
+    // produce blocks until the first reward phase that everyone should be in
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
+    }
+
+    let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let next_reward_cycle = reward_cycle + 1;
+
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
+
+    let lock_period = 1;
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
+
+    // stack-stx
+    let steph_stack_stx_nonce = steph_nonce;
+    let signature = make_signer_key_signature(
+        &steph_pox_addr,
+        &steph_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let steph_stacking = make_pox_4_lockup(
+        &steph_key,
+        steph_stack_stx_nonce,
+        min_ustx,
+        &steph_pox_addr.clone(),
+        lock_period,
+        &steph_signing_key,
+        block_height,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
+    steph_nonce += 1;
+
+    // stack-increase
+    let steph_stack_increase_nonce = steph_nonce;
+    let signature = make_signer_key_signature(
+        &steph_pox_addr,
+        &steph_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackIncrease,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let steph_stack_increase = make_pox_4_stack_increase(
+        &steph_key,
+        steph_stack_increase_nonce,
+        100,
+        &steph_signing_key,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
+    steph_nonce += 1;
+
+    // stack-extend
+    let steph_stack_extend_nonce = steph_nonce;
+    let stack_extend_signature = make_signer_key_signature(
+        &steph_pox_addr,
+        &steph_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackExtend,
+        1_u128,
+        u128::MAX,
+        1,
+    );
+    let steph_stack_extend = make_pox_4_extend(
+        &steph_key,
+        steph_stack_extend_nonce,
+        steph_pox_addr,
+        lock_period,
+        steph_signing_key,
+        Some(stack_extend_signature),
+        u128::MAX,
+        1,
+    );
+    steph_nonce += 1;
+
+    // alice delegates STX to bob
+    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+        + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
+        + 1; // additional few blocks shouldn't matter to unlock-cycle
+    let alice_delegate = make_pox_4_delegate_stx(
+        &alice,
+        alice_nonce,
+        min_ustx,
+        bob_principal.clone(),
+        Some(target_height as u128),
+        Some(bob_pox_addr.clone()),
+    );
+    let alice_delegate_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let bob_delegate_stack_nonce = bob_nonce;
+    let bob_delegate_stack = make_pox_4_delegate_stack_stx(
+        &bob,
+        bob_nonce,
+        alice_principal.clone(),
+        min_ustx,
+        bob_pox_addr.clone(),
+        curr_height as u128,
+        lock_period,
+    );
+    bob_nonce += 1;
+
+    let bob_aggregation_commit_nonce = bob_nonce;
+    let signature = make_signer_key_signature(
+        &bob_pox_addr,
+        &bob,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let bob_aggregation_commit = make_pox_4_aggregation_commit_indexed(
+        &bob,
+        bob_aggregation_commit_nonce,
+        &bob_pox_addr,
+        next_reward_cycle,
+        Some(signature),
+        &bob_signing_key,
+        u128::MAX,
+        1,
+    );
+    bob_nonce += 1;
+
+    latest_block = Some(peer.tenure_with_txs(
+        &[
+            steph_stacking,
+            steph_stack_increase,
+            steph_stack_extend,
+            alice_delegate,
+            bob_delegate_stack,
+            bob_aggregation_commit,
+        ],
+        &mut coinbase_nonce,
+    ));
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
+    assert_eq!(tipId, latest_block.unwrap());
+
+    let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
+    assert_eq!(in_prepare_phase, false);
+
+    let blocks = observer.get_blocks();
+    let mut steph_txs = HashMap::new();
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == steph_address {
+                    steph_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(steph_txs.len() as u64, 3);
+    assert_eq!(alice_txs.len() as u64, 1);
+    assert_eq!(bob_txs.len() as u64, 2);
+
+    let steph_stack_stx_tx = &steph_txs.get(&steph_stack_stx_nonce);
+    let steph_stack_extend_tx = &steph_txs.get(&steph_stack_extend_nonce);
+    let steph_stack_increase_tx = &steph_txs.get(&steph_stack_increase_nonce);
+    let bob_delegate_stack_stx_tx = &bob_txs.get(&bob_delegate_stack_nonce);
+    let bob_aggregation_commit_tx = &bob_txs.get(&bob_aggregation_commit_nonce);
+    let alice_delegate_tx = &alice_txs.get(&alice_delegate_nonce);
+
+    // Check event for stack-stx tx
+    let steph_stacking_tx_events = &steph_stack_stx_tx.unwrap().clone().events;
+    assert_eq!(steph_stacking_tx_events.len() as u64, 2);
+    let steph_stacking_tx_event = &steph_stacking_tx_events[0];
+    let steph_stacking_op_data = HashMap::from([
+        // matches the expected cycle, since we're not in a prepare phase
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle + lock_period)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-stx".to_string(),
+        stacker: steph_principal.clone().into(),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(steph_stacking_tx_event, common_data, steph_stacking_op_data);
+
+    // Check event for stack-increase tx
+    let steph_stack_increase_tx_events = &steph_stack_increase_tx.unwrap().clone().events;
+    assert_eq!(steph_stack_increase_tx_events.len() as u64, 2);
+    let steph_stack_increase_tx_event = &steph_stack_increase_tx_events[0];
+    let steph_stack_increase_op_data = HashMap::from([
+        // `stack-increase` is in the same block as `stack-stx`, so we essentially want to be able to override the first event
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle + lock_period)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: steph_principal.clone().into(),
+        balance: Value::UInt(10234866375000),
+        locked: Value::UInt(5133625000),
+        burnchain_unlock_height: Value::UInt(120),
+    };
+    check_pox_print_event(
+        steph_stack_increase_tx_event,
+        common_data,
+        steph_stack_increase_op_data,
+    );
+
+    // Check event for stack-extend tx
+    let steph_stack_extend_tx_events = &steph_stack_extend_tx.unwrap().clone().events;
+    assert_eq!(steph_stack_extend_tx_events.len() as u64, 2);
+    let steph_stack_extend_tx_event = &steph_stack_extend_tx_events[0];
+    let steph_stacking_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle + lock_period + 1)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-extend".to_string(),
+        stacker: steph_principal.clone().into(),
+        balance: Value::UInt(10234866374900),
+        locked: Value::UInt(5133625100),
+        burnchain_unlock_height: Value::UInt(120),
+    };
+    check_pox_print_event(
+        steph_stack_extend_tx_event,
+        common_data,
+        steph_stacking_op_data,
+    );
+
+    // Check event for delegate-stx tx
+    let alice_delegation_tx_events = &alice_delegate_tx.unwrap().clone().events;
+    assert_eq!(alice_delegation_tx_events.len() as u64, 1);
+    let alice_delegation_tx_event = &alice_delegation_tx_events[0];
+    let alice_delegate_stx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle + 2)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stx".to_string(),
+        stacker: alice_principal.clone().into(),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(
+        alice_delegation_tx_event,
+        common_data,
+        alice_delegate_stx_op_data,
+    );
+
+    // Check event for delegate-stack-stx tx
+    let bob_delegate_stack_stx_tx_events = &bob_delegate_stack_stx_tx.unwrap().clone().events;
+    assert_eq!(bob_delegate_stack_stx_tx_events.len() as u64, 2);
+    let bob_delegate_stack_stx_tx_event = &bob_delegate_stack_stx_tx_events[0];
+    let bob_delegate_stack_stx_tx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle + lock_period)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-stx".to_string(),
+        stacker: alice_principal.clone().into(),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(
+        bob_delegate_stack_stx_tx_event,
+        common_data,
+        bob_delegate_stack_stx_tx_op_data,
+    );
+
+    // Check event for aggregation_commit tx
+    let bob_aggregation_commit_tx_events = &bob_aggregation_commit_tx.unwrap().clone().events;
+    assert_eq!(bob_aggregation_commit_tx_events.len() as u64, 1);
+    let bob_aggregation_commit_tx_event = &bob_aggregation_commit_tx_events[0];
+    let bob_aggregation_commit_tx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_reward_cycle)),
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_reward_cycle)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-aggregation-commit-indexed".to_string(),
+        stacker: bob_principal.clone().into(),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(
+        bob_aggregation_commit_tx_event,
+        common_data,
+        bob_aggregation_commit_tx_op_data,
+    );
+}
+
+// This tests calls some pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
+// in emitted pox events.
+// In this setup, Steph solo stacks in the prepare phase
+#[test]
+fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
+    // Config for this test
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+    let mut coinbase_nonce = 0;
+    let mut latest_block = None;
+
+    let steph_key = keys.pop().unwrap();
+    let steph_address = key_to_stacks_addr(&steph_key);
+    let steph_principal = PrincipalData::from(steph_address.clone());
+    let steph_pox_addr_val =
+        make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes.clone());
+    let steph_pox_addr = pox_addr_from(&steph_key);
+    let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
+    let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
+
+    let mut steph_nonce = 0;
+
+    // Advance into pox4
+    let target_height = burnchain.pox_constants.pox_4_activation_height;
+    // produce blocks until the first reward phase that everyone should be in
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
+    }
+    // produce blocks until the we're in the prepare phase
+    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
+    }
+
+    let steph_balance = get_balance(&mut peer, &steph_principal);
+
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
+
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap()) * 120 / 100; // * 1.2
+
+    // stack-stx
+    let steph_lock_period = 2;
+    let current_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let next_cycle = current_cycle + 1;
+    let signature = make_signer_key_signature(
+        &steph_pox_addr,
+        &steph_key,
+        current_cycle,
+        &Pox4SignatureTopic::StackStx,
+        steph_lock_period,
+        u128::MAX,
+        1,
+    );
+    let steph_stacking = make_pox_4_lockup(
+        &steph_key,
+        steph_nonce,
+        min_ustx,
+        &steph_pox_addr.clone(),
+        steph_lock_period,
+        &steph_signing_key,
+        get_tip(peer.sortdb.as_ref()).block_height,
+        Some(signature),
+        u128::MAX,
+        1,
+    );
+    steph_nonce += 1;
+
+    latest_block = Some(peer.tenure_with_txs(&[steph_stacking.clone()], &mut coinbase_nonce));
+
+    let txs: HashMap<_, _> = observer
+        .get_blocks()
+        .into_iter()
+        .flat_map(|b| b.receipts)
+        .filter_map(|r| match r.transaction {
+            TransactionOrigin::Stacks(ref t) => Some((t.txid(), r.clone())),
+            _ => None,
+        })
+        .collect();
+
+    // Check event for stack-stx tx
+    let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
+    assert_eq!(steph_stacking_receipt.events.len(), 2);
+    let steph_stacking_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked during the prepare phase
+        (
+            "end-cycle-id",
+            Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-stx".to_string(),
+        stacker: steph_principal.clone().into(),
+        balance: Value::UInt(steph_balance),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(
+        &steph_stacking_receipt.events[0],
+        common_data,
+        steph_stacking_op_data,
+    );
+}
+
 // test that revoke-delegate-stx calls emit an event and
 // test that revoke-delegate-stx is only successfull if user has delegated.
 #[test]
@@ -1337,7 +1860,10 @@ fn pox_4_revoke_delegate_stx_events() {
         get_tip(peer.sortdb.as_ref()).block_height
     );
     let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let current_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let next_cycle = current_cycle + 1;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
+
     let steph_stacking = make_pox_4_contract_call(
         &steph,
         0,
@@ -1429,10 +1955,14 @@ fn pox_4_revoke_delegate_stx_events() {
     let revoke_delegation_tx_events = &alice_txs.get(&alice_revoke_nonce).unwrap().clone().events;
     assert_eq!(revoke_delegation_tx_events.len() as u64, 1);
     let revoke_delegation_tx_event = &revoke_delegation_tx_events[0];
-    let revoke_delegate_stx_op_data = HashMap::from([(
-        "delegate-to",
-        Value::Principal(PrincipalData::from(bob_address.clone())),
-    )]);
+    let revoke_delegate_stx_op_data = HashMap::from([
+        ("start-cycle-id", Value::UInt(next_cycle)),
+        ("end-cycle-id", Optional(OptionalData { data: None })),
+        (
+            "delegate-to",
+            Value::Principal(PrincipalData::from(bob_address.clone())),
+        ),
+    ]);
     let common_data = PoxPrintFields {
         op_name: "revoke-delegate-stx".to_string(),
         stacker: alice_principal.clone().into(),
@@ -4311,7 +4841,7 @@ fn stack_increase() {
         alice_nonce,
         min_ustx,
         &signing_pk,
-        Some(signature),
+        Some(signature.clone()),
         u128::MAX,
         1,
     );
@@ -4321,6 +4851,8 @@ fn stack_increase() {
     let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
     let actual_result = stacker_transactions.first().cloned().unwrap().result;
+
+    let increase_event = &stacker_transactions.first().cloned().unwrap().events[0];
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
@@ -4333,6 +4865,29 @@ fn stack_increase() {
         .unwrap(),
     ))
     .unwrap();
+
+    let increase_op_data = HashMap::from([
+        (
+            "signer-sig",
+            Value::some(Value::buff_from(signature).unwrap()).unwrap(),
+        ),
+        (
+            "signer-key",
+            Value::buff_from(signing_pk.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount", Value::UInt(u128::MAX)),
+        ("auth-id", Value::UInt(1)),
+    ]);
+
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: Value::Principal(PrincipalData::from(alice_address.clone())),
+        balance: Value::UInt(10234866375000),
+        locked: Value::UInt(5133625000),
+        burnchain_unlock_height: Value::UInt(125),
+    };
+
+    check_pox_print_event(&increase_event, common_data, increase_op_data);
 
     // Testing stack_increase response is equal to expected response
     // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3

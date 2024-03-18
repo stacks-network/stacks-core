@@ -93,6 +93,13 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 BurnchainError::OpError(e)
             }),
+            BlockstackOperationType::VoteForAggregateKey(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) vote for aggregate key op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
         }
     }
 

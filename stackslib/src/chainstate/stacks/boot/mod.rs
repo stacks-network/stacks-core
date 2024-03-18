@@ -228,6 +228,8 @@ pub struct RewardSet {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     // only generated for nakamoto reward sets
     pub signers: Option<Vec<NakamotoSignerEntry>>,
+    #[serde(default)]
+    pub pox_ustx_threshold: Option<u128>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -260,6 +262,7 @@ impl RewardSet {
                 missed_reward_slots: vec![],
             },
             signers: None,
+            pox_ustx_threshold: None,
         }
     }
 
@@ -296,7 +299,7 @@ impl StacksChainState {
     pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         match clarity_db
-            .get::<String>(&db_key)
+            .get_data::<String>(&db_key)
             .expect("FATAL: DB error when checking PoX cycle start")
         {
             Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
@@ -309,7 +312,7 @@ impl StacksChainState {
         cycle_number: u64,
     ) -> Result<(), clarity::vm::errors::Error> {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
-        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
+        db.put_data(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
         Ok(())
     }
 
@@ -843,6 +846,7 @@ impl StacksChainState {
                 missed_reward_slots: missed_slots,
             },
             signers: signer_set,
+            pox_ustx_threshold: Some(threshold),
         }
     }
 

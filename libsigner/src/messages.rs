@@ -828,6 +828,27 @@ pub enum BlockResponse {
     Rejected(BlockRejection),
 }
 
+impl std::fmt::Display for BlockResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockResponse::Accepted(a) => {
+                write!(
+                    f,
+                    "BlockAccepted: signer_sighash = {}, signature = {}",
+                    a.0, a.1
+                )
+            }
+            BlockResponse::Rejected(r) => {
+                write!(
+                    f,
+                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}",
+                    r.reason_code, r.reason, r.signer_signature_hash
+                )
+            }
+        }
+    }
+}
+
 impl BlockResponse {
     /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
     pub fn accepted(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
