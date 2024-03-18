@@ -25,6 +25,8 @@ export type Wallet = {
   client: StackingClient;
   ustxBalance: number;
   isStacking: boolean;
+  hasDelegated: boolean;
+  delegatedTo: string;
   amountLocked: number;
   unlockHeight: number;
 };
