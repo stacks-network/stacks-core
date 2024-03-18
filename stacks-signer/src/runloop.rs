@@ -229,7 +229,7 @@ impl RunLoop {
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(&mut self, reward_cycle: u64) {
+    fn refresh_signer_config(&mut self, reward_cycle: u64, current: bool) {
         let reward_index = reward_cycle % 2;
         let mut needs_refresh = false;
         if let Some(signer) = self.stacks_signers.get_mut(&reward_index) {
@@ -266,7 +266,12 @@ impl RunLoop {
                     .insert(reward_index, Signer::from(new_signer_config));
                 debug!("Reward cycle #{reward_cycle} Signer #{signer_id} initialized.");
             } else {
-                warn!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                // TODO: Update `current` here once the signer binary is tracking its own latest burnchain/stacks views.
+                if current {
+                    warn!("Signer is not registered for the current reward cycle ({reward_cycle}). Waiting for confirmed registration...");
+                } else {
+                    debug!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
+                }
             }
         }
     }
@@ -275,11 +280,19 @@ impl RunLoop {
     /// Note: this will trigger DKG if required
     fn refresh_signers(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
-        self.refresh_signer_config(current_reward_cycle);
-        self.refresh_signer_config(next_reward_cycle);
+        self.refresh_signer_config(current_reward_cycle, true);
+        self.refresh_signer_config(next_reward_cycle, false);
         // TODO: do not use an empty consensus hash
         let pox_consensus_hash = ConsensusHash::empty();
-        for signer in self.stacks_signers.values_mut() {
+        let mut to_delete = Vec::new();
+        for (idx, signer) in &mut self.stacks_signers {
+            if signer.reward_cycle < current_reward_cycle {
+                debug!("{signer}: Signer's tenure has completed.");
+                // We don't really need this state, but it's useful for debugging
+                signer.state = SignerState::TenureCompleted;
+                to_delete.push(*idx);
+                continue;
+            }
             let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
             let updated_coordinator_id = signer
                 .coordinator_selector
@@ -300,6 +313,11 @@ impl RunLoop {
                         .update_dkg(&self.stacks_client)
                         .map_err(backoff::Error::transient)
                 })?;
+            }
+        }
+        for i in to_delete.into_iter() {
+            if let Some(signer) = self.stacks_signers.remove(&i) {
+                info!("{signer}: Tenure has completed. Removing signer from runloop.",);
             }
         }
         if self.stacks_signers.is_empty() {
@@ -357,6 +375,26 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");
         }
         for signer in self.stacks_signers.values_mut() {
+            if signer.state == SignerState::TenureCompleted {
+                warn!("{signer}: Signer's tenure has completed. This signer should have been cleaned up during refresh.");
+                continue;
+            }
+            let event_parity = match event {
+                Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
+                // Block proposal events do have reward cycles, but each proposal has its own cycle,
+                //  and the vec could be heterogenous, so, don't differentiate.
+                Some(SignerEvent::ProposedBlocks(_)) => None,
+                Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
+                    Some(u64::from(msg_parity) % 2)
+                }
+                Some(SignerEvent::StatusCheck) => None,
+                None => None,
+            };
+            let other_signer_parity = (signer.reward_cycle + 1) % 2;
+            if event_parity == Some(other_signer_parity) {
+                continue;
+            }
+
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),
