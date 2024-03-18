@@ -22,7 +22,9 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::{BlockProposalSigners, MessageSlotID, SignerMessage};
+use libsigner::{
+    BlockProposalSigners, MessageSlotID, SignerMessage, SignerSession, StackerDBSession,
+};
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -36,7 +38,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
     TransactionPayload, TransactionVersion,
 };
-use stacks::net::stackerdb::{StackerDBConfig, StackerDBs};
+use stacks::net::stackerdb::StackerDBs;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -138,36 +140,6 @@ impl BlockMinerThread {
         globals.unblock_miner();
     }
 
-    fn make_miners_stackerdb_config(
-        &mut self,
-        stackerdbs: &mut StackerDBs,
-    ) -> Result<StackerDBConfig, NakamotoNodeError> {
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let burn_db_path = self.config.get_burn_db_file_path();
-        let sort_db = SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-            .expect("FATAL: could not open sortition DB");
-        let mut stacker_db_configs = HashMap::with_capacity(1);
-        let miner_contract = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        stacker_db_configs.insert(miner_contract.clone(), StackerDBConfig::noop());
-        let mut miners_only_config = stackerdbs
-            .create_or_reconfigure_stackerdbs(&mut chain_state, &sort_db, stacker_db_configs)
-            .map_err(|e| {
-                error!(
-                    "Failed to configure .miners stackerdbs";
-                    "err" => ?e,
-                );
-                NakamotoNodeError::MinerConfigurationFailed(
-                    "Could not setup .miners stackerdbs configuration",
-                )
-            })?;
-        miners_only_config.remove(&miner_contract).ok_or_else(|| {
-            NakamotoNodeError::MinerConfigurationFailed(
-                "Did not return .miners stackerdb configuration after setup",
-            )
-        })
-    }
-
     pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
@@ -210,13 +182,7 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                let Ok(stackerdb_config) = self.make_miners_stackerdb_config(&mut stackerdbs)
-                else {
-                    warn!("Failed to setup stackerdb to propose block, will try mining again");
-                    continue;
-                };
-
-                if let Err(e) = self.propose_block(&new_block, &mut stackerdbs, &stackerdb_config) {
+                if let Err(e) = self.propose_block(&new_block, &stackerdbs) {
                     error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
                     return;
                 }
@@ -224,7 +190,6 @@ impl BlockMinerThread {
                 let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
                     &new_block,
                     &mut stackerdbs,
-                    &stackerdb_config,
                     &mut attempts,
                 ) {
                     Ok(x) => x,
@@ -278,7 +243,6 @@ impl BlockMinerThread {
         &mut self,
         new_block: &NakamotoBlock,
         stackerdbs: &mut StackerDBs,
-        stackerdb_config: &StackerDBConfig,
         attempts: &mut u64,
     ) -> Result<(Point, ThresholdSignature), NakamotoNodeError> {
         let Some(miner_privkey) = self.config.miner.mining_key else {
@@ -374,7 +338,6 @@ impl BlockMinerThread {
             aggregate_public_key,
             self.config.is_mainnet(),
             &stackerdbs,
-            stackerdb_config.clone(),
             &self.config,
         )
         .map_err(|e| {
@@ -390,8 +353,7 @@ impl BlockMinerThread {
             &tip,
             &self.burnchain,
             &sort_db,
-            stackerdbs,
-            &self.event_dispatcher,
+            &stackerdbs,
         )?;
 
         Ok((aggregate_public_key, signature))
@@ -400,10 +362,14 @@ impl BlockMinerThread {
     fn propose_block(
         &mut self,
         new_block: &NakamotoBlock,
-        stackerdbs: &mut StackerDBs,
-        stackerdb_config: &StackerDBConfig,
+        stackerdbs: &StackerDBs,
     ) -> Result<(), NakamotoNodeError> {
+        let rpc_socket = self.config.node.get_rpc_loopback().ok_or_else(|| {
+            NakamotoNodeError::MinerConfigurationFailed("Could not parse RPC bind")
+        })?;
         let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_session =
+            StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id.clone());
         let Some(miner_privkey) = self.config.miner.mining_key else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -455,17 +421,12 @@ impl BlockMinerThread {
         };
 
         // Propose the block to the observing signers through the .miners stackerdb instance
-        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let Ok(stackerdb_tx) = stackerdbs.tx_begin(stackerdb_config.clone()) else {
-            warn!("Failed to begin stackerdbs transaction to write block proposal, will try mining again");
-            return Ok(());
-        };
-
-        match stackerdb_tx.put_chunk(&miner_contract_id, proposal, &self.event_dispatcher) {
-            Ok(()) => {
+        match miners_session.put_chunk(&proposal) {
+            Ok(ack) => {
                 info!(
                     "Proposed block to stackerdb";
-                    "signer_sighash" => %new_block.header.signer_signature_hash()
+                    "signer_sighash" => %new_block.header.signer_signature_hash(),
+                    "ack_msg" => ?ack,
                 );
             }
             Err(e) => {

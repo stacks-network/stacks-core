@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
@@ -12,7 +12,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
-use lazy_static::lazy_static;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -20,7 +19,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::RewardSetData;
+use stacks::chainstate::stacks::boot::{RewardSetData, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksBlockHeaderTypes, StacksHeaderInfo};
@@ -78,9 +77,7 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
-lazy_static! {
-    pub static ref STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
-}
+pub static STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
 
 /// This struct receives StackerDB event callbacks without registering
 /// over the JSON/RPC interface. To ensure that any event observer
@@ -92,8 +89,17 @@ lazy_static! {
 /// bad idea) or listen for events. Registering for RPC callbacks
 /// seems bad. So instead, it uses a singleton sync channel.
 pub struct StackerDBChannel {
-    receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
+    sender_info: Mutex<Option<InnerStackerDBChannel>>,
+}
+
+#[derive(Clone)]
+struct InnerStackerDBChannel {
+    /// A channel for sending the chunk events to the listener
     sender: Sender<StackerDBChunksEvent>,
+    /// Does the listener want to receive `.signers` chunks?
+    interested_in_signers: bool,
+    /// Which StackerDB contracts is the listener interested in?
+    other_interests: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -130,59 +136,84 @@ pub struct MinedNakamotoBlockEvent {
     pub signer_bitvec: String,
 }
 
-impl StackerDBChannel {
-    pub fn new() -> Self {
-        let (sender, recv_channel) = std::sync::mpsc::channel();
-        Self {
-            receiver: Mutex::new(Some(recv_channel)),
+impl InnerStackerDBChannel {
+    pub fn new_miner_receiver() -> (Receiver<StackerDBChunksEvent>, Self) {
+        let (sender, recv) = channel();
+        let sender_info = Self {
             sender,
+            interested_in_signers: true,
+            other_interests: vec![],
+        };
+
+        (recv, sender_info)
+    }
+}
+
+impl StackerDBChannel {
+    pub const fn new() -> Self {
+        Self {
+            sender_info: Mutex::new(None),
         }
     }
 
-    pub fn send(&self, event: StackerDBChunksEvent) {
-        if let Err(send_err) = self.sender.send(event) {
-            error!(
-                "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have crashed.";
-                "err" => ?send_err
-            );
-        }
-    }
-
-    /// Return the receiver to the StackerDBChannel. This must be done before
-    ///  another interested thread can subscribe to events.
+    /// Consume the receiver for the StackerDBChannel and drop the senders. This should be done
+    /// before another interested thread can subscribe to events, but it is not absolutely necessary
+    /// to do so (it would just result in temporary over-use of memory while the prior channel is still
+    /// open).
     ///
     /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
     /// be taken by different threads without unsafety.
     pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
+        // not strictly necessary, but do this rather than mark the `receiver` argument as unused
+        // so that we're explicit about the fact that `replace_receiver` consumes.
+        drop(receiver);
         let mut guard = self
-            .receiver
+            .sender_info
             .lock()
             .expect("FATAL: poisoned StackerDBChannel lock");
-        guard.replace(receiver);
+        guard.take();
     }
 
-    /// Try to take ownership of the event receiver channel. If another thread
-    ///  already has the channel (or failed to return it), this will return None.
+    /// Create a new event receiver channel for receiving events relevant to the miner coordinator,
+    /// dropping the old StackerDB event sender channels if they are still registered.
+    ///  Returns the new receiver channel and a bool indicating whether or not sender channels were
+    ///   still in place.
     ///
-    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
-    /// be taken by different threads without unsafety.
-    pub fn take_receiver(&self) -> Option<Receiver<StackerDBChunksEvent>> {
-        self.receiver
+    /// The StackerDBChannel senders are guarded by mutexes so that they can be replaced
+    /// by different threads without unsafety.
+    pub fn register_miner_coordinator(&self) -> (Receiver<StackerDBChunksEvent>, bool) {
+        let mut sender_info = self
+            .sender_info
             .lock()
-            .expect("FATAL: poisoned StackerDBChannel lock")
-            .take()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        let (recv, new_sender) = InnerStackerDBChannel::new_miner_receiver();
+        let replaced_receiver = sender_info.replace(new_sender).is_some();
+
+        (recv, replaced_receiver)
     }
 
-    /// Is there a thread holding the receiver?
-    ///
-    /// This method is used by the event dispatcher to decide whether or not to send a StackerDB
-    ///  event to the channel.
-    pub fn is_active(&self) -> bool {
-        // if the receiver field is empty (i.e., None), then a thread must have taken it.
-        self.receiver
+    /// Is there a thread holding the receiver, and is it interested in chunks events from `stackerdb`?
+    /// Returns the a sending channel to broadcast the event to if so, and `None` if not.
+    pub fn is_active(
+        &self,
+        stackerdb: &QualifiedContractIdentifier,
+    ) -> Option<Sender<StackerDBChunksEvent>> {
+        // if the receiver field is empty (i.e., None), then there is no listening thread, return None
+        let guard = self
+            .sender_info
             .lock()
-            .expect("FATAL: poisoned StackerDBChannel lock")
-            .is_none()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        let sender_info = guard.as_ref()?;
+        if sender_info.interested_in_signers
+            && stackerdb.issuer.1 == [0; 20]
+            && stackerdb.name.starts_with(SIGNERS_NAME)
+        {
+            return Some(sender_info.sender.clone());
+        }
+        if sender_info.other_interests.contains(stackerdb) {
+            return Some(sender_info.sender.clone());
+        }
+        None
     }
 }
 
@@ -1172,8 +1203,8 @@ impl EventDispatcher {
     ) {
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        let interested_receiver = STACKER_DB_CHANNEL.is_active();
-        if interested_observers.is_empty() && !interested_receiver {
+        let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
+        if interested_observers.is_empty() && interested_receiver.is_none() {
             return;
         }
 
@@ -1184,8 +1215,13 @@ impl EventDispatcher {
         let payload = serde_json::to_value(&event)
             .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
 
-        if interested_receiver {
-            STACKER_DB_CHANNEL.send(event)
+        if let Some(channel) = interested_receiver {
+            if let Err(send_err) = channel.send(event) {
+                warn!(
+                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have exited.";
+                    "err" => ?send_err
+                );
+            }
         }
 
         for observer in interested_observers.iter() {

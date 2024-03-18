@@ -17,7 +17,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::{MessageSlotID, SignerEvent, SignerMessage};
+use libsigner::{MessageSlotID, SignerEvent, SignerMessage, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -26,7 +26,7 @@ use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NA
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
 use stacks::libstackerdb::StackerDBChunkData;
-use stacks::net::stackerdb::{StackerDBConfig, StackerDBs};
+use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
@@ -41,7 +41,7 @@ use wsts::v2::Aggregator;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
-use crate::{Config, EventDispatcher};
+use crate::Config;
 
 /// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
 ///  sole function is to serve as the coordinator for Nakamoto block signing.
@@ -54,7 +54,7 @@ pub struct SignCoordinator {
     message_key: Scalar,
     wsts_public_keys: PublicKeys,
     is_mainnet: bool,
-    miners_db_config: StackerDBConfig,
+    miners_session: StackerDBSession,
     signing_round_timeout: Duration,
 }
 
@@ -209,13 +209,19 @@ impl SignCoordinator {
         aggregate_public_key: Point,
         is_mainnet: bool,
         stackerdb_conn: &StackerDBs,
-        miners_db_config: StackerDBConfig,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
         let Some(ref reward_set_signers) = reward_set.signers else {
             error!("Could not initialize WSTS coordinator for reward set without signer");
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
+
+        let rpc_socket = config
+            .node
+            .get_rpc_loopback()
+            .ok_or_else(|| ChainstateError::MinerAborted)?;
+        let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
+        let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
         let NakamotoSigningParams {
             num_signers,
@@ -259,12 +265,10 @@ impl SignCoordinator {
             warn!("Failed to set a valid set of party polynomials"; "error" => %e);
         };
 
-        let Some(receiver) = STACKER_DB_CHANNEL.take_receiver() else {
-            error!("Could not obtain handle for the StackerDBChannel");
-            return Err(ChainstateError::ChannelClosed(
-                "WSTS coordinator requires a handle to the StackerDBChannel".into(),
-            ));
-        };
+        let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
+        if replaced_other {
+            warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
+        }
 
         Ok(Self {
             coordinator,
@@ -272,7 +276,7 @@ impl SignCoordinator {
             receiver: Some(receiver),
             wsts_public_keys,
             is_mainnet,
-            miners_db_config,
+            miners_session,
             signing_round_timeout: config.miner.wait_on_signers.clone(),
         })
     }
@@ -288,11 +292,10 @@ impl SignCoordinator {
         message_key: &Scalar,
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
-        stackerdbs: &mut StackerDBs,
+        stackerdbs: &StackerDBs,
         message: SignerMessage,
         is_mainnet: bool,
-        miners_db_config: &StackerDBConfig,
-        event_dispatcher: &EventDispatcher,
+        miners_session: &mut StackerDBSession,
     ) -> Result<(), String> {
         let mut miner_sk = StacksPrivateKey::from_slice(&message_key.to_bytes()).unwrap();
         miner_sk.set_compress_public(true);
@@ -321,14 +324,9 @@ impl SignCoordinator {
             .sign(&miner_sk)
             .map_err(|_| "Failed to sign StackerDB chunk")?;
 
-        let stackerdb_tx = stackerdbs.tx_begin(miners_db_config.clone()).map_err(|e| {
-            warn!("Failed to begin stackerdbs transaction to write .miners message"; "err" => ?e);
-            "Failed to begin StackerDBs transaction"
-        })?;
-
-        match stackerdb_tx.put_chunk(&miners_contract_id, chunk, event_dispatcher) {
-            Ok(()) => {
-                debug!("Wrote message to stackerdb: {message:?}");
+        match miners_session.put_chunk(&chunk) {
+            Ok(ack) => {
+                debug!("Wrote message to stackerdb: {ack:?}");
                 Ok(())
             }
             Err(e) => {
@@ -345,8 +343,7 @@ impl SignCoordinator {
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        stackerdbs: &mut StackerDBs,
-        event_dispatcher: &EventDispatcher,
+        stackerdbs: &StackerDBs,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -369,11 +366,10 @@ impl SignCoordinator {
             &self.message_key,
             sortdb,
             burn_tip,
-            stackerdbs,
+            &stackerdbs,
             nonce_req_msg.into(),
             self.is_mainnet,
-            &self.miners_db_config,
-            event_dispatcher,
+            &mut self.miners_session,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
 
@@ -490,8 +486,7 @@ impl SignCoordinator {
                     stackerdbs,
                     msg.into(),
                     self.is_mainnet,
-                    &self.miners_db_config,
-                    event_dispatcher,
+                    &mut self.miners_session,
                 ) {
                     Ok(()) => {
                         debug!("Miner/Coordinator: sent outbound message.");
