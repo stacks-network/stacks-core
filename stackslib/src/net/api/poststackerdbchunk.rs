@@ -115,7 +115,7 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackerDBErrorCodes {
-    DataAlreadyExists,
+    DataAlreadyExists = 0,
     NoSuchSlot,
     BadSigner,
 }
