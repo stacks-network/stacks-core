@@ -1,7 +1,7 @@
 import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
-import { Cl, boolCV } from "@stacks/transactions";
+import { boolCV, Cl } from "@stacks/transactions";
 
 /**
  * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This self-service
@@ -31,7 +31,7 @@ export class DelegateStxCommand implements PoxCommand {
     wallet: Wallet,
     delegateTo: Wallet,
     untilBurnHt: number,
-    margin: number
+    margin: number,
   ) {
     this.wallet = wallet;
     this.delegateTo = delegateTo;
@@ -75,7 +75,7 @@ export class DelegateStxCommand implements PoxCommand {
         // (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) }))
         Cl.some(poxAddressToTuple(this.delegateTo.btcAddress)),
       ],
-      this.wallet.stxAddress
+      this.wallet.stxAddress,
     );
     // Assert
     expect(delegateStx.result).toBeOk(boolCV(true));
@@ -91,15 +91,21 @@ export class DelegateStxCommand implements PoxCommand {
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
-      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${"delegate-stx".padStart(
-        34,
-        " "
-      )} ${"amount".padStart(12, " ")} ${amountUstx
-        .toString()
-        .padStart(13, " ")} delegated to ${this.delegateTo.stxAddress.padStart(
-        42,
-        " "
-      )}`
+      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${
+        "delegate-stx".padStart(
+          34,
+          " ",
+        )
+      } ${"amount".padStart(12, " ")} ${
+        amountUstx
+          .toString()
+          .padStart(13, " ")
+      } delegated to ${
+        this.delegateTo.stxAddress.padStart(
+          42,
+          " ",
+        )
+      }`,
     );
   }
 

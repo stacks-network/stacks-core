@@ -30,7 +30,12 @@ export class StackStxCommand implements PoxCommand {
    * @param margin - Multiplier for minimum required uSTX to stack so that each
    *                 Stacker locks a different amount of uSTX across test runs.
    */
-  constructor(wallet: Wallet, authId: number, period: number, margin: number) {
+  constructor(
+    wallet: Wallet,
+    authId: number,
+    period: number,
+    margin: number,
+  ) {
     this.wallet = wallet;
     this.authId = authId;
     this.period = period;
@@ -108,14 +113,14 @@ export class StackStxCommand implements PoxCommand {
         // (auth-id uint)
         Cl.uint(this.authId),
       ],
-      this.wallet.stxAddress
+      this.wallet.stxAddress,
     );
 
     const { result: rewardCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
       [Cl.uint(real.network.blockHeight)],
-      this.wallet.stxAddress
+      this.wallet.stxAddress,
     );
     assert(isClarityType(rewardCycle, ClarityType.UInt));
 
@@ -123,17 +128,18 @@ export class StackStxCommand implements PoxCommand {
       "ST000000000000000000002AMW42H.pox-4",
       "reward-cycle-to-burn-height",
       [Cl.uint(Number(rewardCycle.value) + this.period + 1)],
-      this.wallet.stxAddress
+      this.wallet.stxAddress,
     );
     assert(isClarityType(unlockBurnHeight, ClarityType.UInt));
+
     // Assert
     expect(stackStx.result).toBeOk(
       Cl.tuple({
         "lock-amount": Cl.uint(amountUstx),
         "signer-key": Cl.bufferFromHex(this.wallet.signerPubKey),
-        stacker: Cl.principal(this.wallet.stxAddress),
+        "stacker": Cl.principal(this.wallet.stxAddress),
         "unlock-burn-height": Cl.uint(Number(unlockBurnHeight.value)),
-      })
+      }),
     );
 
     // Get the wallet from the model and update it with the new state.
@@ -150,12 +156,11 @@ export class StackStxCommand implements PoxCommand {
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
-      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${"stack-stx".padStart(
-        34,
-        " "
-      )} ${"lock-amount".padStart(12, " ")} ${amountUstx
-        .toString()
-        .padStart(13, " ")}`
+      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${
+        "stack-stx".padStart(34, " ")
+      } ${"lock-amount".padStart(12, " ")} ${
+        amountUstx.toString().padStart(13, " ")
+      }`,
     );
   }
 
