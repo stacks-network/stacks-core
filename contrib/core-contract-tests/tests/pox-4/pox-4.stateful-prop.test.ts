@@ -58,6 +58,8 @@ describe("PoX-4 invariant tests", () => {
         client: new StackingClient(stxAddress, devnet),
         ustxBalance: 100_000_000_000_000,
         isStacking: false,
+        hasDelegated: false,
+        delegatedTo: "",
         amountLocked: 0,
         unlockHeight: 0,
       };
