@@ -2698,7 +2698,7 @@ pub mod test {
 
     #[test]
     fn test_lockups() {
-        let mut burnchain = Burnchain::default_unittest(
+        let burnchain = Burnchain::default_unittest(
             0,
             &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );

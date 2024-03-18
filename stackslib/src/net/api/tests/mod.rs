@@ -287,6 +287,8 @@ impl<'a> TestRPC<'a> {
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
+        let burnchain = peer_1_config.burnchain.clone();
+
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
@@ -434,6 +436,7 @@ impl<'a> TestRPC<'a> {
                 };
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
@@ -711,6 +714,7 @@ impl<'a> TestRPC<'a> {
                 };
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,

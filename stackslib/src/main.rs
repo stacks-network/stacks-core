@@ -577,6 +577,7 @@ simulating a miner.
         }
 
         let start = get_epoch_time_ms();
+        let burnchain_path = format!("{}/mainnet/burnchain", &argv[2]);
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
@@ -645,6 +646,7 @@ simulating a miner.
             &coinbase_tx,
             settings,
             None,
+            &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
         );
 
         let stop = get_epoch_time_ms();
@@ -1336,6 +1338,7 @@ simulating a miner.
         process::exit(1);
     }
 
+    let burnchain_path = format!("{}/mainnet/burnchain", &argv[2]);
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
@@ -1518,6 +1521,7 @@ simulating a miner.
         &coinbase_tx,
         settings,
         None,
+        &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
     );
 
     let stop = get_epoch_time_ms();

@@ -5275,6 +5275,7 @@ pub mod test {
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
         ]);
+        let burnchain = peer_config.burnchain.clone();
 
         // activate new AST rules right away
         let mut peer = TestPeer::new(peer_config);
@@ -5360,6 +5361,7 @@ pub mod test {
                 let coinbase_tx = make_coinbase(miner, 0);
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof.clone(),
                     tip.total_burn,
@@ -5424,6 +5426,7 @@ pub mod test {
 
                 let mblock_privk = miner.next_microblock_privkey();
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof.clone(),
                     tip.total_burn,
@@ -5448,6 +5451,7 @@ pub mod test {
                 // make a bad block anyway
                 // don't worry about the state root
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof.clone(),
                     tip.total_burn,
@@ -5689,6 +5693,7 @@ pub mod test {
             },
         ];
         peer_config.epochs = Some(epochs);
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -5746,6 +5751,7 @@ pub mod test {
                 mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
 
                 let builder = StacksBlockBuilder::make_block_builder(
+                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrfproof,
@@ -5860,6 +5866,7 @@ pub mod test {
 
         peer_config.epochs = Some(epochs);
         peer_config.initial_balances = initial_balances;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -5923,6 +5930,7 @@ pub mod test {
                 mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
 
                 let builder = StacksBlockBuilder::make_block_builder(
+                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrfproof,
@@ -6039,6 +6047,7 @@ pub mod test {
 
         peer_config.epochs = Some(epochs);
         peer_config.initial_balances = initial_balances;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
         let versioned_contract_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
@@ -6108,6 +6117,7 @@ pub mod test {
                 mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
 
                 let builder = StacksBlockBuilder::make_block_builder(
+                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrfproof,
