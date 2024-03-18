@@ -211,12 +211,22 @@ impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
         let stackerdb = StackerDB::from(&signer_config);
 
-        let num_signers = u32::try_from(signer_config.signer_entries.public_keys.signers.len())
+        let num_signers = signer_config
+            .signer_entries
+            .count_signers()
             .expect("FATAL: Too many registered signers to fit in a u32");
-        let num_keys = u32::try_from(signer_config.signer_entries.public_keys.key_ids.len())
+        let num_keys = signer_config
+            .signer_entries
+            .count_keys()
             .expect("FATAL: Too many key ids to fit in a u32");
-        let threshold = (num_keys as f64 * 7_f64 / 10_f64).ceil() as u32;
-        let dkg_threshold = (num_keys as f64 * 9_f64 / 10_f64).ceil() as u32;
+        let threshold = signer_config
+            .signer_entries
+            .get_signing_threshold()
+            .expect("FATAL: Too many key ids to fit in a u32");
+        let dkg_threshold = signer_config
+            .signer_entries
+            .get_dkg_threshold()
+            .expect("FATAL: Too many key ids to fit in a u32");
 
         let coordinator_config = CoordinatorConfig {
             threshold,
@@ -1283,7 +1293,7 @@ impl Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::ProposedBlocks(blocks, messages, miner_key)) => {
+            Some(SignerEvent::MinerMessages(blocks, messages, miner_key)) => {
                 if let Some(miner_key) = miner_key {
                     let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
                         .expect("FATAL: could not convert from StacksPublicKey to PublicKey");

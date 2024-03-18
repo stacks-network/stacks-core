@@ -336,7 +336,6 @@ impl BlockMinerThread {
             reward_cycle,
             miner_privkey_as_scalar,
             aggregate_public_key,
-            self.config.is_mainnet(),
             &stackerdbs,
             &self.config,
         )

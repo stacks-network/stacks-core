@@ -17,7 +17,9 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::{MessageSlotID, SignerEvent, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{
+    MessageSlotID, ParsedSignerEntries, SignerEvent, SignerMessage, SignerSession, StackerDBSession,
+};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -32,7 +34,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use wsts::common::PolyCommitment;
 use wsts::curve::ecdsa;
-use wsts::curve::point::{Compressed, Point};
+use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
@@ -80,55 +82,35 @@ impl Drop for SignCoordinator {
     }
 }
 
-impl From<&[NakamotoSignerEntry]> for NakamotoSigningParams {
-    fn from(reward_set: &[NakamotoSignerEntry]) -> Self {
-        let mut weight_end = 1;
-        let mut signer_key_ids = HashMap::with_capacity(reward_set.len());
-        let mut signer_public_keys = HashMap::with_capacity(reward_set.len());
-        let mut wsts_signers = HashMap::new();
-        let mut wsts_key_ids = HashMap::new();
-        for (i, entry) in reward_set.iter().enumerate() {
-            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_pk = ecdsa::PublicKey::try_from(entry.signing_key.as_slice())
-                .map_err(|e| format!("Failed to convert signing key to ecdsa::PublicKey: {e}"))
-                .unwrap_or_else(|err| {
-                    panic!("FATAL: failed to convert signing key to Point: {err}")
-                });
-            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_pk.to_bytes()))
-                .map_err(|e| format!("Failed to convert signing key to wsts::Point: {e}"))
-                .unwrap_or_else(|err| {
-                    panic!("FATAL: failed to convert signing key to Point: {err}")
-                });
+impl NakamotoSigningParams {
+    pub fn parse(
+        is_mainnet: bool,
+        reward_set: &[NakamotoSignerEntry],
+    ) -> Result<Self, ChainstateError> {
+        let parsed = ParsedSignerEntries::parse(is_mainnet, reward_set).map_err(|e| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "Invalid Reward Set: Could not parse into WSTS structs: {e:?}"
+            ))
+        })?;
 
-            signer_public_keys.insert(signer_id, signer_public_key);
-            let weight_start = weight_end;
-            weight_end = weight_start + entry.weight;
-            let key_ids: HashSet<u32> = (weight_start..weight_end).collect();
-            for key_id in key_ids.iter() {
-                wsts_key_ids.insert(*key_id, ecdsa_pk.clone());
-            }
-            signer_key_ids.insert(signer_id, key_ids);
-            wsts_signers.insert(signer_id, ecdsa_pk);
-        }
-
-        let num_keys = weight_end - 1;
-        let threshold = (num_keys * 70) / 100;
-        let num_signers = reward_set
-            .len()
-            .try_into()
+        let num_keys = parsed
+            .count_keys()
+            .expect("FATAL: more than u32::max() signers in the reward set");
+        let num_signers = parsed
+            .count_signers()
+            .expect("FATAL: more than u32::max() signers in the reward set");
+        let threshold = parsed
+            .get_signing_threshold()
             .expect("FATAL: more than u32::max() signers in the reward set");
 
-        NakamotoSigningParams {
+        Ok(NakamotoSigningParams {
             num_signers,
             threshold,
             num_keys,
-            signer_key_ids,
-            signer_public_keys,
-            wsts_public_keys: PublicKeys {
-                signers: wsts_signers,
-                key_ids: wsts_key_ids,
-            },
-        }
+            signer_key_ids: parsed.coordinator_key_ids,
+            signer_public_keys: parsed.signer_public_keys,
+            wsts_public_keys: parsed.public_keys,
+        })
     }
 }
 
@@ -207,10 +189,10 @@ impl SignCoordinator {
         reward_cycle: u64,
         message_key: Scalar,
         aggregate_public_key: Point,
-        is_mainnet: bool,
         stackerdb_conn: &StackerDBs,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
+        let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
             error!("Could not initialize WSTS coordinator for reward set without signer");
             return Err(ChainstateError::NoRegisteredSigners(0));
@@ -230,7 +212,7 @@ impl SignCoordinator {
             signer_key_ids,
             signer_public_keys,
             wsts_public_keys,
-        } = NakamotoSigningParams::from(reward_set_signers.as_slice());
+        } = NakamotoSigningParams::parse(is_mainnet, reward_set_signers.as_slice())?;
         debug!(
             "Initializing miner/coordinator";
             "num_signers" => num_signers,

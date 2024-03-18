@@ -70,7 +70,7 @@ pub enum SignerEvent {
     /// The `Vec<BlockProposalSigners>` will contain any block proposals made by the miner during this StackerDB event.
     /// The `Vec<SignerMessage>` will contain any signer WSTS messages made by the miner while acting as a coordinator.
     /// The `Option<StacksPublicKey>` will contain the message sender's public key if either of the vecs is non-empty.
-    ProposedBlocks(
+    MinerMessages(
         Vec<BlockProposalSigners>,
         Vec<SignerMessage>,
         Option<StacksPublicKey>,
@@ -440,7 +440,7 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                     ));
                 };
             }
-            SignerEvent::ProposedBlocks(blocks, messages, miner_pk)
+            SignerEvent::MinerMessages(blocks, messages, miner_pk)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME)
             && event.contract_id.issuer.1 == [0u8; 20]
         {

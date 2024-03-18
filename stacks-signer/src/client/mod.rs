@@ -140,6 +140,7 @@ pub(crate) mod tests {
     use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
+    use libsigner::ParsedSignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -154,7 +155,7 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig};
     use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
