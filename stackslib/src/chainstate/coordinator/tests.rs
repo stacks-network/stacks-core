@@ -4854,7 +4854,7 @@ fn test_epoch_verify_active_pox_contract() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
-    let pox_v2_unlock_ht = u32::max_value();
+    let pox_v2_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         6,
