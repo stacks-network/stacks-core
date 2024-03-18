@@ -2661,6 +2661,7 @@ pub mod test {
                     let block_txs = vec![coinbase_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2697,6 +2698,10 @@ pub mod test {
 
     #[test]
     fn test_lockups() {
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
@@ -2783,6 +2788,7 @@ pub mod test {
                     let block_txs = vec![coinbase_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2877,7 +2883,8 @@ pub mod test {
                     block_txs.push(tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
+                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -2973,6 +2980,7 @@ pub mod test {
                     let block_txs = vec![coinbase_tx, burn_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3083,6 +3091,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3299,6 +3308,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_block_builder(
+                        &burnchain,
                         false,
                         &parent_tip,
                         vrf_proof,
@@ -3557,6 +3567,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3831,6 +3842,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -4083,7 +4095,8 @@ pub mod test {
                     block_txs.push(charlie_test_tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
+                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -4246,6 +4259,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -4544,6 +4558,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -5124,6 +5139,7 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -5502,7 +5518,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {

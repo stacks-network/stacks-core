@@ -30,6 +30,7 @@ use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, 
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
+use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -463,6 +464,31 @@ impl Config {
             return;
         }
 
+        if let Some(first_burn_block_height) = self.burnchain.first_burn_block_height {
+            debug!(
+                "Override first_block_height from {} to {}",
+                burnchain.first_block_height, first_burn_block_height
+            );
+            burnchain.first_block_height = first_burn_block_height;
+        }
+
+        if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
+            debug!(
+                "Override first_block_timestamp from {} to {}",
+                burnchain.first_block_timestamp, first_burn_block_timestamp
+            );
+            burnchain.first_block_timestamp = first_burn_block_timestamp;
+        }
+
+        if let Some(first_burn_block_hash) = &self.burnchain.first_burn_block_hash {
+            debug!(
+                "Override first_burn_block_hash from {} to {}",
+                burnchain.first_block_hash, first_burn_block_hash
+            );
+            burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&first_burn_block_hash)
+                .expect("Invalid first_burn_block_hash");
+        }
+
         if let Some(pox_prepare_length) = self.burnchain.pox_prepare_length {
             debug!("Override pox_prepare_length to {pox_prepare_length}");
             burnchain.pox_constants.prepare_length = pox_prepare_length;
@@ -710,7 +736,6 @@ impl Config {
             );
         }
 
-        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
         let expected_list = [
             StacksEpochId::Epoch10,
             StacksEpochId::Epoch20,
@@ -1173,6 +1198,9 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
+    pub first_burn_block_height: Option<u64>,
+    pub first_burn_block_timestamp: Option<u32>,
+    pub first_burn_block_hash: Option<String>,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
@@ -1210,6 +1238,9 @@ impl BurnchainConfig {
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
+            first_burn_block_height: None,
+            first_burn_block_timestamp: None,
+            first_burn_block_hash: None,
             epochs: None,
             pox_2_activation: None,
             pox_prepare_length: None,
@@ -1294,6 +1325,9 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
+    pub first_burn_block_height: Option<u64>,
+    pub first_burn_block_timestamp: Option<u32>,
+    pub first_burn_block_hash: Option<String>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_prepare_length: Option<u32>,
     pub pox_reward_length: Option<u32>,
@@ -1403,6 +1437,16 @@ impl BurnchainConfigFile {
             rbf_fee_increment: self
                 .rbf_fee_increment
                 .unwrap_or(default_burnchain_config.rbf_fee_increment),
+            first_burn_block_height: self
+                .first_burn_block_height
+                .or(default_burnchain_config.first_burn_block_height),
+            first_burn_block_timestamp: self
+                .first_burn_block_timestamp
+                .or(default_burnchain_config.first_burn_block_timestamp),
+            first_burn_block_hash: self
+                .first_burn_block_hash
+                .clone()
+                .or(default_burnchain_config.first_burn_block_hash.clone()),
             // will be overwritten below
             epochs: default_burnchain_config.epochs,
             ast_precheck_size_height: self.ast_precheck_size_height,
@@ -1429,6 +1473,13 @@ impl BurnchainConfigFile {
                 || config.sunset_end.is_some()
             {
                 return Err("PoX-2 parameters are not configurable in mainnet".into());
+            }
+            // Check that the first burn block options are not set in mainnet
+            if config.first_burn_block_height.is_some()
+                || config.first_burn_block_timestamp.is_some()
+                || config.first_burn_block_hash.is_some()
+            {
+                return Err("First burn block parameters are not configurable in mainnet".into());
             }
         }
 

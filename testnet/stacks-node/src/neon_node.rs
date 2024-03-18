@@ -2301,6 +2301,7 @@ impl BlockMinerThread {
                 self.globals.get_miner_status(),
             ),
             Some(&self.event_dispatcher),
+            &self.burnchain,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
@@ -2345,6 +2346,7 @@ impl BlockMinerThread {
                         self.globals.get_miner_status(),
                     ),
                     Some(&self.event_dispatcher),
+                    &self.burnchain,
                 ) {
                     Ok(block) => block,
                     Err(e) => {

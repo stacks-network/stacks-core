@@ -10194,6 +10194,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &peer_config.burnchain,
                     )
                     .unwrap();
 
@@ -10444,6 +10445,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &peer_config.burnchain,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -10998,6 +11000,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &peer_config.burnchain,
                         )
                         .unwrap();
 
@@ -11319,6 +11322,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &peer_config.burnchain,
                         )
                         .unwrap();
 

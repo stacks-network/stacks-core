@@ -38,7 +38,7 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::{PrivateKey, PublicKey};
+use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
@@ -2041,6 +2041,7 @@ impl StacksBlockBuilder {
 
     /// Create a block builder for mining
     pub fn make_block_builder(
+        burnchain: &Burnchain,
         mainnet: bool,
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
@@ -2048,20 +2049,19 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            let (first_block_hash_hex, first_block_height, first_block_ts) = if mainnet {
+            let (first_block_hash, first_block_height, first_block_ts) = if mainnet {
                 (
-                    BITCOIN_MAINNET_FIRST_BLOCK_HASH,
+                    BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
                     BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
                     BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
                 )
             } else {
                 (
-                    BITCOIN_TESTNET_FIRST_BLOCK_HASH,
-                    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-                    BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+                    burnchain.first_block_hash,
+                    burnchain.first_block_height,
+                    burnchain.first_block_timestamp,
                 )
             };
-            let first_block_hash = BurnchainHeaderHash::from_hex(first_block_hash_hex).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -2095,21 +2095,20 @@ impl StacksBlockBuilder {
 
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
+        burnchain: &Burnchain,
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
         total_burn: u64,
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            let first_block_hash =
-                BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &first_block_hash,
-                u32::try_from(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT)
+                &burnchain.first_block_hash,
+                u32::try_from(burnchain.first_block_height)
                     .expect("first regtest bitcoin block is over 2^32"),
-                u64::try_from(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP)
+                u64::try_from(burnchain.first_block_timestamp)
                     .expect("first regtest bitcoin block timestamp is over 2^64"),
                 &proof,
                 pubkey_hash,
@@ -2387,6 +2386,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        burnchain: &Burnchain,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -2409,6 +2409,7 @@ impl StacksBlockBuilder {
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
         let mut builder = StacksBlockBuilder::make_block_builder(
+            burnchain,
             chainstate.mainnet,
             parent_stacks_header,
             proof,
