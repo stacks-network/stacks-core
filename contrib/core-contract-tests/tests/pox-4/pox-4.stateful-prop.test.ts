@@ -45,7 +45,7 @@ describe("PoX-4 invariant tests", () => {
       const btcAddress = publicKeyToBtcAddress(pubKey);
       const stxAddress = getAddressFromPrivateKey(
         prvKey,
-        TransactionVersion.Testnet,
+        TransactionVersion.Testnet
       );
 
       return {
@@ -58,6 +58,8 @@ describe("PoX-4 invariant tests", () => {
         client: new StackingClient(stxAddress, devnet),
         ustxBalance: 100_000_000_000_000,
         isStacking: false,
+        hasDelegated: false,
+        delegatedTo: "",
         amountLocked: 0,
         unlockHeight: 0,
       };
@@ -71,17 +73,14 @@ describe("PoX-4 invariant tests", () => {
     simnet.setEpoch("3.0");
 
     fc.assert(
-      fc.property(
-        PoxCommands(model.wallets),
-        (cmds) => {
-          const initialState = () => ({ model: model, real: sut });
-          fc.modelRun(initialState, cmds);
-        },
-      ),
+      fc.property(PoxCommands(model.wallets), (cmds) => {
+        const initialState = () => ({ model: model, real: sut });
+        fc.modelRun(initialState, cmds);
+      }),
       {
         numRuns: 1,
         verbose: 2,
-      },
+      }
     );
   });
 });
