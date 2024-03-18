@@ -283,22 +283,31 @@ impl SignerMessage {
 }
 
 impl SignerMessage {
-    /// Provide an interface for consensus serializing a DkgResults message
+    /// Provide an interface for consensus serializing a DkgResults `SignerMessage`
     ///  without constructing the DkgResults struct (this eliminates a clone)
     pub fn serialize_dkg_result<'a, W: Write, I>(
         fd: &mut W,
         aggregate_key: &Point,
         party_polynomials: I,
-        write_prefix: bool,
     ) -> Result<(), CodecError>
     where
         I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
     {
-        if write_prefix {
-            SignerMessageTypePrefix::DkgResults
-                .to_u8()
-                .consensus_serialize(fd)?;
-        }
+        SignerMessageTypePrefix::DkgResults
+            .to_u8()
+            .consensus_serialize(fd)?;
+        Self::serialize_dkg_result_components(fd, aggregate_key, party_polynomials)
+    }
+
+    /// Serialize the internal components of DkgResults (this eliminates a clone)
+    fn serialize_dkg_result_components<'a, W: Write, I>(
+        fd: &mut W,
+        aggregate_key: &Point,
+        party_polynomials: I,
+    ) -> Result<(), CodecError>
+    where
+        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
+    {
         fd.write_all(&aggregate_key.compress().data)
             .map_err(CodecError::WriteError)?;
         let polynomials_len: u32 = party_polynomials
@@ -359,11 +368,10 @@ impl StacksMessageCodec for SignerMessage {
                 aggregate_key,
                 party_polynomials,
             } => {
-                Self::serialize_dkg_result(
+                Self::serialize_dkg_result_components(
                     fd,
                     aggregate_key,
                     party_polynomials.iter().map(|(a, b)| (a, b)),
-                    false,
                 )?;
             }
         };

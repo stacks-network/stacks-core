@@ -92,8 +92,8 @@ lazy_static! {
 /// bad idea) or listen for events. Registering for RPC callbacks
 /// seems bad. So instead, it uses a singleton sync channel.
 pub struct StackerDBChannel {
-    pub receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
-    pub sender: Sender<StackerDBChunksEvent>,
+    receiver: Mutex<Option<Receiver<StackerDBChunksEvent>>>,
+    sender: Sender<StackerDBChunksEvent>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -136,6 +136,15 @@ impl StackerDBChannel {
         Self {
             receiver: Mutex::new(Some(recv_channel)),
             sender,
+        }
+    }
+
+    pub fn send(&self, event: StackerDBChunksEvent) {
+        if let Err(send_err) = self.sender.send(event) {
+            error!(
+                "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have crashed.";
+                "err" => ?send_err
+            );
         }
     }
 
@@ -1176,12 +1185,7 @@ impl EventDispatcher {
             .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
 
         if interested_receiver {
-            if let Err(send_err) = STACKER_DB_CHANNEL.sender.send(event) {
-                error!(
-                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have crashed.";
-                    "err" => ?send_err
-                );
-            }
+            STACKER_DB_CHANNEL.send(event)
         }
 
         for observer in interested_observers.iter() {

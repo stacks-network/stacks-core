@@ -957,7 +957,6 @@ impl Signer {
             &mut dkg_results_bytes,
             dkg_public_key,
             self.coordinator.party_polynomials.iter(),
-            true,
         ) {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);

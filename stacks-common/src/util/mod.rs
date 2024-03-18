@@ -70,48 +70,6 @@ impl fmt::Display for HexError {
     }
 }
 
-pub struct HashMapDisplay<'a, K: std::hash::Hash, V>(pub &'a HashMap<K, V>);
-
-impl<'a, K, V> fmt::Display for HashMapDisplay<'a, K, V>
-where
-    K: fmt::Display + std::hash::Hash,
-    V: fmt::Display,
-    K: Ord,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut keys: Vec<_> = self.0.keys().collect();
-        keys.sort();
-        write!(f, "{{")?;
-        for key in keys.into_iter() {
-            let Some(value) = self.0.get(key) else {
-                continue;
-            };
-            write!(f, "{key}: {value}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
-impl<'a, K, V> fmt::Debug for HashMapDisplay<'a, K, V>
-where
-    K: fmt::Display + std::hash::Hash,
-    V: fmt::Debug,
-    K: Ord,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut keys: Vec<_> = self.0.keys().collect();
-        keys.sort();
-        write!(f, "{{")?;
-        for key in keys.into_iter() {
-            let Some(value) = self.0.get(key) else {
-                continue;
-            };
-            write!(f, "{key}: {value:?}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
 impl error::Error for HexError {
     fn cause(&self) -> Option<&dyn error::Error> {
         None

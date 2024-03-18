@@ -217,18 +217,6 @@ impl SignCoordinator {
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
-        let Some(receiver) = STACKER_DB_CHANNEL
-            .receiver
-            .lock()
-            .expect("FATAL: StackerDBChannel lock is poisoned")
-            .take()
-        else {
-            error!("Could not obtain handle for the StackerDBChannel");
-            return Err(ChainstateError::ChannelClosed(
-                "WSTS coordinator requires a handle to the StackerDBChannel".into(),
-            ));
-        };
-
         let NakamotoSigningParams {
             num_signers,
             num_keys,
@@ -269,6 +257,13 @@ impl SignCoordinator {
             .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
         {
             warn!("Failed to set a valid set of party polynomials"; "error" => %e);
+        };
+
+        let Some(receiver) = STACKER_DB_CHANNEL.take_receiver() else {
+            error!("Could not obtain handle for the StackerDBChannel");
+            return Err(ChainstateError::ChannelClosed(
+                "WSTS coordinator requires a handle to the StackerDBChannel".into(),
+            ));
         };
 
         Ok(Self {

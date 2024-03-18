@@ -553,7 +553,7 @@ impl ConversationHttp {
                         self.handle_request(req, node)
                     })?;
 
-                    debug!("Handled StacksHTTPRequest";
+                    info!("Handled StacksHTTPRequest";
                            "verb" => %verb,
                            "path" => %request_path,
                            "processing_time_ms" => start_time.elapsed().as_millis(),

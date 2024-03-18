@@ -27,6 +27,7 @@ use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
+use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -65,7 +66,10 @@ pub struct BlockProposalSigners {
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
-    /// The miner sent proposed blocks or messages for signers to observe and sign
+    /// A miner sent a message over .miners
+    /// The `Vec<BlockProposalSigners>` will contain any block proposals made by the miner during this StackerDB event.
+    /// The `Vec<SignerMessage>` will contain any signer WSTS messages made by the miner while acting as a coordinator.
+    /// The `Option<StacksPublicKey>` will contain the message sender's public key if either of the vecs is non-empty.
     ProposedBlocks(
         Vec<BlockProposalSigners>,
         Vec<SignerMessage>,
@@ -415,7 +419,7 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                         "Failed to recover PK from StackerDB chunk: {e}"
                     ))
                 })?);
-                if chunk.slot_id % 2 == 0 {
+                if chunk.slot_id % MINER_SLOT_COUNT == 0 {
                     // block
                     let Ok(block) =
                         BlockProposalSigners::consensus_deserialize(&mut chunk.data.as_slice())
@@ -423,7 +427,7 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                         continue;
                     };
                     blocks.push(block);
-                } else if chunk.slot_id % 2 == 1 {
+                } else if chunk.slot_id % MINER_SLOT_COUNT == 1 {
                     // message
                     let Ok(msg) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     else {
