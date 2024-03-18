@@ -78,16 +78,6 @@ pub enum SignerEvent {
     NewBurnBlock(u64),
 }
 
-/// A struct to aid in deserializing the new burn block event
-#[derive(Debug, Deserialize)]
-struct TempBurnBlockEvent {
-    burn_block_hash: String,
-    burn_block_height: u64,
-    reward_recipients: Vec<serde_json::Value>,
-    reward_slot_holders: Vec<String>,
-    burn_amount: u64,
-}
-
 impl StacksMessageCodec for BlockProposalSigners {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.block.consensus_serialize(fd)?;
@@ -468,7 +458,14 @@ fn process_new_burn_block_event(mut request: HttpRequest) -> Result<SignerEvent,
             &e
         )));
     }
-
+    #[derive(Debug, Deserialize)]
+    struct TempBurnBlockEvent {
+        burn_block_hash: String,
+        burn_block_height: u64,
+        reward_recipients: Vec<serde_json::Value>,
+        reward_slot_holders: Vec<String>,
+        burn_amount: u64,
+    }
     let temp: TempBurnBlockEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
     let event = SignerEvent::NewBurnBlock(temp.burn_block_height);
