@@ -92,7 +92,7 @@ version = "=2.0.0"
 features = ["serde"]
 
 [dependencies.time]
-version = "0.2.23"
+version = "0.3.34"
 features = ["std"]
 
 [dev-dependencies]
