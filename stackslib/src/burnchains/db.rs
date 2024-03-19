@@ -313,7 +313,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         &self,
         header: &BurnchainBlockHeader,
     ) -> Result<i64, BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_headers
+        let sql = "INSERT OR IGNORE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
@@ -323,9 +323,17 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
-        match self.sql_tx.execute(sql, args) {
-            Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
-            Err(e) => Err(e.into()),
+        let affected_rows = self.sql_tx.execute(sql, args)?;
+        if affected_rows == 0 {
+            // This means a duplicate entry was found and the insert operation was ignored
+            debug!(
+                "Duplicate entry for block_hash: {}, insert operation ignored.",
+                header.block_hash
+            );
+            Ok(-1)
+        } else {
+            // A new row was inserted successfully
+            Ok(self.sql_tx.last_insert_rowid())
         }
     }
 
