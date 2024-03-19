@@ -6,11 +6,11 @@ import { boolCV, Cl } from "@stacks/transactions";
 /**
  * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This self-service
  * operation allows the `tx-sender` (the `wallet` in this case) to delegate stacking
- * participation to a `delegatee`
+ * participation to a `delegatee`.
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be a delegator in another delegation.
- * - The PoX address provided should have a valid version (between 0 and 6 inclusive)
+ * - The PoX address provided should have a valid version (between 0 and 6 inclusive).
  */
 export class DelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
@@ -57,8 +57,8 @@ export class DelegateStxCommand implements PoxCommand {
     // future, when calling delegate-stack-stx.
     const delegatedAmount = model.stackingMinimum * this.margin;
 
-    // The amount of uSTX to be delegated. For this test, we
-    // will use the delegated amount calculated before
+    // The amount of uSTX to be delegated. For this test, we will use the
+    // delegated amount calculated before.
     const amountUstx = delegatedAmount;
 
     // Act

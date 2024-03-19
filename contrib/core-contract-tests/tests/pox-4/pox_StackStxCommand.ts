@@ -47,7 +47,7 @@ export class StackStxCommand implements PoxCommand {
     // - A minimum threshold of uSTX must be met, determined by the
     //   `get-stacking-minimum` function at the time of this call.
     // - The Stacker cannot currently be engaged in another stacking operation.
-    // - The Stacker cannot currently be delegating STX to a delegatee
+    // - The Stacker cannot currently be delegating STX to a delegatee.
     return (
       model.stackingMinimum > 0 &&
       !model.wallets.get(this.wallet.stxAddress)?.isStacking &&
