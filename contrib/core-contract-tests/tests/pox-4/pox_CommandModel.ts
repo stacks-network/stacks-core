@@ -25,7 +25,10 @@ export type Wallet = {
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;
+  wasDelegated: boolean;
   delegatedTo: StxAddress;
+  delegatedMaxAmount: number;
+  wasDelegatedBy: StxAddress[];
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;

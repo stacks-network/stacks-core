@@ -83,12 +83,16 @@ export class DelegateStxCommand implements PoxCommand {
 
     // Get the wallet from the model and update it with the new state.
     const wallet = model.wallets.get(this.wallet.stxAddress)!;
+    const delegatedWallet = model.wallets.get(this.delegateTo.stxAddress)!;
     // Update model so that we know this wallet has delegated. This is important
     // in order to prevent the test from delegating multiple times with the same
     // address.
     wallet.hasDelegated = true;
     wallet.delegatedTo = this.delegateTo.stxAddress;
+    wallet.delegatedMaxAmount = amountUstx;
 
+    delegatedWallet.wasDelegated = true;
+    delegatedWallet.wasDelegatedBy.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
