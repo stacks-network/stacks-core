@@ -46,6 +46,7 @@ describe("PoX-4 invariant tests", () => {
       const prvKey = wallet[1];
       const pubKey = getPublicKeyFromPrivate(prvKey);
       const devnet = new StacksDevnet();
+      const initialUstxBalance = 100_000_000_000_000;
       const signerPrvKey = createStacksPrivateKey(prvKey);
       const signerPubKey = getPublicKeyFromPrivate(signerPrvKey.data);
       const btcAddress = publicKeyToBtcAddress(pubKey);
@@ -61,11 +62,12 @@ describe("PoX-4 invariant tests", () => {
         signerPrvKey,
         signerPubKey,
         stackingClient: new StackingClient(stxAddress, devnet),
-        ustxBalance: 100_000_000_000_000,
+        ustxBalance: initialUstxBalance,
         isStacking: false,
         hasDelegated: false,
         delegatedTo: "",
         amountLocked: 0,
+        amountUnlocked: initialUstxBalance,
         unlockHeight: 0,
       };
     });
