@@ -159,7 +159,7 @@ export class StackStxCommand implements PoxCommand {
       `✓ ${this.wallet.label.padStart(8, " ")} ${
         "stack-stx".padStart(34, " ")
       } ${"lock-amount".padStart(12, " ")} ${
-        amountUstx.toString().padStart(13, " ")
+        amountUstx.toString().padStart(15, " ")
       }`,
     );
   }
