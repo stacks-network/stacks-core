@@ -16,6 +16,7 @@ export type Real = {
 };
 
 export type Wallet = {
+  label: string;
   prvKey: string;
   pubKey: string;
   stxAddress: string;
