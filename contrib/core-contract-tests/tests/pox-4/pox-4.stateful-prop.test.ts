@@ -56,8 +56,6 @@ describe("PoX-4 invariant tests", () => {
 
       return {
         label,
-        prvKey,
-        pubKey,
         stxAddress,
         btcAddress,
         signerPrvKey,
