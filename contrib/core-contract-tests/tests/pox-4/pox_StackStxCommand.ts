@@ -151,7 +151,7 @@ export class StackStxCommand implements PoxCommand {
     // Update locked, unlocked, and unlock-height fields in the model.
     wallet.amountLocked = amountUstx;
     wallet.unlockHeight = Number(unlockBurnHeight.value);
-    wallet.ustxBalance -= amountUstx;
+    wallet.amountUnlocked -= amountUstx;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.

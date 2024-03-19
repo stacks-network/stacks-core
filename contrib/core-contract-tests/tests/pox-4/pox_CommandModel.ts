@@ -27,6 +27,7 @@ export type Wallet = {
   hasDelegated: boolean;
   delegatedTo: StxAddress;
   amountLocked: number;
+  amountUnlocked: number;
   unlockHeight: number;
 };
 
