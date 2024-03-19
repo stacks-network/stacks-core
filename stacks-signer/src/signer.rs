@@ -18,17 +18,20 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
+use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
-use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
+use libsigner::{
+    BlockProposalSigners, BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage,
+};
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
@@ -71,7 +74,7 @@ pub struct BlockInfo {
     /// The associated packet nonce request if we have one
     nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
-    signed_over: bool,
+    pub signed_over: bool,
 }
 
 impl BlockInfo {
@@ -170,8 +173,10 @@ impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Reward Cycle #{} Signer #{}",
-            self.reward_cycle, self.signer_id,
+            "Cycle #{} Signer #{}(C:{})",
+            self.reward_cycle,
+            self.signer_id,
+            self.coordinator_selector.get_coordinator().0,
         )
     }
 }
@@ -250,6 +255,26 @@ impl From<SignerConfig> for Signer {
 }
 
 impl Signer {
+    /// Refresh the coordinator selector
+    pub fn refresh_coordinator(&mut self) {
+        // TODO: do not use an empty consensus hash
+        let pox_consensus_hash = ConsensusHash::empty();
+        let old_coordinator_id = self.coordinator_selector.get_coordinator().0;
+        let updated_coordinator_id = self
+            .coordinator_selector
+            .refresh_coordinator(&pox_consensus_hash);
+        if old_coordinator_id != updated_coordinator_id {
+            debug!(
+                "{self}: Coordinator updated. Resetting state to Idle.";
+                "old_coordinator_id" => {old_coordinator_id},
+                "updated_coordinator_id" => {updated_coordinator_id},
+                "pox_consensus_hash" => %pox_consensus_hash
+            );
+            self.coordinator.state = CoordinatorState::Idle;
+            self.state = State::Idle;
+        }
+    }
+
     /// Finish an operation and update the coordinator selector accordingly
     fn finish_operation(&mut self) {
         self.state = State::Idle;
@@ -311,7 +336,7 @@ impl Signer {
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let mut block_info = self
                     .signer_db
-                    .block_lookup(&signer_signature_hash)
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
                     .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
                     .unwrap_or_else(|| BlockInfo::new(block.clone()));
                 if block_info.signed_over {
@@ -333,7 +358,7 @@ impl Signer {
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
-                            .insert_block(&block_info)
+                            .insert_block(self.reward_cycle, &block_info)
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
@@ -367,7 +392,7 @@ impl Signer {
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish...",);
+                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
             }
         }
     }
@@ -383,7 +408,10 @@ impl Signer {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
                 // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -398,7 +426,7 @@ impl Signer {
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 self.signer_db
-                    .insert_block(&block_info)
+                    .insert_block(self.reward_cycle, &block_info)
                     .expect(&format!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
@@ -409,7 +437,10 @@ impl Signer {
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 let signer_signature_hash = block_validate_reject.signer_signature_hash;
-                let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
+                let mut block_info = match self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, &signer_signature_hash)
+                {
                     Ok(Some(block_info)) => block_info,
                     Ok(None) => {
                         // We have not seen this block before. Why are we getting a response for it?
@@ -452,8 +483,9 @@ impl Signer {
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
-                    "{self}: triggering a signing round over the block {}",
-                    block_info.block.header.block_hash()
+                    "{self}: attempt to trigger a signing round for block";
+                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
+                    "block_hash" => %block_info.block.header.block_hash(),
                 );
                 self.commands.push_back(Command::Sign {
                     block: block_info.block.clone(),
@@ -471,7 +503,7 @@ impl Signer {
             }
         }
         self.signer_db
-            .insert_block(&block_info)
+            .insert_block(self.reward_cycle, &block_info)
             .expect(&format!("{self}: Failed to insert block in DB"));
     }
 
@@ -497,20 +529,59 @@ impl Signer {
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(&mut self, stacks_client: &StacksClient, blocks: &[NakamotoBlock]) {
-        for block in blocks {
-            // Store the block in our cache
-            self.signer_db
-                .insert_block(&BlockInfo::new(block.clone()))
-                .unwrap_or_else(|e| {
-                    error!("{self}: Failed to insert block in DB: {e:?}");
-                });
-            // Submit the block for validation
-            stacks_client
-                .submit_block_for_validation(block.clone())
-                .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to submit block for validation: {e:?}");
-                });
+    fn handle_proposed_blocks(
+        &mut self,
+        stacks_client: &StacksClient,
+        proposals: &[BlockProposalSigners],
+    ) {
+        for proposal in proposals {
+            if proposal.reward_cycle != self.reward_cycle {
+                debug!(
+                    "{self}: Received proposal for block outside of my reward cycle, ignoring.";
+                    "proposal_reward_cycle" => proposal.reward_cycle,
+                    "proposal_burn_height" => proposal.burn_height,
+                );
+                continue;
+            }
+            let sig_hash = proposal.block.header.signer_signature_hash();
+            match self.signer_db.block_lookup(self.reward_cycle, &sig_hash) {
+                Ok(Some(block)) => {
+                    debug!(
+                        "{self}: Received proposal for block already known, ignoring new proposal.";
+                        "signer_sighash" => %sig_hash,
+                        "proposal_burn_height" => proposal.burn_height,
+                        "vote" => ?block.vote.as_ref().map(|v| {
+                            if v.rejected {
+                                "REJECT"
+                            } else {
+                                "ACCEPT"
+                            }
+                        }),
+                        "signed_over" => block.signed_over,
+                    );
+                    continue;
+                }
+                Ok(None) => {
+                    // Store the block in our cache
+                    self.signer_db
+                        .insert_block(self.reward_cycle, &BlockInfo::new(proposal.block.clone()))
+                        .unwrap_or_else(|e| {
+                            error!("{self}: Failed to insert block in DB: {e:?}");
+                        });
+                    // Submit the block for validation
+                    stacks_client
+                        .submit_block_for_validation(proposal.block.clone())
+                        .unwrap_or_else(|e| {
+                            warn!("{self}: Failed to submit block for validation: {e:?}");
+                        });
+                }
+                Err(e) => {
+                    error!(
+                        "{self}: Failed to lookup block in DB: {e:?}. Dropping proposal request."
+                    );
+                    continue;
+                }
+            }
         }
     }
 
@@ -568,13 +639,16 @@ impl Signer {
 
         match self
             .signer_db
-            .block_lookup(&block_vote.signer_signature_hash)
+            .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
             .expect(&format!("{self}: Failed to connect to DB"))
             .map(|b| b.vote)
         {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
-                debug!("{self}: set vote for {} to {vote:?}", block_vote.rejected);
+                debug!(
+                    "{self}: Set vote (rejected = {}) to {vote:?}", block_vote.rejected;
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 request.message = vote.serialize_to_vec();
                 true
             }
@@ -582,7 +656,10 @@ impl Signer {
                 // We never agreed to sign this block. Reject it.
                 // This can happen if the coordinator received enough votes to sign yes
                 // or no on a block before we received validation from the stacks node.
-                debug!("{self}: Received a signature share request for a block we never agreed to sign. Ignore it.");
+                debug!(
+                    "{self}: Received a signature share request for a block we never agreed to sign. Ignore it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
+                );
                 false
             }
             None => {
@@ -590,7 +667,8 @@ impl Signer {
                 // blocks we have seen a Nonce Request for (and subsequent validation)
                 // We are missing the context here necessary to make a decision. Reject the block
                 debug!(
-                    "{self}: Received a signature share request from an unknown block. Reject it."
+                    "{self}: Received a signature share request from an unknown block. Reject it.";
+                    "requested_sighash" => %block_vote.signer_signature_hash,
                 );
                 false
             }
@@ -615,7 +693,7 @@ impl Signer {
         let signer_signature_hash = block.header.signer_signature_hash();
         let mut block_info = match self
             .signer_db
-            .block_lookup(&signer_signature_hash)
+            .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         {
             Some(block_info) => block_info,
@@ -623,7 +701,7 @@ impl Signer {
                 debug!("{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
-                    .insert_block(&block_info)
+                    .insert_block(self.reward_cycle, &block_info)
                     .expect(&format!("{self}: Failed to insert block in DB"));
                 stacks_client
                     .submit_block_for_validation(block)
@@ -643,7 +721,7 @@ impl Signer {
 
         self.determine_vote(&mut block_info, nonce_request);
         self.signer_db
-            .insert_block(&block_info)
+            .insert_block(self.reward_cycle, &block_info)
             .expect(&format!("{self}: Failed to insert block in DB"));
         true
     }
@@ -967,22 +1045,20 @@ impl Signer {
             return;
         };
 
-        // TODO: proper garbage collection...This is currently our only cleanup of blocks
-        self.signer_db
-            .remove_block(&block_vote.signer_signature_hash)
-            .expect(&format!("{self}: Failed to remove block from to signer DB"));
-
         let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message
-            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone())
         } else {
             // we agreed to sign the block hash. Return an approval message
-            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone()).into()
+            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone())
         };
 
         // Submit signature result to miners to observe
-        debug!("{self}: submit block response {block_submission:?}");
-        if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
+        info!("{self}: Submit block response: {block_submission}");
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry(block_submission.into())
+        {
             warn!("{self}: Failed to send block submission to stacker-db: {e:?}");
         }
     }
@@ -1005,7 +1081,7 @@ impl Signer {
             };
             let Some(block_info) = self
                 .signer_db
-                .block_lookup(&block_vote.signer_signature_hash)
+                .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
                 .expect(&format!("{self}: Failed to connect to signer DB"))
             else {
                 debug!(
@@ -1063,6 +1139,7 @@ impl Signer {
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
+        let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(reward_cycle)?;
         if self.approved_aggregate_public_key.is_some() {
@@ -1071,11 +1148,12 @@ impl Signer {
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
-            // We have an approved aggregate public key. Do nothing further
-            debug!(
-                "{self}: Have updated DKG value to {:?}.",
-                self.approved_aggregate_public_key
-            );
+            if old_dkg != self.approved_aggregate_public_key {
+                debug!(
+                    "{self}: updated DKG value to {:?}.",
+                    self.approved_aggregate_public_key
+                );
+            }
             return Ok(());
         };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
@@ -1164,6 +1242,9 @@ impl Signer {
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")
+            }
+            Some(SignerEvent::NewBurnBlock(height)) => {
+                debug!("{self}: Receved a new burn block event for block height {height}")
             }
             None => {
                 // No event. Do nothing.

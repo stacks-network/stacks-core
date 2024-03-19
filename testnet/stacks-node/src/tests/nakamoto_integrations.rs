@@ -1606,7 +1606,10 @@ fn correct_burn_outs() {
 
     let new_blocks_with_reward_set: Vec<serde_json::Value> = test_observer::get_blocks()
         .into_iter()
-        .filter(|block| block.get("reward_set").is_some() && block.get("cycle_number").is_some())
+        .filter(|block| {
+            block.get("reward_set").map_or(false, |v| !v.is_null())
+                && block.get("cycle_number").map_or(false, |v| !v.is_null())
+        })
         .collect();
     info!(
         "Announced blocks that include reward sets: {:#?}",
