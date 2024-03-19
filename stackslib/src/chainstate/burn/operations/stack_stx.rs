@@ -216,10 +216,16 @@ impl StackStxOp {
             signer_key = Some(StacksPublicKeyBuffer::from(&data[17..50]));
         }
         if data.len() >= 66 {
-            max_amount = Some(parse_u128_from_be(&data[50..66]).unwrap());
+            let Some(amt) = parse_u128_from_be(&data[50..66]) else {
+                return None;
+            };
+            max_amount = Some(amt);
         }
         if data.len() >= 70 {
-            auth_id = Some(parse_u32_from_be(&data[66..70]).unwrap());
+            let Some(id) = parse_u32_from_be(&data[66..70]) else {
+                return None;
+            };
+            auth_id = Some(id);
         }
 
         Some(ParsedData {
@@ -868,8 +874,6 @@ mod tests {
             .push_opcode(opcodes::All::OP_RETURN)
             .push_slice(&op_bytes)
             .into_script();
-        // assert_eq!(script.len(), 79);
-        info!("Script length is {}", script.len());
-        assert!(script.len() <= 80);
+        assert_eq!(script.len(), 75);
     }
 }
