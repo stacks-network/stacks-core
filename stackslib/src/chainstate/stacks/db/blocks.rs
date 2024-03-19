@@ -4151,9 +4151,6 @@ impl StacksChainState {
                 block_height,
                 txid,
                 burn_header_hash,
-                signer_key,
-                max_amount,
-                auth_id,
                 ..
             } = &stack_stx_op;
 
@@ -4170,39 +4167,14 @@ impl StacksChainState {
             ];
             // Appending additional signer related arguments for pox-4
             if POX_4_NAME == active_pox_contract {
-                // Passing None for signer-sig, we will authorize this signer key via set-signer-key-authorization contract call
-                args.push(Value::none());
-
-                if let Some(signer_key_value) = signer_key {
-                    let signer_key_value_bytes = signer_key_value.clone().as_bytes().to_vec();
-                    match Value::buff_from(signer_key_value_bytes) {
-                        Ok(buff_value) => args.push(buff_value),
-                        Err(_) => {
-                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of failure in creating Value::Buff from signer_key_value", txid, burn_header_hash);
-                            continue;
-                        }
+                match StacksChainState::collect_pox_4_stacking_args(&stack_stx_op) {
+                    Ok(pox_4_args) => {
+                        args.extend(pox_4_args);
                     }
-
-                    let max_amount_value = match max_amount {
-                        Some(max_amount) => Value::UInt(*max_amount),
-                        None => {
-                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because max_amount is required for pox-4 but not provided", txid, burn_header_hash);
-                            continue;
-                        }
-                    };
-                    args.push(max_amount_value.clone());
-
-                    let auth_id_value = match auth_id {
-                        Some(auth_id) => Value::UInt(u128::from(*auth_id)),
-                        None => {
-                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because auth_id is required for pox-4 but not provided", txid, burn_header_hash);
-                            continue;
-                        }
-                    };
-                    args.push(auth_id_value.clone());
-                } else {
-                    warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided", txid, burn_header_hash);
-                    continue;
+                    Err(e) => {
+                        warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of failure in collecting pox-4 stacking args: {}", txid, burn_header_hash, e);
+                        continue;
+                    }
                 }
             }
             let result = clarity_tx.connection().as_transaction(|tx| {
@@ -4263,6 +4235,35 @@ impl StacksChainState {
         }
 
         all_receipts
+    }
+
+    pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
+        let signer_key = match op.signer_key {
+            Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
+                Ok(signer_key) => signer_key,
+                Err(_) => {
+                    return Err("Invalid signer_key".into());
+                }
+            },
+            _ => return Err("Invalid signer key".into()),
+        };
+
+        let max_amount_value = match op.max_amount {
+            Some(max_amount) => Value::UInt(max_amount),
+            None => return Err("Missing max_amount".into()),
+        };
+
+        let auth_id_value = match op.auth_id {
+            Some(auth_id) => Value::UInt(u128::from(auth_id)),
+            None => return Err("Missing auth_id".into()),
+        };
+
+        Ok(vec![
+            Value::none(),
+            signer_key,
+            max_amount_value,
+            auth_id_value,
+        ])
     }
 
     /// Process any STX transfer bitcoin operations
@@ -4730,68 +4731,6 @@ impl StacksChainState {
         };
 
         Ok(parent_miner)
-    }
-
-    fn set_signer_key_authorization(
-        clarity_tx: &mut ClarityTx,
-        sender: &StacksAddress,
-        reward_addr: &TupleData,
-        num_cycles: u128,
-        pox_reward_cycle: u64,
-        signer_key_value: &Vec<u8>,
-        max_amount: Value,
-        auth_id: Value,
-        mainnet: bool,
-        active_pox_contract: &str,
-    ) -> Result<(), String> {
-        let signer_auth_args = vec![
-            Value::Tuple(reward_addr.clone()),
-            Value::UInt(num_cycles),
-            Value::UInt(u128::from(pox_reward_cycle)),
-            Value::string_ascii_from_bytes(Pox4SignatureTopic::StackStx.get_name_str().into())
-                .unwrap(),
-            Value::buff_from(signer_key_value.clone()).unwrap(),
-            Value::Bool(true),
-            max_amount,
-            auth_id,
-        ];
-
-        match clarity_tx.connection().as_transaction(|tx| {
-            tx.run_contract_call(
-                &sender.clone().into(),
-                None,
-                &boot_code_id(active_pox_contract, mainnet),
-                "set-signer-key-authorization",
-                &signer_auth_args,
-                |_, _| false,
-            )
-        }) {
-            Ok((value, _, _)) => {
-                if let Value::Response(ref resp) = value {
-                    if !resp.committed {
-                        debug!("Set-signer-key-authorization rejected by PoX contract.";
-                       "contract_call_ecode" => %resp.data);
-                        return Err(format!(
-                            "set-signer-key-authorization rejected: {:?}",
-                            resp.data
-                        ));
-                    }
-                    debug!("Processed set-signer-key-authorization");
-
-                    Ok(())
-                } else {
-                    unreachable!("BUG: Non-response value returned by set-signer-key-authorization")
-                }
-            }
-            Err(e) => {
-                info!("Set-signer-key-authorization processing error.";
-                           "error" => %format!("{:?}", e));
-                Err(format!(
-                    "Error processing set-signer-key-authorization: {:?}",
-                    e
-                ))
-            }
-        }
     }
 
     fn get_stacking_and_transfer_burn_ops_v205(
