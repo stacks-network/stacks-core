@@ -200,7 +200,8 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let curr_reward_cycle = self.get_current_reward_cycle();
         let next_reward_cycle = curr_reward_cycle.saturating_add(1);
         let next_reward_cycle_height = self
@@ -219,15 +220,14 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let reward_cycle_height = self
             .running_nodes
             .btc_regtest_controller
             .get_burnchain()
             .reward_cycle_to_block_height(reward_cycle);
-        reward_cycle_height
-            .saturating_sub(current_block_height)
-            .saturating_sub(1)
+        reward_cycle_height.saturating_sub(current_block_height)
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -243,6 +243,7 @@ impl SignerTest {
             .running_nodes
             .btc_regtest_controller
             .get_headers_height()
+            .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
             .saturating_add(nmb_blocks_to_mine_to_dkg);
         info!("Mining {nmb_blocks_to_mine_to_dkg} bitcoin block(s) to reach DKG calculation at bitcoin height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
@@ -284,7 +285,13 @@ impl SignerTest {
                 )
             }
             if total_nmb_blocks_to_mine >= nmb_blocks_to_reward_cycle {
-                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary.");
+                let end_block_height = self
+                    .running_nodes
+                    .btc_regtest_controller
+                    .get_headers_height()
+                    .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
+                    .saturating_add(nmb_blocks_to_reward_cycle);
+                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary at {end_block_height}.");
                 for i in 1..=nmb_blocks_to_reward_cycle {
                     debug!("Mining Nakamoto block #{i} of {nmb_blocks_to_reward_cycle}");
                     let curr_reward_cycle = self.get_current_reward_cycle();
@@ -300,7 +307,8 @@ impl SignerTest {
                 blocks_to_dkg = self.nmb_blocks_to_reward_set_calculation();
             }
         }
-        for _ in 1..=total_nmb_blocks_to_mine {
+        for i in 1..=total_nmb_blocks_to_mine {
+            info!("Mining Nakamoto block #{i} of {total_nmb_blocks_to_mine} to reach {burnchain_height}");
             let curr_reward_cycle = self.get_current_reward_cycle();
             let set_dkg = self
                 .stacks_client
@@ -743,7 +751,11 @@ fn setup_stx_btc_node(
 
         naka_conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
-            events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+            events_keys: vec![
+                EventKeyType::StackerDBChunks,
+                EventKeyType::BlockProposal,
+                EventKeyType::BurnchainBlocks,
+            ],
         });
     }
 

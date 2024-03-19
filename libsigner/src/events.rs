@@ -32,6 +32,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
@@ -82,6 +83,8 @@ pub enum SignerEvent {
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
     StatusCheck,
+    /// A new burn block event was received with the given burnchain block height
+    NewBurnBlock(u64),
 }
 
 impl StacksMessageCodec for BlockProposalSigners {
@@ -294,6 +297,8 @@ impl EventReceiver for SignerEventReceiver {
                     })
             } else if request.url() == "/proposal_response" {
                 process_proposal_response(request)
+            } else if request.url() == "/new_burn_block" {
+                process_new_burn_block_event(request)
             } else {
                 let url = request.url().to_string();
 
@@ -487,6 +492,38 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     }
 
     Ok(SignerEvent::BlockValidationResponse(event))
+}
+
+/// Process a new burn block event from the node
+fn process_new_burn_block_event(mut request: HttpRequest) -> Result<SignerEvent, EventError> {
+    debug!("Got burn_block event");
+    let mut body = String::new();
+    if let Err(e) = request.as_reader().read_to_string(&mut body) {
+        error!("Failed to read body: {:?}", &e);
+
+        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+            error!("Failed to respond to request: {:?}", &e);
+        }
+        return Err(EventError::MalformedRequest(format!(
+            "Failed to read body: {:?}",
+            &e
+        )));
+    }
+    #[derive(Debug, Deserialize)]
+    struct TempBurnBlockEvent {
+        burn_block_hash: String,
+        burn_block_height: u64,
+        reward_recipients: Vec<serde_json::Value>,
+        reward_slot_holders: Vec<String>,
+        burn_amount: u64,
+    }
+    let temp: TempBurnBlockEvent = serde_json::from_slice(body.as_bytes())
+        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
+    let event = SignerEvent::NewBurnBlock(temp.burn_block_height);
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    }
+    Ok(event)
 }
 
 pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
