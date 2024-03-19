@@ -76,7 +76,6 @@ impl BitcoinCoreController {
             Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
         };
 
-        eprintln!("bitcoind spawned, waiting for startup");
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
 
         let mut line = String::new();
@@ -95,6 +94,34 @@ impl BitcoinCoreController {
 
         self.bitcoind_process = Some(process);
 
+        Ok(())
+    }
+
+    pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
+        if let Some(_) = self.bitcoind_process.take() {
+            let mut command = Command::new("bitcoin-cli");
+            command
+                .stdout(Stdio::piped())
+                .arg("-rpcconnect=127.0.0.1")
+                .arg("-rpcport=8332")
+                .arg("-rpcuser=neon-tester")
+                .arg("-rpcpassword=neon-tester-pass")
+                .arg("stop");
+
+            let mut process = match command.spawn() {
+                Ok(child) => child,
+                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+            };
+
+            let mut out_reader = BufReader::new(process.stdout.take().unwrap());
+            let mut line = String::new();
+            while let Ok(bytes_read) = out_reader.read_line(&mut line) {
+                if bytes_read == 0 {
+                    break;
+                }
+                eprintln!("{}", &line);
+            }
+        }
         Ok(())
     }
 

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use std::{cmp, env, fs, thread};
+use std::{cmp, env, fs, io, thread};
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
@@ -9847,6 +9847,10 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     let tip_info = get_chain_info(&conf);
 
+    info!(
+        "tip_info.stacks_tip_height = {}, old_tip_info.stacks_tip_height = {}",
+        tip_info.stacks_tip_height, old_tip_info.stacks_tip_height
+    );
     // at least one block was mined (hard to say how many due to the raciness between the burnchain
     // downloader and this thread).
     assert!(tip_info.stacks_tip_height > old_tip_info.stacks_tip_height);
@@ -11722,4 +11726,134 @@ fn filter_txs_by_origin() {
     }
 
     test_observer::clear();
+}
+
+// https://stackoverflow.com/questions/26958489/how-to-copy-a-folder-recursively-in-rust
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn bitcoin_reorg_flap() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, _miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // stop bitcoind and copy its DB to simulate a chain flap
+    btcd_controller.stop_bitcoind().unwrap();
+    thread::sleep(Duration::from_secs(5));
+
+    let btcd_dir = conf.get_burnchain_path_str();
+    let mut new_conf = conf.clone();
+    new_conf.node.working_dir = format!("{}.new", &conf.node.working_dir);
+    fs::create_dir_all(&new_conf.node.working_dir).unwrap();
+
+    copy_dir_all(&btcd_dir, &new_conf.get_burnchain_path_str()).unwrap();
+
+    // resume
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    thread::sleep(Duration::from_secs(5));
+
+    info!("\n\nBegin fork A\n\n");
+
+    // make fork A
+    for _i in 0..3 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from A to B\n\n");
+
+    // carry out the flap to fork B -- new_conf's state was the same as before the reorg
+    let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(new_conf.clone(), None);
+
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    for _i in 0..5 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from B to A\n\n");
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    // carry out the flap back to fork A
+    for _i in 0..7 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    assert_eq!(channel.get_sortitions_processed(), 225);
+    btcd_controller.stop_bitcoind().unwrap();
+    channel.stop_chains_coordinator();
 }
