@@ -16,18 +16,18 @@ export type Real = {
 };
 
 export type Wallet = {
-  prvKey: string;
-  pubKey: string;
+  label: string;
   stxAddress: string;
   btcAddress: string;
   signerPrvKey: StacksPrivateKey;
   signerPubKey: string;
-  client: StackingClient;
+  stackingClient: StackingClient;
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;
-  delegatedTo: string;
+  delegatedTo: StxAddress;
   amountLocked: number;
+  amountUnlocked: number;
   unlockHeight: number;
 };
 

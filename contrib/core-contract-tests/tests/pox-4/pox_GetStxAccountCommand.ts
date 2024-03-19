@@ -29,19 +29,19 @@ export class GetStxAccountCommand implements PoxCommand {
     expect(real.network.runSnippet(`(stx-account '${actual.stxAddress})`))
       .toBeTuple({
         "locked": Cl.uint(actual.amountLocked),
-        "unlocked": Cl.uint(actual.ustxBalance),
+        "unlocked": Cl.uint(actual.amountUnlocked),
         "unlock-height": Cl.uint(actual.unlockHeight),
       });
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
-      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${
+      `✓ ${this.wallet.label.padStart(8, " ")} ${
         "stx-account".padStart(34, " ")
       } ${"lock-amount".padStart(12, " ")} ${
         actual.amountLocked.toString().padStart(13, " ")
       } ${"unlocked-amount".padStart(12, " ")} ${
-        actual.ustxBalance.toString().padStart(15, " ")
+        actual.amountUnlocked.toString().padStart(15, " ")
       } ${"unlocked-height".padStart(12, " ")} ${
         actual.unlockHeight.toString().padStart(7, " ")
       }`,
@@ -52,6 +52,6 @@ export class GetStxAccountCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.stxAddress} stx-account`;
+    return `${this.wallet.label} stx-account`;
   }
 }

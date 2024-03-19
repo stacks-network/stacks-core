@@ -62,7 +62,7 @@ export class StackStxCommand implements PoxCommand {
     // generated number passed to the constructor of this class.
     const maxAmount = model.stackingMinimum * this.margin;
 
-    const signerSig = this.wallet.client.signPoxSignature({
+    const signerSig = this.wallet.stackingClient.signPoxSignature({
       // The signer key being authorized.
       signerPrivateKey: this.wallet.signerPrvKey,
       // The reward cycle for which the authorization is valid.
@@ -151,12 +151,12 @@ export class StackStxCommand implements PoxCommand {
     // Update locked, unlocked, and unlock-height fields in the model.
     wallet.amountLocked = amountUstx;
     wallet.unlockHeight = Number(unlockBurnHeight.value);
-    wallet.ustxBalance -= amountUstx;
+    wallet.amountUnlocked -= amountUstx;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
-      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${
+      `✓ ${this.wallet.label.padStart(8, " ")} ${
         "stack-stx".padStart(34, " ")
       } ${"lock-amount".padStart(12, " ")} ${
         amountUstx.toString().padStart(13, " ")
@@ -168,6 +168,6 @@ export class StackStxCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.stxAddress} stack-stx auth-id ${this.authId} and period ${this.period}`;
+    return `${this.wallet.label} stack-stx auth-id ${this.authId} and period ${this.period}`;
   }
 }

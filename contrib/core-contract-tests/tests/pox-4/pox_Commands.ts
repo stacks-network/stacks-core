@@ -25,8 +25,8 @@ export function PoxCommands(
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
-      period: fc.integer({ min: 1, max: 7 }),
-      margin: fc.integer({ min: 2, max: 9 }),
+      period: fc.integer({ min: 1, max: 12 }),
+      margin: fc.integer({ min: 1, max: 9 }),
     }).map((
       r: {
         wallet: Wallet;
@@ -47,7 +47,7 @@ export function PoxCommands(
       wallet: fc.constantFrom(...wallets.values()),
       delegateTo: fc.constantFrom(...wallets.values()),
       untilBurnHt: fc.integer({ min: 1 }),
-      margin: fc.integer({ min: 2, max: 9 }),
+      margin: fc.integer({ min: 1, max: 9 }),
     }).map((
       r: {
         wallet: Wallet;

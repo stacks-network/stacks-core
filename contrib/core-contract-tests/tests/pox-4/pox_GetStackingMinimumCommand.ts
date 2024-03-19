@@ -43,7 +43,7 @@ export class GetStackingMinimumCommand implements PoxCommand {
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
-      `✓ ${this.wallet.stxAddress.padStart(8, " ")} ${
+      `✓ ${this.wallet.label.padStart(8, " ")} ${
         "get-stacking-minimum".padStart(34, " ")
       } ${"pox-4".padStart(12, " ")} ${
         stackingMinimum.value.toString().padStart(13, " ")
@@ -55,6 +55,6 @@ export class GetStackingMinimumCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.stxAddress} get-stacking-minimum`;
+    return `${this.wallet.label} get-stacking-minimum`;
   }
 }
