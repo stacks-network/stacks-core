@@ -4,9 +4,12 @@ import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxCommand } from "./pox_StackStxCommand";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
+import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
+import { Simnet } from "@hirosystems/clarinet-sdk";
+import { currentCycleFirstBlock, nextCycleFirstBlock } from "./pox-4.stateful-prop.test";
 
 export function PoxCommands(
-  wallets: Map<StxAddress, Wallet>,
+  wallets: Map<StxAddress, Wallet>, network: Simnet,
 ): fc.Arbitrary<Iterable<fc.Command<Stub, Real>>> {
   const cmds = [
     // GetStackingMinimumCommand
@@ -47,20 +50,47 @@ export function PoxCommands(
       wallet: fc.constantFrom(...wallets.values()),
       delegateTo: fc.constantFrom(...wallets.values()),
       untilBurnHt: fc.integer({ min: 1 }),
-      margin: fc.integer({ min: 1, max: 9 }),
+      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
     }).map((
       r: {
         wallet: Wallet;
         delegateTo: Wallet;
         untilBurnHt: number;
-        margin: number;
+        amount: bigint;
       },
     ) =>
       new DelegateStxCommand(
         r.wallet,
         r.delegateTo,
         r.untilBurnHt,
-        r.margin,
+        r.amount,
+      )
+    ),
+    // DelegateStackStxCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      stacker: fc.constantFrom(...wallets.values()),
+      startBurnHt: fc.integer({
+        min: currentCycleFirstBlock(network),
+        max: nextCycleFirstBlock(network),
+      }),
+      period: fc.integer({ min: 1, max: 12 }),
+      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
+    }).map((
+      r: {
+        operator: Wallet;
+        stacker: Wallet;
+        startBurnHt: number;
+        period: number;
+        amount: bigint;
+      },
+    ) =>
+      new DelegateStackStxCommand(
+        r.operator,
+        r.stacker,
+        r.startBurnHt,
+        r.period,
+        r.amount
       )
     ),
     // GetStxAccountCommand

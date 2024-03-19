@@ -4,9 +4,9 @@ import { expect } from "vitest";
 import { boolCV, Cl } from "@stacks/transactions";
 
 /**
- * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This self-service
- * operation allows the `tx-sender` (the `wallet` in this case) to delegate stacking
- * participation to a `delegatee`.
+ * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This operation 
+ * allows the `tx-sender` (the `wallet` in this case) to delegate stacking participation 
+ * to a `delegatee`.
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be a delegator in another delegation.
@@ -16,7 +16,7 @@ export class DelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
   readonly delegateTo: Wallet;
   readonly untilBurnHt: number;
-  readonly margin: number;
+  readonly amount: bigint;
 
   /**
    * Constructs a `DelegateStxCommand` to delegate uSTX for stacking.
@@ -24,19 +24,19 @@ export class DelegateStxCommand implements PoxCommand {
    * @param wallet - Represents the Stacker's wallet.
    * @param delegateTo - Represents the Delegatee's STX address.
    * @param untilBurnHt - The burn block height until the delegation is valid.
-   * @param margin - Multiplier for minimum required uSTX to stack so that each
-   *                 Stacker locks a different amount of uSTX across test runs.
+   * @param amount - The maximum amount the `Stacker` delegates the `Delegatee` to
+   *                 stack on his behalf
    */
   constructor(
     wallet: Wallet,
     delegateTo: Wallet,
     untilBurnHt: number,
-    margin: number,
+    amount: bigint,
   ) {
     this.wallet = wallet;
     this.delegateTo = delegateTo;
     this.untilBurnHt = untilBurnHt;
-    this.margin = margin;
+    this.amount = amount;
   }
 
   check(model: Readonly<Stub>): boolean {
@@ -50,16 +50,9 @@ export class DelegateStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     // The amount of uSTX delegated by the Stacker to the Delegatee.
-    // For our tests, we will use the minimum amount of uSTX to be stacked
-    // in the given reward cycle multiplied by the margin, which is a randomly
-    // generated number passed to the constructor of this class. Even if there
-    // are no constraints about the delegated amount, it will be checked in the
-    // future, when calling delegate-stack-stx.
-    const delegatedAmount = model.stackingMinimum * this.margin;
-
-    // The amount of uSTX to be delegated. For this test, we will use the
-    // delegated amount calculated before.
-    const amountUstx = delegatedAmount;
+    // Even if there are no constraints about the delegated amount, 
+    // it will be checked in the future, when calling delegate-stack-stx.
+    const amountUstx = Number(this.amount);
 
     // Act
     const delegateStx = real.network.callPublicFn(
@@ -83,12 +76,15 @@ export class DelegateStxCommand implements PoxCommand {
 
     // Get the wallet from the model and update it with the new state.
     const wallet = model.wallets.get(this.wallet.stxAddress)!;
+    const delegatedWallet = model.wallets.get(this.delegateTo.stxAddress)!;
     // Update model so that we know this wallet has delegated. This is important
     // in order to prevent the test from delegating multiple times with the same
     // address.
     wallet.hasDelegated = true;
     wallet.delegatedTo = this.delegateTo.stxAddress;
+    wallet.delegatedMaxAmount = amountUstx;
 
+    delegatedWallet.hasPoolMembers.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     console.info(
@@ -100,7 +96,7 @@ export class DelegateStxCommand implements PoxCommand {
       } ${"amount".padStart(12, " ")} ${
         amountUstx
           .toString()
-          .padStart(13, " ")
+          .padStart(15, " ")
       } delegated to ${
         this.delegateTo.label.padStart(
           42,

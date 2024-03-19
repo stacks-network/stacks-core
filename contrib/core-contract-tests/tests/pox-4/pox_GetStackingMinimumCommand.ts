@@ -46,7 +46,7 @@ export class GetStackingMinimumCommand implements PoxCommand {
       `✓ ${this.wallet.label.padStart(8, " ")} ${
         "get-stacking-minimum".padStart(34, " ")
       } ${"pox-4".padStart(12, " ")} ${
-        stackingMinimum.value.toString().padStart(13, " ")
+        stackingMinimum.value.toString().padStart(15, " ")
       }`,
     );
   }
