@@ -60,7 +60,7 @@ describe("PoX-4 invariant tests", () => {
         btcAddress,
         signerPrvKey,
         signerPubKey,
-        client: new StackingClient(stxAddress, devnet),
+        stackingClient: new StackingClient(stxAddress, devnet),
         ustxBalance: 100_000_000_000_000,
         isStacking: false,
         hasDelegated: false,
