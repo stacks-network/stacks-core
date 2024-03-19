@@ -57,6 +57,7 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::config::BurnchainConfig;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -124,14 +125,22 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
 }
 
+pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
+    let (network, _) = config.get_bitcoin_network();
+    let mut params = BurnchainParameters::from_params(&config.chain, &network)
+        .expect("Bitcoin network unsupported");
+    if let Some(first_burn_block_height) = config.first_burn_block_height {
+        params.first_block_height = first_burn_block_height;
+    }
+    params
+}
+
 /// Helper method to create a BitcoinIndexer
 pub fn make_bitcoin_indexer(
     config: &Config,
     should_keep_running: Option<Arc<AtomicBool>>,
 ) -> BitcoinIndexer {
-    let (network, _) = config.burnchain.get_bitcoin_network();
-    let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
-        .expect("Bitcoin network unsupported");
+    let burnchain_params = burnchain_params_from_config(&config.burnchain);
     let indexer_config = {
         let burnchain_config = config.burnchain.clone();
         BitcoinIndexerConfig {
@@ -271,7 +280,7 @@ impl BitcoinRegtestController {
     ) -> Self {
         std::fs::create_dir_all(&config.get_burnchain_path_str())
             .expect("Unable to create workdir");
-        let (network, network_id) = config.burnchain.get_bitcoin_network();
+        let (_, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(
             &config.get_spv_headers_file_path(),
@@ -286,8 +295,7 @@ impl BitcoinRegtestController {
             panic!()
         }
 
-        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
-            .expect("Bitcoin network unsupported");
+        let burnchain_params = burnchain_params_from_config(&config.burnchain);
 
         if network_id == BitcoinNetworkType::Mainnet && config.burnchain.epochs.is_some() {
             panic!("It is an error to set custom epochs while running on Mainnet: network_id {:?} config.burnchain {:#?}",
@@ -336,9 +344,7 @@ impl BitcoinRegtestController {
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
     pub fn new_dummy(config: Config) -> Self {
-        let (network, _) = config.burnchain.get_bitcoin_network();
-        let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
-            .expect("Bitcoin network unsupported");
+        let burnchain_params = burnchain_params_from_config(&config.burnchain);
 
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();

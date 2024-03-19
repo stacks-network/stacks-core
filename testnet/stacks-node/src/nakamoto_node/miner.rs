@@ -26,7 +26,7 @@ use libsigner::{
     BlockProposalSigners, BlockResponse, RejectCode, SignerMessage, SignerSession,
     StackerDBSession, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
-use stacks::burnchains::{Burnchain, BurnchainParameters};
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
@@ -49,6 +49,7 @@ use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::burnchain_params_from_config;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
@@ -672,10 +673,7 @@ impl BlockMinerThread {
                 .expect("FATAL: could not query chain tip")
         else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = self.config.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&self.config.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
+            let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
                 &burnchain_params.first_block_hash,
