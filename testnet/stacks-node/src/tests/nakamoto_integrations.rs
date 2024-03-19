@@ -2442,16 +2442,13 @@ fn stack_stx_burn_op_integration_test() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.satoshis_per_byte = 2;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    let signer_sk_1 = Secp256k1PrivateKey::new();
+
+    let signer_sk_1 = setup_stacker(&mut naka_conf);
     let signer_addr_1 = tests::to_addr(&signer_sk_1);
 
     let signer_sk_2 = Secp256k1PrivateKey::new();
     let signer_addr_2 = tests::to_addr(&signer_sk_2);
 
-    naka_conf.add_initial_balance(
-        PrincipalData::from(signer_addr_1.clone()).to_string(),
-        100000,
-    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -2467,6 +2464,8 @@ fn stack_stx_burn_op_integration_test() {
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -2586,6 +2585,42 @@ fn stack_stx_burn_op_integration_test() {
 
     let blocks_until_prepare = prepare_phase_start + 1 - block_height;
 
+    let lock_period: u8 = 6;
+    let topic = Pox4SignatureTopic::StackStx;
+    let auth_id: u32 = 1;
+    let pox_addr = PoxAddress::Standard(signer_addr_1, Some(AddressHashMode::SerializeP2PKH));
+
+    info!(
+        "Submitting set-signer-key-authorization";
+        "block_height" => block_height,
+        "reward_cycle" => reward_cycle,
+    );
+
+    let signer_pk_1 = StacksPublicKey::from_private(&signer_sk_1);
+    let signer_key_arg_1: StacksPublicKeyBuffer =
+        signer_pk_1.to_bytes_compressed().as_slice().into();
+
+    let set_signer_key_auth_tx = tests::make_contract_call(
+        &signer_sk_1,
+        1,
+        500,
+        &StacksAddress::burn_address(false),
+        "pox-4",
+        "set-signer-key-authorization",
+        &[
+            clarity::vm::Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
+            clarity::vm::Value::UInt(lock_period.into()),
+            clarity::vm::Value::UInt(reward_cycle.into()),
+            clarity::vm::Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
+            clarity::vm::Value::buff_from(signer_pk_1.clone().to_bytes_compressed()).unwrap(),
+            clarity::vm::Value::Bool(true),
+            clarity::vm::Value::UInt(u128::MAX),
+            clarity::vm::Value::UInt(auth_id.into()),
+        ],
+    );
+
+    submit_tx(&http_origin, &set_signer_key_auth_tx);
+
     info!(
         "Mining until prepare phase start.";
         "prepare_phase_start" => prepare_phase_start,
@@ -2610,10 +2645,6 @@ fn stack_stx_burn_op_integration_test() {
         "block_height" => block_height,
         "reward_cycle" => reward_cycle,
     );
-
-    let signer_pk_1 = StacksPublicKey::from_private(&signer_sk_1);
-    let signer_key_arg_1: StacksPublicKeyBuffer =
-        signer_pk_1.to_bytes_compressed().as_slice().into();
 
     let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
     let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
@@ -2648,14 +2679,17 @@ fn stack_stx_burn_op_integration_test() {
     info!("Signer 1 addr: {}", signer_addr_1.to_b58());
     info!("Signer 2 addr: {}", signer_addr_2.to_b58());
 
+    let pox_info = get_pox_info(&http_origin).unwrap();
+    let min_stx = pox_info.next_cycle.min_threshold_ustx;
+
     let stack_stx_op_with_some_signer_key = StackStxOp {
         sender: signer_addr_1.clone(),
-        reward_addr: PoxAddress::Standard(signer_addr_1, None),
-        stacked_ustx: 100000,
-        num_cycles: 6,
+        reward_addr: pox_addr,
+        stacked_ustx: min_stx.into(),
+        num_cycles: lock_period,
         signer_key: Some(signer_key_arg_1),
         max_amount: Some(u128::MAX),
-        auth_id: Some(0u32),
+        auth_id: Some(auth_id),
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),
@@ -2741,6 +2775,30 @@ fn stack_stx_burn_op_integration_test() {
                     .as_str()
                     .unwrap();
                 assert_eq!(signer_key_found, signer_key_arg_1.to_hex());
+
+                let max_amount_correct = stack_stx_obj
+                    .get("max_amount")
+                    .expect("Expected max_amount")
+                    .as_number()
+                    .expect("Expected max_amount to be a number")
+                    .eq(&serde_json::Number::from(u128::MAX));
+                assert!(max_amount_correct, "Expected max_amount to be u128::MAX");
+
+                let auth_id_correct = stack_stx_obj
+                    .get("auth_id")
+                    .expect("Expected auth_id in burn op")
+                    .as_number()
+                    .expect("Expected auth id")
+                    .eq(&serde_json::Number::from(auth_id));
+                assert!(auth_id_correct, "Expected auth_id to be 1");
+
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed =
+                    clarity::vm::Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                info!("Clarity result of stack-stx op: {parsed}");
+                parsed
+                    .expect_result_ok()
+                    .expect("Expected OK result for stack-stx op");
 
                 stack_stx_found = true;
                 stack_stx_burn_op_tx_count += 1;

@@ -25,6 +25,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::POX_4_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
@@ -55,7 +56,7 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
-use stacks::util_lib::boot::boot_code_id;
+use stacks::util_lib::boot::{boot_code_addr, boot_code_id};
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -2432,8 +2433,46 @@ fn stack_stx_burn_op_test() {
     );
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
 
+    let reward_cycle = burnchain_config
+        .block_height_to_reward_cycle(block_height)
+        .unwrap()
+        + 1;
+
+    let lock_period = 6;
+    let topic = Pox4SignatureTopic::StackStx;
+    let auth_id: u32 = 1;
+
+    info!(
+        "Submitting set-signer-key-authorization";
+        "block_height" => block_height,
+        "reward_cycle" => reward_cycle,
+    );
+
+    let set_signer_key_auth_tx = make_contract_call(
+        &signer_sk_1,
+        0,
+        500,
+        &boot_code_addr(false),
+        POX_4_NAME,
+        "set-signer-key-authorization",
+        &[
+            Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+            Value::UInt(lock_period),
+            Value::UInt(reward_cycle.into()),
+            Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
+            Value::buff_from(signer_pk_bytes.clone()).unwrap(),
+            Value::Bool(true),
+            Value::UInt(u128::MAX),
+            Value::UInt(auth_id.into()),
+        ],
+    );
+
+    // push the stacking transaction
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    submit_tx(&http_origin, &set_signer_key_auth_tx);
+
     // Wait a few blocks to be registered
-    for _i in 0..7 {
+    for _i in 0..3 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         block_height = channel.get_sortitions_processed();
     }
@@ -2458,7 +2497,7 @@ fn stack_stx_burn_op_test() {
         num_cycles: 6,
         signer_key: Some(signer_key),
         max_amount: Some(u128::MAX),
-        auth_id: Some(0u32),
+        auth_id: Some(auth_id.into()),
         // to be filled in
         vtxindex: 0,
         txid: Txid([0u8; 32]),
@@ -2539,6 +2578,13 @@ fn stack_stx_burn_op_test() {
                     .as_str()
                     .unwrap();
                 assert_eq!(signer_key_found, signer_key.to_hex());
+
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                info!("Clarity result of stack-stx op: {parsed}");
+                parsed
+                    .expect_result_ok()
+                    .expect("Expected OK result for stack-stx op");
 
                 stack_stx_found = true;
                 stack_stx_burn_op_tx_count += 1;
