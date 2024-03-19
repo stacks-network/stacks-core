@@ -18,22 +18,18 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use blockstack_lib::burnchains::PoxConstants;
-use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
-use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::HashMap;
 use libsigner::{ParsedSignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
-use wsts::curve::ecdsa;
-use wsts::curve::point::{Compressed, Point};
-use wsts::state_machine::coordinator::State as CoordinatorState;
-use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, SignerSlotID, State as SignerState};
+use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]

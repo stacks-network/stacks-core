@@ -301,12 +301,14 @@ impl EventReceiver for SignerEventReceiver {
                 process_new_burn_block_event(request)
             } else {
                 let url = request.url().to_string();
-
-                debug!(
-                    "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
-                    event_receiver.local_addr,
-                    request.url()
-                );
+                // `/new_block` is expected, but not specifically handled. do not log.
+                if &url != "/new_block" {
+                    debug!(
+                        "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
+                        event_receiver.local_addr,
+                        url
+                    );
+                }
                 ack_dispatcher(request);
                 Err(EventError::UnrecognizedEvent(url))
             }
