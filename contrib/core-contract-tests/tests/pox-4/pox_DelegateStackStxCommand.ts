@@ -4,16 +4,18 @@ import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 
 /**
- * The `StackStxCommand` locks STX for stacking within PoX-4. This self-service
- * operation allows the `tx-sender` (the `wallet` in this case) to participate
- * as a Stacker.
+ * The `DelegateStackStxCommand` locks STX for stacking within PoX-4 on behalf of a delegator. 
+ * This self-service operation allows the `operator` to stack the stacker's STX.
  *
  * Constraints for running this command include:
- * - The Stacker cannot currently be engaged in another stacking operation.
  * - A minimum threshold of uSTX must be met, determined by the
- *   `get-stacking-minimum` function at the time of this call.
- * - The amount of uSTX locked may need to be increased in future reward cycles
- *   if the minimum threshold rises.
+ *  `get-stacking-minimum` function at the time of this call.
+ * - The Stacker cannot currently be engaged in another stacking 
+ *   operation.
+ * - The Stacker has to currently be delegating to the Caller.
+ * - The stacked STX amount should be less than or equal to the 
+ *   delegated amount.
+ * - The Caller has to currently be delegated by the Stacker.
  */
 export class DelegateStackStxCommand implements PoxCommand {
   readonly operator: Wallet;
@@ -23,7 +25,8 @@ export class DelegateStackStxCommand implements PoxCommand {
   readonly margin: number;
 
   /**
-   * Constructs a `StackStxCommand` to lock uSTX for stacking.
+   * Constructs a `DelegateStackStxCommand` to lock uSTX as a Pool Operator
+   * on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
    * @param stacker - Represents the STacker's wallet.
