@@ -39,7 +39,7 @@ export class GetStxAccountCommand implements PoxCommand {
       `✓ ${this.wallet.label.padStart(8, " ")} ${
         "stx-account".padStart(34, " ")
       } ${"lock-amount".padStart(12, " ")} ${
-        actual.amountLocked.toString().padStart(13, " ")
+        actual.amountLocked.toString().padStart(15, " ")
       } ${"unlocked-amount".padStart(12, " ")} ${
         actual.amountUnlocked.toString().padStart(15, " ")
       } ${"unlocked-height".padStart(12, " ")} ${
