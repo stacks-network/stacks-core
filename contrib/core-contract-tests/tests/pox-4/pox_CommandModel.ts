@@ -21,7 +21,7 @@ export type Wallet = {
   btcAddress: string;
   signerPrvKey: StacksPrivateKey;
   signerPubKey: string;
-  client: StackingClient;
+  stackingClient: StackingClient;
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;

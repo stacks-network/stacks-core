@@ -62,7 +62,7 @@ export class StackStxCommand implements PoxCommand {
     // generated number passed to the constructor of this class.
     const maxAmount = model.stackingMinimum * this.margin;
 
-    const signerSig = this.wallet.client.signPoxSignature({
+    const signerSig = this.wallet.stackingClient.signPoxSignature({
       // The signer key being authorized.
       signerPrivateKey: this.wallet.signerPrvKey,
       // The reward cycle for which the authorization is valid.
