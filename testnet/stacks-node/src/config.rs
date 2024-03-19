@@ -251,6 +251,23 @@ mod tests {
 
         assert!(config.burnchain.affirmation_overrides.is_empty());
     }
+
+    #[test]
+    fn should_accept_optional_affirmation_overrides() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+                "#,
+            )
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 3);
+    }
 }
 
 impl ConfigFile {
@@ -1367,24 +1384,32 @@ pub struct BurnchainConfigFile {
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
-    pub affirmation_overrides: Vec<AffirmationOverride>,
+    pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
 }
 
 impl BurnchainConfigFile {
     /// Add affirmation overrides required to sync Xenon
     pub fn add_affirmation_overrides_xenon(&mut self) {
-        self.affirmation_overrides.push(AffirmationOverride {
+        let default_overrides = vec![
+        AffirmationOverride {
             reward_cycle: 413,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
-        });
-        self.affirmation_overrides.push(AffirmationOverride {
+        },
+        AffirmationOverride {
             reward_cycle: 414,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa".to_string()
-        });
-        self.affirmation_overrides.push(AffirmationOverride {
+        },
+        AffirmationOverride {
             reward_cycle: 415,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
-        });
+        }];
+        if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
+            for affirmation in default_overrides {
+                affirmation_overrides.push(affirmation);
+            }
+        } else {
+            self.affirmation_overrides = Some(default_overrides);
+        };
     }
 
     fn into_config_default(
@@ -1414,17 +1439,19 @@ impl BurnchainConfigFile {
             }
         }
 
-        let mut affirmation_overrides = HashMap::with_capacity(self.affirmation_overrides.len());
-        for affirmation_override in self.affirmation_overrides {
-            let Some(affirmation_map) = AffirmationMap::decode(&affirmation_override.affirmation)
-            else {
-                return Err(format!(
-                    "Invalid affirmation override for reward cycle {}: {}",
-                    affirmation_override.reward_cycle, affirmation_override.affirmation
-                ));
-            };
-            affirmation_overrides.insert(affirmation_override.reward_cycle, affirmation_map);
+        let mut affirmation_overrides = HashMap::new();
+        if let Some(aos) = self.affirmation_overrides {
+            for ao in aos {
+                let Some(affirmation_map) = AffirmationMap::decode(&ao.affirmation) else {
+                    return Err(format!(
+                        "Invalid affirmation override for reward cycle {}: {}",
+                        ao.reward_cycle, ao.affirmation
+                    ));
+                };
+                affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
+            }
         }
+
         let mut config = BurnchainConfig {
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
             chain_id: if is_mainnet {
