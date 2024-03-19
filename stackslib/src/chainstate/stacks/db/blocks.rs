@@ -4138,7 +4138,6 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
         active_pox_contract: &str,
-        pox_reward_cycle: u64,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mainnet = clarity_tx.config.mainnet;
@@ -4201,28 +4200,6 @@ impl StacksChainState {
                         }
                     };
                     args.push(auth_id_value.clone());
-
-                    // Need to authorize the signer key before making stack-stx call without a signature
-                    let signer_key_auth_result = Self::set_signer_key_authorization(
-                        clarity_tx,
-                        sender,
-                        &reward_addr.as_clarity_tuple().unwrap(),
-                        u128::from(*num_cycles),
-                        pox_reward_cycle,
-                        &signer_key_value.clone().as_bytes().to_vec(),
-                        max_amount_value,
-                        auth_id_value,
-                        mainnet,
-                        active_pox_contract,
-                    );
-
-                    match signer_key_auth_result {
-                        Err(error) => {
-                            warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of error in set-signer-key-authorization: {}", txid, burn_header_hash, error);
-                            continue;
-                        }
-                        _ => {}
-                    }
                 } else {
                     warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided", txid, burn_header_hash);
                     continue;
@@ -5323,18 +5300,11 @@ impl StacksChainState {
 
         let active_pox_contract = pox_constants.active_pox_contract(u64::from(burn_tip_height));
 
-        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
-            burn_tip_height as u64,
-            burn_dbconn.get_burn_start_height().into(),
-            burn_dbconn.get_pox_reward_cycle_length().into(),
-        ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
-
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops.clone(),
             active_pox_contract,
-            pox_reward_cycle,
         ));
         debug!(
             "Setup block: Processed burnchain stacking ops for {}/{}",
