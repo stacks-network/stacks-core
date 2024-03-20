@@ -53,7 +53,7 @@ pub struct StackerDB {
 
 impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
-        StackerDB::new(
+        Self::new(
             &config.node_host,
             config.stacks_private_key,
             config.mainnet,

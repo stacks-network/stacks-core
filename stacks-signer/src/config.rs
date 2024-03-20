@@ -56,7 +56,7 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 /// The Stacks network to use.
 pub enum Network {
@@ -80,7 +80,7 @@ impl std::fmt::Display for Network {
 
 impl Network {
     /// Converts a Network enum variant to a corresponding chain id
-    pub fn to_chain_id(&self) -> u32 {
+    pub const fn to_chain_id(&self) -> u32 {
         match self {
             Self::Mainnet => CHAIN_ID_MAINNET,
             Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
@@ -88,7 +88,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a corresponding address version
-    pub fn to_address_version(&self) -> u8 {
+    pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -96,7 +96,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a Transaction Version
-    pub fn to_transaction_version(&self) -> TransactionVersion {
+    pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
             Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
@@ -104,7 +104,7 @@ impl Network {
     }
 
     /// Check if the network is Mainnet or not
-    pub fn is_mainnet(&self) -> bool {
+    pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
             Self::Testnet | Self::Mocknet => false,
@@ -237,7 +237,7 @@ struct RawConfigFile {
 impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
-        let config: RawConfigFile =
+        let config: Self =
             toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
         Ok(config)
     }
@@ -252,7 +252,7 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     type Error = ConfigError;
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
+        Self::load_from_str(&fs::read_to_string(path).map_err(|e| {
             ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
         })?)
     }
@@ -273,7 +273,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .to_socket_addrs()
             .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
-            .ok_or(ConfigError::BadField(
+            .ok_or_else(|| ConfigError::BadField(
                 "endpoint".to_string(),
                 raw_data.endpoint.clone(),
             ))?;

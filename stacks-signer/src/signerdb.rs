@@ -44,7 +44,7 @@ impl SignerDb {
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
     /// or an in-memory database if the path is ":memory:"
-    pub fn new(db_path: impl AsRef<Path>) -> Result<SignerDb, DBError> {
+    pub fn new(db_path: impl AsRef<Path>) -> Result<Self, DBError> {
         let connection = Self::connect(db_path)?;
 
         let signer_db = Self { db: connection };
