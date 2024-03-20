@@ -24,9 +24,9 @@
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
 
-;; Threshold consensus, expressed as parts-per-thousand to allow for integer
-;; division with higher precision (e.g. 700 for 70%).
-(define-constant threshold-consensus u700)
+;; Threshold consensus, expressed as parts-per-hundred to allow for integer
+;; division with higher precision (e.g. 70 for 70%).
+(define-constant threshold-consensus u70)
 
 ;; Maps reward-cycle ids to last round
 (define-map rounds uint uint)
@@ -38,6 +38,9 @@
 ;; cache the total weight of signers for a given reward cycle, so it is not
 ;; necessary to recalculate it on every vote.
 (define-map cycle-total-weight uint uint)
+
+;; Maps voting data (count, current weight) per reward cycle & round
+(define-map round-data {reward-cycle: uint, round: uint} {votes-count: uint, votes-weight: uint})
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
@@ -53,6 +56,9 @@
 
 (define-read-only (get-vote (reward-cycle uint) (round uint) (signer principal))
     (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
+
+(define-read-only (get-round-info (reward-cycle uint) (round uint))
+    (map-get? round-data {reward-cycle: reward-cycle, round: round}))
 
 (define-read-only (get-candidate-info (reward-cycle uint) (round uint) (candidate (buff 33)))
     {candidate-weight: (default-to u0 (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: candidate})),
@@ -80,6 +86,11 @@
 ;; get the aggregate public key for the given reward cycle (or none)
 (define-read-only (get-approved-aggregate-key (reward-cycle uint))
     (map-get? aggregate-public-keys reward-cycle))
+
+;; get the weight required for consensus threshold
+(define-read-only (get-threshold-weight (reward-cycle uint))
+    (let  ((total-weight (default-to u0 (map-get? cycle-total-weight reward-cycle))))
+        (/ (+ (* total-weight threshold-consensus) u99) u100)))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
@@ -134,7 +145,12 @@
             ;; vote by signer weight
             (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
-            (total-weight (try! (get-and-cache-total-weight reward-cycle))))
+            (cached-weight (try! (get-and-cache-total-weight reward-cycle)))
+            (threshold-weight (get-threshold-weight reward-cycle))
+            (current-round (default-to {
+                votes-count: u0, 
+                votes-weight: u0} (map-get? round-data {reward-cycle: reward-cycle, round: round})))
+                )
         ;; Check that the key has not yet been set for this reward cycle
         (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is the correct length
@@ -147,6 +163,10 @@
         (try! (update-last-round reward-cycle round))
         ;; Update the tally for this aggregate public key candidate
         (map-set tally tally-key new-total)
+        ;; Update the current round data
+        (map-set round-data {reward-cycle: reward-cycle, round: round} {
+            votes-count: (+ (get votes-count current-round) u1),
+            votes-weight: (+ (get votes-weight current-round) signer-weight)})
         ;; Update used aggregate public keys
         (map-set used-aggregate-public-keys key reward-cycle)
         (print {
@@ -158,7 +178,7 @@
             new-total: new-total,
         })
         ;; If the new total weight is greater than or equal to the threshold consensus
-        (if (>= (/ (* new-total u1000) total-weight) threshold-consensus)
+        (if (>= new-total threshold-weight)
             ;; Save this approved aggregate public key for this reward cycle.
             ;; If there is not already a key for this cycle, the insert will
             ;; return true and an event will be created.
