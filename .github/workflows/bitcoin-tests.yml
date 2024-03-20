@@ -70,6 +70,7 @@ jobs:
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::min_txs
           - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::neon_integrations::bitcoin_reorg_flap
     steps:
       ## Setup test environment
       - name: Setup Test Environment

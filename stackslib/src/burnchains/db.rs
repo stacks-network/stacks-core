@@ -312,7 +312,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
         &self,
         header: &BurnchainBlockHeader,
-    ) -> Result<i64, BurnchainError> {
+    ) -> Result<(), BurnchainError> {
         let sql = "INSERT OR IGNORE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
@@ -330,11 +330,8 @@ impl<'a> BurnchainDBTransaction<'a> {
                 "Duplicate entry for block_hash: {}, insert operation ignored.",
                 header.block_hash
             );
-            Ok(-1)
-        } else {
-            // A new row was inserted successfully
-            Ok(self.sql_tx.last_insert_rowid())
         }
+        Ok(())
     }
 
     /// Add an affirmation map into the database.  Returns the affirmation map ID.
