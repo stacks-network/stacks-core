@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn should_accept_optional_affirmation_overrides() {
+    fn should_include_xenon_default_affirmation_overrides() {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
@@ -297,7 +297,7 @@ impl ConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.testnet.stacks.co".to_string()),
             magic_bytes: Some("T2".into()),
             ..BurnchainConfigFile::default()
         };

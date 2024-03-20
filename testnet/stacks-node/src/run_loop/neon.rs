@@ -1084,7 +1084,7 @@ impl RunLoop {
 
         // Wait for all pending sortitions to process
         let mut burnchain_db = burnchain_config
-            .open_burnchain_db(false)
+            .open_burnchain_db(true)
             .expect("FATAL: failed to open burnchain DB");
         if !self.config.burnchain.affirmation_overrides.is_empty() {
             let tx = burnchain_db
