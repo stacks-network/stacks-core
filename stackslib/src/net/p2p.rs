@@ -5432,24 +5432,29 @@ impl PeerNetwork {
         ibd: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let canonical_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let stacks_tip =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
-        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height
+        let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
             || self.num_state_machine_passes == 0;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-        let need_stackerdb_refresh = sn.canonical_stacks_tip_consensus_hash
+        let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
             || stacks_tip_changed;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
-        let aggregate_public_keys =
-            self.find_new_aggregate_public_keys(sortdb, &sn, chainstate, &new_stacks_tip_block_id)?;
+        let aggregate_public_keys = self.find_new_aggregate_public_keys(
+            sortdb,
+            &canonical_sn,
+            chainstate,
+            &new_stacks_tip_block_id,
+        )?;
         let (parent_stacks_tip, tenure_start_block_id, stacks_tip_sn) = if stacks_tip_changed {
-            let sn_opt = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
+            let stacks_tip_sn =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
             let tenure_start_block_id = if let Some(header) =
                 NakamotoChainState::get_nakamoto_tenure_start_block_header(
                     chainstate.db(),
@@ -5475,7 +5480,7 @@ impl PeerNetwork {
                 }
                 Err(e) => return Err(e),
             };
-            (parent_tip_id, tenure_start_block_id, sn_opt)
+            (parent_tip_id, tenure_start_block_id, stacks_tip_sn)
         } else {
             (
                 self.parent_stacks_tip.clone(),
@@ -5488,17 +5493,20 @@ impl PeerNetwork {
             // only do the needful depending on what changed
             debug!(
                 "{:?}: load chain view for burn block {}",
-                &self.local_peer, sn.block_height
+                &self.local_peer, canonical_sn.block_height
             );
-            let new_chain_view =
-                SortitionDB::get_burnchain_view(&sortdb.index_conn(), &self.burnchain, &sn)?;
+            let new_chain_view = SortitionDB::get_burnchain_view(
+                &sortdb.index_conn(),
+                &self.burnchain,
+                &canonical_sn,
+            )?;
 
             let new_chain_view_stable_consensus_hash = {
                 let ic = sortdb.index_conn();
                 let ancestor_sn = SortitionDB::get_ancestor_snapshot(
                     &ic,
                     new_chain_view.burn_stable_block_height,
-                    &sn.sortition_id,
+                    &canonical_sn.sortition_id,
                 )?
                 .unwrap_or(SortitionDB::get_first_block_snapshot(sortdb.conn())?);
                 ancestor_sn.consensus_hash
@@ -5526,7 +5534,7 @@ impl PeerNetwork {
                 self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
 
             // update tx validation information
-            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
+            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), canonical_sn.block_height)?;
 
             if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
                 // update heaviest affirmation map view
@@ -5537,7 +5545,7 @@ impl PeerNetwork {
                     indexer,
                     &burnchain_db,
                     sortdb,
-                    &sn.sortition_id,
+                    &canonical_sn.sortition_id,
                 )
                 .map_err(|_| {
                     net_error::Transient("Unable to query heaviest affirmation map".to_string())
@@ -5549,18 +5557,21 @@ impl PeerNetwork {
                     &burnchain_db,
                     sortdb,
                     chainstate,
-                    &sn.sortition_id,
+                    &canonical_sn.sortition_id,
                 )
                 .map_err(|_| {
                     net_error::Transient("Unable to query canonical affirmation map".to_string())
                 })?;
 
                 self.sortition_tip_affirmation_map =
-                    SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id)?;
+                    SortitionDB::find_sortition_tip_affirmation_map(
+                        sortdb,
+                        &canonical_sn.sortition_id,
+                    )?;
             }
 
             // update last anchor data
-            let ih = sortdb.index_handle(&sn.sortition_id);
+            let ih = sortdb.index_handle(&canonical_sn.sortition_id);
             self.last_anchor_block_hash = ih
                 .get_last_selected_anchor_block_hash()?
                 .unwrap_or(BlockHeaderHash([0x00; 32]));
@@ -5588,9 +5599,9 @@ impl PeerNetwork {
             self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
                 &burnchain_db,
                 sortdb,
-                &sn.sortition_id,
-                &sn.canonical_stacks_tip_consensus_hash,
-                &sn.canonical_stacks_tip_hash,
+                &canonical_sn.sortition_id,
+                &canonical_sn.canonical_stacks_tip_consensus_hash,
+                &canonical_sn.canonical_stacks_tip_hash,
             )
             .map_err(|_| {
                 net_error::Transient("Unable to query stacks tip affirmation map".to_string())
@@ -5607,7 +5618,7 @@ impl PeerNetwork {
         }
 
         // update cached stacks chain view for /v2/info and /v3/tenures/info
-        self.burnchain_tip = sn;
+        self.burnchain_tip = canonical_sn;
         self.stacks_tip = stacks_tip;
         self.stacks_tip_sn = stacks_tip_sn;
         self.parent_stacks_tip = parent_stacks_tip;

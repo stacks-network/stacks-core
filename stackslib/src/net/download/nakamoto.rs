@@ -116,6 +116,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
+use std::time::{Duration, Instant};
 
 use rand::seq::SliceRandom;
 use rand::{thread_rng, RngCore};
@@ -185,7 +186,7 @@ pub(crate) enum NakamotoTenureDownloadState {
     /// start block of the next tenure)
     /// * the deadline by which this state machine needs to have obtained the tenure end-block
     /// before transitioning to `GetTenureEndBlock`.
-    WaitForTenureEndBlock(StacksBlockId, u64),
+    WaitForTenureEndBlock(StacksBlockId, Instant),
     /// Getting the tenure-end block directly.  This only happens for tenures whose end-blocks
     /// cannot be provided by tenure downloaders within the same reward cycle, and for tenures in
     /// which we cannot quickly get the tenure-end block.
@@ -371,7 +372,9 @@ impl NakamotoTenureDownloader {
             );
             self.state = NakamotoTenureDownloadState::WaitForTenureEndBlock(
                 tenure_end_block.block_id(),
-                get_epoch_time_secs() + WAIT_FOR_TENURE_END_BLOCK_TIMEOUT,
+                Instant::now()
+                    .checked_add(Duration::new(WAIT_FOR_TENURE_END_BLOCK_TIMEOUT, 0))
+                    .ok_or(NetError::OverflowError("Deadline is too big".into()))?,
             );
             self.try_accept_tenure_end_block(&tenure_end_block)?;
         } else {
@@ -381,7 +384,9 @@ impl NakamotoTenureDownloader {
             // state-machines make the call to require this one to fetch the block directly.
             self.state = NakamotoTenureDownloadState::WaitForTenureEndBlock(
                 self.tenure_end_block_id.clone(),
-                get_epoch_time_secs() + WAIT_FOR_TENURE_END_BLOCK_TIMEOUT,
+                Instant::now()
+                    .checked_add(Duration::new(WAIT_FOR_TENURE_END_BLOCK_TIMEOUT, 0))
+                    .ok_or(NetError::OverflowError("Deadline is too big".into()))?,
             );
         }
         Ok(())
@@ -416,7 +421,7 @@ impl NakamotoTenureDownloader {
         if let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id, wait_deadline) =
             self.state
         {
-            if get_epoch_time_secs() < wait_deadline {
+            if wait_deadline < Instant::now() {
                 test_debug!(
                     "Transition downloader to {} to directly fetch tenure-end block {} (timed out)",
                     &self.naddr,
@@ -665,7 +670,7 @@ impl NakamotoTenureDownloader {
             NakamotoTenureDownloadState::WaitForTenureEndBlock(_block_id, _deadline) => {
                 // we're waiting for some other downloader's block-fetch to complete
                 test_debug!(
-                    "Waiting for tenure-end block {} until {}",
+                    "Waiting for tenure-end block {} until {:?}",
                     &_block_id,
                     _deadline
                 );
@@ -689,7 +694,8 @@ impl NakamotoTenureDownloader {
 
     /// Begin the next download request for this state machine.  The request will be sent to the
     /// data URL corresponding to self.naddr.
-    /// Returns Ok(true) if we sent the request, or there's already an in-flight request
+    /// Returns Ok(true) if we sent the request, or there's already an in-flight request.  The
+    /// caller should try this again until it gets one of the other possible return values.
     /// Returns Ok(false) if not (e.g. neighbor is known to be dead or broken)
     /// Returns Err(..) if self.naddr is known to be a dead or broken peer, or if we were unable to
     /// resolve its data URL to a socket address.
@@ -891,9 +897,9 @@ impl NakamotoUnconfirmedTenureDownloader {
     pub fn try_accept_tenure_info(
         &mut self,
         sortdb: &SortitionDB,
-        sort_tip: &BlockSnapshot,
+        local_sort_tip: &BlockSnapshot,
         chainstate: &StacksChainState,
-        tenure_tip: RPCGetTenureInfo,
+        remote_tenure_tip: RPCGetTenureInfo,
         agg_pubkeys: &BTreeMap<u64, Option<Point>>,
     ) -> Result<(), NetError> {
         if self.state != NakamotoUnconfirmedDownloadState::GetTenureInfo {
@@ -904,54 +910,58 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         // authenticate consensus hashes against canonical chain history
-        let tenure_sn =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tenure_tip.consensus_hash)?
-                .ok_or(NetError::DBError(DBError::NotFoundError))?;
-        let parent_tenure_sn = SortitionDB::get_block_snapshot_consensus(
+        let local_tenure_sn = SortitionDB::get_block_snapshot_consensus(
             sortdb.conn(),
-            &tenure_tip.parent_consensus_hash,
+            &remote_tenure_tip.consensus_hash,
+        )?
+        .ok_or(NetError::DBError(DBError::NotFoundError))?;
+        let parent_local_tenure_sn = SortitionDB::get_block_snapshot_consensus(
+            sortdb.conn(),
+            &remote_tenure_tip.parent_consensus_hash,
         )?
         .ok_or(NetError::DBError(DBError::NotFoundError))?;
 
-        let ih = sortdb.index_handle(&sort_tip.sortition_id);
-        let ancestor_tenure_sn = ih
-            .get_block_snapshot_by_height(tenure_sn.block_height)?
+        let ih = sortdb.index_handle(&local_sort_tip.sortition_id);
+        let ancestor_local_tenure_sn = ih
+            .get_block_snapshot_by_height(local_tenure_sn.block_height)?
             .ok_or(NetError::DBError(DBError::NotFoundError))?;
 
-        if ancestor_tenure_sn.sortition_id != tenure_sn.sortition_id {
+        if ancestor_local_tenure_sn.sortition_id != local_tenure_sn.sortition_id {
             // .consensus_hash is not on the canonical fork
             warn!("Unconfirmed tenure consensus hash is not canonical";
                   "peer" => %self.naddr,
-                  "consensus_hash" => %tenure_tip.consensus_hash);
+                  "consensus_hash" => %remote_tenure_tip.consensus_hash);
             return Err(DBError::NotFoundError.into());
         }
-        let ancestor_parent_tenure_sn = ih
-            .get_block_snapshot_by_height(parent_tenure_sn.block_height)?
+        let ancestor_parent_local_tenure_sn = ih
+            .get_block_snapshot_by_height(parent_local_tenure_sn.block_height)?
             .ok_or(NetError::DBError(DBError::NotFoundError.into()))?;
 
-        if ancestor_parent_tenure_sn.sortition_id != parent_tenure_sn.sortition_id {
+        if ancestor_parent_local_tenure_sn.sortition_id != parent_local_tenure_sn.sortition_id {
             // .parent_consensus_hash is not on the canonical fork
             warn!("Parent unconfirmed tenure consensus hash is not canonical";
                   "peer" => %self.naddr,
-                  "consensus_hash" => %tenure_tip.parent_consensus_hash);
+                  "consensus_hash" => %remote_tenure_tip.parent_consensus_hash);
             return Err(DBError::NotFoundError.into());
         }
 
         // parent tenure sortition must precede the ongoing tenure sortition
-        if tenure_sn.block_height <= parent_tenure_sn.block_height {
+        if local_tenure_sn.block_height <= parent_local_tenure_sn.block_height {
             warn!("Parent tenure snapshot is not an ancestor of the current tenure snapshot";
                   "peer" => %self.naddr,
-                  "consensus_hash" => %tenure_tip.consensus_hash,
-                  "parent_consensus_hash" => %tenure_tip.parent_consensus_hash);
+                  "consensus_hash" => %remote_tenure_tip.consensus_hash,
+                  "parent_consensus_hash" => %remote_tenure_tip.parent_consensus_hash);
             return Err(NetError::InvalidMessage);
         }
 
         // parent tenure start block ID must be the winning block hash for the ongoing tenure's
         // snapshot
-        if tenure_sn.winning_stacks_block_hash.0 != tenure_tip.parent_tenure_start_block_id.0 {
+        if local_tenure_sn.winning_stacks_block_hash.0
+            != remote_tenure_tip.parent_tenure_start_block_id.0
+        {
             warn!("Ongoing tenure does not commit to highest complete tenure's start block";
-                  "tenure_tip.tenure_start_block_id" => %tenure_tip.tenure_start_block_id,
-                  "tenure_sn.winning_stacks_block_hash" => %tenure_sn.winning_stacks_block_hash);
+                  "remote_tenure_tip.tenure_start_block_id" => %remote_tenure_tip.tenure_start_block_id,
+                  "local_tenure_sn.winning_stacks_block_hash" => %local_tenure_sn.winning_stacks_block_hash);
             return Err(NetError::InvalidMessage);
         }
 
@@ -966,8 +976,8 @@ impl NakamotoUnconfirmedTenureDownloader {
             let highest_processed_block_height = highest_processed_block.header.chain_length;
             self.highest_processed_block_height = Some(highest_processed_block_height);
 
-            if &tenure_tip.tip_block_id == highest_processed_block_id
-                || highest_processed_block_height > tenure_tip.tip_height
+            if &remote_tenure_tip.tip_block_id == highest_processed_block_id
+                || highest_processed_block_height > remote_tenure_tip.tip_height
             {
                 // nothing to do -- we're at or ahead of the remote peer, so finish up.
                 // If we don't have the tenure-start block for the confirmed tenure that the remote
@@ -975,7 +985,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 // treat it as such.
                 let unconfirmed_tenure_start_block = chainstate
                     .nakamoto_blocks_db()
-                    .get_nakamoto_block(&tenure_tip.tenure_start_block_id)?
+                    .get_nakamoto_block(&remote_tenure_tip.tenure_start_block_id)?
                     .ok_or(NetError::InvalidMessage)?
                     .0;
                 self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
@@ -985,18 +995,21 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         if self.state == NakamotoUnconfirmedDownloadState::Done {
             // only need to remember the tenure tip
-            self.tenure_tip = Some(tenure_tip);
+            self.tenure_tip = Some(remote_tenure_tip);
             return Ok(());
         }
 
         // we're not finished
         let tenure_rc = sortdb
             .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
+            .block_height_to_reward_cycle(sortdb.first_block_height, local_tenure_sn.block_height)
             .expect("FATAL: sortition from before system start");
         let parent_tenure_rc = sortdb
             .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, parent_tenure_sn.block_height)
+            .block_height_to_reward_cycle(
+                sortdb.first_block_height,
+                parent_local_tenure_sn.block_height,
+            )
             .expect("FATAL: sortition from before system start");
 
         // get aggregate public keys for the unconfirmed tenure and highest-complete tenure sortitions
@@ -1005,7 +1018,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         else {
             warn!(
                 "No aggregate public key for confirmed tenure {} (rc {})",
-                &parent_tenure_sn.consensus_hash, parent_tenure_rc
+                &parent_local_tenure_sn.consensus_hash, parent_tenure_rc
             );
             return Err(NetError::InvalidState);
         };
@@ -1014,29 +1027,29 @@ impl NakamotoUnconfirmedTenureDownloader {
         else {
             warn!(
                 "No aggregate public key for confirmed tenure {} (rc {})",
-                &tenure_sn.consensus_hash, tenure_rc
+                &local_tenure_sn.consensus_hash, tenure_rc
             );
             return Err(NetError::InvalidState);
         };
 
         if chainstate
             .nakamoto_blocks_db()
-            .has_nakamoto_block(&tenure_tip.tenure_start_block_id.clone())?
+            .has_nakamoto_block(&remote_tenure_tip.tenure_start_block_id.clone())?
         {
             // proceed to get unconfirmed blocks. We already have the tenure-start block.
             let unconfirmed_tenure_start_block = chainstate
                 .nakamoto_blocks_db()
-                .get_nakamoto_block(&tenure_tip.tenure_start_block_id)?
+                .get_nakamoto_block(&remote_tenure_tip.tenure_start_block_id)?
                 .ok_or(NetError::DBError(DBError::NotFoundError))?
                 .0;
             self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
             self.state = NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
-                tenure_tip.tip_block_id.clone(),
+                remote_tenure_tip.tip_block_id.clone(),
             );
         } else {
             // get the tenure-start block first
             self.state = NakamotoUnconfirmedDownloadState::GetTenureStartBlock(
-                tenure_tip.tenure_start_block_id.clone(),
+                remote_tenure_tip.tenure_start_block_id.clone(),
             );
         }
 
@@ -1049,7 +1062,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         );
         self.confirmed_aggregate_public_key = Some(confirmed_aggregate_public_key);
         self.unconfirmed_aggregate_public_key = Some(unconfirmed_aggregate_public_key);
-        self.tenure_tip = Some(tenure_tip);
+        self.tenure_tip = Some(remote_tenure_tip);
 
         Ok(())
     }
@@ -1167,14 +1180,14 @@ impl NakamotoUnconfirmedTenureDownloader {
 
             // we may or may not need the tenure-start block for the unconfirmed tenure.  But if we
             // do, make sure it's valid, and it's the last block we receive.
-            let Ok(valid) = block.is_wellformed_tenure_start_block() else {
+            let Ok(is_tenure_start) = block.is_wellformed_tenure_start_block() else {
                 warn!("Invalid tenure-start block";
                       "tenure_id" => %tenure_tip.consensus_hash,
                       "block.header.block_id" => %block.header.block_id(),
                       "state" => %self.state);
                 return Err(NetError::InvalidMessage);
             };
-            if valid {
+            if is_tenure_start {
                 // this is the tenure-start block, so make sure it matches our /v3/tenure/info
                 if block.header.block_id() != tenure_tip.tenure_start_block_id {
                     warn!("Unexpected tenure-start block";
@@ -1368,16 +1381,19 @@ impl NakamotoUnconfirmedTenureDownloader {
     }
 
     /// Begin the next download request for this state machine.
-    /// Returns Ok(true) if we sent the request, or there's already an in-flight request
-    /// Returns Ok(false) if not (e.g. neighbor is known to be dead or broken)
+    /// Returns Ok(()) if we sent the request, or there's already an in-flight request.  The
+    /// caller should try this again until it gets one of the other possible return values.  It's
+    /// up to the caller to determine when it's appropriate to convert this state machine into a
+    /// `NakamotoTenureDownloader`.
+    /// Returns Err(..) if the neighbor is dead or broken.
     pub fn send_next_download_request(
         &self,
         network: &mut PeerNetwork,
         neighbor_rpc: &mut NeighborRPC,
-    ) -> Result<bool, NetError> {
+    ) -> Result<(), NetError> {
         if neighbor_rpc.has_inflight(&self.naddr) {
             test_debug!("Peer {} has an inflight request", &self.naddr);
-            return Ok(true);
+            return Ok(());
         }
         if neighbor_rpc.is_dead_or_broken(network, &self.naddr) {
             return Err(NetError::PeerNotConnected);
@@ -1393,11 +1409,11 @@ impl NakamotoUnconfirmedTenureDownloader {
             // treat this downloader as still in-flight since the overall state machine will need
             // to keep it around long enough to convert it into a tenure downloader for the highest
             // complete tenure.
-            return Ok(true);
+            return Ok(());
         };
 
         neighbor_rpc.send_request(network, self.naddr.clone(), request)?;
-        Ok(true)
+        Ok(())
     }
 
     /// Handle a received StacksHttpResponse and advance this machine's state
@@ -1411,20 +1427,20 @@ impl NakamotoUnconfirmedTenureDownloader {
         &mut self,
         response: StacksHttpResponse,
         sortdb: &SortitionDB,
-        sort_tip: &BlockSnapshot,
+        local_sort_tip: &BlockSnapshot,
         chainstate: &StacksChainState,
         agg_pubkeys: &BTreeMap<u64, Option<Point>>,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
         match &self.state {
             NakamotoUnconfirmedDownloadState::GetTenureInfo => {
                 test_debug!("Got tenure-info response");
-                let tenure_info = response.decode_nakamoto_tenure_info()?;
-                test_debug!("Got tenure-info response: {:?}", &tenure_info);
+                let remote_tenure_info = response.decode_nakamoto_tenure_info()?;
+                test_debug!("Got tenure-info response: {:?}", &remote_tenure_info);
                 self.try_accept_tenure_info(
                     sortdb,
-                    sort_tip,
+                    local_sort_tip,
                     chainstate,
-                    tenure_info,
+                    remote_tenure_info,
                     agg_pubkeys,
                 )?;
                 Ok(None)
@@ -1560,71 +1576,45 @@ impl TenureStartEnd {
         // next-available tenure after that.
         let invbits = invs.tenures_inv.get(&rc)?;
         let mut tenure_block_ids = AvailableTenures::new();
-        let mut i = 0;
         let mut last_tenure = 0;
         let mut last_tenure_ch = None;
-        while i < wanted_tenures.len() {
-            let Some(wt) = wanted_tenures.get(i) else {
-                test_debug!("i={} no wanted tenure", i);
-                break;
-            };
-
+        for (i, wt) in wanted_tenures.iter().enumerate() {
             // advance to next tenure-start sortition
             let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
                 test_debug!("i={} bit not set", i);
+                /*
                 i += 1;
+                */
                 continue;
             }
 
             // the last tenure we'll consider
             last_tenure = i;
 
-            // find next 1-bit -- corresponds to tenure-start block ID
-            loop {
-                i += 1;
-                if i >= wanted_tenures.len() {
-                    test_debug!("i={} out of wanted_tenures", i);
-                    break;
-                }
-                let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
-                if !invbits.get(bit).unwrap_or(false) {
-                    test_debug!("i={} start block bit not set", i);
-                    continue;
-                }
-
-                // i now points to the item in wanted_tenures with the tenure-start block ID for
-                // `wt`
+            let Some(wt_start_idx) = ((i + 1)..wanted_tenures.len()).find(|j| {
+                let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
+                invbits.get(bit).unwrap_or(false)
+            }) else {
+                test_debug!("i={} out of wanted_tenures", i);
                 break;
-            }
-            let Some(wt_start) = wanted_tenures.get(i) else {
+            };
+
+            let Some(wt_start) = wanted_tenures.get(wt_start_idx) else {
                 test_debug!("i={} no start wanted tenure", i);
                 break;
             };
 
-            // find the next 1-bit after that -- corresponds to the tenure-end block ID.
-            // `j` points to the first tenure in `wanted_tenures` after `wanted_tenures[i]` that
-            // corresponds to a tenure-start (according to the inv)
-            let mut j = i;
-            loop {
-                j += 1;
-                if j >= wanted_tenures.len() {
-                    test_debug!("i={}, j={} out of wanted_tenures", i, j);
-                    break;
-                }
-
-                let bit = u16::try_from(j).expect("FATAL: more sortitions than u16::MAX");
-                if !invbits.get(bit).unwrap_or(false) {
-                    test_debug!("i={}, j={} end block bit not set", i, j);
-                    continue;
-                }
-
-                // j now points to the item in wanted_tenures with the tenure-send block ID for
-                // `ch`.
+            let Some(wt_end_index) = ((wt_start_idx + 1)..wanted_tenures.len()).find(|j| {
+                let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
+                invbits.get(bit).unwrap_or(false)
+            }) else {
+                test_debug!("i={} out of wanted_tenures", i);
                 break;
-            }
-            let Some(wt_end) = wanted_tenures.get(j) else {
-                test_debug!("i={}, j={} no end wanted tenure", i, j);
+            };
+
+            let Some(wt_end) = wanted_tenures.get(wt_end_index) else {
+                test_debug!("i={} no end wanted tenure", i);
                 break;
             };
 
@@ -1637,15 +1627,13 @@ impl TenureStartEnd {
                 wt.processed,
             );
             test_debug!(
-                "i={}, j={}, len={}; {:?}",
+                "i={}, len={}; {:?}",
                 i,
-                j,
                 wanted_tenures.len(),
                 &tenure_start_end
             );
             last_tenure_ch = Some(wt.tenure_id_consensus_hash.clone());
             tenure_block_ids.insert(wt.tenure_id_consensus_hash.clone(), tenure_start_end);
-            i = last_tenure + 1;
         }
 
         let Some(next_wanted_tenures) = next_wanted_tenures else {
@@ -1673,122 +1661,69 @@ impl TenureStartEnd {
             return Some(tenure_block_ids);
         };
 
-        // proceed to find availability until each tenure in `wanted_tenures` is accounted for,
-        // using `next_wanted_tenures`
-        i = last_tenure;
-
-        // once again, `i` will be bumped from the last-considered tenure to the tenure's start
-        // block sortition.
-        // here, `n` indexes `next_wanted_tenures` in the event that the start block for tenure `i`
-        // is not present in `wanted_tenures`.
-        let mut n = 0;
-
-        // whether or not `n` is used to index into `next_wanted_tenures`
-        let mut next = false;
-        while i < wanted_tenures.len() {
-            let Some(wt) = wanted_tenures.get(i) else {
-                break;
-            };
+        // start iterating from `last_tenures`
+        let iter_start = last_tenure;
+        let iterator = wanted_tenures.get(iter_start..).unwrap_or(&[]);
+        for (i, wt) in iterator.iter().enumerate() {
             test_debug!(
                 "consider next wanted tenure which starts with i={} {:?}",
-                i,
+                iter_start + i,
                 &wt
             );
 
             // advance to next tenure-start sortition
-            let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
+            let bit = u16::try_from(i + iter_start).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
-                i += 1;
+                test_debug!("i={} bit not set", i);
                 continue;
             }
 
-            // find next 1-bit -- corresponds to tenure-start block ID.
-            // It could be in `wanted_tenures`, or it could be in `next_wanted_tenures`.  Search
-            // both.
-            loop {
-                if i < wanted_tenures.len() {
-                    // still searching `wanted_tenures`
-                    i += 1;
-                    if i >= wanted_tenures.len() {
-                        // switch over to `next_wanted_tenures`
-                        continue;
+            // search the remainder of `wanted_tenures`, and if we don't find the end-tenure,
+            // search `next_wanted_tenures` until we find the tenure-start wanted tenure for the
+            // ith wanted_tenure
+            let Some((in_next, wt_start_idx, wt_start)) = ((i + iter_start + 1)
+                ..wanted_tenures.len())
+                .find_map(|j| {
+                    // search `wanted_tenures`
+                    let bit = u16::try_from(j).expect("FATAL: more sortitions than u16::MAX");
+                    if invbits.get(bit).unwrap_or(false) {
+                        wanted_tenures.get(j).map(|tenure| (false, j, tenure))
+                    } else {
+                        None
                     }
-                    let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
-                    if !invbits.get(bit).unwrap_or(false) {
-                        continue;
-                    }
-
-                    // i now points to the item in wanted_tenures with the tenure-start block ID for
-                    // `wt`.
-                    // n does not point to anything
-                    test_debug!(
-                        "next wanted tenure start block at current i={} {:?}",
-                        i,
-                        &wanted_tenures[i]
-                    );
-                    break;
-                } else {
-                    // searching `next_wanted_tenures`
-                    if n >= next_wanted_tenures.len() {
-                        break;
-                    }
-                    let bit = u16::try_from(n).expect("FATAL: more sortitions than u16::MAX");
-                    if !next_invbits.get(bit).unwrap_or(false) {
-                        n += 1;
-                        continue;
-                    }
-
-                    // n now points to the item in next_wanted_tenures with the tenure-start block ID for
-                    // `wt`
-                    next = true;
-                    test_debug!(
-                        "next wanted tenure start block at next n={} {:?}",
-                        n,
-                        &next_wanted_tenures[n]
-                    );
-                    break;
-                }
-            }
-            let wt_start = if i < wanted_tenures.len() {
-                let Some(wt) = wanted_tenures.get(i) else {
-                    break;
-                };
-                wt
-            } else {
-                let Some(wt) = next_wanted_tenures.get(n) else {
-                    break;
-                };
-                wt
-            };
-            test_debug!("next start tenure is {:?}", &wt_start);
-
-            // find the next 1-bit after that -- corresponds to the tenure-end block ID.
-            // `k` necessarily points the tenure in `next_wanted_tenures` which corresponds to the
-            // tenure after the previously-found tenure (either `wanted_tenures[i]` or
-            // `next_wanted_tenures[n]`, depending on the blockchain structure).
-            let mut k = if next {
-                // start block is in `next_wanted_tenures` (at `n`), so search for the wanted
-                // tenure whose bit is after `n`
-                n + 1
-            } else {
-                // start block is in `wanted_tenures`, and it's the last tenure that has a 1-bit in
-                // `wanted_tenures`. Start searching `next_wanted_tenures`.
-                0
-            };
-
-            while k < next_wanted_tenures.len() {
-                let bit = u16::try_from(k).expect("FATAL: more sortitions than u16::MAX");
-                if !next_invbits.get(bit).unwrap_or(false) {
-                    k += 1;
-                    continue;
-                }
-
-                // k now points to the item in wanted_tenures with the tenure-send block ID for
-                // `ch`.
-                test_debug!("next end tenure is k={} {:?}", k, &next_wanted_tenures[k]);
+                })
+                .or_else(|| {
+                    // search `next_wanted_tenures`
+                    (0..next_wanted_tenures.len()).find_map(|n| {
+                        let bit = u16::try_from(n).expect("FATAL: more sortitions than u16::MAX");
+                        if next_invbits.get(bit).unwrap_or(false) {
+                            next_wanted_tenures.get(n).map(|tenure| (true, n, tenure))
+                        } else {
+                            None
+                        }
+                    })
+                })
+            else {
+                test_debug!(
+                    "i={} out of wanted_tenures and next_wanted_tenures",
+                    iter_start + i
+                );
                 break;
-            }
-            let Some(wt_end) = next_wanted_tenures.get(k) else {
+            };
+
+            // search after the wanted tenure we just found to get the tenure-end wanted tenure. It
+            // is guaranteed to be in `next_wanted_tenures`, since otherwise we would have already
+            // found it
+            let next_start = if in_next { wt_start_idx + 1 } else { 0 };
+            let Some(wt_end) = (next_start..next_wanted_tenures.len()).find_map(|k| {
+                let bit = u16::try_from(k).expect("FATAL: more sortitions than u16::MAX");
+                if next_invbits.get(bit).unwrap_or(false) {
+                    next_wanted_tenures.get(k)
+                } else {
+                    None
+                }
+            }) else {
+                test_debug!("i={} out of next_wanted_tenures", iter_start + i);
                 break;
             };
 
@@ -1803,17 +1738,17 @@ impl TenureStartEnd {
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;
+
             test_debug!(
-                "i={}, k={}, n={}, len={}, next_len={}; {:?}",
-                i,
-                k,
-                n,
+                "i={},len={},next_len={}; {:?}",
+                iter_start + i,
                 wanted_tenures.len(),
                 next_wanted_tenures.len(),
                 &tenure_start_end
             );
             tenure_block_ids.insert(wt.tenure_id_consensus_hash.clone(), tenure_start_end);
         }
+
         Some(tenure_block_ids)
     }
 }
@@ -3736,14 +3671,14 @@ impl NakamotoDownloadStateMachine {
                 &downloader.unconfirmed_tenure_id(),
                 &downloader.state
             );
-            let Ok(sent) = downloader.send_next_download_request(network, neighbor_rpc) else {
+            if let Err(e) = downloader.send_next_download_request(network, neighbor_rpc) {
+                debug!(
+                    "Downloader for {} failed; this peer is dead: {:?}",
+                    &naddr, &e
+                );
                 neighbor_rpc.add_dead(network, naddr);
                 continue;
             };
-            if !sent {
-                finished.push(naddr.clone());
-                continue;
-            }
         }
 
         // clear dead, broken, and done

@@ -820,7 +820,7 @@ fn test_tenure_start_end_from_inventory() {
         u32::MAX,
         u32::MAX,
     );
-    let first_burn_height = 100;
+    let first_burn_height = 100u64;
 
     // make some invs
     let num_rcs = 6;
@@ -891,12 +891,12 @@ fn test_tenure_start_end_from_inventory() {
         wanted_tenures.push(WantedTenure::new(
             ConsensusHash([i as u8; 20]),
             StacksBlockId([i as u8; 32]),
-            i.into(),
+            u64::from(i) + first_burn_height,
         ));
         next_wanted_tenures.push(WantedTenure::new(
             ConsensusHash([(i + 128) as u8; 20]),
             StacksBlockId([(i + 128) as u8; 32]),
-            i.into(),
+            u64::from(i) + first_burn_height,
         ));
     }
     let mut all_tenures = wanted_tenures.clone();
@@ -1029,8 +1029,8 @@ fn test_tenure_start_end_from_inventory() {
 
                 if tenure_start_index.is_some() && tenure_end_index.is_some() {
                     debug!(
-                        "tenure_start_index = {:?}, tenure_end_index = {:?}",
-                        &tenure_start_index, &tenure_end_index
+                        "rc = {}, i = {}, tenure_start_index = {:?}, tenure_end_index = {:?}",
+                        rc, i, &tenure_start_index, &tenure_end_index
                     );
                     let tenure_start_end = tenure_start_end_opt.expect(&format!(
                         "failed to get tenure_start_end_opt: i = {}, wt = {:?}",
