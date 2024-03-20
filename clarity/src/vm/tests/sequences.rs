@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
@@ -107,15 +105,15 @@ fn test_index_of() {
     let bad_expected = [
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeValueError(
-            TypeSignature::min_buffer(),
+            TypeSignature::min_buffer().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
         CheckErrors::TypeValueError(
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_utf8().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
         CheckErrors::TypeValueError(
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_ascii().unwrap(),
             execute("u\"a\"").unwrap().unwrap(),
         ),
     ];
@@ -817,7 +815,7 @@ fn test_simple_buff_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(BufferType(buff_len)),
             Value::buff_from(vec![0, 68]).unwrap()
         )
         .into()
@@ -894,7 +892,7 @@ fn test_simple_string_ascii_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? \"abc\" u0 \"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(StringType(ASCII(buff_len))),
             Value::string_ascii_from_bytes("de".into()).unwrap()
         )
         .into()
@@ -975,7 +973,7 @@ fn test_simple_string_utf8_replace_at() {
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" u0 u\"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
-            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
+            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len))),
             Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap()
         )
         .into()
@@ -1113,10 +1111,10 @@ fn test_list_tuple_admission() {
                (tuple (value 0x3031))
                (tuple (value 0x3032)))";
 
-    let result_type = TypeSignature::type_of(&execute(test).unwrap().unwrap());
-    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap().unwrap());
+    let result_type = TypeSignature::type_of(&execute(test).unwrap().unwrap()).unwrap();
+    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap().unwrap()).unwrap();
     let testing_value = &execute(not_expected_type).unwrap().unwrap();
-    let not_expected_type = TypeSignature::type_of(testing_value);
+    let not_expected_type = TypeSignature::type_of(testing_value).unwrap();
 
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);

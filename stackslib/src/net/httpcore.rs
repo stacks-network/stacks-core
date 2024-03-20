@@ -32,6 +32,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::Url;
 
@@ -434,11 +435,16 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
 pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
+    start_time: u128,
 }
 
 impl StacksHttpRequest {
     pub fn new(preamble: HttpRequestPreamble, contents: HttpRequestContents) -> Self {
-        Self { preamble, contents }
+        Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        }
     }
 
     /// Instantiate a request to a remote Stacks peer
@@ -469,7 +475,11 @@ impl StacksHttpRequest {
             preamble.path_and_query_str = decoded_path;
         }
 
-        Ok(Self { preamble, contents })
+        Ok(Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        })
     }
 
     /// Get a reference to the request premable metadata
@@ -490,6 +500,17 @@ impl StacksHttpRequest {
     /// Get a reference to the fully-qualified request path
     pub fn request_path(&self) -> &str {
         &self.preamble.path_and_query_str
+    }
+
+    /// Get the HTTP verb for this request
+    pub fn verb(&self) -> &str {
+        &self.preamble.verb
+    }
+
+    /// Get the number of milliseconds elapsed since this request was created
+    pub fn duration_ms(&self) -> u128 {
+        let now = get_epoch_time_ms();
+        now.saturating_sub(self.start_time)
     }
 
     /// Write out this message to a Write.
@@ -850,6 +871,8 @@ pub struct StacksHttp {
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 }
 
 impl StacksHttp {
@@ -865,6 +888,7 @@ impl StacksHttp {
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+            block_proposal_token: conn_opts.block_proposal_token.clone(),
         };
         http.register_rpc_methods();
         http
@@ -981,7 +1005,7 @@ impl StacksHttp {
                 }
             };
 
-            info!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
+            debug!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
             let request = StacksHttpRequest::new(preamble.clone(), payload);
             return Ok(request);
         }
@@ -1547,6 +1571,7 @@ impl ProtocolFamily for StacksHttp {
 impl PeerNetwork {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.
+    #[cfg_attr(test, mutants::skip)]
     pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,

@@ -269,7 +269,7 @@ fn test_to_consensus_buff_too_big() {
         .expect("Should execute")
         .expect("Should have return value");
 
-    assert!(result.expect_optional().is_none());
+    assert!(result.expect_optional().unwrap().is_none());
 
     // this program prints the length of the
     // constructed 1048567 buffer and then executes
@@ -290,7 +290,7 @@ fn test_to_consensus_buff_too_big() {
         .expect("Should execute")
         .expect("Should have return value");
 
-    assert!(result.expect_optional().is_none());
+    assert!(result.expect_optional().unwrap().is_none());
 }
 
 #[test]
@@ -345,7 +345,8 @@ fn test_from_consensus_buff_missed_expectations() {
         let result_val = vm_execute_v2(&program)
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
-            .expect_optional();
+            .expect_optional()
+            .unwrap();
         assert!(
             result_val.is_none(),
             "from-consensus-buff? should return none"
@@ -381,6 +382,7 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
             .expect_optional()
+            .unwrap()
             .expect("from-consensus-buff? should return (some value)");
         let expected_val = execute(value_repr);
         assert_eq!(result_val, expected_val);
@@ -393,6 +395,7 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("to-consensus-buff? should succeed")
             .expect("to-consensus-buff? should return")
             .expect_optional()
+            .unwrap()
             .expect("to-consensus-buff? should return (some buff)");
         let expected_buff = execute(buff_repr);
         assert_eq!(result_buffer, expected_buff);
@@ -428,7 +431,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = principal.clone() {
+    if let PrincipalData::Standard(data) = principal {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -503,7 +506,7 @@ fn test_principal_of_fix() {
 
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(
-        Value::Principal(mainnet_principal.clone()),
+        Value::Principal(mainnet_principal),
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity2,
@@ -545,7 +548,7 @@ fn test_principal_of_fix() {
 
     // Clarity1, testnet, should have a testnet principal.
     assert_eq!(
-        Value::Principal(testnet_principal.clone()),
+        Value::Principal(testnet_principal),
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity1,
@@ -1003,9 +1006,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Int(0),
         )
@@ -1014,9 +1017,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Int(0),
         )
@@ -1037,9 +1040,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
@@ -1050,9 +1053,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
@@ -1457,7 +1460,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1466,7 +1469,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1475,7 +1478,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1484,7 +1487,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1494,7 +1497,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )

@@ -31,7 +31,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, BurnchainHeaderHash, ConsensusHash, ConsensusHashExtensions, OpsHash,
@@ -578,7 +578,6 @@ mod test {
                     .unwrap(),
                 ),
             ),
-            user_burns: vec![],
         };
 
         let snapshot_no_burns = {

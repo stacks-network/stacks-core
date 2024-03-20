@@ -15,15 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
+use hashbrown::HashMap;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{CryptoRng, RngCore, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
@@ -38,7 +40,7 @@ use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{
@@ -46,6 +48,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -66,84 +69,43 @@ use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
 #[derive(Debug, Clone)]
-pub struct TestSigners {
-    /// The parties that will sign the blocks
-    pub signer_parties: Vec<wsts::v2::Party>,
-    /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: Vec<wsts::common::PolyCommitment>,
-    /// The aggregate public key
-    pub aggregate_public_key: Point,
-    /// The total number of key ids distributed among signer_parties
-    pub num_keys: u32,
-    /// The number of vote shares required to sign a block
-    pub threshold: u32,
+pub struct TestStacker {
+    pub stacker_private_key: StacksPrivateKey,
+    pub signer_private_key: StacksPrivateKey,
+    pub amount: u128,
 }
 
-impl Default for TestSigners {
-    fn default() -> Self {
-        let mut rng = rand_core::OsRng::default();
-        let num_keys = 10;
-        let threshold = 7;
-        let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
-        let num_parties = party_key_ids.len().try_into().unwrap();
-
-        // Create the parties
-        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
-            .iter()
-            .enumerate()
-            .map(|(pid, pkids)| {
-                wsts::v2::Party::new(
-                    pid.try_into().unwrap(),
-                    pkids,
-                    num_parties,
-                    num_keys,
-                    threshold,
-                    &mut rng,
-                )
-            })
-            .collect();
-
-        // Generate an aggregate public key
-        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
-            Ok(poly_commitments) => poly_commitments,
-            Err(secret_errors) => {
-                panic!("Got secret errors from DKG: {:?}", secret_errors);
-            }
-        };
-        let aggregate_public_key = poly_commitments.iter().fold(
-            Point::default(),
-            |s, poly_commitment: &wsts::common::PolyCommitment| s + poly_commitment.poly[0],
-        );
-        Self {
-            signer_parties,
-            aggregate_public_key,
-            poly_commitments,
-            num_keys,
-            threshold,
+impl TestStacker {
+    pub const DEFAULT_STACKER_AMOUNT: u128 = 1_000_000_000_000_000_000;
+    pub fn from_seed(seed: &[u8]) -> TestStacker {
+        let stacker_private_key = StacksPrivateKey::from_seed(seed);
+        let mut signer_seed = seed.to_vec();
+        signer_seed.append(&mut vec![0xff, 0x00, 0x00, 0x00]);
+        let signer_private_key = StacksPrivateKey::from_seed(signer_seed.as_slice());
+        TestStacker {
+            stacker_private_key,
+            signer_private_key,
+            amount: 1_000_000_000_000_000_000,
         }
     }
-}
 
-impl TestSigners {
-    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
-        let mut rng = rand_core::OsRng;
-        let msg = block
-            .header
-            .signer_signature_hash()
-            .expect("Failed to determine the block header signature hash for signers.")
-            .0;
-        let (nonces, sig_shares, key_ids) =
-            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
+    pub fn signer_public_key(&self) -> StacksPublicKey {
+        StacksPublicKey::from_private(&self.signer_private_key)
+    }
 
-        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
-        sig_aggregator
-            .init(self.poly_commitments.clone())
-            .expect("aggregator init failed");
-        let signature = sig_aggregator
-            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
-            .expect("aggregator sig failed");
-        block.header.signer_signature = ThresholdSignature(signature);
+    /// make a set of stackers who will share a single signing key and stack with
+    /// `Self::DEFAULT_STACKER_AMOUNT`
+    pub fn common_signing_set(test_signers: &TestSigners) -> Vec<TestStacker> {
+        let mut signing_key_seed = test_signers.num_keys.to_be_bytes().to_vec();
+        signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+        let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+        (0..test_signers.num_keys)
+            .map(|index| TestStacker {
+                signer_private_key: signing_key.clone(),
+                stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+                amount: Self::DEFAULT_STACKER_AMOUNT,
+            })
+            .collect()
     }
 }
 
@@ -221,7 +183,6 @@ impl TestMiner {
         tx_tenure_change.anchor_mode = TransactionAnchorMode::OnChainOnly;
         tx_tenure_change.auth.set_origin_nonce(self.nonce);
 
-        // TODO: This needs to be changed to an aggregate signature from the stackers
         let mut tx_signer = StacksTransactionSigner::new(&tx_tenure_change);
         self.sign_as_origin(&mut tx_signer);
         let tx_tenure_change_signed = tx_signer.get_tx().unwrap();
@@ -266,9 +227,22 @@ impl TestStacksNode {
             None => None,
             Some(block_commit_op) => {
                 let last_tenure_id = block_commit_op.last_tenure_id();
+                debug!(
+                    "Last block commit was for {}: {:?}",
+                    &last_tenure_id, &block_commit_op
+                );
                 match self.nakamoto_commit_ops.get(&last_tenure_id) {
-                    None => None,
-                    Some(idx) => self.nakamoto_blocks.get(*idx).cloned(),
+                    None => {
+                        debug!("No Nakamoto index for {}", &last_tenure_id);
+                        None
+                    }
+                    Some(idx) => match self.nakamoto_blocks.get(*idx) {
+                        Some(nakamoto_blocks) => Some(nakamoto_blocks.clone()),
+                        None => {
+                            debug!("Nakamoto block index {} does not correspond to list of mined nakamoto tenures (len {})", idx, self.nakamoto_blocks.len());
+                            None
+                        }
+                    },
                 }
             }
         }
@@ -296,6 +270,7 @@ impl TestStacksNode {
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
+        expect_success: bool,
     ) -> LeaderBlockCommitOp {
         test_debug!(
             "Miner {}: Commit to Nakamoto tenure starting at {}",
@@ -334,18 +309,25 @@ impl TestStacksNode {
         );
 
         test_debug!(
-            "Miner {}: Nakamoto tenure commit transaction builds on {},{} (parent snapshot is {:?})",
+            "Miner {}: Nakamoto tenure commit transaction builds on {},{} (parent snapshot is {:?}). Expect success? {}",
             miner.id,
             block_commit_op.parent_block_ptr,
             block_commit_op.parent_vtxindex,
-            &parent_block_snapshot_opt
+            &parent_block_snapshot_opt,
+            expect_success
         );
 
-        // NOTE: self.nakamoto_commit_ops[block_header_hash] now contains an index into
-        // self.nakamoto_blocks that doesn't exist.  The caller needs to follow this call with a
-        // call to self.add_nakamoto_tenure_blocks()
-        self.nakamoto_commit_ops
-            .insert(last_tenure_id.clone(), self.nakamoto_blocks.len());
+        if expect_success {
+            // NOTE: self.nakamoto_commit_ops[block_header_hash] now contains an index into
+            // self.nakamoto_blocks that doesn't exist.  The caller needs to follow this call with a
+            // call to self.add_nakamoto_tenure_blocks()
+            self.nakamoto_commit_ops
+                .insert(last_tenure_id.clone(), self.nakamoto_blocks.len());
+        } else {
+            // this extends the last tenure
+            self.nakamoto_commit_ops
+                .insert(last_tenure_id.clone(), self.nakamoto_blocks.len() - 1);
+        }
         block_commit_op
     }
 
@@ -457,6 +439,7 @@ impl TestStacksNode {
                     &hdr.consensus_hash,
                 )
                 .unwrap();
+                debug!("Tenure length of {} is {}", &hdr.consensus_hash, tenure_len);
                 (hdr.index_block_hash(), hdr.consensus_hash, tenure_len)
             } else {
                 // building atop epoch2
@@ -476,8 +459,6 @@ impl TestStacksNode {
             previous_tenure_blocks,
             cause: tenure_change_cause,
             pubkey_hash: miner.nakamoto_miner_hash160(),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         };
 
         let block_commit_op = self.make_nakamoto_tenure_commitment(
@@ -488,6 +469,7 @@ impl TestStacksNode {
             burn_amount,
             miner_key,
             Some(&parent_block_snapshot),
+            tenure_change_cause == TenureChangeCause::BlockFound,
         );
 
         (block_commit_op, tenure_change_payload)
@@ -508,7 +490,7 @@ impl TestStacksNode {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -523,10 +505,6 @@ impl TestStacksNode {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
-        let miner_addr = miner.origin_address().unwrap();
-        let miner_account = get_account(chainstate, sortdb, &miner_addr);
-        miner.set_nonce(miner_account.nonce);
-
         let mut blocks = vec![];
         let mut block_count = 0;
         loop {
@@ -585,7 +563,11 @@ impl TestStacksNode {
                 Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
                     .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
-            signers.sign_nakamoto_block(&mut nakamoto_block);
+            let cycle = miner
+                .burnchain
+                .block_height_to_reward_cycle(burn_tip.block_height)
+                .expect("FATAL: failed to get reward cycle");
+            signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -599,6 +581,7 @@ impl TestStacksNode {
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
+            info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
                 sortdb,
                 &mut sort_handle,
@@ -709,7 +692,7 @@ impl TestStacksNode {
         }
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
-        let cost = builder.tenure_finish(tenure_tx);
+        let cost = builder.tenure_finish(tenure_tx).unwrap();
         Ok((block, size, cost))
     }
 }
@@ -730,25 +713,38 @@ impl<'a> TestPeer<'a> {
     ) {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         if let Some(parent_blocks) = stacks_node.get_last_nakamoto_tenure(miner) {
+            debug!("Parent will be a Nakamoto block");
+
             // parent is an epoch 3 nakamoto block
             let first_parent = parent_blocks.first().unwrap();
-            let parent_tenure_id = StacksBlockId::new(
+            debug!("First parent is {:?}", first_parent);
+
+            let first_parent_sn = SortitionDB::get_block_snapshot_consensus(
+                sortdb.conn(),
                 &first_parent.header.consensus_hash,
-                &first_parent.header.block_hash(),
-            );
-            let ic = sortdb.index_conn();
-            let parent_sortition_opt = SortitionDB::get_block_snapshot_for_winning_nakamoto_tenure(
-                &ic,
-                &tip.sortition_id,
-                &parent_tenure_id,
             )
+            .unwrap()
             .unwrap();
-            if parent_sortition_opt.is_none() {
-                warn!(
-                    "No parent sortition: tip.sortition_id = {}, parent_tenure_id = {}",
-                    &tip.sortition_id, &parent_tenure_id
-                );
-            }
+
+            assert!(first_parent_sn.sortition);
+
+            let parent_sortition_id = SortitionDB::get_block_commit_parent_sortition_id(
+                sortdb.conn(),
+                &first_parent_sn.winning_block_txid,
+                &first_parent_sn.sortition_id,
+            )
+            .unwrap()
+            .unwrap();
+            let parent_sortition =
+                SortitionDB::get_block_snapshot(sortdb.conn(), &parent_sortition_id)
+                    .unwrap()
+                    .unwrap();
+
+            debug!(
+                "First parent Nakamoto block sortition: {:?}",
+                &parent_sortition
+            );
+            let parent_sortition_opt = Some(parent_sortition);
 
             let last_tenure_id = StacksBlockId::new(
                 &first_parent.header.consensus_hash,
@@ -765,6 +761,7 @@ impl<'a> TestPeer<'a> {
             let (parent_opt, parent_sortition_opt) = if let Some(parent_block) =
                 stacks_node.get_last_anchored_block(miner)
             {
+                debug!("Parent will be a Stacks 2.x block");
                 let ic = sortdb.index_conn();
                 let sort_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                     &ic,
@@ -983,8 +980,12 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        // Ensure the signers are setup for the current cycle
+        signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
@@ -1034,8 +1035,12 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        // Ensure the signers are setup for the current cycle
+        signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,

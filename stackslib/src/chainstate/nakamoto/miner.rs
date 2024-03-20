@@ -224,11 +224,17 @@ impl NakamotoBlockBuilder {
     ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
 
-        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
-        let burn_tip_height = u32::try_from(
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height,
-        )
-        .expect("block height overflow");
+        // must build off of the header's consensus hash as the burnchain view, not the canonical_tip_bhh:
+        let burn_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &self.header.consensus_hash)?
+            .ok_or_else(|| {
+                warn!(
+                    "Could not mine. The expected burnchain consensus hash has not been processed by our SortitionDB";
+                    "consensus_hash" => %self.header.consensus_hash
+                );
+                Error::NoSuchBlockError
+            })?;
+        let burn_tip = burn_sn.burn_header_hash;
+        let burn_tip_height = u32::try_from(burn_sn.block_height).expect("block height overflow");
 
         let mainnet = chainstate.config().mainnet;
 
@@ -318,7 +324,7 @@ impl NakamotoBlockBuilder {
 
     /// Finish up mining an epoch's transactions.
     /// Return the ExecutionCost consumed so far.
-    pub fn tenure_finish(self, tx: ClarityTx) -> ExecutionCost {
+    pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -326,11 +332,11 @@ impl NakamotoBlockBuilder {
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
         // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash)?;
 
         test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
 
-        consumed
+        Ok(consumed)
     }
 
     /// Finish constructing a Nakamoto block.
@@ -399,6 +405,7 @@ impl NakamotoBlockBuilder {
         tenure_info: NakamotoTenureInfo,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        signer_transactions: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -431,13 +438,16 @@ impl NakamotoBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        let initial_txs: Vec<_> = [
+        let mut initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
             tenure_info.coinbase_tx.clone(),
         ]
         .into_iter()
         .filter_map(|x| x)
         .collect();
+        initial_txs.extend(signer_transactions);
+
+        // TODO: update this mempool check to prioritize signer vote transactions over other transactions
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,
@@ -471,7 +481,7 @@ impl NakamotoBlockBuilder {
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
-        let consumed = builder.tenure_finish(tenure_tx);
+        let consumed = builder.tenure_finish(tenure_tx)?;
 
         let ts_end = get_epoch_time_ms();
 
@@ -514,11 +524,11 @@ impl NakamotoBlockBuilder {
     /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
     /// Returns None if not
     /// Returns an error on signing or DB error
-    pub fn make_stackerdb_block_proposal(
+    pub fn make_stackerdb_block_proposal<T: StacksMessageCodec>(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
-        block: &NakamotoBlock,
+        block: &T,
         miner_privkey: &StacksPrivateKey,
         miners_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<StackerDBChunkData>, Error> {

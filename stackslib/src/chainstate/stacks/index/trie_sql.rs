@@ -19,9 +19,7 @@
 
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
@@ -388,7 +386,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     };
 
     let block_id = get_unconfirmed_block_identifier(conn, block_hash)?
-        .expect(&format!("BUG: stored {} but got no block ID", block_hash));
+        .unwrap_or_else(|| panic!("BUG: stored {} but got no block ID", block_hash));
 
     debug!(
         "Wrote unconfirmed block trie {} to rowid {}",

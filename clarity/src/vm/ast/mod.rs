@@ -144,6 +144,7 @@ fn build_ast_typical<T: CostTracker>(
 /// placeholders into the AST. Collects as many diagnostics as possible.
 /// Always returns a ContractAST, a vector of diagnostics, and a boolean
 /// that indicates if the build was successful.
+#[allow(clippy::unwrap_used)]
 pub fn build_ast_with_diagnostics<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -337,8 +338,7 @@ pub fn build_ast<T: CostTracker>(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
+    use hashbrown::HashMap;
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::errors::ParseErrors;
@@ -381,7 +381,9 @@ mod test {
         fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
             Ok(())
         }
-        fn drop_memory(&mut self, _memory: u64) {}
+        fn drop_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
+            Ok(())
+        }
         fn reset_memory(&mut self) {}
         fn short_circuit_contract_call(
             &mut self,

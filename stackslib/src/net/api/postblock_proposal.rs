@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::affirmation::AffirmationMap;
@@ -63,16 +63,23 @@ use crate::net::{
 };
 use crate::util_lib::db::Error as DBError;
 
-/// This enum is used to supply a `reason_code` for validation
-///  rejection responses. This is serialized as an enum with string
-///  type (in jsonschema terminology).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ValidateRejectCode {
-    BadBlockHash,
-    BadTransaction,
-    InvalidBlock,
-    ChainstateError,
-    UnknownParent,
+// This enum is used to supply a `reason_code` for validation
+//  rejection responses. This is serialized as an enum with string
+//  type (in jsonschema terminology).
+define_u8_enum![ValidateRejectCode {
+    BadBlockHash = 0,
+    BadTransaction = 1,
+    InvalidBlock = 2,
+    ChainstateError = 3,
+    UnknownParent = 4
+}];
+
+impl TryFrom<u8> for ValidateRejectCode {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value)
+            .ok_or_else(|| CodecError::DeserializeError(format!("Unknown type prefix: {value}")))
+    }
 }
 
 fn hex_ser_block<S: serde::Serializer>(b: &NakamotoBlock, s: S) -> Result<S::Ok, S::Error> {
@@ -90,16 +97,35 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 ///  that the stacks-node thinks should be rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub reason: String,
     pub reason_code: ValidateRejectCode,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockValidateRejectReason {
+    pub reason: String,
+    pub reason_code: ValidateRejectCode,
+}
+
+impl<T> From<T> for BlockValidateRejectReason
+where
+    T: Into<ChainError>,
+{
+    fn from(value: T) -> Self {
+        let ce: ChainError = value.into();
+        Self {
+            reason: format!("Chainstate Error: {ce}"),
+            reason_code: ValidateRejectCode::ChainstateError,
+        }
+    }
 }
 
 /// A response for block proposal validation
 ///  that the stacks-node thinks is acceptable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateOk {
-    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
-    pub block: NakamotoBlock,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
 }
@@ -118,19 +144,6 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
         match value {
             Ok(o) => BlockValidateResponse::Ok(o),
             Err(e) => BlockValidateResponse::Reject(e),
-        }
-    }
-}
-
-impl<T> From<T> for BlockValidateReject
-where
-    T: Into<ChainError>,
-{
-    fn from(value: T) -> Self {
-        let ce: ChainError = value.into();
-        BlockValidateReject {
-            reason: format!("Chainstate Error: {ce}"),
-            reason_code: ValidateRejectCode::ChainstateError,
         }
     }
 }
@@ -155,7 +168,13 @@ impl NakamotoBlockProposal {
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
-                let result = self.validate(&sortdb, &mut chainstate);
+                let result =
+                    self.validate(&sortdb, &mut chainstate)
+                        .map_err(|reason| BlockValidateReject {
+                            signer_signature_hash: self.block.header.signer_signature_hash(),
+                            reason_code: reason.reason_code,
+                            reason: reason.reason,
+                        });
                 receiver.notify_proposal_result(result);
             })
     }
@@ -174,14 +193,14 @@ impl NakamotoBlockProposal {
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
-    ) -> Result<BlockValidateOk, BlockValidateReject> {
+    ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         let ts_start = get_epoch_time_ms();
         // Measure time from start of function
         let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
-            return Err(BlockValidateReject {
+            return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Wrong network/chain_id".into(),
             });
@@ -207,7 +226,7 @@ impl NakamotoBlockProposal {
             chainstate.db(),
             &self.block.header.parent_block_id,
         )?
-        .ok_or_else(|| BlockValidateReject {
+        .ok_or_else(|| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::InvalidBlock,
             reason: "Invalid parent block".into(),
         })?;
@@ -263,7 +282,7 @@ impl NakamotoBlockProposal {
                     "reason" => %reason,
                     "tx" => ?tx,
                 );
-                return Err(BlockValidateReject {
+                return Err(BlockValidateRejectReason {
                     reason,
                     reason_code: ValidateRejectCode::BadTransaction,
                 });
@@ -272,7 +291,7 @@ impl NakamotoBlockProposal {
 
         let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.get_bytes_so_far();
-        let cost = builder.tenure_finish(tenure_tx);
+        let cost = builder.tenure_finish(tenure_tx)?;
 
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
@@ -292,7 +311,7 @@ impl NakamotoBlockProposal {
                 //"expected_block" => %serde_json::to_string(&serde_json::to_value(&self.block).unwrap()).unwrap(),
                 //"computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
             );
-            return Err(BlockValidateReject {
+            return Err(BlockValidateRejectReason {
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
             });
@@ -312,18 +331,26 @@ impl NakamotoBlockProposal {
             })
         );
 
-        Ok(BlockValidateOk { block, cost, size })
+        Ok(BlockValidateOk {
+            signer_signature_hash: block.header.signer_signature_hash(),
+            cost,
+            size,
+        })
     }
 }
 
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
     pub block_proposal: Option<NakamotoBlockProposal>,
+    pub auth: Option<String>,
 }
 
 impl RPCBlockProposalRequestHandler {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            block_proposal: None,
+            auth,
+        }
     }
 
     /// Decode a JSON-encoded block proposal
@@ -352,24 +379,22 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        // Only accept requests from localhost
-        let is_loopback = match preamble.host {
-            // Should never be DNS
-            PeerHost::DNS(..) => false,
-            PeerHost::IP(addr, ..) => addr.is_loopback(),
+        // If no authorization is set, then the block proposal endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
         };
-
-        if !is_loopback {
-            return Err(Error::Http(403, "Forbidden".into()));
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
         }
-
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected non-zero-length body for block proposal endpoint"
                     .to_string(),
             ));
         }
-
         if preamble.get_content_length() > MAX_PAYLOAD_LEN {
             return Err(Error::DecodeError(
                 "Invalid Http request: BlockProposal body is too big".to_string(),

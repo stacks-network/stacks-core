@@ -256,7 +256,7 @@ impl StacksBlockHeader {
         let valid = match VRF::verify(
             &leader_key.public_key,
             &self.proof,
-            &sortition_chain_tip.sortition_hash.as_bytes().to_vec(),
+            sortition_chain_tip.sortition_hash.as_bytes().as_ref(),
         ) {
             Ok(v) => {
                 if !v {
@@ -1789,8 +1789,6 @@ mod test {
             previous_tenure_blocks: 0,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         };
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,

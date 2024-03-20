@@ -426,6 +426,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set_data: &Option<RewardSetData>,
+        _signer_bitvec: &Option<BitVec<4000>>,
     ) {
         assert!(
             false,
@@ -447,15 +449,22 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         indexer,
     )
 }
@@ -464,15 +473,22 @@ pub fn make_coordinator_atlas<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new_full(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         None,
         indexer,
         atlas_config,
@@ -495,7 +511,20 @@ impl RewardSetProvider for StubbedRewardSetProvider {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
+            signers: None,
+            pox_ustx_threshold: None,
         })
+    }
+
+    fn get_reward_set_nakamoto(
+        &self,
+        cycle_start_burn_height: u64,
+        chainstate: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+    ) -> Result<RewardSet, CoordError> {
+        panic!("Stubbed reward set provider cannot be invoked in nakamoto")
     }
 }
 
@@ -527,7 +556,6 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
             5,
             u64::MAX,
             u64::MAX,
-            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -646,7 +674,7 @@ fn make_genesis_block_with_recipients(
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
-    builder.epoch_finish(epoch_tx);
+    builder.epoch_finish(epoch_tx).unwrap();
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
@@ -913,7 +941,7 @@ fn make_stacks_block_with_input(
     }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
-    builder.epoch_finish(epoch_tx);
+    builder.epoch_finish(epoch_tx).unwrap();
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
@@ -976,7 +1004,6 @@ fn missed_block_commits_2_05() {
         5,
         7010,
         sunset_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1298,7 +1325,6 @@ fn missed_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1644,7 +1670,6 @@ fn late_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2719,7 +2744,6 @@ fn test_pox_btc_ops() {
         pox_v2_unlock_ht,
         pox_v3_unlock_ht,
         u32::MAX,
-        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -2880,7 +2904,7 @@ fn test_pox_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -2897,12 +2921,14 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked(), stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ),
+                    stacker_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht
+                        )
+                        .unwrap(),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -3005,7 +3031,6 @@ fn test_stx_transfer_btc_ops() {
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
         pox_v3_unlock_ht,
-        u32::MAX,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -3181,7 +3206,7 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3196,7 +3221,8 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&recipient.clone().into()),
+                                db.get_account_stx_balance(&recipient.clone().into())
+                                    .unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3206,42 +3232,50 @@ fn test_stx_transfer_btc_ops() {
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     0,
                 );
             }
@@ -3356,14 +3390,24 @@ fn get_delegation_info_pox_2(
             .unwrap()
         })
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     match result {
         None => None,
         Some(tuple) => {
-            let data = tuple.expect_tuple().data_map;
-            let delegated_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
-            let reward_addr_opt = if let Some(reward_addr) =
-                data.get("pox-addr").cloned().unwrap().expect_optional()
+            let data = tuple.expect_tuple().unwrap().data_map;
+            let delegated_amt = data
+                .get("amount-ustx")
+                .cloned()
+                .unwrap()
+                .expect_u128()
+                .unwrap();
+            let reward_addr_opt = if let Some(reward_addr) = data
+                .get("pox-addr")
+                .cloned()
+                .unwrap()
+                .expect_optional()
+                .unwrap()
             {
                 Some(PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap())
             } else {
@@ -3416,7 +3460,6 @@ fn test_delegate_stx_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -3725,7 +3768,6 @@ fn test_initial_coinbase_reward_distributions() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3966,7 +4008,6 @@ fn test_epoch_switch_cost_contract_instantiation() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4166,7 +4207,6 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         10,
         sunset_ht,
         10,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -4375,7 +4415,6 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         14,
         u32::MAX,
         16,
-        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4578,7 +4617,6 @@ fn atlas_stop_start() {
         10,
         sunset_ht,
         10,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -4859,7 +4897,7 @@ fn get_total_stacked_info(
                         reward_cycle
                     );
 
-                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128());
+                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128().unwrap());
                     Ok(result)
                 },
             )
@@ -4890,7 +4928,6 @@ fn test_epoch_verify_active_pox_contract() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -5181,7 +5218,6 @@ fn test_sortition_with_sunset() {
         5,
         10,
         sunset_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5493,7 +5529,6 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         10,
         sunset_ht,
         v1_unlock_ht,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5843,7 +5878,6 @@ fn test_pox_processable_block_in_different_pox_forks() {
         5,
         u64::MAX - 1,
         u64::MAX,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,

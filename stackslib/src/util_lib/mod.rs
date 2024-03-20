@@ -2,6 +2,7 @@
 pub mod db;
 pub mod bloom;
 pub mod boot;
+pub mod signed_structured_data;
 pub mod strings;
 
 #[cfg(test)]

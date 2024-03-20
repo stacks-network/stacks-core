@@ -93,7 +93,8 @@ pub enum Error {
     BadVrfConstruction,
     CannotSelfSign,
     MiningFailure(ChainstateError),
-    SigningError(&'static str),
+    MinerSignatureError(&'static str),
+    SignerSignatureError(&'static str),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }
@@ -151,7 +152,7 @@ impl StacksNode {
             .connect_mempool_db()
             .expect("FATAL: database failure opening mempool");
 
-        let mut p2p_net = NeonNode::setup_peer_network(&config, &atlas_config, burnchain.clone());
+        let mut p2p_net = NeonNode::setup_peer_network(&config, &atlas_config, burnchain);
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

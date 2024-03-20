@@ -122,6 +122,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -143,6 +144,13 @@ use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
+/// maximum length of an inventory page's Clarity list
+pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
+/// maximum number of pages that can be used in a StackerDB contract
+pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
+
+pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
+pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
@@ -189,6 +197,7 @@ impl StackerDBConfig {
     }
 
     /// How many slots are in this DB total?
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
@@ -305,6 +314,7 @@ impl StackerDBs {
             }
             // Even if we failed to create or reconfigure the DB, we still want to keep track of them
             // so that we can attempt to create/reconfigure them again later.
+            debug!("Reloaded configuration for {}", &stackerdb_contract_id);
             new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
         }
         Ok(new_stackerdb_configs)
@@ -419,10 +429,12 @@ impl PeerNetwork {
                     Ok(Some(result)) => {
                         // clear broken nodes
                         for broken in result.broken.iter() {
+                            debug!("StackerDB replica is broken: {:?}", broken);
                             self.deregister_and_ban_neighbor(broken);
                         }
                         // clear dead nodes
                         for dead in result.dead.iter() {
+                            debug!("StackerDB replica is dead: {:?}", dead);
                             self.deregister_neighbor(dead);
                         }
                         results.push(result);
@@ -433,12 +445,7 @@ impl PeerNetwork {
                             "Failed to run StackerDB state machine for {}: {:?}",
                             &sc, &e
                         );
-                        if let Err(e) = stacker_db_sync.reset(Some(self), config) {
-                            info!(
-                                "Failed to reset StackerDB state machine for {}: {:?}",
-                                &sc, &e
-                            );
-                        }
+                        stacker_db_sync.reset(Some(self), config);
                     }
                 }
             } else {

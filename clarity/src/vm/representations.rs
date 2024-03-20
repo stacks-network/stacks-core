@@ -16,7 +16,6 @@
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
@@ -55,10 +54,16 @@ lazy_static! {
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
-        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap();
+    {
+        #[allow(clippy::unwrap_used)]
+        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
+    };
     pub static ref CONTRACT_NAME_REGEX: Regex =
+    {
+        #[allow(clippy::unwrap_used)]
         Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
-            .unwrap();
+            .unwrap()
+    };
 }
 
 guarded_string!(
@@ -120,8 +125,8 @@ impl StacksMessageCodec for ClarityName {
 
 impl StacksMessageCodec for ContractName {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH
-            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize
+            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize
         {
             return Err(codec_error::SerializeError(format!(
                 "Failed to serialize contract name: too short or too long: {}",
@@ -165,8 +170,8 @@ impl StacksMessageCodec for ContractName {
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[PreSymbolicExpression]>),
-    Tuple(Box<[PreSymbolicExpression]>),
+    List(Vec<PreSymbolicExpression>),
+    Tuple(Vec<PreSymbolicExpression>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -318,14 +323,14 @@ impl PreSymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+    pub fn list(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
             ..PreSymbolicExpression::cons()
         }
     }
 
-    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+    pub fn tuple(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::Tuple(val),
             ..PreSymbolicExpression::cons()
@@ -407,7 +412,7 @@ impl PreSymbolicExpression {
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[SymbolicExpression]>),
+    List(Vec<SymbolicExpression>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
@@ -419,7 +424,7 @@ pub enum TraitDefinition {
     Imported(TraitIdentifier),
 }
 
-pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<T, E>
+pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<Option<T>, E>
 where
     F: FnMut(&SymbolicExpression) -> Result<T, E>,
 {
@@ -435,7 +440,7 @@ where
         }
     }
 
-    Ok(last.unwrap())
+    Ok(last)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -539,7 +544,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()

@@ -1,0 +1,25 @@
+{
+  "stacker_set": {
+    "rewarded_addresses": [
+      {
+        "Standard": [
+          {
+            "bytes": "dc5f18421006ee2b98ab972edfa7268a981e3f00",
+            "version": 26
+          },
+          "SerializeP2PKH"
+        ]
+      }
+    ],
+    "signers": [
+      {
+        "signing_key": "02d0a27e4f1bf186b4391eecfcc4d4a0d403684ad089b477b8548a69dd6378bf26",
+        "slots": 1,
+        "stacked_amt": 2143020000000000
+      }
+    ],
+    "start_cycle_state": {
+      "missed_reward_slots": []
+    }
+  }
+}

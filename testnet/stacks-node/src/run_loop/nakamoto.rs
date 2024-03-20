@@ -20,7 +20,7 @@ use std::thread::JoinHandle;
 use std::{cmp, thread};
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -400,12 +400,26 @@ impl RunLoop {
 
         // setup the termination handler, allow it to error if a prior runloop already set it
         neon::RunLoop::setup_termination_handler(self.should_keep_running.clone(), true);
-        let mut burnchain = neon::RunLoop::instantiate_burnchain_state(
+
+        let burnchain_result = neon::RunLoop::instantiate_burnchain_state(
             &self.config,
             self.should_keep_running.clone(),
             burnchain_opt,
             coordinator_senders.clone(),
         );
+
+        let mut burnchain = match burnchain_result {
+            Ok(burnchain_controller) => burnchain_controller,
+            Err(burnchain_error::ShutdownInitiated) => {
+                info!("Exiting stacks-node");
+                return;
+            }
+            Err(e) => {
+                error!("Error initializing burnchain: {}", e);
+                info!("Exiting stacks-node");
+                return;
+            }
+        };
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
@@ -425,6 +439,7 @@ impl RunLoop {
             self.counters.clone(),
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
+            mine_start,
         );
         self.set_globals(globals.clone());
 
@@ -456,7 +471,7 @@ impl RunLoop {
             sn
         };
 
-        globals.set_last_sortition(burnchain_tip_snapshot.clone());
+        globals.set_last_sortition(burnchain_tip_snapshot);
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)

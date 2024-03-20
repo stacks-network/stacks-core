@@ -34,7 +34,6 @@
 //!
 
 use std::collections::HashSet;
-use std::convert::{From, TryFrom};
 use std::fs;
 
 use clarity::vm::types::QualifiedContractIdentifier;

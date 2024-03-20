@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
@@ -512,6 +511,7 @@ impl ConversationHttp {
     }
 
     /// When was this converation conencted?
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_connection_time(&self) -> u64 {
         self.connection_time
     }
@@ -545,13 +545,21 @@ impl ConversationHttp {
                     // new request that we can handle
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
+                    let latency = req.duration_ms();
                     let start_time = Instant::now();
-                    let path = req.request_path().to_string();
+                    let verb = req.verb().to_string();
+                    let request_path = req.request_path().to_string();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
                         self.handle_request(req, node)
                     })?;
 
-                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
+                    info!("Handled StacksHTTPRequest";
+                           "verb" => %verb,
+                           "path" => %request_path,
+                           "processing_time_ms" => start_time.elapsed().as_millis(),
+                           "latency_ms" => latency,
+                           "conn_id" => self.conn_id,
+                           "peer_addr" => &self.peer_addr);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
@@ -564,7 +572,7 @@ impl ConversationHttp {
                     let start_time = Instant::now();
                     self.reply_error(resp)?;
 
-                    debug!("Processed HTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
+                    info!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
                 }
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.
@@ -589,6 +597,7 @@ impl ConversationHttp {
     }
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
+    #[cfg_attr(test, mutants::skip)]
     pub fn clear_timeouts(&mut self) -> () {
         self.connection.drain_timeouts();
     }
@@ -617,6 +626,7 @@ impl ConversationHttp {
     }
 
     /// Write data out of our HTTP connection.  Write as much as we can
+    #[cfg_attr(test, mutants::skip)]
     pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {

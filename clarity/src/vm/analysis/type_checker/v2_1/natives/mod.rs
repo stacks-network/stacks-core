@@ -229,7 +229,7 @@ pub fn check_special_tuple_cons(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut tuple_type_data = Vec::new();
+    let mut tuple_type_data = Vec::with_capacity(args.len());
 
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleCons,
@@ -277,7 +277,7 @@ pub fn bench_analysis_tuple_items_check_helper(
 ) -> TypeResult {
     let mut rng = rand::thread_rng();
     let char_name = (0..15)
-        .map(|_| rng.gen_range(b'a', b'z') as char)
+        .map(|_| rng.gen_range(b'a'..b'z') as char)
         .collect::<String>();
     let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
 
@@ -395,10 +395,10 @@ fn check_special_equals(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let mut arg_types = checker.type_check_all(args, context)?;
+    let arg_types = checker.type_check_all(args, context)?;
 
     let mut arg_type = arg_types[0].clone();
-    for x_type in arg_types.drain(..) {
+    for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &arg_type)
             .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
@@ -688,7 +688,10 @@ fn check_principal_of(
 ) -> TypeResult {
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_33)?;
-    Ok(TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType).unwrap())
+    Ok(
+        TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
+            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+    )
 }
 
 /// Forms:
@@ -710,7 +713,7 @@ fn check_principal_construct(
         checker.type_check_expects(
             &args[2],
             context,
-            &TypeSignature::contract_name_string_ascii_type(),
+            &TypeSignature::contract_name_string_ascii_type()?,
         )?;
     }
     Ok(TypeSignature::new_response(
@@ -719,13 +722,13 @@ fn check_principal_construct(
                 ("error_code".into(), TypeSignature::UIntType),
                 (
                     "value".into(),
-                    TypeSignature::new_option(TypeSignature::PrincipalType).expect("FATAL: failed to create (optional principal) type signature"),
+                    TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| CheckErrors::Expects("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
-            .expect("FAIL: PrincipalConstruct failed to initialize type signature")
+            .map_err(|_| CheckErrors::Expects("FAIL: PrincipalConstruct failed to initialize type signature".into()))?
             .into()
         )
-        .expect("FATAL: failed to create `(response principal { error_code: uint, principal: (optional principal) })` type signature")
+        .map_err(|_| CheckErrors::Expects("FATAL: failed to create `(response principal { error_code: uint, principal: (optional principal) })` type signature".into()))?
     )
 }
 
@@ -737,7 +740,10 @@ fn check_secp256k1_recover(
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
-    Ok(TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType).unwrap())
+    Ok(
+        TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
+            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+    )
 }
 
 fn check_secp256k1_verify(
@@ -795,7 +801,11 @@ fn check_get_burn_block_info(
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
-    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+    Ok(TypeSignature::new_option(
+        block_info_prop
+            .type_result()
+            .map_err(|_| CheckErrors::Expects("FAILED to type valid burn info property".into()))?,
+    )?)
 }
 
 impl TypedNativeFunction {
@@ -818,10 +828,12 @@ impl TypedNativeFunction {
         }
     }
 
-    pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction {
+    pub fn type_native_function(
+        function: &NativeFunctions,
+    ) -> Result<TypedNativeFunction, CheckErrors> {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
-        match function {
+        let out = match function {
             Add | Subtract | Divide | Multiply | BitwiseOr | BitwiseAnd | BitwiseXor2 => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic))
             }
@@ -846,24 +858,33 @@ impl TypedNativeFunction {
             ToUInt => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::IntType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::UIntType,
             }))),
             ToInt => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::UIntType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::IntType,
             }))),
             IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::BoolType,
             }))),
@@ -871,10 +892,14 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                            BufferLength::try_from(16_u32).unwrap(),
+                            BufferLength::try_from(16_u32)
+                                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
                         )),
-                        ClarityName::try_from("value".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("value".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     )],
                     returns: TypeSignature::IntType,
                 })))
@@ -883,25 +908,29 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                            BufferLength::try_from(16_u32).unwrap(),
+                            BufferLength::try_from(16_u32)
+                                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
                         )),
-                        ClarityName::try_from("value".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("value".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     )],
                     returns: TypeSignature::UIntType,
                 })))
             }
             StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
+                    TypeSignature::max_string_ascii()?,
+                    TypeSignature::max_string_utf8()?,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
             ))),
             StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
+                    TypeSignature::max_string_ascii()?,
+                    TypeSignature::max_string_utf8()?,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
             ))),
@@ -918,14 +947,17 @@ impl TypedNativeFunction {
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::BoolType,
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -933,7 +965,7 @@ impl TypedNativeFunction {
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -941,7 +973,7 @@ impl TypedNativeFunction {
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -949,7 +981,7 @@ impl TypedNativeFunction {
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -957,7 +989,7 @@ impl TypedNativeFunction {
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -968,8 +1000,11 @@ impl TypedNativeFunction {
             GetStxBalance => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                    ClarityName::try_from("owner".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("owner".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::UIntType,
             }))),
@@ -977,65 +1012,85 @@ impl TypedNativeFunction {
             PrincipalDestruct => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                    ClarityName::try_from("principal".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("principal".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: {
                     /// The return type of `principal-destruct` is a Response, in which the success
                     /// and error types are the same.
-                    fn parse_principal_basic_type() -> TypeSignature {
-                        TupleTypeSignature::try_from(vec![
+                    fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
+                        Ok(TupleTypeSignature::try_from(vec![
                             ("version".into(), BUFF_1.clone()),
                             ("hash-bytes".into(), BUFF_20.clone()),
                             (
                                 "name".into(),
                                 TypeSignature::new_option(
-                                    TypeSignature::contract_name_string_ascii_type(),
+                                    TypeSignature::contract_name_string_ascii_type()?,
                                 )
-                                .unwrap(),
+                                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
                             ),
                         ])
-                        .expect("FAIL: PrincipalDestruct failed to initialize type signature")
-                        .into()
+                        .map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: PrincipalDestruct failed to initialize type signature"
+                                    .into(),
+                            )
+                        })?)
                     }
                     TypeSignature::ResponseType(Box::new((
-                        parse_principal_basic_type(),
-                        parse_principal_basic_type(),
+                        parse_principal_basic_type()?.into(),
+                        parse_principal_basic_type()?.into(),
                     )))
                 },
             }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                    ClarityName::try_from("owner".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("owner".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TupleTypeSignature::try_from(vec![
                     ("unlocked".into(), TypeSignature::UIntType),
                     ("locked".into(), TypeSignature::UIntType),
                     ("unlock-height".into(), TypeSignature::UIntType),
                 ])
-                .expect("FAIL: StxGetAccount failed to initialize type signature")
+                .map_err(|_| {
+                    CheckErrors::Expects(
+                        "FAIL: StxGetAccount failed to initialize type signature".into(),
+                    )
+                })?
                 .into(),
             }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,
-                        ClarityName::try_from("amount".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("amount".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
-                        ClarityName::try_from("sender".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("sender".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                 ],
                 returns: TypeSignature::new_response(
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .unwrap(),
+                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
             StxTransferMemo => Special(SpecialNativeFunction(
@@ -1115,6 +1170,8 @@ impl TypedNativeFunction {
                 &conversions::check_special_from_consensus_buff,
             )),
             NoOp => Simple(SimpleNativeFunction(FunctionType::RandomVariadic)),
-        }
+        };
+
+        Ok(out)
     }
 }

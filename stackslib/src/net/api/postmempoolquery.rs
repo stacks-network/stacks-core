@@ -127,10 +127,12 @@ impl StacksMemPoolStream {
 }
 
 impl HttpChunkGenerator for StacksMemPoolStream {
+    #[cfg_attr(test, mutants::skip)]
     fn hint_chunk_size(&self) -> usize {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.corked {
             test_debug!(

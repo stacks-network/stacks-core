@@ -206,8 +206,7 @@ impl BootRunLoop {
             return Ok(0);
         }
 
-        let Ok(sortdb) = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants.clone())
-        else {
+        let Ok(sortdb) = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants) else {
             info!("Failed to open Sortition DB while checking current burn height, assuming height = 0");
             return Ok(0);
         };

@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::marker::Send;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -55,7 +53,7 @@ use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -101,15 +99,13 @@ impl BurnchainStateTransition {
         block_ops: &Vec<BlockstackOperationType>,
         missed_commits: &[MissedBlockCommit],
     ) -> Result<BurnchainStateTransition, burnchain_error> {
-        // block commits and support burns discovered in this block.
+        // block commits discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
-        let mut user_burns: Vec<UserBurnSupportOp> = vec![];
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
         assert!(Burnchain::ops_are_sorted(block_ops));
 
-        // identify which user burns and block commits are consumed and which are not
-        let mut all_user_burns: HashMap<Txid, UserBurnSupportOp> = HashMap::new();
+        // identify which block commits are consumed and which are not
         let mut all_block_commits: HashMap<Txid, LeaderBlockCommitOp> = HashMap::new();
 
         // accept all leader keys we found.
@@ -137,11 +133,8 @@ impl BurnchainStateTransition {
                     all_block_commits.insert(op.txid.clone(), op.clone());
                     block_commits.push(op.clone());
                 }
-                BlockstackOperationType::UserBurnSupport(ref op) => {
-                    // we don't know yet which user burns are going to be accepted until we have
-                    // the burn distribution, so just account for them for now.
-                    all_user_burns.insert(op.txid.clone(), op.clone());
-                    user_burns.push(op.clone());
+                BlockstackOperationType::VoteForAggregateKey(_) => {
+                    accepted_ops.push(block_ops[i].clone());
                 }
             };
         }
@@ -156,10 +149,12 @@ impl BurnchainStateTransition {
 
         // what epoch are we in?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_tx, parent_snapshot.block_height + 1)?
-            .expect(&format!(
-                "FATAL: no epoch defined at burn height {}",
-                parent_snapshot.block_height + 1
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined at burn height {}",
+                    parent_snapshot.block_height + 1
+                )
+            })
             .epoch_id;
 
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
@@ -254,7 +249,7 @@ impl BurnchainStateTransition {
         );
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
-        // find out which user burns and block commits we're going to take
+        // find out which block commits we're going to take
         for i in 0..burn_dist.len() {
             let burn_point = &burn_dist[i];
 
@@ -263,27 +258,15 @@ impl BurnchainStateTransition {
                 burn_point.candidate.clone(),
             ));
             all_block_commits.remove(&burn_point.candidate.txid);
-
-            // taking each user burn in this sample point
-            for j in 0..burn_point.user_burns.len() {
-                accepted_ops.push(BlockstackOperationType::UserBurnSupport(
-                    burn_point.user_burns[j].clone(),
-                ));
-                all_user_burns.remove(&burn_point.user_burns[j].txid);
-            }
         }
 
-        // accepted_ops contains all accepted commits and user burns now.
-        // only rejected ones remain in all_user_burns and all_block_commits
+        // accepted_ops contains all accepted commits now.
+        // only rejected ones remain in all_block_commits
         for op in all_block_commits.values() {
             warn!(
                 "REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key",
                 op.block_height, &op.txid, op.block_height, op.vtxindex
             );
-        }
-
-        for op in all_user_burns.values() {
-            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid, op.block_height, op.vtxindex);
         }
 
         accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
@@ -297,7 +280,7 @@ impl BurnchainStateTransition {
 }
 
 impl BurnchainSigner {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn mock_parts(
         hash_mode: AddressHashMode,
         num_sigs: usize,
@@ -311,7 +294,7 @@ impl BurnchainSigner {
         BurnchainSigner(repr)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
         BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
     }
@@ -489,6 +472,18 @@ impl Burnchain {
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
     }
 
+    pub fn next_reward_cycle(&self, block_height: u64) -> Option<u64> {
+        let cycle = self.block_height_to_reward_cycle(block_height)?;
+        let effective_height = block_height.checked_sub(self.first_block_height)?;
+        let next_bump = if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0
+        {
+            0
+        } else {
+            1
+        };
+        Some(cycle + next_bump)
+    }
+
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
         self.pox_constants
             .block_height_to_reward_cycle(self.first_block_height, block_height)
@@ -547,8 +542,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret =
-            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+        let ret = Burnchain::new(working_dir, "bitcoin", "regtest").unwrap();
         ret
     }
 
@@ -565,8 +559,7 @@ impl Burnchain {
         rng.fill_bytes(&mut byte_tail);
 
         let tmp_path = format!("/tmp/stacks-node-tests/unit-tests-{}", &to_hex(&byte_tail));
-        let mut ret =
-            Burnchain::new(&tmp_path, &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
+        let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
@@ -749,20 +742,6 @@ impl Burnchain {
                     }
                 }
             }
-            x if x == Opcodes::UserBurnSupport as u8 => {
-                match UserBurnSupportOp::from_tx(block_header, burn_tx) {
-                    Ok(op) => Some(BlockstackOperationType::UserBurnSupport(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse user burn support tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
-            }
             x if x == Opcodes::PreStx as u8 => {
                 match PreStxOp::from_tx(
                     block_header,
@@ -869,6 +848,35 @@ impl Burnchain {
                 } else {
                     warn!(
                         "Failed to find corresponding input to DelegateStxOp";
+                        "txid" => %burn_tx.txid().to_string(),
+                        "pre_stx_txid" => %pre_stx_txid.to_string()
+                    );
+                    None
+                }
+            }
+            x if x == Opcodes::VoteForAggregateKey as u8 => {
+                let pre_stx_txid = VoteForAggregateKeyOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
+                    let sender = &pre_stx.output;
+                    match VoteForAggregateKeyOp::from_tx(block_header, burn_tx, sender) {
+                        Ok(op) => Some(BlockstackOperationType::VoteForAggregateKey(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse vote-for-aggregate-key tx";
+                                "txid" => %burn_tx.txid(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to VoteForAggregateKeyOp";
                         "txid" => %burn_tx.txid().to_string(),
                         "pre_stx_txid" => %pre_stx_txid.to_string()
                     );
@@ -1001,11 +1009,13 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?.expect(&format!(
-                "FATAL: no epoch for burn block height {}",
-                block.block_height()
-            ));
+        let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch for burn block height {}",
+                    block.block_height()
+                )
+            });
 
         let header = block.header();
         let blockstack_txs = burnchain_db.store_new_burnchain_block(
@@ -1206,10 +1216,9 @@ impl Burnchain {
 
                     let cur_epoch =
                         SortitionDB::get_stacks_epoch(parser_sortdb.conn(), ipc_block.height())?
-                            .expect(&format!(
-                                "FATAL: no stacks epoch defined for {}",
-                                ipc_block.height()
-                            ));
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no stacks epoch defined for {}", ipc_block.height())
+                            });
 
                     let parse_start = get_epoch_time_ms();
                     let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
@@ -1541,9 +1550,10 @@ impl Burnchain {
                     debug!("Try recv next block");
 
                     let cur_epoch =
-                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?.expect(
-                            &format!("FATAL: no stacks epoch defined for {}", ipc_block.height()),
-                        );
+                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no stacks epoch defined for {}", ipc_block.height())
+                            });
 
                     let parse_start = get_epoch_time_ms();
                     let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
@@ -1580,9 +1590,10 @@ impl Burnchain {
                             continue;
                         }
 
-                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height).expect(
-                            &format!("FATAL: no epoch defined for height {}", block_height),
-                        );
+                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height)
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no epoch defined for height {}", block_height)
+                            });
 
                         let epoch_id = epochs[epoch_index].epoch_id;
 

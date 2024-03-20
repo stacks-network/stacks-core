@@ -777,6 +777,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
     }
 }
 
+#[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
         FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
@@ -790,11 +791,12 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::Binary(left, right, ref out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
-                let arg_sig = match pos {
-                        0 => left,
-                        1 => right,
+                let arg_sig: &FunctionArgSignature;
+                match pos {
+                        0 => arg_sig = left,
+                        1 => arg_sig = right,
                         _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
-                    };
+                    }
                 match arg_sig {
                     FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
                     FunctionArgSignature::Union(arg_types) => {
@@ -810,12 +812,15 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
     if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
-        let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
+        let in_names: Vec<String> = args
+            .iter()
+            .map(|x| format!("{}", x.name.as_str()))
+            .collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
             "({}{}{})",
             function_name,
-            if arg_examples.is_empty() { "" } else { " " },
+            if arg_examples.len() == 0 { "" } else { " " },
             arg_examples
         ))
     } else {
@@ -823,6 +828,8 @@ pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Optio
     }
 }
 
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 fn make_for_simple_native(
     api: &SimpleFunctionAPI,
     function: &NativeFunctions,
@@ -830,7 +837,8 @@ fn make_for_simple_native(
 ) -> FunctionAPI {
     let (input_type, output_type) = {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(function)
+            TypedNativeFunction::type_native_function(&function)
+                .expect("Failed to type a native function")
         {
             let input_type = get_input_type_string(&function_type);
             let output_type = get_output_type_string(&function_type);
@@ -846,8 +854,8 @@ fn make_for_simple_native(
     FunctionAPI {
         name: api.name.map_or(name, |x| x.to_string()),
         snippet: api.snippet.to_string(),
-        input_type,
-        output_type,
+        input_type: input_type,
+        output_type: output_type,
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
@@ -2003,7 +2011,7 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
 can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions, defined with a name, a list of argument types, and return type.
+Traits are defined with a name, and a list of functions, where each function is defined with a name, a list of argument types, and a return type.
 
 In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
 be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
@@ -2422,35 +2430,35 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
-        Add => make_for_simple_native(&ADD_API, function, name),
-        ToUInt => make_for_simple_native(&TO_UINT_API, function, name),
-        ToInt => make_for_simple_native(&TO_INT_API, function, name),
-        Subtract => make_for_simple_native(&SUB_API, function, name),
-        Multiply => make_for_simple_native(&MUL_API, function, name),
-        Divide => make_for_simple_native(&DIV_API, function, name),
-        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, function, name),
-        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, function, name),
-        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, function, name),
-        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, function, name),
-        IsStandard => make_for_simple_native(&IS_STANDARD_API, function, name),
-        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, function, name),
-        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, function),
-        StringToInt => make_for_simple_native(&STRING_TO_INT_API, function, name),
-        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, function, name),
-        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, function, name),
-        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, function, name),
-        CmpGeq => make_for_simple_native(&GEQ_API, function, name),
-        CmpLeq => make_for_simple_native(&LEQ_API, function, name),
-        CmpLess => make_for_simple_native(&LESS_API, function, name),
-        CmpGreater => make_for_simple_native(&GREATER_API, function, name),
-        Modulo => make_for_simple_native(&MOD_API, function, name),
-        Power => make_for_simple_native(&POW_API, function, name),
-        Sqrti => make_for_simple_native(&SQRTI_API, function, name),
-        Log2 => make_for_simple_native(&LOG2_API, function, name),
-        BitwiseXor => make_for_simple_native(&XOR_API, function, name),
-        And => make_for_simple_native(&AND_API, function, name),
-        Or => make_for_simple_native(&OR_API, function, name),
-        Not => make_for_simple_native(&NOT_API, function, name),
+        Add => make_for_simple_native(&ADD_API, &function, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, &function, name),
+        ToInt => make_for_simple_native(&TO_INT_API, &function, name),
+        Subtract => make_for_simple_native(&SUB_API, &function, name),
+        Multiply => make_for_simple_native(&MUL_API, &function, name),
+        Divide => make_for_simple_native(&DIV_API, &function, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &function, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &function, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &function, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &function, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &function, name),
+        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, &function, name),
+        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, &function),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &function, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &function, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &function, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &function, name),
+        CmpGeq => make_for_simple_native(&GEQ_API, &function, name),
+        CmpLeq => make_for_simple_native(&LEQ_API, &function, name),
+        CmpLess => make_for_simple_native(&LESS_API, &function, name),
+        CmpGreater => make_for_simple_native(&GREATER_API, &function, name),
+        Modulo => make_for_simple_native(&MOD_API, &function, name),
+        Power => make_for_simple_native(&POW_API, &function, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, &function, name),
+        Log2 => make_for_simple_native(&LOG2_API, &function, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, &function, name),
+        And => make_for_simple_native(&AND_API, &function, name),
+        Or => make_for_simple_native(&OR_API, &function, name),
+        Not => make_for_simple_native(&NOT_API, &function, name),
         Equals => make_for_special(&EQUALS_API, function),
         If => make_for_special(&IF_API, function),
         Let => make_for_special(&LET_API, function),
@@ -2514,11 +2522,11 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BurnAsset => make_for_special(&BURN_ASSET, function),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, function),
         AtBlock => make_for_special(&AT_BLOCK, function),
-        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, function, name),
-        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, function, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &function, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &function, name),
         StxTransfer => make_for_special(&STX_TRANSFER, function),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, function),
-        StxBurn => make_for_simple_native(&STX_BURN, function, name),
+        StxBurn => make_for_simple_native(&STX_BURN, &function, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
@@ -2560,7 +2568,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
 
 fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI {
     FunctionAPI {
-        name: function.get_name().to_string(),
+        name: function.get_name(),
         snippet: api.snippet.to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
@@ -2613,14 +2621,12 @@ fn make_all_api_reference() -> ReferenceAPIs {
     }
     functions.sort_by(|x, y| x.name.cmp(&y.name));
 
-    let mut keywords = Vec::new();
-    for variable in NativeVariables::ALL.iter() {
-        let output = make_keyword_reference(variable);
-        if let Some(api_ref) = output {
-            keywords.push(api_ref)
-        }
-    }
-    keywords.sort_by(|x, y| x.name.cmp(y.name));
+    let mut keywords: Vec<_> = NativeVariables::ALL
+        .iter()
+        .filter_map(make_keyword_reference)
+        .collect();
+
+    keywords.sort_by(|x, y| x.name.cmp(&y.name));
 
     ReferenceAPIs {
         functions,
@@ -2628,9 +2634,13 @@ fn make_all_api_reference() -> ReferenceAPIs {
     }
 }
 
+#[allow(clippy::expect_used)]
 pub fn make_json_api_reference() -> String {
     let api_out = make_all_api_reference();
-    serde_json::to_string(&api_out).expect("Failed to serialize documentation")
+    format!(
+        "{}",
+        serde_json::to_string(&api_out).expect("Failed to serialize documentation")
+    )
 }
 
 #[cfg(test)]
@@ -2667,7 +2677,7 @@ mod test {
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
     impl MemoryBackingStore {
-        pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase {
+        pub fn as_docs_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
             ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
         }
     }
@@ -2846,13 +2856,13 @@ mod test {
         let mut current_segment: String = "".into();
         for line in program.lines() {
             current_segment.push_str(line);
-            current_segment.push('\n');
+            current_segment.push_str("\n");
             if line.contains(";;") && line.contains("Returns ") {
                 segments.push(current_segment);
                 current_segment = "".into();
             }
         }
-        if !current_segment.is_empty() {
+        if current_segment.len() > 0 {
             segments.push(current_segment);
         }
 
@@ -2912,7 +2922,7 @@ mod test {
                     .type_map
                     .as_ref()
                     .unwrap()
-                    .get_type(analysis.expressions.last().unwrap())
+                    .get_type(&analysis.expressions.last().unwrap())
                     .cloned(),
             );
         }
@@ -3007,7 +3017,7 @@ mod test {
                     let mut analysis_db = store.as_analysis_db();
                     let mut parsed = ast::build_ast(
                         &contract_id,
-                        token_contract_content,
+                        &token_contract_content,
                         &mut (),
                         ClarityVersion::latest(),
                         StacksEpochId::latest(),
@@ -3062,9 +3072,10 @@ mod test {
                         let mut snapshot = e
                             .global_context
                             .database
-                            .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                            .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .unwrap();
                         snapshot.set_balance(balance);
-                        snapshot.save();
+                        snapshot.save().unwrap();
                         e.global_context
                             .database
                             .increment_ustx_liquid_supply(100000)
@@ -3076,7 +3087,7 @@ mod test {
 
                 env.initialize_contract(
                     contract_id,
-                    token_contract_content,
+                    &token_contract_content,
                     None,
                     ASTRules::PrecheckSize,
                 )
@@ -3174,7 +3185,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ]),
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
@@ -3202,7 +3213,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ],
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint | int | principal");
@@ -3217,7 +3228,7 @@ mod test {
         result = get_input_type_string(&function_type);
         assert_eq!(result, "int, ...");
 
-        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret);
         result = get_input_type_string(&function_type);
         assert_eq!(result, "principal, ...");
     }

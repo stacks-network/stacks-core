@@ -125,7 +125,7 @@ impl RunLoopCallbacks {
             match &tx.payload {
                 TransactionPayload::Coinbase(..) => println!("   Coinbase"),
                 TransactionPayload::SmartContract(contract, ..) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
-                TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent.to_string()),
+                TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent),
                 _ => println!("   {:?}", tx.payload)
             }
         }
@@ -148,7 +148,7 @@ impl RunLoopCallbacks {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisteredKey {
     /// burn block height we intended this VRF key register to land in
     pub target_block_height: u64,
@@ -184,7 +184,7 @@ pub fn announce_boot_receipts(
         boot_receipts,
         &StacksBlockId::sentinel(),
         Txid([0x00; 32]),
-        &vec![],
+        &[],
         None,
         block_header_0.burn_header_hash.clone(),
         block_header_0.burn_header_height,
@@ -192,5 +192,7 @@ pub fn announce_boot_receipts(
         &ExecutionCost::zero(),
         &ExecutionCost::zero(),
         pox_constants,
+        &None,
+        &None,
     );
 }
