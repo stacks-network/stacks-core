@@ -1389,6 +1389,7 @@ pub struct BurnchainConfigFile {
 
 impl BurnchainConfigFile {
     /// Add affirmation overrides required to sync Xenon Testnet node.
+    ///
     /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
     /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
     /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
