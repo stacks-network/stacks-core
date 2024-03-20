@@ -508,7 +508,26 @@ impl Config {
         }
 
         if let Some(epochs) = &self.burnchain.epochs {
-            // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch10)
+            {
+                assert!(
+                    epoch.start_height < burnchain.first_block_height,
+                    "FATAL: Epoch 1.0 start height must be before the first block height"
+                );
+            }
+
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch20)
+            {
+                assert_eq!(
+                    epoch.start_height, burnchain.first_block_height,
+                    "FATAL: Epoch 2.0 start height must match the first block height"
+                );
+            }
+
             if let Some(epoch) = epochs
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
