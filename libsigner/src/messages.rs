@@ -320,19 +320,6 @@ impl SignerMessage {
         }
         Ok(())
     }
-
-    fn deserialize_point<R: Read>(fd: &mut R) -> Result<Point, CodecError> {
-        let mut bytes = [0; 33];
-        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
-        Point::try_from(&Compressed::from(bytes))
-            .map_err(|e| CodecError::DeserializeError(e.to_string()))
-    }
-
-    fn deserialize_scalar<R: Read>(fd: &mut R) -> Result<Scalar, CodecError> {
-        let mut bytes = [0; 32];
-        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
-        Ok(Scalar::from(bytes))
-    }
 }
 
 impl StacksMessageCodec for SignerMessage {
