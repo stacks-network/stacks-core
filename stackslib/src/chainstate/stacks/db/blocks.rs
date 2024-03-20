@@ -4166,7 +4166,7 @@ impl StacksChainState {
                 Value::UInt(u128::from(*num_cycles)),
             ];
             // Appending additional signer related arguments for pox-4
-            if POX_4_NAME == active_pox_contract {
+            if active_pox_contract == PoxVersions::Pox4.get_name() {
                 match StacksChainState::collect_pox_4_stacking_args(&stack_stx_op) {
                     Ok(pox_4_args) => {
                         args.extend(pox_4_args);
