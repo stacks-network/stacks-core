@@ -50,6 +50,42 @@ use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
+impl NakamotoDownloadStateMachine {
+    /// Find the list of wanted tenures for the given reward cycle.  The reward cycle must
+    /// be complete already.  Used for testing.
+    ///
+    /// Returns a reward cycle's wanted tenures.
+    /// Returns a DB error if the snapshot does not correspond to a full reward cycle.
+    #[cfg(test)]
+    pub(crate) fn load_wanted_tenures_for_reward_cycle(
+        cur_rc: u64,
+        tip: &BlockSnapshot,
+        sortdb: &SortitionDB,
+    ) -> Result<Vec<WantedTenure>, NetError> {
+        // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
+        // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
+        let first_block_height = sortdb
+            .pox_constants
+            .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc)
+            .saturating_sub(1);
+        let last_block_height = sortdb
+            .pox_constants
+            .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc.saturating_add(1))
+            .saturating_sub(1);
+
+        test_debug!(
+            "Load reward cycle sortitions between {} and {} (rc is {})",
+            first_block_height,
+            last_block_height,
+            cur_rc
+        );
+
+        // find all sortitions in this reward cycle
+        let ih = sortdb.index_handle(&tip.sortition_id);
+        Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
+    }
+}
+
 #[test]
 fn test_nakamoto_tenure_downloader() {
     let ch = ConsensusHash([0x11; 20]);
@@ -215,12 +251,11 @@ fn test_nakamoto_tenure_downloader() {
     assert!(td
         .try_accept_tenure_start_block(blocks.first().unwrap().clone())
         .is_ok());
-    assert_eq!(
-        td.state,
-        NakamotoTenureDownloadState::WaitForTenureEndBlock(
-            next_tenure_start_block.header.block_id()
-        )
-    );
+
+    let NakamotoTenureDownloadState::WaitForTenureEndBlock(block_id, _) = td.state else {
+        panic!("wrong state");
+    };
+    assert_eq!(block_id, next_tenure_start_block.header.block_id());
     assert_eq!(td.tenure_start_block, Some(tenure_start_block.clone()));
     assert!(td.tenure_length().is_none());
 

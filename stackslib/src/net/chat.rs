@@ -2708,15 +2708,8 @@ impl ConversationP2P {
     fn try_decode_data_url_ipaddr(data_url: &UrlString) -> Option<SocketAddr> {
         // need to begin resolution
         // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
-        let Ok(url) = data_url.parse_to_block_url() else {
-            return None;
-        };
-        let port = match url.port_or_known_default() {
-            Some(p) => p,
-            None => {
-                return None;
-            }
-        };
+        let url = data_url.parse_to_block_url().ok()?;
+        let port = url.port_or_known_default()?;
         let ip_addr_opt = match url.host() {
             Some(url::Host::Ipv4(addr)) => {
                 // have IPv4 address already

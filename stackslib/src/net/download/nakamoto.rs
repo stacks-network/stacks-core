@@ -81,7 +81,7 @@
 //! is a much simpler task), it simply provides an internal method for issuing requests and
 //! processing responses for its neighbors' unconfirmed tenure data.
 //!
-//! This middle layer consumes the data mantained by the `NakamotoDownloaderStateMachine` in order
+//! This middle layer consumes the data mantained by the `,akamotoDownloaderStateMachine` in order
 //! to instantiate, drive, and clean up one or more per-tenure download state machines.
 //!
 //! ## `NakamotoTenureDownloader` and `NakamotoUnconfirmedTenureDownloader`
@@ -162,7 +162,7 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 /// start and end block.  This includes all tenures except for the two most recent ones.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NakamotoTenureDownloadState {
-    /// Getting the tenure-start block
+    /// Getting the tenure-start block (the given StacksBlockId is it's block ID).
     GetTenureStartBlock(StacksBlockId),
     /// Waiting for the child tenure's tenure-start block to arrive, which is usually (but not
     /// always) handled by the execution of another NakamotoTenureDownloader.  The only
@@ -179,11 +179,22 @@ pub(crate) enum NakamotoTenureDownloadState {
     ///
     /// * if the deadline (second parameter) is exceeded, the state machine transitions to
     /// GetTenureEndBlock.
+    ///
+    /// The two fields here are:
+    /// * the block ID of the last block in the tenure (which happens to be the block ID of the
+    /// start block of the next tenure)
+    /// * the deadline by which this state machine needs to have obtained the tenure end-block
+    /// before transitioning to `GetTenureEndBlock`.
     WaitForTenureEndBlock(StacksBlockId, u64),
     /// Getting the tenure-end block directly.  This only happens for tenures whose end-blocks
-    /// cannot be provided by tenure downloaders within the same reward cycle.
+    /// cannot be provided by tenure downloaders within the same reward cycle, and for tenures in
+    /// which we cannot quickly get the tenure-end block.
+    ///
+    /// The field here is the block ID of the tenure end block.
     GetTenureEndBlock(StacksBlockId),
-    /// Receiving tenure blocks
+    /// Receiving tenure blocks.
+    /// The field here is the hash of the _last_ block in the tenure that must be downloaded.  This
+    /// is because a tenure is fetched in order from highest block to lowest block.
     GetTenureBlocks(StacksBlockId),
     /// We have gotten all the blocks for this tenure
     Done,
@@ -323,13 +334,15 @@ impl NakamotoTenureDownloader {
             warn!("Invalid tenure-start block: unexpected"; 
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "tenure_id_start_block" => %self.tenure_start_block_id,
+                  "tenure_start_block ID" => %tenure_start_block.header.block_id(),
                   "state" => %self.state);
             return Err(NetError::InvalidMessage);
         }
 
-        let schnorr_signature = &tenure_start_block.header.signer_signature.0;
-        let message = tenure_start_block.header.signer_signature_hash().0;
-        if !schnorr_signature.verify(&self.start_aggregate_public_key, &message) {
+        if !tenure_start_block
+            .header
+            .verify_signer(&self.start_aggregate_public_key)
+        {
             // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
@@ -339,7 +352,7 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        test_debug!(
+        debug!(
             "Accepted tenure-start block for tenure {} block={}",
             &self.tenure_id_consensus_hash,
             &tenure_start_block.block_id()
@@ -399,7 +412,7 @@ impl NakamotoTenureDownloader {
     }
 
     /// Transition to fetching the tenure-end block directly if waiting has taken too long.
-    pub fn try_transition_to_fetch_end_block(&mut self) {
+    pub fn transition_to_fetch_end_block_on_timeout(&mut self) {
         if let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id, wait_deadline) =
             self.state
         {
@@ -427,15 +440,14 @@ impl NakamotoTenureDownloader {
         if !matches!(
             &self.state,
             NakamotoTenureDownloadState::WaitForTenureEndBlock(..)
-        ) && !matches!(
-            &self.state,
-            NakamotoTenureDownloadState::GetTenureEndBlock(_)
+                | NakamotoTenureDownloadState::GetTenureEndBlock(_)
         ) {
             warn!("Invalid state for this method";
                   "state" => %self.state);
             return Err(NetError::InvalidState);
         };
         let Some(tenure_start_block) = self.tenure_start_block.as_ref() else {
+            warn!("Invalid state -- tenure_start_block is not set");
             return Err(NetError::InvalidState);
         };
 
@@ -449,9 +461,10 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        let schnorr_signature = &tenure_end_block.header.signer_signature.0;
-        let message = tenure_end_block.header.signer_signature_hash().0;
-        if !schnorr_signature.verify(&self.end_aggregate_public_key, &message) {
+        if !tenure_end_block
+            .header
+            .verify_signer(&self.end_aggregate_public_key)
+        {
             // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
@@ -492,7 +505,7 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        test_debug!(
+        debug!(
             "Accepted tenure-end header for tenure {} block={}; expect {} blocks",
             &self.tenure_id_consensus_hash,
             &tenure_end_block.block_id(),
@@ -549,9 +562,7 @@ impl NakamotoTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            let schnorr_signature = &block.header.signer_signature.0;
-            let message = block.header.signer_signature_hash().0;
-            if !schnorr_signature.verify(&self.start_aggregate_public_key, &message) {
+            if !block.header.verify_signer(&self.start_aggregate_public_key) {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %self.tenure_id_consensus_hash,
                       "block.header.block_id" => %block.header.block_id(),
@@ -678,10 +689,8 @@ impl NakamotoTenureDownloader {
 
     /// Begin the next download request for this state machine.  The request will be sent to the
     /// data URL corresponding to self.naddr.
-    /// Returns Ok(Some(true)) if we sent the request, or there's already an in-flight request
-    /// Returns Ok(Some(false)) if not (e.g. neighbor is known to be dead or broken)
-    /// Returns Ok(None) if there is already an in-flight request to this peer.  The caller should
-    /// try again.
+    /// Returns Ok(true) if we sent the request, or there's already an in-flight request
+    /// Returns Ok(false) if not (e.g. neighbor is known to be dead or broken)
     /// Returns Err(..) if self.naddr is known to be a dead or broken peer, or if we were unable to
     /// resolve its data URL to a socket address.
     pub fn send_next_download_request(
@@ -773,9 +782,12 @@ impl NakamotoTenureDownloader {
 pub(crate) enum NakamotoUnconfirmedDownloadState {
     /// Getting the tenure tip information
     GetTenureInfo,
-    /// Get the tenure start block for the ongoing tenure
+    /// Get the tenure start block for the ongoing tenure.
+    /// The inner value is tenure-start block ID of the ongoing tenure.
     GetTenureStartBlock(StacksBlockId),
-    /// Receiving unconfirmed tenure blocks
+    /// Receiving unconfirmed tenure blocks.
+    /// The inner value is the _last_ block on the ongoing tenure.  The ongoing tenure is fetched
+    /// from highest block to lowest block.
     GetUnconfirmedTenureBlocks(StacksBlockId),
     /// We have gotten all the unconfirmed blocks for this tenure, and we now have the end block
     /// for the highest complete tenure (which can now be obtained via `NakamotoTenureDownloadState`).
@@ -808,7 +820,8 @@ pub(crate) struct NakamotoUnconfirmedTenureDownloader {
     pub confirmed_aggregate_public_key: Option<Point>,
     /// Aggregate public key of the unconfirmed (ongoing) tenure
     pub unconfirmed_aggregate_public_key: Option<Point>,
-    /// Block ID of this node's highest-processed block
+    /// Block ID of this node's highest-processed block.
+    /// We will not download any blocks lower than this, if it's set.
     pub highest_processed_block_id: Option<StacksBlockId>,
     /// Highest processed block height  (which may not need to be loaded)
     pub highest_processed_block_height: Option<u64>,
@@ -970,72 +983,74 @@ impl NakamotoUnconfirmedTenureDownloader {
             }
         }
 
-        if self.state != NakamotoUnconfirmedDownloadState::Done {
-            // we're not finished
-            let tenure_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
-                .expect("FATAL: sortition from before system start");
-            let parent_tenure_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(
-                    sortdb.first_block_height,
-                    parent_tenure_sn.block_height,
-                )
-                .expect("FATAL: sortition from before system start");
-
-            // get aggregate public keys for the unconfirmed tenure and highest-complete tenure sortitions
-            let Some(Some(confirmed_aggregate_public_key)) =
-                agg_pubkeys.get(&parent_tenure_rc).cloned()
-            else {
-                warn!(
-                    "No aggregate public key for confirmed tenure {} (rc {})",
-                    &parent_tenure_sn.consensus_hash, parent_tenure_rc
-                );
-                return Err(NetError::InvalidState);
-            };
-
-            let Some(Some(unconfirmed_aggregate_public_key)) = agg_pubkeys.get(&tenure_rc).cloned()
-            else {
-                warn!(
-                    "No aggregate public key for confirmed tenure {} (rc {})",
-                    &tenure_sn.consensus_hash, tenure_rc
-                );
-                return Err(NetError::InvalidState);
-            };
-
-            if chainstate
-                .nakamoto_blocks_db()
-                .has_nakamoto_block(&tenure_tip.tenure_start_block_id.clone())?
-            {
-                // proceed to get unconfirmed blocks. We already have the tenure-start block.
-                let unconfirmed_tenure_start_block = chainstate
-                    .nakamoto_blocks_db()
-                    .get_nakamoto_block(&tenure_tip.tenure_start_block_id)?
-                    .ok_or(NetError::DBError(DBError::NotFoundError))?
-                    .0;
-                self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
-                self.state = NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
-                    tenure_tip.tip_block_id.clone(),
-                );
-            } else {
-                // get the tenure-start block first
-                self.state = NakamotoUnconfirmedDownloadState::GetTenureStartBlock(
-                    tenure_tip.tenure_start_block_id.clone(),
-                );
-            }
-
-            test_debug!(
-                "Will validate unconfirmed blocks with ({},{}) and ({},{})",
-                &confirmed_aggregate_public_key,
-                parent_tenure_rc,
-                &unconfirmed_aggregate_public_key,
-                tenure_rc
-            );
-            self.confirmed_aggregate_public_key = Some(confirmed_aggregate_public_key);
-            self.unconfirmed_aggregate_public_key = Some(unconfirmed_aggregate_public_key);
+        if self.state == NakamotoUnconfirmedDownloadState::Done {
+            // only need to remember the tenure tip
+            self.tenure_tip = Some(tenure_tip);
+            return Ok(());
         }
+
+        // we're not finished
+        let tenure_rc = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
+            .expect("FATAL: sortition from before system start");
+        let parent_tenure_rc = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, parent_tenure_sn.block_height)
+            .expect("FATAL: sortition from before system start");
+
+        // get aggregate public keys for the unconfirmed tenure and highest-complete tenure sortitions
+        let Some(Some(confirmed_aggregate_public_key)) =
+            agg_pubkeys.get(&parent_tenure_rc).cloned()
+        else {
+            warn!(
+                "No aggregate public key for confirmed tenure {} (rc {})",
+                &parent_tenure_sn.consensus_hash, parent_tenure_rc
+            );
+            return Err(NetError::InvalidState);
+        };
+
+        let Some(Some(unconfirmed_aggregate_public_key)) = agg_pubkeys.get(&tenure_rc).cloned()
+        else {
+            warn!(
+                "No aggregate public key for confirmed tenure {} (rc {})",
+                &tenure_sn.consensus_hash, tenure_rc
+            );
+            return Err(NetError::InvalidState);
+        };
+
+        if chainstate
+            .nakamoto_blocks_db()
+            .has_nakamoto_block(&tenure_tip.tenure_start_block_id.clone())?
+        {
+            // proceed to get unconfirmed blocks. We already have the tenure-start block.
+            let unconfirmed_tenure_start_block = chainstate
+                .nakamoto_blocks_db()
+                .get_nakamoto_block(&tenure_tip.tenure_start_block_id)?
+                .ok_or(NetError::DBError(DBError::NotFoundError))?
+                .0;
+            self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
+            self.state = NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
+                tenure_tip.tip_block_id.clone(),
+            );
+        } else {
+            // get the tenure-start block first
+            self.state = NakamotoUnconfirmedDownloadState::GetTenureStartBlock(
+                tenure_tip.tenure_start_block_id.clone(),
+            );
+        }
+
+        test_debug!(
+            "Will validate unconfirmed blocks with ({},{}) and ({},{})",
+            &confirmed_aggregate_public_key,
+            parent_tenure_rc,
+            &unconfirmed_aggregate_public_key,
+            tenure_rc
+        );
+        self.confirmed_aggregate_public_key = Some(confirmed_aggregate_public_key);
+        self.unconfirmed_aggregate_public_key = Some(unconfirmed_aggregate_public_key);
         self.tenure_tip = Some(tenure_tip);
+
         Ok(())
     }
 
@@ -1062,12 +1077,10 @@ impl NakamotoUnconfirmedTenureDownloader {
         };
 
         // stacker signature has to match the current aggregate public key
-        let schnorr_signature = &unconfirmed_tenure_start_block.header.signer_signature.0;
-        let message = unconfirmed_tenure_start_block
+        if !unconfirmed_tenure_start_block
             .header
-            .signer_signature_hash()
-            .0;
-        if !schnorr_signature.verify(unconfirmed_aggregate_public_key, &message) {
+            .verify_signer(unconfirmed_aggregate_public_key)
+        {
             warn!("Invalid tenure-start block: bad signer signature";
                   "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
                   "tenure_start_block.header.block_id" => %unconfirmed_tenure_start_block.header.block_id(),
@@ -1079,8 +1092,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         // block has to match the expected hash
         if tenure_start_block_id != &unconfirmed_tenure_start_block.header.block_id() {
             warn!("Invalid tenure-start block"; 
-                  "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
                   "tenure_id_start_block" => %tenure_start_block_id,
+                  "unconfirmed_tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
+                  "unconfirmed_tenure_start_block ID" => %unconfirmed_tenure_start_block.header.block_id(),
                   "state" => %self.state);
             return Err(NetError::InvalidMessage);
         }
@@ -1134,7 +1148,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         // blocks must be contiguous and in order from highest to lowest.
         // If there's a tenure-start block, it must be last.
         let mut expected_block_id = last_block_id;
-        let mut at_tenure_start = false;
+        let mut finished_download = false;
         for (cnt, block) in tenure_blocks.iter().enumerate() {
             if &block.header.block_id() != expected_block_id {
                 warn!("Unexpected Nakamoto block -- not part of tenure";
@@ -1142,9 +1156,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                       "block_id" => %block.header.block_id());
                 return Err(NetError::InvalidMessage);
             }
-            let schnorr_signature = &block.header.signer_signature.0;
-            let message = block.header.signer_signature_hash().0;
-            if !schnorr_signature.verify(unconfirmed_aggregate_public_key, &message) {
+            if !block.header.verify_signer(unconfirmed_aggregate_public_key) {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %tenure_tip.consensus_hash,
                       "block.header.block_id" => %block.header.block_id(),
@@ -1182,7 +1194,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                     return Err(NetError::InvalidMessage);
                 }
 
-                at_tenure_start = true;
+                finished_download = true;
                 break;
             }
 
@@ -1191,7 +1203,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             if let Some(highest_processed_block_id) = self.highest_processed_block_id.as_ref() {
                 if expected_block_id == highest_processed_block_id {
                     // got all the blocks we asked for
-                    at_tenure_start = true;
+                    finished_download = true;
                     break;
                 }
             }
@@ -1204,7 +1216,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 if &block.header.chain_length < highest_processed_block_height {
                     // no need to continue this download
                     debug!("Cancelling unconfirmed tenure download to {}: have processed block at height {} already", &self.naddr, highest_processed_block_height);
-                    at_tenure_start = true;
+                    finished_download = true;
                     break;
                 }
             }
@@ -1218,7 +1230,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             self.unconfirmed_tenure_blocks = Some(tenure_blocks);
         }
 
-        if at_tenure_start {
+        if finished_download {
             // we have all of the unconfirmed tenure blocks that were requested.
             // only return those newer than the highest block.
             self.state = NakamotoUnconfirmedDownloadState::Done;
@@ -1926,15 +1938,10 @@ impl NakamotoTenureDownloaderSet {
     /// Determine whether or not there exists a downloader for the given tenure, identified by its
     /// consensus hash.
     pub fn is_tenure_inflight(&self, ch: &ConsensusHash) -> bool {
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            if &downloader.tenure_id_consensus_hash == ch {
-                return true;
-            }
-        }
-        false
+        self.downloaders
+            .iter()
+            .find(|d| d.as_ref().map(|x| &x.tenure_id_consensus_hash) == Some(ch))
+            .is_some()
     }
 
     /// Determine if this downloader set is empty -- i.e. there's no in-flight requests.
@@ -2046,6 +2053,7 @@ impl NakamotoTenureDownloaderSet {
 
     /// Given a set of tenure-start blocks, pass them into downloaders that are waiting for their
     /// tenure-end blocks.
+    /// Return a list of peers driving downloaders with failing `tenure_start_blocks`
     pub(crate) fn handle_tenure_end_blocks(
         &mut self,
         tenure_start_blocks: &HashMap<StacksBlockId, NakamotoBlock>,
@@ -2112,7 +2120,7 @@ impl NakamotoTenureDownloaderSet {
             let Some(downloader) = downloader_opt.as_mut() else {
                 continue;
             };
-            downloader.try_transition_to_fetch_end_block();
+            downloader.transition_to_fetch_end_block_on_timeout();
         }
 
         // find tenures in which we need to fetch the tenure-end block directly.
@@ -2193,7 +2201,7 @@ impl NakamotoTenureDownloaderSet {
                 schedule.pop_front();
                 continue;
             };
-            if neighbors.len() == 0 {
+            if neighbors.is_empty() {
                 // no more neighbors to try
                 test_debug!("No more neighbors can serve tenure {}", ch);
                 schedule.pop_front();
@@ -2501,42 +2509,8 @@ impl NakamotoDownloadStateMachine {
         Ok(wanted_tenures)
     }
 
-    /// Find the list of wanted tenures for the given reward cycle.  The reward cycle must
-    /// be complete already.  Used for testing.
-    ///
-    /// Returns a reward cycle's wanted tenures.
-    /// Returns a DB error if the snapshot does not correspond to a full reward cycle.
-    #[cfg(test)]
-    pub(crate) fn load_wanted_tenures_for_reward_cycle(
-        cur_rc: u64,
-        tip: &BlockSnapshot,
-        sortdb: &SortitionDB,
-    ) -> Result<Vec<WantedTenure>, NetError> {
-        // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
-        // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
-        let first_block_height = sortdb
-            .pox_constants
-            .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc)
-            .saturating_sub(1);
-        let last_block_height = sortdb
-            .pox_constants
-            .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc.saturating_add(1))
-            .saturating_sub(1);
-
-        test_debug!(
-            "Load reward cycle sortitions between {} and {} (rc is {})",
-            first_block_height,
-            last_block_height,
-            cur_rc
-        );
-
-        // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
-    }
-
     /// Update a given list of wanted tenures (`wanted_tenures`), which may already have wanted
-    /// tenures.
+    /// tenures.  Appends new tenures for the given reward cycle (`cur_rc`) to `wanted_tenures`.
     ///
     /// Returns Ok(()) on sucess, and appends new tenures in the given reward cycle (`cur_rc`) to
     /// `wanted_tenures`.
@@ -2608,9 +2582,9 @@ impl NakamotoDownloadStateMachine {
             .unwrap_or(0);
 
         let first_block_height = if let Some(highest_wanted_tenure) = loaded_so_far.last() {
-            highest_wanted_tenure.burn_height + 1
+            highest_wanted_tenure.burn_height.saturating_add(1)
         } else if let Some(last_tip) = last_tip.as_ref() {
-            last_tip.block_height + 1
+            last_tip.block_height.saturating_add(1)
         } else {
             // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
             // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len.
@@ -2855,16 +2829,16 @@ impl NakamotoDownloadStateMachine {
                 }
             }
 
-            prev_wanted_tenures.sort_by(|wt1, wt2| wt1.burn_height.cmp(&wt2.burn_height));
-            cur_wanted_tenures.sort_by(|wt1, wt2| wt1.burn_height.cmp(&wt2.burn_height));
+            prev_wanted_tenures.sort_unstable_by_key(|wt| wt.burn_height);
+            cur_wanted_tenures.sort_unstable_by_key(|wt| wt.burn_height);
 
             test_debug!("prev_wanted_tenures is now {:?}", &prev_wanted_tenures);
             test_debug!("wanted_tenures is now {:?}", &cur_wanted_tenures);
 
-            self.prev_wanted_tenures = if prev_wanted_tenures.len() > 0 {
-                Some(prev_wanted_tenures)
-            } else {
+            self.prev_wanted_tenures = if prev_wanted_tenures.is_empty() {
                 None
+            } else {
+                Some(prev_wanted_tenures)
             };
             self.wanted_tenures = cur_wanted_tenures;
             self.reward_cycle = sort_rc;
@@ -2929,7 +2903,7 @@ impl NakamotoDownloadStateMachine {
             );
             self.prev_wanted_tenures = Some(prev_wanted_tenures);
         }
-        if self.wanted_tenures.len() == 0 {
+        if self.wanted_tenures.is_empty() {
             // this is the first-ever pass, so load up the current reward cycle
             let sort_rc = sortdb
                 .pox_constants
@@ -2967,7 +2941,7 @@ impl NakamotoDownloadStateMachine {
         first_burn_height: u64,
         inventory_iter: impl Iterator<Item = &'a NakamotoTenureInv>,
     ) -> bool {
-        if prev_wanted_tenures.len() == 0 {
+        if prev_wanted_tenures.is_empty() {
             return true;
         }
 
@@ -3005,7 +2979,7 @@ impl NakamotoDownloadStateMachine {
         }
 
         if !has_prev_inv || !has_cur_inv {
-            test_debug!("No peer has an inventory for either the previous ({},{}) or current ({},{}) wanted tenures", prev_wanted_rc, has_prev_inv, cur_wanted_rc, has_cur_inv);
+            debug!("No peer has an inventory for either the previous ({}: available = {}) or current ({}: available = {}) wanted tenures", prev_wanted_rc, has_prev_inv, cur_wanted_rc, has_cur_inv);
             return true;
         }
 
@@ -3032,7 +3006,7 @@ impl NakamotoDownloadStateMachine {
         if (prev_wanted_rc >= first_nakamoto_rc && !has_prev_rc_block)
             || (cur_wanted_rc >= first_nakamoto_rc && !has_cur_rc_block)
         {
-            test_debug!(
+            debug!(
                 "tenure_block_ids stale: missing representation in reward cycles {} ({}) and {} ({})",
                 prev_wanted_rc,
                 has_prev_rc_block,
@@ -3146,8 +3120,8 @@ impl NakamotoDownloadStateMachine {
                     sortdb
                         .pox_constants
                         .block_height_to_reward_cycle(
-                            self.nakamoto_start_height,
                             sortdb.first_block_height,
+                            self.nakamoto_start_height,
                         )
                         .expect("FATAL: nakamoto starts before system start"),
                     &self.tenure_downloads.completed_tenures,
@@ -3188,10 +3162,10 @@ impl NakamotoDownloadStateMachine {
             &new_prev_wanted_tenures
         );
 
-        self.prev_wanted_tenures = if new_prev_wanted_tenures.len() > 0 {
-            Some(new_prev_wanted_tenures)
-        } else {
+        self.prev_wanted_tenures = if new_prev_wanted_tenures.is_empty() {
             None
+        } else {
+            Some(new_prev_wanted_tenures)
         };
         self.wanted_tenures = new_wanted_tenures;
         self.reward_cycle = sort_rc;
@@ -3217,10 +3191,9 @@ impl NakamotoDownloadStateMachine {
         while let Some((naddr, inv)) = inventory_iter.next() {
             let Some(rc_inv) = inv.tenures_inv.get(&reward_cycle) else {
                 // this peer has no inventory data for this reward cycle
-                test_debug!(
+                debug!(
                     "Peer {} has no inventory for reward cycle {}",
-                    naddr,
-                    reward_cycle
+                    naddr, reward_cycle
                 );
                 continue;
             };
@@ -3376,11 +3349,11 @@ impl NakamotoDownloadStateMachine {
             test_debug!("Still have requests to try");
             return;
         }
-        if self.wanted_tenures.len() == 0 {
+        if self.wanted_tenures.is_empty() {
             // nothing to do
             return;
         }
-        if inventories.len() == 0 {
+        if inventories.is_empty() {
             // nothing to do
             test_debug!("No inventories available");
             return;
@@ -3554,12 +3527,12 @@ impl NakamotoDownloadStateMachine {
             return false;
         }
 
-        if wanted_tenures.len() == 0 {
+        if wanted_tenures.is_empty() {
             test_debug!("No wanted tenures");
             return false;
         }
 
-        if prev_wanted_tenures.len() == 0 {
+        if prev_wanted_tenures.is_empty() {
             test_debug!("No prev wanted tenures");
             return false;
         }
@@ -3581,29 +3554,17 @@ impl NakamotoDownloadStateMachine {
         }
 
         // see if we need any tenures still
-        let mut need_tenure = false;
-        for (_naddr, available) in tenure_block_ids.iter() {
-            for wt in wanted_tenures.iter() {
-                if !available.contains_key(&wt.tenure_id_consensus_hash) {
-                    continue;
-                }
-                if completed_tenures.contains(&wt.tenure_id_consensus_hash) {
-                    continue;
-                }
-                if !wt.processed {
-                    test_debug!(
-                        "Still need tenure {} from {}",
-                        &wt.tenure_id_consensus_hash,
-                        _naddr
-                    );
-                    need_tenure = true;
-                    break;
-                }
+        for wt in wanted_tenures.iter() {
+            if completed_tenures.contains(&wt.tenure_id_consensus_hash) {
+                continue;
             }
-        }
+            let is_available = tenure_block_ids
+                .iter()
+                .any(|(_, available)| available.contains_key(&wt.tenure_id_consensus_hash));
 
-        if need_tenure {
-            return false;
+            if is_available && !wt.processed {
+                return false;
+            }
         }
 
         // there are still tenures that have to be processed
@@ -3922,12 +3883,8 @@ impl NakamotoDownloadStateMachine {
             .unwrap_or_else(|| {
                 // unconfirmed tenure is the last tenure in prev_wanted_tenures if
                 // wanted_tenures.len() is 0
-                let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() else {
-                    return None;
-                };
-                let Some(wt) = prev_wanted_tenures.last() else {
-                    return None;
-                };
+                let prev_wanted_tenures = self.prev_wanted_tenures.as_ref()?;
+                let wt = prev_wanted_tenures.last()?;
                 Some(wt.clone())
             })
         else {
@@ -3951,7 +3908,7 @@ impl NakamotoDownloadStateMachine {
         //
         // Case 3: There are two or more sortitions in the current reward cycle, so this is the
         // second-to-last WantedTenure in the current reward cycle's WantedTenure list.
-        let highest_wanted_tenure = if self.wanted_tenures.len() == 0 {
+        let highest_wanted_tenure = if self.wanted_tenures.is_empty() {
             // highest complete wanted tenure is the second-to-last tenure in prev_wanted_tenures
             let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() else {
                 // not initialized yet (technically unrachable)
@@ -4045,9 +4002,7 @@ impl NakamotoDownloadStateMachine {
             .map(|(consensus_hash, block_map)| {
                 let mut block_list: Vec<_> =
                     block_map.into_iter().map(|(_, block)| block).collect();
-                block_list.sort_by(|blk_1, blk_2| {
-                    blk_1.header.chain_length.cmp(&blk_2.header.chain_length)
-                });
+                block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
             .collect()
@@ -4208,7 +4163,7 @@ impl NakamotoDownloadStateMachine {
     /// The blocks will be sorted by height, but may not be contiguous.
     pub fn run(
         &mut self,
-        burnchain_tip: u64,
+        burnchain_height: u64,
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
@@ -4216,7 +4171,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.update_wanted_tenures(&network, sortdb, chainstate)?;
         self.update_processed_tenures(chainstate)?;
-        let new_blocks = self.run_downloads(burnchain_tip, network, sortdb, chainstate, ibd);
+        let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());
         Ok(new_blocks)
     }
@@ -4236,7 +4191,7 @@ impl PeerNetwork {
     /// Drive the block download state machine
     pub fn sync_blocks_nakamoto(
         &mut self,
-        burnchain_tip: u64,
+        burnchain_height: u64,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
@@ -4248,7 +4203,7 @@ impl PeerNetwork {
             return Ok(HashMap::new());
         };
 
-        let new_blocks_res = block_downloader.run(burnchain_tip, self, sortdb, chainstate, ibd);
+        let new_blocks_res = block_downloader.run(burnchain_height, self, sortdb, chainstate, ibd);
         self.block_downloader_nakamoto = Some(block_downloader);
 
         new_blocks_res
@@ -4258,12 +4213,12 @@ impl PeerNetwork {
     /// Drive the state machine, and clear out any dead and banned neighbors
     pub fn do_network_block_sync_nakamoto(
         &mut self,
-        burnchain_tip: u64,
+        burnchain_height: u64,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
-        let res = self.sync_blocks_nakamoto(burnchain_tip, sortdb, chainstate, ibd)?;
+        let res = self.sync_blocks_nakamoto(burnchain_height, sortdb, chainstate, ibd)?;
 
         let Some(mut block_downloader) = self.block_downloader_nakamoto.take() else {
             return Ok(res);

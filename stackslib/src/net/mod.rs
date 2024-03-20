@@ -1626,7 +1626,6 @@ impl NetworkResult {
         self.stacker_db_sync_results.append(&mut msgs);
     }
 
-    // TODO: dedup and clean up
     pub fn consume_nakamoto_blocks(&mut self, blocks: HashMap<ConsensusHash, Vec<NakamotoBlock>>) {
         for (_ch, blocks) in blocks.into_iter() {
             for block in blocks.into_iter() {
@@ -3511,6 +3510,7 @@ pub mod test {
                 );
             }
 
+            self.refresh_burnchain_view();
             tip_id
         }
 

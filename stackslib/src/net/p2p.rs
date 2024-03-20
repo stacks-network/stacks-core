@@ -224,21 +224,24 @@ pub struct PeerNetwork {
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
 
-    // Current Stacks tip -- the highest block's consensus hash, block hash, and height
+    /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
     pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
-    // Sortition that corresponds to the current Stacks tip, if known
+    /// Sortition that corresponds to the current Stacks tip, if known
     pub stacks_tip_sn: Option<BlockSnapshot>,
-    // Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
-    // In epoch 2.x, this is the parent block.
-    // In nakamoto, this is the last block in the parent tenure
+    /// Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
+    /// In epoch 2.x, this is the parent block.
+    /// In nakamoto, this is the last block in the parent tenure
     pub parent_stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
-    // The block id of the first block in this tenure.
-    // In epoch 2.x, this is the same as the tip block ID
-    // In nakamoto, this is the block ID of the first block in the current tenure
+    /// The block id of the first block in this tenure.
+    /// In epoch 2.x, this is the same as the tip block ID
+    /// In nakamoto, this is the block ID of the first block in the current tenure
     pub tenure_start_block_id: StacksBlockId,
-    // The aggregate public keys of each witnessed reward cycle.
-    // Only active during epoch 3.x and beyond.
-    // Gets refreshed on each new Stacks block arrival, which deals with burnchain forks.
+    /// The aggregate public keys of each witnessed reward cycle.
+    /// Only active during epoch 3.x and beyond.
+    /// Gets refreshed on each new Stacks block arrival, which deals with burnchain forks.
+    /// Stored in a BTreeMap because we often need to query the last or second-to-last reward cycle
+    /// aggregate public key, and we need to determine whether or not to load new reward cycles'
+    /// keys.
     pub aggregate_public_keys: BTreeMap<u64, Option<Point>>,
 
     // information about the state of the network's anchor blocks
@@ -3918,7 +3921,7 @@ impl PeerNetwork {
     /// This will call the epoch-appropriate network worker
     fn do_network_work(
         &mut self,
-        burnchain_tip: u64,
+        burnchain_height: u64,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3932,7 +3935,7 @@ impl PeerNetwork {
 
             // in Nakamoto epoch, so do Nakamoto things
             let prune = self.do_network_work_nakamoto(
-                burnchain_tip,
+                burnchain_height,
                 sortdb,
                 chainstate,
                 ibd,
@@ -3988,7 +3991,7 @@ impl PeerNetwork {
     /// TODO: put this into a separate file for nakamoto p2p code paths
     fn do_network_work_nakamoto(
         &mut self,
-        burnchain_tip: u64,
+        burnchain_height: u64,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
@@ -4010,7 +4013,7 @@ impl PeerNetwork {
 
             // always do block download
             let new_blocks = self
-                .do_network_block_sync_nakamoto(burnchain_tip, sortdb, chainstate, ibd)
+                .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
                 .map_err(|e| {
                     warn!(
                         "{:?}: Failed to perform Nakamoto block sync: {:?}",
@@ -5380,35 +5383,37 @@ impl PeerNetwork {
             .burnchain
             .block_height_to_reward_cycle(tip_sn.block_height)
             .expect("FATAL: sortition from before system start");
-        let highest_agg_pubkey_rc = self
+        let next_agg_pubkey_rc = self
             .aggregate_public_keys
             .last_key_value()
-            .map(|(rc, _)| *rc)
+            .map(|(rc, _)| rc.saturating_add(1))
             .unwrap_or(0);
-        let mut new_agg_pubkeys = vec![];
-        for key_rc in (highest_agg_pubkey_rc + 1)..=sort_tip_rc {
-            let ih = sortdb.index_handle(&tip_sn.sortition_id);
-            let agg_pubkey_opt = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
-                None
-            } else {
-                test_debug!(
-                    "Try to get aggregate public key for reward cycle {}",
-                    key_rc
-                );
-                NakamotoChainState::load_aggregate_public_key(
-                    sortdb,
-                    &ih,
-                    chainstate,
-                    self.burnchain.reward_cycle_to_block_height(key_rc),
-                    &stacks_tip_block_id,
-                )
-                .ok()
-            };
-            let Some(agg_pubkey) = agg_pubkey_opt else {
-                continue;
-            };
-            new_agg_pubkeys.push((key_rc, Some(agg_pubkey)));
-        }
+        let new_agg_pubkeys = (next_agg_pubkey_rc..=sort_tip_rc)
+            .filter_map(|key_rc| {
+                let ih = sortdb.index_handle(&tip_sn.sortition_id);
+                let agg_pubkey_opt = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
+                    None
+                } else {
+                    test_debug!(
+                        "Try to get aggregate public key for reward cycle {}",
+                        key_rc
+                    );
+                    NakamotoChainState::load_aggregate_public_key(
+                        sortdb,
+                        &ih,
+                        chainstate,
+                        self.burnchain.reward_cycle_to_block_height(key_rc),
+                        &stacks_tip_block_id,
+                    )
+                    .ok()
+                };
+                if agg_pubkey_opt.is_none() {
+                    return None;
+                }
+                Some((key_rc, agg_pubkey_opt))
+            })
+            .collect();
+
         Ok(new_agg_pubkeys)
     }
 
@@ -5445,20 +5450,15 @@ impl PeerNetwork {
             self.find_new_aggregate_public_keys(sortdb, &sn, chainstate, &new_stacks_tip_block_id)?;
         let (parent_stacks_tip, tenure_start_block_id, stacks_tip_sn) = if stacks_tip_changed {
             let sn_opt = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
-            let tenure_start_block_id =
-                // NOTE: .saturating_sub(1) is needed because the first epoch 3.0 tenure starts on
-                // an epoch 2.5 block (which is the tenure-start block ID for that specific tenure)
-                if self.get_epoch_at_burn_height(sn.block_height.saturating_sub(1)).epoch_id < StacksEpochId::Epoch30 {
-                    new_stacks_tip_block_id.clone()
-                } else {
-                    let block_id = NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                        chainstate.db(),
-                        &stacks_tip.0,
-                    )?
-                    .map(|hdr| hdr.index_block_hash())
-                    .unwrap_or(new_stacks_tip_block_id.clone());
-                    block_id
-                };
+            let tenure_start_block_id = if let Some(header) =
+                NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                    chainstate.db(),
+                    &stacks_tip.0,
+                )? {
+                header.index_block_hash()
+            } else {
+                new_stacks_tip_block_id.clone()
+            };
             let parent_tip_id = match Self::get_parent_stacks_tip(
                 self.get_current_epoch().epoch_id,
                 chainstate,
@@ -5915,47 +5915,61 @@ impl PeerNetwork {
         sort_tip: &BlockSnapshot,
         sortdb: &SortitionDB,
     ) -> bool {
-        let reorg = if let Some(last_sort_tip) = last_sort_tip {
-            if last_sort_tip.block_height == sort_tip.block_height
-                && last_sort_tip.consensus_hash != sort_tip.consensus_hash
-            {
-                debug!(
-                    "Reorg detected at burn height {}: {} != {}",
-                    sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
-                );
-                true
-            } else if last_sort_tip.block_height != sort_tip.block_height {
-                // last_sort_tip must be an ancestor
-                let ih = sortdb.index_handle(&sort_tip.sortition_id);
-                if let Ok(Some(ancestor_sn)) =
-                    ih.get_block_snapshot_by_height(last_sort_tip.block_height)
-                {
-                    if ancestor_sn.consensus_hash != last_sort_tip.consensus_hash {
-                        info!(
-                            "Reorg detected at burn block {}: ancestor tip at {}: {} != {}",
-                            sort_tip.block_height,
-                            last_sort_tip.block_height,
-                            &ancestor_sn.consensus_hash,
-                            &last_sort_tip.consensus_hash
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    info!(
-                        "Reorg detected: no ancestor of burn block {} ({}) found",
-                        sort_tip.block_height, &sort_tip.consensus_hash
-                    );
-                    true
-                }
-            } else {
-                false
-            }
-        } else {
-            false
+        let Some(last_sort_tip) = last_sort_tip else {
+            // no prior tip, so no reorg to handle
+            return false;
         };
-        reorg
+
+        if last_sort_tip.block_height == sort_tip.block_height
+            && last_sort_tip.consensus_hash == sort_tip.consensus_hash
+        {
+            // prior tip and current tip are the same, so no reorg
+            return false;
+        }
+
+        if last_sort_tip.block_height == sort_tip.block_height
+            && last_sort_tip.consensus_hash != sort_tip.consensus_hash
+        {
+            // current and previous sortition tips are at the same height, but represent different
+            // blocks.
+            debug!(
+                "Reorg detected at burn height {}: {} != {}",
+                sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
+            );
+            return true;
+        }
+
+        // It will never be the case that the last and current tip have different heights, but the
+        // smae consensus hash.  If they have the same height, then we would have already returned
+        // since we've handled both the == and != cases for their consensus hashes.  So if we reach
+        // this point, the heights and consensus hashes are not equal.  We only need to check that
+        // last_sort_tip is an ancestor of sort_tip
+
+        let ih = sortdb.index_handle(&sort_tip.sortition_id);
+        let Ok(Some(ancestor_sn)) = ih.get_block_snapshot_by_height(last_sort_tip.block_height)
+        else {
+            // no such ancestor, so it's a reorg
+            info!(
+                "Reorg detected: no ancestor of burn block {} ({}) found",
+                sort_tip.block_height, &sort_tip.consensus_hash
+            );
+            return true;
+        };
+
+        if ancestor_sn.consensus_hash != last_sort_tip.consensus_hash {
+            // ancestor doesn't have the expected consensus hash
+            info!(
+                "Reorg detected at burn block {}: ancestor tip at {}: {} != {}",
+                sort_tip.block_height,
+                last_sort_tip.block_height,
+                &ancestor_sn.consensus_hash,
+                &last_sort_tip.consensus_hash
+            );
+            return true;
+        }
+
+        // ancestor has expected consensus hash, so no rerog
+        false
     }
 
     /// Top-level main-loop circuit to take.

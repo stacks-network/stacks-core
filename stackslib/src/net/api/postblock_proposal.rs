@@ -210,8 +210,13 @@ impl NakamotoBlockProposal {
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn_opt =
-            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)
-                .ok();
+            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+        if expected_burn_opt.is_none() {
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::UnknownParent,
+                reason: "Failed to find parent expected burns".into(),
+            });
+        };
 
         // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(

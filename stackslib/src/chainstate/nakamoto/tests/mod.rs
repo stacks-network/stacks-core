@@ -24,7 +24,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use rand::{thread_rng, RngCore};
-use rusqlite::Connection;
+use rusqlite::{Connection, ToSql};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -60,11 +60,13 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::staging_blocks::NakamotoStagingBlocksConnRef;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle, FIRST_STACKS_BLOCK_ID,
+    query_rows, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
+    FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -75,10 +77,10 @@ use crate::chainstate::stacks::db::{
     StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
-    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, ThresholdSignature,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
@@ -86,6 +88,24 @@ use crate::net::codec::test::check_codec_and_corruption;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
+
+impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    #[cfg(test)]
+    pub fn get_all_blocks_in_tenure(
+        &self,
+        tenure_id_consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
+        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
+        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
+        let mut blocks = Vec::with_capacity(block_data.len());
+        for data in block_data.into_iter() {
+            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+            blocks.push(block);
+        }
+        Ok(blocks)
+    }
+}
 
 /// Get an address's account
 pub fn get_account(

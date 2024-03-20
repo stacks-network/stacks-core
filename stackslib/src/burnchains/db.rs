@@ -37,7 +37,7 @@ use crate::util_lib::db::{
 };
 
 pub struct BurnchainDB {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 pub struct BurnchainDBTransaction<'a> {
@@ -140,7 +140,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
 /// Apply safety checks on extracted blockstack transactions
 /// - put them in order by vtxindex
 /// - make sure there are no vtxindex duplicates
-fn apply_blockstack_txs_safety_checks(
+pub(crate) fn apply_blockstack_txs_safety_checks(
     block_height: u64,
     blockstack_txs: &mut Vec<BlockstackOperationType>,
 ) -> () {
@@ -309,7 +309,7 @@ const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
 impl<'a> BurnchainDBTransaction<'a> {
     /// Store a burnchain block header into the burnchain database.
     /// Returns the row ID on success.
-    fn store_burnchain_db_entry(
+    pub(crate) fn store_burnchain_db_entry(
         &self,
         header: &BurnchainBlockHeader,
     ) -> Result<i64, BurnchainError> {
@@ -879,7 +879,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         Ok(())
     }
 
-    fn store_blockstack_ops<B: BurnchainHeaderReader>(
+    pub(crate) fn store_blockstack_ops<B: BurnchainHeaderReader>(
         &self,
         burnchain: &Burnchain,
         indexer: &B,
@@ -1099,13 +1099,6 @@ impl BurnchainDB {
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         BurnchainDB::inner_get_canonical_chain_tip(&self.conn)
-    }
-
-    #[cfg(test)]
-    pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
-        let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
-        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
-        opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
     pub fn has_burnchain_block_at_height(
@@ -1398,20 +1391,6 @@ impl BurnchainDB {
         Ok(())
     }
 
-    /// Get back all of the parsed burnchain operations for a given block.
-    /// Used in testing to replay burnchain data.
-    #[cfg(test)]
-    pub fn get_burnchain_block_ops(
-        &self,
-        block_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
-        let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
-        let args: &[&dyn ToSql] = &[block_hash];
-        let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
-        ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
-        Ok(ops)
-    }
-
     pub fn store_new_burnchain_block<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,
@@ -1428,34 +1407,6 @@ impl BurnchainDB {
 
         self.store_new_burnchain_block_ops_unchecked(burnchain, indexer, &header, &blockstack_ops)?;
         Ok(blockstack_ops)
-    }
-
-    #[cfg(test)]
-    pub fn raw_store_burnchain_block<B: BurnchainHeaderReader>(
-        &mut self,
-        burnchain: &Burnchain,
-        indexer: &B,
-        header: BurnchainBlockHeader,
-        mut blockstack_ops: Vec<BlockstackOperationType>,
-    ) -> Result<(), BurnchainError> {
-        apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
-
-        let db_tx = self.tx_begin()?;
-
-        test_debug!(
-            "Store raw block {},{} (parent {}) with {} ops",
-            &header.block_hash,
-            header.block_height,
-            &header.parent_block_hash,
-            blockstack_ops.len()
-        );
-
-        db_tx.store_burnchain_db_entry(&header)?;
-        db_tx.store_blockstack_ops(burnchain, indexer, &header, &blockstack_ops)?;
-
-        db_tx.commit()?;
-
-        Ok(())
     }
 
     pub fn get_block_commit(
