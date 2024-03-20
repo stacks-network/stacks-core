@@ -169,7 +169,7 @@ impl StackerDB {
                             warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected {}. Retrying...", slot_version, slot_metadata.slot_version);
                             slot_version = slot_metadata.slot_version;
                         } else {
-                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unkown version number. Incrementing and retrying...", slot_version);
+                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unknown version number. Incrementing and retrying...", slot_version);
                         }
                         if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
                             // NOTE: per the above, this is always executed

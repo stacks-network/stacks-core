@@ -151,6 +151,7 @@ impl StackerDBErrorCodes {
         match code {
             0 => Some(Self::DataAlreadyExists),
             1 => Some(Self::NoSuchSlot),
+            2 => Some(Self::BadSigner),
             _ => None,
         }
     }
@@ -228,28 +229,17 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let (reason, slot_metadata_opt, err_code) =
-                        if let Some(slot_metadata) = slot_metadata_opt {
-                            let code = if let NetError::BadSlotSigner(..) = e {
-                                StackerDBErrorCodes::BadSigner
-                            } else {
-                                StackerDBErrorCodes::DataAlreadyExists
-                            };
-
-                            (
-                                serde_json::to_string(&code.clone().into_json())
-                                    .unwrap_or("(unable to encode JSON)".to_string()),
-                                Some(slot_metadata),
-                                code,
-                            )
+                    let err_code = if slot_metadata_opt.is_some() {
+                        if let NetError::BadSlotSigner(..) = e {
+                            StackerDBErrorCodes::BadSigner
                         } else {
-                            (
-                                serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
-                                    .unwrap_or("(unable to encode JSON)".to_string()),
-                                None,
-                                StackerDBErrorCodes::DataAlreadyExists,
-                            )
-                        };
+                            StackerDBErrorCodes::DataAlreadyExists
+                        }
+                    } else {
+                        StackerDBErrorCodes::NoSuchSlot
+                    };
+                    let reason = serde_json::to_string(&err_code.clone().into_json())
+                        .unwrap_or("(unable to encode JSON)".to_string());
 
                     let ack = StackerDBChunkAckData {
                         accepted: false,

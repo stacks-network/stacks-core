@@ -202,7 +202,8 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let curr_reward_cycle = self.get_current_reward_cycle();
         let next_reward_cycle = curr_reward_cycle.saturating_add(1);
         let next_reward_cycle_height = self
@@ -221,15 +222,14 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let reward_cycle_height = self
             .running_nodes
             .btc_regtest_controller
             .get_burnchain()
             .reward_cycle_to_block_height(reward_cycle);
-        reward_cycle_height
-            .saturating_sub(current_block_height)
-            .saturating_sub(1)
+        reward_cycle_height.saturating_sub(current_block_height)
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -245,23 +245,26 @@ impl SignerTest {
             .running_nodes
             .btc_regtest_controller
             .get_headers_height()
+            .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
             .saturating_add(nmb_blocks_to_mine_to_dkg);
+        let mut point = None;
         info!("Mining {nmb_blocks_to_mine_to_dkg} Nakamoto block(s) to reach DKG calculation at block height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
             info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine_to_dkg}");
             self.mine_nakamoto_block(timeout);
             let hash = self.wait_for_validate_ok_response(timeout);
-            let signatures = self.wait_for_frost_signatures(timeout);
+            let (signatures, points) = if i != nmb_blocks_to_mine_to_dkg {
+                (self.wait_for_frost_signatures(timeout), vec![])
+            } else {
+                self.wait_for_dkg_and_frost_signatures(timeout)
+            };
             // Verify the signers accepted the proposed block and are using the new DKG to sign it
             for signature in &signatures {
                 assert!(signature.verify(&set_dkg, hash.0.as_slice()));
             }
+            point = points.last().copied();
         }
-        if nmb_blocks_to_mine_to_dkg == 0 {
-            None
-        } else {
-            Some(self.wait_for_dkg(timeout))
-        }
+        point
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -292,7 +295,13 @@ impl SignerTest {
                 )
             }
             if total_nmb_blocks_to_mine >= nmb_blocks_to_reward_cycle {
-                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary.");
+                let end_block_height = self
+                    .running_nodes
+                    .btc_regtest_controller
+                    .get_headers_height()
+                    .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
+                    .saturating_add(nmb_blocks_to_reward_cycle);
+                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary at {end_block_height}.");
                 for i in 1..=nmb_blocks_to_reward_cycle {
                     debug!("Mining Nakamoto block #{i} of {nmb_blocks_to_reward_cycle}");
                     let curr_reward_cycle = self.get_current_reward_cycle();
@@ -314,7 +323,8 @@ impl SignerTest {
                 blocks_to_dkg = self.nmb_blocks_to_reward_set_calculation();
             }
         }
-        for _ in 1..=total_nmb_blocks_to_mine {
+        for i in 1..=total_nmb_blocks_to_mine {
+            info!("Mining Nakamoto block #{i} of {total_nmb_blocks_to_mine} to reach {burnchain_height}");
             let curr_reward_cycle = self.get_current_reward_cycle();
             let set_dkg = self
                 .stacks_client
@@ -419,6 +429,61 @@ impl SignerTest {
         }
         debug!("Finished waiting for DKG!");
         key
+    }
+
+    fn wait_for_dkg_and_frost_signatures(
+        &mut self,
+        timeout: Duration,
+    ) -> (Vec<Signature>, Vec<Point>) {
+        debug!("Waiting for DKG and frost signatures...");
+        let mut sigs = Vec::new();
+        let mut keys = Vec::new();
+        let sign_now = Instant::now();
+        for recv in self.result_receivers.iter() {
+            let mut frost_signature = None;
+            let mut aggregate_public_key = None;
+            loop {
+                let results = recv
+                    .recv_timeout(timeout)
+                    .expect("failed to recv dkg and signature results");
+                for result in results {
+                    match result {
+                        OperationResult::Sign(sig) => {
+                            info!("Received Signature ({},{})", &sig.R, &sig.z);
+                            frost_signature = Some(sig);
+                        }
+                        OperationResult::SignTaproot(proof) => {
+                            panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                        }
+                        OperationResult::DkgError(dkg_error) => {
+                            panic!("Received DkgError {:?}", dkg_error);
+                        }
+                        OperationResult::SignError(sign_error) => {
+                            panic!("Received SignError {}", sign_error);
+                        }
+                        OperationResult::Dkg(point) => {
+                            info!("Received aggregate_group_key {point}");
+                            aggregate_public_key = Some(point);
+                        }
+                    }
+                }
+                if (frost_signature.is_some() && aggregate_public_key.is_some())
+                    || sign_now.elapsed() > timeout
+                {
+                    break;
+                }
+            }
+
+            let frost_signature = frost_signature
+                .expect(&format!("Failed to get frost signature within {timeout:?}"));
+            let key = aggregate_public_key.expect(&format!(
+                "Failed to get aggregate public key within {timeout:?}"
+            ));
+            sigs.push(frost_signature);
+            keys.push(key);
+        }
+        debug!("Finished waiting for DKG and frost signatures!");
+        (sigs, keys)
     }
 
     fn wait_for_frost_signatures(&mut self, timeout: Duration) -> Vec<Signature> {
@@ -804,7 +869,11 @@ fn setup_stx_btc_node(
 
         naka_conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
-            events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+            events_keys: vec![
+                EventKeyType::StackerDBChunks,
+                EventKeyType::BlockProposal,
+                EventKeyType::BurnchainBlocks,
+            ],
         });
     }
 
