@@ -23,7 +23,6 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
-use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -48,9 +47,6 @@ pub enum ClientError {
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
-    /// Failed to write to stacker-db due to RPC error
-    #[error("Failed to write to stacker-db instance: {0}")]
-    PutChunkFailed(#[from] RPCError),
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
@@ -72,33 +68,18 @@ pub enum ClientError {
     /// Failed to parse a Clarity value
     #[error("Received a malformed clarity value: {0}")]
     MalformedClarityValue(String),
-    /// Invalid Clarity Name
-    #[error("Invalid Clarity Name: {0}")]
-    InvalidClarityName(String),
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
     /// Not connected
     #[error("Not connected")]
     NotConnected,
-    /// Invalid signing key
-    #[error("Signing key not represented in the list of signers")]
-    InvalidSigningKey,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
     ClarityError(#[from] ClarityError),
-    /// Our stacks address does not belong to a registered signer
-    #[error("Our stacks address does not belong to a registered signer")]
-    NotRegistered,
-    /// Reward set not yet calculated for the given reward cycle
-    #[error("Reward set not yet calculated for reward cycle: {0}")]
-    RewardSetNotYetCalculated(u64),
     /// Malformed reward set
     #[error("Malformed contract data: {0}")]
     MalformedContractData(String),
-    /// No reward set exists for the given reward cycle
-    #[error("No reward set exists for reward cycle {0}")]
-    NoRewardSet(u64),
     /// Stacks node does not support a feature we need
     #[error("Stacks node does not support a required feature: {0}")]
     UnsupportedStacksFeature(String),

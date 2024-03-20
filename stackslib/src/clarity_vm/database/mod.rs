@@ -728,11 +728,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
@@ -764,7 +764,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }

@@ -202,7 +202,8 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let curr_reward_cycle = self.get_current_reward_cycle();
         let next_reward_cycle = curr_reward_cycle.saturating_add(1);
         let next_reward_cycle_height = self
@@ -221,15 +222,14 @@ impl SignerTest {
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
+            .get_headers_height()
+            .saturating_sub(1); // Must subtract 1 since get_headers_height returns current block height + 1
         let reward_cycle_height = self
             .running_nodes
             .btc_regtest_controller
             .get_burnchain()
             .reward_cycle_to_block_height(reward_cycle);
-        reward_cycle_height
-            .saturating_sub(current_block_height)
-            .saturating_sub(1)
+        reward_cycle_height.saturating_sub(current_block_height)
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -245,23 +245,26 @@ impl SignerTest {
             .running_nodes
             .btc_regtest_controller
             .get_headers_height()
+            .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
             .saturating_add(nmb_blocks_to_mine_to_dkg);
+        let mut point = None;
         info!("Mining {nmb_blocks_to_mine_to_dkg} Nakamoto block(s) to reach DKG calculation at block height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
             info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine_to_dkg}");
             self.mine_nakamoto_block(timeout);
             let hash = self.wait_for_validate_ok_response(timeout);
-            let signatures = self.wait_for_frost_signatures(timeout);
+            let (signatures, points) = if i != nmb_blocks_to_mine_to_dkg {
+                (self.wait_for_frost_signatures(timeout), vec![])
+            } else {
+                self.wait_for_dkg_and_frost_signatures(timeout)
+            };
             // Verify the signers accepted the proposed block and are using the new DKG to sign it
             for signature in &signatures {
                 assert!(signature.verify(&set_dkg, hash.0.as_slice()));
             }
+            point = points.last().copied();
         }
-        if nmb_blocks_to_mine_to_dkg == 0 {
-            None
-        } else {
-            Some(self.wait_for_dkg(timeout))
-        }
+        point
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -292,7 +295,13 @@ impl SignerTest {
                 )
             }
             if total_nmb_blocks_to_mine >= nmb_blocks_to_reward_cycle {
-                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary.");
+                let end_block_height = self
+                    .running_nodes
+                    .btc_regtest_controller
+                    .get_headers_height()
+                    .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
+                    .saturating_add(nmb_blocks_to_reward_cycle);
+                debug!("Mining {nmb_blocks_to_reward_cycle} Nakamoto block(s) to reach the next reward cycle boundary at {end_block_height}.");
                 for i in 1..=nmb_blocks_to_reward_cycle {
                     debug!("Mining Nakamoto block #{i} of {nmb_blocks_to_reward_cycle}");
                     let curr_reward_cycle = self.get_current_reward_cycle();
@@ -314,7 +323,8 @@ impl SignerTest {
                 blocks_to_dkg = self.nmb_blocks_to_reward_set_calculation();
             }
         }
-        for _ in 1..=total_nmb_blocks_to_mine {
+        for i in 1..=total_nmb_blocks_to_mine {
+            info!("Mining Nakamoto block #{i} of {total_nmb_blocks_to_mine} to reach {burnchain_height}");
             let curr_reward_cycle = self.get_current_reward_cycle();
             let set_dkg = self
                 .stacks_client
@@ -421,6 +431,61 @@ impl SignerTest {
         key
     }
 
+    fn wait_for_dkg_and_frost_signatures(
+        &mut self,
+        timeout: Duration,
+    ) -> (Vec<Signature>, Vec<Point>) {
+        debug!("Waiting for DKG and frost signatures...");
+        let mut sigs = Vec::new();
+        let mut keys = Vec::new();
+        let sign_now = Instant::now();
+        for recv in self.result_receivers.iter() {
+            let mut frost_signature = None;
+            let mut aggregate_public_key = None;
+            loop {
+                let results = recv
+                    .recv_timeout(timeout)
+                    .expect("failed to recv dkg and signature results");
+                for result in results {
+                    match result {
+                        OperationResult::Sign(sig) => {
+                            info!("Received Signature ({},{})", &sig.R, &sig.z);
+                            frost_signature = Some(sig);
+                        }
+                        OperationResult::SignTaproot(proof) => {
+                            panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                        }
+                        OperationResult::DkgError(dkg_error) => {
+                            panic!("Received DkgError {:?}", dkg_error);
+                        }
+                        OperationResult::SignError(sign_error) => {
+                            panic!("Received SignError {}", sign_error);
+                        }
+                        OperationResult::Dkg(point) => {
+                            info!("Received aggregate_group_key {point}");
+                            aggregate_public_key = Some(point);
+                        }
+                    }
+                }
+                if (frost_signature.is_some() && aggregate_public_key.is_some())
+                    || sign_now.elapsed() > timeout
+                {
+                    break;
+                }
+            }
+
+            let frost_signature = frost_signature
+                .expect(&format!("Failed to get frost signature within {timeout:?}"));
+            let key = aggregate_public_key.expect(&format!(
+                "Failed to get aggregate public key within {timeout:?}"
+            ));
+            sigs.push(frost_signature);
+            keys.push(key);
+        }
+        debug!("Finished waiting for DKG and frost signatures!");
+        (sigs, keys)
+    }
+
     fn wait_for_frost_signatures(&mut self, timeout: Duration) -> Vec<Signature> {
         debug!("Waiting for frost signatures...");
         let mut results = Vec::new();
@@ -447,7 +512,9 @@ impl SignerTest {
                             panic!("Received SignError {}", sign_error);
                         }
                         OperationResult::Dkg(point) => {
-                            panic!("Received aggregate_group_key {point}");
+                            // should not panic, because DKG may have just run for the
+                            //   next reward cycle.
+                            info!("Received aggregate_group_key {point}");
                         }
                     }
                 }
@@ -802,7 +869,11 @@ fn setup_stx_btc_node(
 
         naka_conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
-            events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+            events_keys: vec![
+                EventKeyType::StackerDBChunks,
+                EventKeyType::BlockProposal,
+                EventKeyType::BurnchainBlocks,
+            ],
         });
     }
 
@@ -963,8 +1034,8 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Setup -------------------------");
 
-    info!("Creating an invalid block to sign...");
-    let header = NakamotoBlockHeader {
+    info!("Creating invalid blocks to sign...");
+    let header1 = NakamotoBlockHeader {
         version: 1,
         chain_length: 2,
         burn_spent: 3,
@@ -976,12 +1047,12 @@ fn stackerdb_sign() {
         signer_signature: ThresholdSignature::empty(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
-    let mut block = NakamotoBlock {
-        header,
+    let mut block1 = NakamotoBlock {
+        header: header1,
         txs: vec![],
     };
-    let tx_merkle_root = {
-        let txid_vecs = block
+    let tx_merkle_root1 = {
+        let txid_vecs = block1
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -989,14 +1060,46 @@ fn stackerdb_sign() {
 
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
-    block.header.tx_merkle_root = tx_merkle_root;
+    block1.header.tx_merkle_root = tx_merkle_root1;
+
+    let header2 = NakamotoBlockHeader {
+        version: 1,
+        chain_length: 3,
+        burn_spent: 4,
+        consensus_hash: ConsensusHash([0x05; 20]),
+        parent_block_id: StacksBlockId([0x06; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
+        state_index_root: TrieHash([0x08; 32]),
+        miner_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1).unwrap(),
+    };
+    let mut block2 = NakamotoBlock {
+        header: header2,
+        txs: vec![],
+    };
+    let tx_merkle_root2 = {
+        let txid_vecs = block2
+            .txs
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+    };
+    block2.header.tx_merkle_root = tx_merkle_root2;
 
     // The block is invalid so the signers should return a signature across a rejection
-    let block_vote = NakamotoBlockVote {
-        signer_signature_hash: block.header.signer_signature_hash(),
+    let block1_vote = NakamotoBlockVote {
+        signer_signature_hash: block1.header.signer_signature_hash(),
         rejected: true,
     };
-    let msg = block_vote.serialize_to_vec();
+    let msg1 = block1_vote.serialize_to_vec();
+    let block2_vote = NakamotoBlockVote {
+        signer_signature_hash: block2.header.signer_signature_hash(),
+        rejected: true,
+    };
+    let msg2 = block2_vote.serialize_to_vec();
 
     let timeout = Duration::from_secs(200);
     let mut signer_test = SignerTest::new(10);
@@ -1010,7 +1113,7 @@ fn stackerdb_sign() {
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block.clone(),
+            block: block1,
             is_taproot: false,
             merkle_root: None,
         },
@@ -1018,7 +1121,7 @@ fn stackerdb_sign() {
     let sign_taproot_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block.clone(),
+            block: block2,
             is_taproot: true,
             merkle_root: None,
         },
@@ -1035,12 +1138,12 @@ fn stackerdb_sign() {
     let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
 
     for frost_signature in frost_signatures {
-        assert!(frost_signature.verify(&key, &msg));
+        assert!(frost_signature.verify(&key, &msg1));
     }
     for schnorr_proof in schnorr_proofs {
         let tweaked_key = tweaked_public_key(&key, None);
         assert!(
-            schnorr_proof.verify(&tweaked_key.x(), &msg),
+            schnorr_proof.verify(&tweaked_key.x(), &msg2),
             "Schnorr proof verification failed"
         );
     }

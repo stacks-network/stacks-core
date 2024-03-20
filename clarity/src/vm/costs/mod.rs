@@ -991,7 +991,7 @@ fn compute_cost(
         )));
     }
 
-    let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
+    let function_invocation = [SymbolicExpression::list(program)];
 
     let eval_result = eval_all(
         &function_invocation,

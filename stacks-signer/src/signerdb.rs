@@ -18,6 +18,8 @@ use std::path::Path;
 
 use blockstack_lib::util_lib::db::{query_row, sqlite_open, table_exists, Error as DBError};
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use slog::slog_debug;
+use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::signer::BlockInfo;
@@ -32,8 +34,10 @@ pub struct SignerDb {
 
 const CREATE_BLOCKS_TABLE: &'static str = "
 CREATE TABLE IF NOT EXISTS blocks (
-    signer_signature_hash TEXT PRIMARY KEY,
-    block_info TEXT NOT NULL
+    reward_cycle INTEGER NOT NULL,
+    signer_signature_hash TEXT NOT NULL,
+    block_info TEXT NOT NULL,
+    PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
 impl SignerDb {
@@ -68,11 +72,15 @@ impl SignerDb {
 
     /// Fetch a block from the database using the block's
     /// `signer_signature_hash`
-    pub fn block_lookup(&self, hash: &Sha512Trunc256Sum) -> Result<Option<BlockInfo>, DBError> {
+    pub fn block_lookup(
+        &self,
+        reward_cycle: u64,
+        hash: &Sha512Trunc256Sum,
+    ) -> Result<Option<BlockInfo>, DBError> {
         let result: Option<String> = query_row(
             &self.db,
-            "SELECT block_info FROM blocks WHERE signer_signature_hash = ?",
-            &[format!("{}", hash)],
+            "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
+            &[&reward_cycle.to_string(), &format!("{}", hash)],
         )?;
         if let Some(block_info) = result {
             let block_info: BlockInfo =
@@ -85,14 +93,30 @@ impl SignerDb {
 
     /// Insert a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
-    pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
+    pub fn insert_block(
+        &mut self,
+        reward_cycle: u64,
+        block_info: &BlockInfo,
+    ) -> Result<(), DBError> {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
+        let block_id = &block_info.block.block_id();
+        let signed_over = &block_info.signed_over;
+        debug!(
+            "Inserting block_info: reward_cycle = {reward_cycle}, sighash = {hash}, block_id = {block_id}, signed = {signed_over} vote = {:?}",
+            block_info.vote.as_ref().map(|v| {
+                if v.rejected {
+                    "REJECT"
+                } else {
+                    "ACCEPT"
+                }
+            })
+        );
         self.db
             .execute(
-                "INSERT OR REPLACE INTO blocks (signer_signature_hash, block_info) VALUES (?1, ?2)",
-                &[format!("{}", hash), block_json],
+                "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
+                &[reward_cycle.to_string(), format!("{}", hash), block_json],
             )
             .map_err(|e| {
                 return DBError::Other(format!(
@@ -104,10 +128,15 @@ impl SignerDb {
     }
 
     /// Remove a block
-    pub fn remove_block(&mut self, hash: &Sha512Trunc256Sum) -> Result<(), DBError> {
+    pub fn remove_block(
+        &mut self,
+        reward_cycle: u64,
+        hash: &Sha512Trunc256Sum,
+    ) -> Result<(), DBError> {
+        debug!("Deleting block_info: sighash = {hash}");
         self.db.execute(
-            "DELETE FROM blocks WHERE signer_signature_hash = ?",
-            &[format!("{}", hash)],
+            "DELETE FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
+            &[reward_cycle.to_string(), format!("{}", hash)],
         )?;
 
         Ok(())
@@ -178,16 +207,23 @@ mod tests {
 
     fn test_basic_signer_db_with_path(db_path: impl AsRef<Path>) {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle = 1;
         let (block_info, block) = create_block();
-        db.insert_block(&block_info)
+        db.insert_block(reward_cycle, &block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(&block.header.signer_signature_hash())
+            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 
         assert_eq!(BlockInfo::new(block.clone()), block_info);
+
+        // Test looking up a block from a different reward cycle
+        let block_info = db
+            .block_lookup(reward_cycle + 1, &block.header.signer_signature_hash())
+            .unwrap();
+        assert!(block_info.is_none());
     }
 
     #[test]
@@ -205,12 +241,13 @@ mod tests {
     fn test_update_block() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle = 42;
         let (block_info, block) = create_block();
-        db.insert_block(&block_info)
+        db.insert_block(reward_cycle, &block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(&block.header.signer_signature_hash())
+            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 
@@ -231,11 +268,11 @@ mod tests {
             rejected: false,
         };
         block_info.vote = Some(vote.clone());
-        db.insert_block(&block_info)
+        db.insert_block(reward_cycle, &block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(&block.header.signer_signature_hash())
+            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 

@@ -46,6 +46,7 @@ use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
+use crate::runloop::RewardCycleInfo;
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -226,10 +227,7 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation_with_retry(
-        &self,
-        block: NakamotoBlock,
-    ) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation_with_retry(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -366,16 +364,23 @@ impl StacksClient {
         Ok(peer_info.burn_block_height)
     }
 
-    /// Get the current reward cycle from the stacks node
-    pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+    /// Get the current reward cycle info from the stacks node
+    pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         let pox_data = self.get_pox_data_with_retry()?;
         let blocks_mined = pox_data
             .current_burnchain_block_height
             .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_cycle_length = pox_data
+        let reward_phase_block_length = pox_data
             .reward_phase_block_length
             .saturating_add(pox_data.prepare_phase_block_length);
-        Ok(blocks_mined / reward_cycle_length)
+        let reward_cycle = blocks_mined / reward_phase_block_length;
+        Ok(RewardCycleInfo {
+            reward_cycle,
+            reward_phase_block_length,
+            prepare_phase_block_length: pox_data.prepare_phase_block_length,
+            first_burnchain_block_height: pox_data.first_burnchain_block_height,
+            last_burnchain_block_height: pox_data.current_burnchain_block_height,
+        })
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
@@ -456,10 +461,7 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks mempool
-    pub fn submit_transaction_with_retry(
-        &self,
-        tx: &StacksTransaction,
-    ) -> Result<Txid, ClientError> {
+    pub fn submit_transaction_with_retry(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
@@ -741,9 +743,9 @@ mod tests {
     fn valid_reward_cycle_should_succeed() {
         let mock = MockServerClient::new();
         let (pox_data_response, pox_data) = build_get_pox_data_response(None, None, None, None);
-        let h = spawn(move || mock.client.get_current_reward_cycle());
+        let h = spawn(move || mock.client.get_current_reward_cycle_info());
         write_response(mock.server, pox_data_response.as_bytes());
-        let current_cycle_id = h.join().unwrap().unwrap();
+        let current_cycle_info = h.join().unwrap().unwrap();
         let blocks_mined = pox_data
             .current_burnchain_block_height
             .saturating_sub(pox_data.first_burnchain_block_height);
@@ -751,13 +753,13 @@ mod tests {
             .reward_phase_block_length
             .saturating_add(pox_data.prepare_phase_block_length);
         let id = blocks_mined / reward_cycle_length;
-        assert_eq!(current_cycle_id, id);
+        assert_eq!(current_cycle_info.reward_cycle, id);
     }
 
     #[test]
     fn invalid_reward_cycle_should_fail() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_current_reward_cycle());
+        let h = spawn(move || mock.client.get_current_reward_cycle_info());
         write_response(
             mock.server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
@@ -1149,6 +1151,7 @@ mod tests {
                 stacked_amt: rand::thread_rng().next_u64() as u128,
                 weight: 1,
             }]),
+            pox_ustx_threshold: None,
         };
         let stackers_response = GetStackersResponse {
             stacker_set: stacker_set.clone(),

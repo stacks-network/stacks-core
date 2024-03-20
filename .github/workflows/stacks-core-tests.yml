@@ -87,7 +87,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-          
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
@@ -153,7 +153,7 @@ jobs:
           node-version: 18.x
           cache: "npm"
           cache-dependency-path: "./contrib/core-contract-tests/package-lock.json"
-      - run: npm ci
+      - run: npm ci -f # need to force the update as long as we are using a beta version of the clarinet-sdk
       - run: npm test
       ## Upload code coverage file
       - name: Code Coverage
@@ -168,7 +168,6 @@ jobs:
 
   # Core contract tests on Clarinet v1
   # Check for false positives/negatives
-  # https://github.com/stacks-network/stacks-blockchain/pull/4031#pullrequestreview-1713341208
   core-contracts-clarinet-test-clarinet-v1:
     name: Core Contracts Test Clarinet V1
     runs-on: ubuntu-latest

@@ -1,4 +1,4 @@
-FROM rust:bullseye as build
+FROM rust:bookworm as build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
@@ -14,9 +14,8 @@ RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json -
 
 RUN cp target/release/stacks-node /out
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
-RUN apt update && apt install -y netcat
 COPY --from=build /out/ /bin/
 
 CMD ["stacks-node", "mainnet"]

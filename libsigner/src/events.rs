@@ -31,6 +31,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
@@ -50,11 +51,22 @@ use wsts::state_machine::signer;
 use crate::http::{decode_http_body, decode_http_request};
 use crate::{EventError, SignerMessage};
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// BlockProposal sent to signers
+pub struct BlockProposalSigners {
+    /// The block itself
+    pub block: NakamotoBlock,
+    /// The burn height the block is mined during
+    pub burn_height: u64,
+    /// The reward cycle the block is mined during
+    pub reward_cycle: u64,
+}
+
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
-    ProposedBlocks(Vec<NakamotoBlock>),
+    ProposedBlocks(Vec<BlockProposalSigners>),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<SignerMessage>),
@@ -62,6 +74,28 @@ pub enum SignerEvent {
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
     StatusCheck,
+    /// A new burn block event was received with the given burnchain block height
+    NewBurnBlock(u64),
+}
+
+impl StacksMessageCodec for BlockProposalSigners {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.block.consensus_serialize(fd)?;
+        self.burn_height.consensus_serialize(fd)?;
+        self.reward_cycle.consensus_serialize(fd)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let block = NakamotoBlock::consensus_deserialize(fd)?;
+        let burn_height = u64::consensus_deserialize(fd)?;
+        let reward_cycle = u64::consensus_deserialize(fd)?;
+        Ok(BlockProposalSigners {
+            block,
+            burn_height,
+            reward_cycle,
+        })
+    }
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -195,11 +229,15 @@ impl EventStopSignaler for SignerStopSignaler {
             // We need to send actual data to trigger the event receiver
             let body = "Yo. Shut this shit down!".to_string();
             let req = format!(
-                "POST /shutdown HTTP/1.0\r\nContent-Length: {}\r\n\r\n{}",
-                &body.len(),
+                "POST /shutdown HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+                self.local_addr,
+                body.len(),
                 body
             );
-            stream.write_all(req.as_bytes()).unwrap();
+            match stream.write_all(req.as_bytes()) {
+                Err(e) => error!("Failed to send shutdown request: {}", e),
+                _ => (),
+            };
         }
     }
 }
@@ -246,6 +284,8 @@ impl EventReceiver for SignerEventReceiver {
                 process_stackerdb_event(event_receiver.local_addr, request, is_mainnet)
             } else if request.url() == "/proposal_response" {
                 process_proposal_response(request)
+            } else if request.url() == "/new_burn_block" {
+                process_new_burn_block_event(request)
             } else {
                 let url = request.url().to_string();
 
@@ -337,10 +377,10 @@ fn process_stackerdb_event(
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
     let signer_event = if event.contract_id == boot_code_id(MINERS_NAME, is_mainnet) {
-        let blocks: Vec<NakamotoBlock> = event
+        let blocks: Vec<BlockProposalSigners> = event
             .modified_slots
             .iter()
-            .filter_map(|chunk| read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok())
+            .filter_map(|chunk| read_next::<BlockProposalSigners, _>(&mut &chunk.data[..]).ok())
             .collect();
         SignerEvent::ProposedBlocks(blocks)
     } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
@@ -401,6 +441,38 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     }
 
     Ok(SignerEvent::BlockValidationResponse(event))
+}
+
+/// Process a new burn block event from the node
+fn process_new_burn_block_event(mut request: HttpRequest) -> Result<SignerEvent, EventError> {
+    debug!("Got burn_block event");
+    let mut body = String::new();
+    if let Err(e) = request.as_reader().read_to_string(&mut body) {
+        error!("Failed to read body: {:?}", &e);
+
+        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+            error!("Failed to respond to request: {:?}", &e);
+        }
+        return Err(EventError::MalformedRequest(format!(
+            "Failed to read body: {:?}",
+            &e
+        )));
+    }
+    #[derive(Debug, Deserialize)]
+    struct TempBurnBlockEvent {
+        burn_block_hash: String,
+        burn_block_height: u64,
+        reward_recipients: Vec<serde_json::Value>,
+        reward_slot_holders: Vec<String>,
+        burn_amount: u64,
+    }
+    let temp: TempBurnBlockEvent = serde_json::from_slice(body.as_bytes())
+        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
+    let event = SignerEvent::NewBurnBlock(temp.burn_block_height);
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    }
+    Ok(event)
 }
 
 fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
