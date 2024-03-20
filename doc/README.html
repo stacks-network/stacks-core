@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <title>Context:</title>
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+    <h1 class="title">Context:</h1>
+    <nav id="TOC"><ul></ul></nav>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code>    The Stacks <span class="number">2.4 </span>Testnet activation height occurred before the finalized [<span class="kw-2">**</span>SIP-<span class="number">024</span><span class="kw-2">**</span>](https:<span class="comment">//github.com/stacksgov/sips/tree/main/sips/sip-024) updates and release of the stacks-node versioned 2.4.0.0.0.
+    </span>Blocks mined after testnet BTC block `<span class="number">2</span>,<span class="number">432</span>,<span class="number">545</span>` will all be considered invalid by <span class="number">2.4</span>.<span class="number">0.0</span>.<span class="number">0 </span>nodes and upgrading Testnet to a release &gt;= `<span class="number">2.4</span>.<span class="number">0.0</span>.<span class="number">0</span>` will require adding some overrides prior to the specified burnchchain block.
+    The stacks-node currently doesn<span class="lifetime">'t </span>seamlessly recover from the unexpectedly absent PoX anchor blocks <span class="kw">in </span>testnet, so it needs to apply affirmation map overrides using the overrides table:
+    `echo <span class="lifetime">'INSERT </span>INTO overrides (reward_cycle, affirmation_map) VALUES (<span class="number">413</span>, <span class="string">"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa"</span>);<span class="string">' | sqlite3 .</span>/xenon/burnchain/burnchain.sqlite`
+    and
+    `echo <span class="lifetime">'INSERT </span>INTO overrides (reward_cycle, affirmation_map) VALUES (<span class="number">414</span>, <span class="string">"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa"</span>);<span class="string">' | sqlite3 .</span>/xenon/burnchain/burnchain.sqlite`
+    and
+    `echo <span class="lifetime">'INSERT </span>INTO overrides (reward_cycle, affirmation_map) VALUES (<span class="number">415</span>, <span class="string">"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa"</span>);<span class="string">' | sqlite3 .</span>/xenon/burnchain/burnchain.sqlite`
+    More [<span class="kw-2">**</span>Context<span class="kw-2">**</span>](https:<span class="comment">//github.com/stacks-network/stacks-blockchain/issues/3723)
+    </span>[<span class="kw-2">ref</span>](https:<span class="comment">//forum.stacks.org/t/stacks-2-4-and-testnet-reorg/15027)</span></code></pre></div>
+
+    
+</body>
+</html>
