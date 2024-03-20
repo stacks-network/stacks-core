@@ -57,7 +57,6 @@ libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", bran
 siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
-p256k1 = "5.5.0"
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "chore/update-clarity" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

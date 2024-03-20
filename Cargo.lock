@@ -4267,7 +4267,6 @@ dependencies = [
  "mio 0.6.23",
  "mutants",
  "nix",
- "p256k1 5.5.0",
  "percent-encoding",
  "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "prometheus",
