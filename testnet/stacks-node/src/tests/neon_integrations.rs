@@ -11206,7 +11206,6 @@ fn bitcoin_reorg_flap() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11255,7 +11254,6 @@ fn bitcoin_reorg_flap() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11279,7 +11277,6 @@ fn bitcoin_reorg_flap() {
 
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     for _i in 0..5 {
@@ -11295,7 +11292,6 @@ fn bitcoin_reorg_flap() {
     let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     // carry out the flap back to fork A
