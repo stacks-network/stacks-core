@@ -570,7 +570,7 @@ impl Signer {
                         });
                     // Submit the block for validation
                     stacks_client
-                        .submit_block_for_validation(proposal.block.clone())
+                        .submit_block_for_validation_with_retry(proposal.block.clone())
                         .unwrap_or_else(|e| {
                             warn!("{self}: Failed to submit block for validation: {e:?}");
                         });
@@ -704,7 +704,7 @@ impl Signer {
                     .insert_block(self.reward_cycle, &block_info)
                     .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 stacks_client
-                    .submit_block_for_validation(block)
+                    .submit_block_for_validation_with_retry(block)
                     .unwrap_or_else(|e| {
                         warn!("{self}: Failed to submit block for validation: {e:?}",);
                     });
@@ -988,11 +988,7 @@ impl Signer {
     ) -> std::collections::HashMap<StacksAddress, u64> {
         let mut account_nonces = std::collections::HashMap::with_capacity(signer_addresses.len());
         for address in signer_addresses {
-            let Ok(account_nonce) = retry_with_exponential_backoff(|| {
-                stacks_client
-                    .get_account_nonce(address)
-                    .map_err(backoff::Error::transient)
-            }) else {
+            let Ok(account_nonce) = stacks_client.get_account_nonce(address) else {
                 warn!("{self}: Unable to get account nonce for address: {address}.");
                 continue;
             };
@@ -1021,7 +1017,7 @@ impl Signer {
             debug!("{self}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.");
         } else if epoch == StacksEpochId::Epoch25 {
             debug!("{self}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.");
-            stacks_client.submit_transaction(&new_transaction)?;
+            stacks_client.submit_transaction_with_retry(&new_transaction)?;
             info!("{self}: Submitted DKG vote transaction ({txid:?}) to the mempool");
         } else {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
