@@ -427,7 +427,7 @@ impl Signer {
                 block_info.valid = Some(is_valid);
                 self.signer_db
                     .insert_block(self.reward_cycle, &block_info)
-                    .expect(&format!("{self}: Failed to insert block in DB"));
+                    .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
                     &block_info.block.block_id(),
@@ -504,7 +504,7 @@ impl Signer {
         }
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
-            .expect(&format!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
     /// Handle signer messages submitted to signers stackerdb
@@ -640,7 +640,7 @@ impl Signer {
         match self
             .signer_db
             .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
-            .expect(&format!("{self}: Failed to connect to DB"))
+            .unwrap_or_else(|_| panic!("{self}: Failed to connect to DB"))
             .map(|b| b.vote)
         {
             Some(Some(vote)) => {
@@ -702,7 +702,7 @@ impl Signer {
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
                     .insert_block(self.reward_cycle, &block_info)
-                    .expect(&format!("{self}: Failed to insert block in DB"));
+                    .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 stacks_client
                     .submit_block_for_validation(block)
                     .unwrap_or_else(|e| {
@@ -722,7 +722,7 @@ impl Signer {
         self.determine_vote(&mut block_info, nonce_request);
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
-            .expect(&format!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
         true
     }
 
@@ -1082,7 +1082,7 @@ impl Signer {
             let Some(block_info) = self
                 .signer_db
                 .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
-                .expect(&format!("{self}: Failed to connect to signer DB"))
+                .unwrap_or_else(|_| panic!("{self}: Failed to connect to signer DB"))
             else {
                 debug!(
                     "{self}: Received a signature result for a block we have not seen before. Ignoring..."
