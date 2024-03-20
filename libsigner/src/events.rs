@@ -415,7 +415,7 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
 
     fn try_from(event: StackerDBChunksEvent) -> Result<Self, Self::Error> {
         let signer_event = if event.contract_id.name.as_str() == MINERS_NAME
-            && event.contract_id.issuer.1 == [0; 20]
+            && event.contract_id.is_boot()
         {
             let mut blocks = vec![];
             let mut messages = vec![];
@@ -448,9 +448,7 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                 };
             }
             SignerEvent::MinerMessages(blocks, messages, miner_pk)
-        } else if event.contract_id.name.starts_with(SIGNERS_NAME)
-            && event.contract_id.issuer.1 == [0u8; 20]
-        {
+        } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
             let Some((signer_set, _)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
             else {

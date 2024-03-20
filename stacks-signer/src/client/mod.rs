@@ -121,7 +121,7 @@ pub(crate) mod tests {
     use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
-    use libsigner::ParsedSignerEntries;
+    use libsigner::SignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -497,7 +497,7 @@ pub(crate) mod tests {
             signer_id: 0,
             signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            signer_entries: ParsedSignerEntries {
+            signer_entries: SignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,

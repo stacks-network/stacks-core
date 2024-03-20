@@ -58,10 +58,6 @@ use crate::{neon_node, ChainTip};
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
-/// If the signers have not responded to a block proposal, how long should
-///  the miner thread sleep before trying again?
-#[allow(unused)]
-const WAIT_FOR_SIGNERS_MS: u64 = 200;
 
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
@@ -310,22 +306,9 @@ impl BlockMinerThread {
             // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
             //  channel has been created. This allows integration tests for the stacks-node
             //  independent of the stacks-signer.
-            let mut signer = crate::tests::nakamoto_integrations::TEST_SIGNING
-                .lock()
-                .unwrap();
-            if signer.as_ref().is_some() {
-                let sign_channels = signer.as_mut().unwrap();
-                let recv = sign_channels.recv.take().unwrap();
-                drop(signer); // drop signer so we don't hold the lock while receiving.
-                let signature = recv.recv_timeout(Duration::from_secs(30)).unwrap();
-                let overwritten = crate::tests::nakamoto_integrations::TEST_SIGNING
-                    .lock()
-                    .unwrap()
-                    .as_mut()
-                    .unwrap()
-                    .recv
-                    .replace(recv);
-                assert!(overwritten.is_none());
+            if let Some(signature) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
                 return Ok((aggregate_public_key, signature));
             }
         }

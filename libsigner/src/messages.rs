@@ -308,8 +308,7 @@ impl SignerMessage {
     where
         I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
     {
-        fd.write_all(&aggregate_key.compress().data)
-            .map_err(CodecError::WriteError)?;
+        aggregate_key.inner_consensus_serialize(fd)?;
         let polynomials_len: u32 = party_polynomials
             .len()
             .try_into()
@@ -317,22 +316,7 @@ impl SignerMessage {
         polynomials_len.consensus_serialize(fd)?;
         for (party_id, polynomial) in party_polynomials {
             party_id.consensus_serialize(fd)?;
-            fd.write_all(&polynomial.id.id.to_bytes())
-                .map_err(CodecError::WriteError)?;
-            fd.write_all(&polynomial.id.kG.compress().data)
-                .map_err(CodecError::WriteError)?;
-            fd.write_all(&polynomial.id.kca.to_bytes())
-                .map_err(CodecError::WriteError)?;
-            let commit_len: u32 = polynomial
-                .poly
-                .len()
-                .try_into()
-                .map_err(|_| CodecError::ArrayTooLong)?;
-            commit_len.consensus_serialize(fd)?;
-            for poly in polynomial.poly.iter() {
-                fd.write_all(&poly.compress().data)
-                    .map_err(CodecError::WriteError)?;
-            }
+            polynomial.inner_consensus_serialize(fd)?;
         }
         Ok(())
     }
@@ -395,7 +379,7 @@ impl StacksMessageCodec for SignerMessage {
                 SignerMessage::Transactions(transactions)
             }
             SignerMessageTypePrefix::DkgResults => {
-                let aggregate_key = Self::deserialize_point(fd)?;
+                let aggregate_key = Point::inner_consensus_deserialize(fd)?;
                 let party_polynomial_len = u32::consensus_deserialize(fd)?;
                 let mut party_polynomials = Vec::with_capacity(
                     party_polynomial_len
@@ -404,29 +388,7 @@ impl StacksMessageCodec for SignerMessage {
                 );
                 for _ in 0..party_polynomial_len {
                     let party_id = u32::consensus_deserialize(fd)?;
-                    let polynomial_id_id = Self::deserialize_scalar(fd)?;
-                    let polynomial_id_kg = Self::deserialize_point(fd)?;
-                    let polynomial_id_kca = Self::deserialize_scalar(fd)?;
-
-                    let commit_len = u32::consensus_deserialize(fd)?;
-                    let mut polynomial_poly = Vec::with_capacity(
-                        commit_len
-                            .try_into()
-                            .expect("FATAL: u32 could not fit in usize"),
-                    );
-                    for _ in 0..commit_len {
-                        let poly = Self::deserialize_point(fd)?;
-                        polynomial_poly.push(poly);
-                    }
-                    let polynomial_id = ID {
-                        id: polynomial_id_id,
-                        kG: polynomial_id_kg,
-                        kca: polynomial_id_kca,
-                    };
-                    let polynomial = PolyCommitment {
-                        id: polynomial_id,
-                        poly: polynomial_poly,
-                    };
+                    let polynomial = PolyCommitment::inner_consensus_deserialize(fd)?;
                     party_polynomials.push((party_id, polynomial));
                 }
                 Self::DkgResults {
@@ -450,7 +412,7 @@ impl StacksMessageCodecExtensions for Scalar {
         write_next(fd, &self.to_bytes())
     }
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let scalar_bytes = read_next::<[u8; 32], _>(fd)?;
+        let scalar_bytes: [u8; 32] = read_next(fd)?;
         Ok(Scalar::from(scalar_bytes))
     }
 }
@@ -464,6 +426,51 @@ impl StacksMessageCodecExtensions for Point {
         let compressed = Compressed::try_from(compressed_bytes.as_slice())
             .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
         Point::try_from(&compressed).map_err(|e| CodecError::DeserializeError(e.to_string()))
+    }
+}
+
+impl StacksMessageCodecExtensions for PolyCommitment {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.id.inner_consensus_serialize(fd)?;
+        let commit_len: u32 = self
+            .poly
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::ArrayTooLong)?;
+        commit_len.consensus_serialize(fd)?;
+        for poly in self.poly.iter() {
+            poly.inner_consensus_serialize(fd)?;
+        }
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let id = ID::inner_consensus_deserialize(fd)?;
+        let commit_len = u32::consensus_deserialize(fd)?;
+        let mut poly = Vec::with_capacity(
+            commit_len
+                .try_into()
+                .expect("FATAL: u32 could not fit in usize"),
+        );
+        for _ in 0..commit_len {
+            poly.push(Point::inner_consensus_deserialize(fd)?);
+        }
+        Ok(Self { id, poly })
+    }
+}
+
+impl StacksMessageCodecExtensions for ID {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.id.inner_consensus_serialize(fd)?;
+        self.kG.inner_consensus_serialize(fd)?;
+        self.kca.inner_consensus_serialize(fd)
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let id = Scalar::inner_consensus_deserialize(fd)?;
+        let k_g = Point::inner_consensus_deserialize(fd)?;
+        let kca = Scalar::inner_consensus_deserialize(fd)?;
+        Ok(Self { id, kG: k_g, kca })
     }
 }
 

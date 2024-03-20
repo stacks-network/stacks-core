@@ -22,7 +22,7 @@ use wsts::state_machine::PublicKeys;
 
 /// A reward set parsed into the structures required by WSTS party members and coordinators.
 #[derive(Debug, Clone)]
-pub struct ParsedSignerEntries {
+pub struct SignerEntries {
     /// The signer addresses mapped to signer id
     pub signer_ids: HashMap<StacksAddress, u32>,
     /// The signer ids mapped to public key and key ids mapped to public keys
@@ -36,7 +36,7 @@ pub struct ParsedSignerEntries {
     pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
 }
 
-/// Parsing errors for `ParsedSignerEntries`
+/// Parsing errors for `SignerEntries`
 #[derive(Debug)]
 pub enum Error {
     /// A member of the signing set has a signing key buffer
@@ -46,7 +46,7 @@ pub enum Error {
     SignerCountOverflow,
 }
 
-impl ParsedSignerEntries {
+impl SignerEntries {
     /// Try to parse the reward set defined by `NakamotoSignEntry` into the structures required
     ///  by WSTS party members and coordinators.
     pub fn parse(is_mainnet: bool, reward_set: &[NakamotoSignerEntry]) -> Result<Self, Error> {

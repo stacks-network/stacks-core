@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
-    MessageSlotID, ParsedSignerEntries, SignerEvent, SignerMessage, SignerSession, StackerDBSession,
+    MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession, StackerDBSession,
 };
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -44,6 +44,10 @@ use wsts::v2::Aggregator;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
 use crate::Config;
+
+/// How long should the coordinator poll on the event receiver before
+/// waking up to check timeouts?
+static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(50);
 
 /// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
 ///  sole function is to serve as the coordinator for Nakamoto block signing.
@@ -87,7 +91,7 @@ impl NakamotoSigningParams {
         is_mainnet: bool,
         reward_set: &[NakamotoSignerEntry],
     ) -> Result<Self, ChainstateError> {
-        let parsed = ParsedSignerEntries::parse(is_mainnet, reward_set).map_err(|e| {
+        let parsed = SignerEntries::parse(is_mainnet, reward_set).map_err(|e| {
             ChainstateError::InvalidStacksBlock(format!(
                 "Invalid Reward Set: Could not parse into WSTS structs: {e:?}"
             ))
@@ -363,7 +367,7 @@ impl SignCoordinator {
 
         let start_ts = Instant::now();
         while start_ts.elapsed() <= self.signing_round_timeout {
-            let event = match receiver.recv_timeout(Duration::from_millis(50)) {
+            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     continue;
@@ -375,8 +379,8 @@ impl SignCoordinator {
                 }
             };
 
-            let is_signer_event = event.contract_id.name.starts_with(SIGNERS_NAME)
-                && event.contract_id.issuer.1 == [0; 20];
+            let is_signer_event =
+                event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot();
             if !is_signer_event {
                 debug!("Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
                 continue;

@@ -21,7 +21,7 @@ use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::HashMap;
-use libsigner::{ParsedSignerEntries, SignerEvent, SignerRunLoop};
+use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
@@ -126,7 +126,7 @@ impl RunLoop {
     pub fn get_parsed_reward_set(
         &self,
         reward_cycle: u64,
-    ) -> Result<Option<ParsedSignerEntries>, ClientError> {
+    ) -> Result<Option<SignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
         let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
@@ -136,8 +136,7 @@ impl RunLoop {
             warn!("No registered signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         }
-        let entries =
-            ParsedSignerEntries::parse(self.config.network.is_mainnet(), &signers).unwrap();
+        let entries = SignerEntries::parse(self.config.network.is_mainnet(), &signers).unwrap();
         Ok(Some(entries))
     }
 
@@ -432,7 +431,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
-    use libsigner::ParsedSignerEntries;
+    use libsigner::SignerEntries;
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
     #[test]
@@ -451,7 +450,7 @@ mod tests {
             });
         }
 
-        let parsed_entries = ParsedSignerEntries::parse(false, &signer_entries).unwrap();
+        let parsed_entries = SignerEntries::parse(false, &signer_entries).unwrap();
         assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
         let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
         signer_ids.sort();

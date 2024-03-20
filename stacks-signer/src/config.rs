@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use libsigner::ParsedSignerEntries;
+use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -122,7 +122,7 @@ pub struct SignerConfig {
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
-    pub signer_entries: ParsedSignerEntries,
+    pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication

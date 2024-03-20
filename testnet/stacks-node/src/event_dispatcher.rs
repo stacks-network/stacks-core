@@ -208,7 +208,7 @@ impl StackerDBChannel {
             .expect("FATAL: poisoned StackerDBChannel lock");
         let sender_info = guard.as_ref()?;
         if sender_info.interested_in_signers
-            && stackerdb.issuer.1 == [0; 20]
+            && stackerdb.is_boot()
             && stackerdb.name.starts_with(SIGNERS_NAME)
         {
             return Some(sender_info.sender.clone());

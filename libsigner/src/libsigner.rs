@@ -54,4 +54,4 @@ pub use crate::messages::{
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
-pub use crate::signer_set::{Error as ParseSignerEntriesError, ParsedSignerEntries};
+pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};

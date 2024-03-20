@@ -162,6 +162,30 @@ pub struct TestSigningChannel {
 }
 
 impl TestSigningChannel {
+    /// If the integration test has instantiated the singleton TEST_SIGNING channel,
+    ///  wait for a signature from the blind-signer.
+    /// Returns None if the singleton isn't instantiated and the miner should coordinate
+    ///  a real signer set signature.
+    /// Panics if the blind-signer times out.
+    pub fn get_signature() -> Option<ThresholdSignature> {
+        let mut signer = TEST_SIGNING.lock().unwrap();
+        let Some(sign_channels) = signer.as_mut() else {
+            return None;
+        };
+        let recv = sign_channels.recv.take().unwrap();
+        drop(signer); // drop signer so we don't hold the lock while receiving.
+        let signature = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let overwritten = TEST_SIGNING
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .recv
+            .replace(recv);
+        assert!(overwritten.is_none());
+        Some(signature)
+    }
+
     /// Setup the TestSigningChannel as a singleton using TEST_SIGNING,
     ///  returning an owned Sender to the channel.
     pub fn instantiate() -> Sender<ThresholdSignature> {
