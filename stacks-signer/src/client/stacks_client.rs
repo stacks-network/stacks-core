@@ -198,7 +198,7 @@ impl StacksClient {
 
     /// Determine the stacks node current epoch
     pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
-        let pox_info = self.get_pox_data()?;
+        let pox_info = self.get_pox_data_with_retry()?;
         let burn_block_height = self.get_burn_block_height()?;
 
         let epoch_25 = pox_info
@@ -227,7 +227,10 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation_with_retry(
+        &self,
+        block: NakamotoBlock,
+    ) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -273,12 +276,12 @@ impl StacksClient {
 
     /// Retrieve the current account nonce for the provided address
     pub fn get_account_nonce(&self, address: &StacksAddress) -> Result<u64, ClientError> {
-        let account_entry = self.get_account_entry(address)?;
+        let account_entry = self.get_account_entry_with_retry(address)?;
         Ok(account_entry.nonce)
     }
 
     /// Get the current peer info data from the stacks node
-    pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+    pub fn get_peer_info_with_retry(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
         let send_request = || {
             self.stacks_node_client
@@ -322,7 +325,7 @@ impl StacksClient {
     }
 
     /// Get the reward set signers from the stacks node for the given reward cycle
-    pub fn get_reward_set_signers(
+    pub fn get_reward_set_signers_with_retry(
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
@@ -342,7 +345,7 @@ impl StacksClient {
     }
 
     /// Retreive the current pox data from the stacks node
-    pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
+    pub fn get_pox_data_with_retry(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
         let send_request = || {
             self.stacks_node_client
@@ -360,13 +363,13 @@ impl StacksClient {
 
     /// Helper function to retrieve the burn tip height from the stacks node
     fn get_burn_block_height(&self) -> Result<u64, ClientError> {
-        let peer_info = self.get_peer_info()?;
+        let peer_info = self.get_peer_info_with_retry()?;
         Ok(peer_info.burn_block_height)
     }
 
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
-        let pox_data = self.get_pox_data()?;
+        let pox_data = self.get_pox_data_with_retry()?;
         let blocks_mined = pox_data
             .current_burnchain_block_height
             .saturating_sub(pox_data.first_burnchain_block_height);
@@ -384,7 +387,7 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
-    fn get_account_entry(
+    fn get_account_entry_with_retry(
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
@@ -461,7 +464,10 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks mempool
-    pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+    pub fn submit_transaction_with_retry(
+        &self,
+        tx: &StacksTransaction,
+    ) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
@@ -842,7 +848,7 @@ mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
+        let h = spawn(move || mock.client.submit_transaction_with_retry(&tx_clone));
 
         let request_bytes = write_response(
             mock.server,
@@ -905,7 +911,7 @@ mod tests {
                     nonce,
                 )
                 .unwrap();
-            mock.client.submit_transaction(&tx)
+            mock.client.submit_transaction_with_retry(&tx)
         });
         let mock = MockServerClient::from_config(mock.config);
         write_response(
@@ -1086,7 +1092,7 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        let h = spawn(move || mock.client.submit_block_for_validation_with_retry(block));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
@@ -1110,7 +1116,7 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        let h = spawn(move || mock.client.submit_block_for_validation_with_retry(block));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }
@@ -1119,7 +1125,7 @@ mod tests {
     fn get_peer_info_should_succeed() {
         let mock = MockServerClient::new();
         let (response, peer_info) = build_get_peer_info_response(None, None);
-        let h = spawn(move || mock.client.get_peer_info());
+        let h = spawn(move || mock.client.get_peer_info_with_retry());
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), peer_info);
     }
@@ -1160,7 +1166,7 @@ mod tests {
         let stackers_response_json = serde_json::to_string(&stackers_response)
             .expect("Failed to serialize get stacker response");
         let response = format!("HTTP/1.1 200 OK\n\n{stackers_response_json}");
-        let h = spawn(move || mock.client.get_reward_set_signers(0));
+        let h = spawn(move || mock.client.get_reward_set_signers_with_retry(0));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
     }
