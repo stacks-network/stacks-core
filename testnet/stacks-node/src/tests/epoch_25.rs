@@ -168,7 +168,7 @@ fn microblocks_disabled() {
     let tx = make_stacks_transfer_mblock_only(&spender_1_sk, 0, 500, &spender_2_addr, 500);
     submit_tx(&http_origin, &tx);
 
-    // wait until just before epoch 2.1
+    // wait until just before epoch 2.5
     loop {
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height >= epoch_2_5 - 2 {
