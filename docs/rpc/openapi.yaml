@@ -643,7 +643,7 @@ paths:
           content:
             application/json:
               example:
-                *ref: ./api/core-node/get_tenure_info.json
+                $ref: ./api/core-node/get_tenure_info.json
   
   /v3/tenures/{block_id}:
     get:
