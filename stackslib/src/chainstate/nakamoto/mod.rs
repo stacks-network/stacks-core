@@ -489,6 +489,13 @@ impl NakamotoBlockHeader {
         Ok(())
     }
 
+    /// Verify the block header against an aggregate public key
+    pub fn verify_signer(&self, signer_aggregate: &Point) -> bool {
+        let schnorr_signature = &self.signer_signature.0;
+        let message = self.signer_signature_hash().0;
+        schnorr_signature.verify(signer_aggregate, &message)
+    }
+
     /// Make an "empty" header whose block data needs to be filled in.
     /// This is used by the miner code.
     pub fn from_parent_empty(
@@ -647,7 +654,7 @@ impl NakamotoBlock {
     /// Try to get the first transaction in the block as a tenure-change
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
-    fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
+    pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
         if self.txs.len() == 0 {
             return None;
         }
@@ -1049,7 +1056,7 @@ impl NakamotoBlock {
     /// Arguments
     /// -- `tenure_burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
     /// tenure.  It is not always the tip of the burnchain.
-    /// -- `expected_burn` is the total number of burnchain tokens spent
+    /// -- `expected_burn` is the total number of burnchain tokens spent, if known.
     /// -- `leader_key` is the miner's leader key registration transaction
     ///
     /// Verifies the following:
@@ -1062,7 +1069,7 @@ impl NakamotoBlock {
     pub fn validate_against_burnchain(
         &self,
         tenure_burn_chain_tip: &BlockSnapshot,
-        expected_burn: u64,
+        expected_burn: Option<u64>,
         leader_key: &LeaderKeyRegisterOp,
     ) -> Result<(), ChainstateError> {
         // this block's consensus hash must match the sortition that selected it
@@ -1077,14 +1084,16 @@ impl NakamotoBlock {
         }
 
         // this block must commit to all of the work seen so far
-        if self.header.burn_spent != expected_burn {
-            warn!("Invalid Nakamoto block header: invalid total burns";
-                  "header.burn_spent" => self.header.burn_spent,
-                  "expected_burn" => expected_burn,
-            );
-            return Err(ChainstateError::InvalidStacksBlock(
-                "Invalid Nakamoto block: invalid total burns".into(),
-            ));
+        if let Some(expected_burn) = expected_burn {
+            if self.header.burn_spent != expected_burn {
+                warn!("Invalid Nakamoto block header: invalid total burns";
+                      "header.burn_spent" => self.header.burn_spent,
+                      "expected_burn" => expected_burn,
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid Nakamoto block: invalid total burns".into(),
+                ));
+            }
         }
 
         // miner must have signed this block
@@ -1267,6 +1276,7 @@ impl NakamotoChainState {
             nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db(), sort_tx)?
         else {
             // no more blocks
+            test_debug!("No more Nakamoto blocks to process");
             return Ok(None);
         };
 
@@ -1478,26 +1488,24 @@ impl NakamotoChainState {
     /// * otherwise, it's the highest processed tenure's sortition consensus hash's snapshot's burn
     /// total.
     ///
-    /// TODO: unit test
+    /// This function will return Ok(None) if the given block's parent is not yet processed.  This
+    /// by itself is not necessarily an error, because a block can be stored for subsequent
+    /// processing before its parent has been processed.  The `Self::append_block()` function,
+    /// however, will flag a block as invalid in this case, because the parent must be available in
+    /// order to process a block.
     pub(crate) fn get_expected_burns<SH: SortitionHandle>(
         sort_handle: &mut SH,
         chainstate_conn: &Connection,
         block: &NakamotoBlock,
-    ) -> Result<u64, ChainstateError> {
+    ) -> Result<Option<u64>, ChainstateError> {
         let burn_view_ch = if let Some(tenure_payload) = block.get_tenure_tx_payload() {
             tenure_payload.burn_view_consensus_hash
         } else {
             // if there's no new tenure for this block, the burn total should be the same as its parent
-            let parent = Self::get_block_header(chainstate_conn, &block.header.parent_block_id)?
-                .ok_or_else(|| {
-                    warn!("Could not load expected burns -- no parent block";
-                          "block_id" => %block.block_id(),
-                          "parent_block_id" => %block.header.parent_block_id
-                    );
-                    ChainstateError::NoSuchBlockError
-                })?;
-
-            return Ok(parent.anchored_header.total_burns());
+            let parent_burns_opt =
+                Self::get_block_header(chainstate_conn, &block.header.parent_block_id)?
+                    .map(|parent| parent.anchored_header.total_burns());
+            return Ok(parent_burns_opt);
         };
         let burn_view_sn =
             SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), &burn_view_ch)?
@@ -1507,7 +1515,7 @@ impl NakamotoChainState {
                     );
                     ChainstateError::NoSuchBlockError
                 })?;
-        Ok(burn_view_sn.total_burn)
+        Ok(Some(burn_view_sn.total_burn))
     }
 
     /// Validate that a Nakamoto block attaches to the burn chain state.
@@ -1516,7 +1524,7 @@ impl NakamotoChainState {
     /// verifies that all transactions in the block are allowed in this epoch.
     pub fn validate_nakamoto_block_burnchain(
         db_handle: &SortitionHandleConn,
-        expected_burn: u64,
+        expected_burn: Option<u64>,
         block: &NakamotoBlock,
         mainnet: bool,
         chain_id: u32,
@@ -1627,11 +1635,18 @@ impl NakamotoChainState {
         burn_attachable: bool,
     ) -> Result<(), ChainstateError> {
         let block_id = block.block_id();
+        let Ok(tenure_start) = block.is_wellformed_tenure_start_block() else {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Tried to store a tenure-start block that is not well-formed".into(),
+            ));
+        };
+
         staging_db_tx.execute(
             "INSERT INTO nakamoto_staging_blocks (
                      block_hash,
                      consensus_hash,
                      parent_block_id,
+                     is_tenure_start,
                      burn_attachable,
                      orphaned,
                      processed,
@@ -1642,11 +1657,12 @@ impl NakamotoChainState {
                      arrival_time,
                      processed_time,
                      data
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &block.header.block_hash(),
                 &block.header.consensus_hash,
                 &block.header.parent_block_id,
+                &tenure_start,
                 if burn_attachable { 1 } else { 0 },
                 0,
                 0,
@@ -1705,18 +1721,15 @@ impl NakamotoChainState {
             ChainstateError::InvalidStacksBlock("Not a well-formed tenure-extend block".into())
         })?;
 
-        let Ok(expected_burn) = Self::get_expected_burns(db_handle, headers_conn, &block) else {
-            warn!("Unacceptable Nakamoto block: unable to find its paired sortition";
-                  "block_id" => %block.block_id(),
-            );
-            return Ok(false);
-        };
+        // it's okay if this fails because we might not have the parent block yet.  It will be
+        // checked on `::append_block()`
+        let expected_burn_opt = Self::get_expected_burns(db_handle, headers_conn, &block)?;
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
         if let Err(e) = Self::validate_nakamoto_block_burnchain(
             db_handle,
-            expected_burn,
+            expected_burn_opt,
             &block,
             config.mainnet,
             config.chain_id,
@@ -1754,7 +1767,7 @@ impl NakamotoChainState {
     }
 
     /// Get the aggregate public key for the given block from the signers-voting contract
-    fn load_aggregate_public_key<SH: SortitionHandle>(
+    pub(crate) fn load_aggregate_public_key<SH: SortitionHandle>(
         sortdb: &SortitionDB,
         sort_handle: &SH,
         chainstate: &mut StacksChainState,
@@ -1935,12 +1948,8 @@ impl NakamotoChainState {
         chainstate_conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
-            "FATAL: multiple rows for the same block hash".to_string()
-        })?;
-        if result.is_some() {
-            return Ok(result);
+        if let Some(header) = Self::get_block_header_nakamoto(chainstate_conn, index_block_hash)? {
+            return Ok(Some(header));
         }
 
         Self::get_block_header_epoch2(chainstate_conn, index_block_hash)
@@ -2719,7 +2728,7 @@ impl NakamotoChainState {
         ChainstateError,
     > {
         debug!(
-            "Process block {:?} with {} transactions",
+            "Process Nakamoto block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
             block.txs.len()
         );
@@ -2813,6 +2822,37 @@ impl NakamotoChainState {
                 },
             )?
         };
+
+        let expected_burn_opt = Self::get_expected_burns(burn_dbconn, chainstate_tx, block)
+            .map_err(|e| {
+                warn!("Unacceptable Nakamoto block: could not load expected burns (unable to find its paired sortition)";
+                      "block_id" => %block.block_id(),
+                      "parent_block_id" => %block.header.parent_block_id,
+                      "error" => e.to_string(),
+                );
+                ChainstateError::InvalidStacksBlock("Invalid Nakamoto block: could not find sortition burns".into())
+            })?;
+
+        let Some(expected_burn) = expected_burn_opt else {
+            warn!("Unacceptable Nakamoto block: unable to find parent block's burns";
+                  "block_id" => %block.block_id(),
+                  "parent_block_id" => %block.header.parent_block_id,
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: could not find sortition burns".into(),
+            ));
+        };
+
+        // this block must commit to all of the burnchain spends seen so far
+        if block.header.burn_spent != expected_burn {
+            warn!("Invalid Nakamoto block header: invalid total burns";
+                  "header.burn_spent" => block.header.burn_spent,
+                  "expected_burn" => expected_burn,
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: invalid total burns".into(),
+            ));
+        }
 
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.

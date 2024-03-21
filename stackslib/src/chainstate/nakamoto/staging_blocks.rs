@@ -43,10 +43,13 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
   CREATE TABLE nakamoto_staging_blocks (
                  -- SHA512/256 hash of this block
                  block_hash TEXT NOT NULL,
-                 -- the consensus hash of the burnchain block that selected this block's miner's block-commit
+                 -- The consensus hash of the burnchain block that selected this block's miner's block-commit.
+                 -- This identifies the tenure to which this block belongs.
                  consensus_hash TEXT NOT NULL,
                  -- the parent index_block_hash
                  parent_block_id TEXT NOT NULL,
+                 -- whether or not this is the first block in its tenure
+                 is_tenure_start BOOL NOT NULL,
 
                  -- has the burnchain block with this block's `consensus_hash` been processed?
                  burn_attachable INT NOT NULL,
@@ -55,6 +58,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
                  -- set to 1 if this block can never be attached
                  orphaned INT NOT NULL,
 
+                 -- block height
                  height INT NOT NULL,
 
                  -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
@@ -71,7 +75,9 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
                 
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
-    r#"CREATE INDEX by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash_and_consensus_hash ON nakamoto_staging_blocks(index_block_hash,consensus_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_tenure_start_block ON nakamoto_staging_blocks(is_tenure_start,consensus_hash);"#,
 ];
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
@@ -154,6 +160,15 @@ impl NakamotoStagingBlocksConn {
 }
 
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    /// Determine if there exists any unprocessed Nakamoto blocks
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    pub fn has_any_unprocessed_nakamoto_block(&self) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE processed = 0 LIMIT 1";
+        let res: Option<i64> = query_row(self, qry, NO_PARAMS)?;
+        Ok(res.is_some())
+    }
+
     /// Determine whether or not we have processed at least one Nakamoto block in this sortition history.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` is updated by a separate
     /// tx from block-processing, so it's imperative that the thread that calls this function is
@@ -189,6 +204,28 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let args: &[&dyn ToSql] = &[index_block_hash];
         let res: Option<i64> = query_row(self, qry, args)?;
         Ok(res.is_some())
+    }
+
+    /// Get a staged Nakamoto tenure-start block
+    pub fn get_nakamoto_tenure_start_block(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
+        let args: &[&dyn ToSql] = &[consensus_hash];
+        let data: Option<Vec<u8>> = query_row(self, qry, args)?;
+        let Some(block_bytes) = data else {
+            return Ok(None);
+        };
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
+        if &block.header.consensus_hash != consensus_hash {
+            error!(
+                "Staging DB corruption: expected {}, got {}",
+                consensus_hash, block.header.consensus_hash
+            );
+            return Err(DBError::Corruption.into());
+        }
+        Ok(Some(block))
     }
 
     /// Get the rowid of a Nakamoto block

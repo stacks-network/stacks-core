@@ -657,6 +657,7 @@ impl Relayer {
         sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
         block: NakamotoBlock,
+        coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<bool, chainstate_error> {
         debug!(
             "Handle incoming Nakamoto block {}/{}",
@@ -665,8 +666,9 @@ impl Relayer {
         );
 
         // do we have this block?  don't lock the DB needlessly if so.
-        if let Some(_) =
-            NakamotoChainState::get_block_header(chainstate.db(), &block.header.block_id())?
+        if chainstate
+            .nakamoto_blocks_db()
+            .has_nakamoto_block(&block.header.block_id())?
         {
             debug!("Already have Nakamoto block {}", &block.header.block_id());
             return Ok(false);
@@ -743,11 +745,41 @@ impl Relayer {
 
         if accepted {
             debug!("{}", &accept_msg);
+            if let Some(coord_comms) = coord_comms {
+                if !coord_comms.announce_new_stacks_block() {
+                    return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
+                }
+            }
         } else {
             debug!("{}", &reject_msg);
         }
 
         Ok(accepted)
+    }
+
+    /// Process nakamoto blocks.
+    /// Log errors but do not return them.
+    pub fn process_nakamoto_blocks(
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        blocks: impl Iterator<Item = NakamotoBlock>,
+        coord_comms: Option<&CoordinatorChannels>,
+    ) -> Result<(), chainstate_error> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let mut sort_handle = sortdb.index_handle(&tip.sortition_id);
+        for block in blocks {
+            let block_id = block.block_id();
+            if let Err(e) = Self::process_new_nakamoto_block(
+                sortdb,
+                &mut sort_handle,
+                chainstate,
+                block,
+                coord_comms,
+            ) {
+                warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
+            }
+        }
+        Ok(())
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -2077,6 +2109,17 @@ impl Relayer {
             }
         };
 
+        let nakamoto_blocks =
+            std::mem::replace(&mut network_result.nakamoto_blocks, HashMap::new());
+        if let Err(e) = Relayer::process_nakamoto_blocks(
+            sortdb,
+            chainstate,
+            nakamoto_blocks.into_values(),
+            coord_comms,
+        ) {
+            warn!("Failed to process Nakamoto blocks: {:?}", &e);
+        }
+
         let mut mempool_txs_added = vec![];
 
         // only care about transaction forwarding if not IBD
@@ -2610,12 +2653,12 @@ pub mod test {
     use crate::net::asn::*;
     use crate::net::chat::*;
     use crate::net::codec::*;
-    use crate::net::download::test::run_get_blocks_and_microblocks;
     use crate::net::download::*;
     use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
     use crate::net::httpcore::StacksHttpMessage;
     use crate::net::inv::inv2x::*;
     use crate::net::test::*;
+    use crate::net::tests::download::epoch2x::run_get_blocks_and_microblocks;
     use crate::net::*;
     use crate::util_lib::test::*;
 

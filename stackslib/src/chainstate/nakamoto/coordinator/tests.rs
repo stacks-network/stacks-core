@@ -403,6 +403,7 @@ fn replay_reward_cycle(
             &mut sort_handle,
             &mut node.chainstate,
             block.clone(),
+            None,
         )
         .unwrap();
         if accepted {

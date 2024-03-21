@@ -28,8 +28,8 @@ use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::neighbors::{
-    NeighborComms, NeighborCommsRequest, NeighborReplacements, NeighborWalkDB, ToNeighborKey,
-    MAX_NEIGHBOR_BLOCK_DELAY, NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
+    NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey, MAX_NEIGHBOR_BLOCK_DELAY,
+    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{

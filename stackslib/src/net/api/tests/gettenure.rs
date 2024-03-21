@@ -52,7 +52,7 @@ fn test_try_parse_request() {
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
     let request =
-        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]));
+        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]), None);
     let bytes = request.try_serialize().unwrap();
 
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
@@ -94,7 +94,7 @@ fn test_try_make_response() {
 
     // query existing tenure
     let request =
-        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), nakamoto_chain_tip.clone());
+        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), nakamoto_chain_tip.clone(), None);
     requests.push(request);
 
     // TODO: mid-tenure?
@@ -102,7 +102,7 @@ fn test_try_make_response() {
 
     // query non-existant block
     let request =
-        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]));
+        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]), None);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -137,7 +137,8 @@ fn test_stream_nakamoto_tenure() {
         peer.chainstate(),
         StacksBlockId([0x11; 32]),
         ConsensusHash([0x22; 20]),
-        StacksBlockId([0x33; 32])
+        StacksBlockId([0x33; 32]),
+        None
     )
     .is_err());
 
@@ -170,6 +171,7 @@ fn test_stream_nakamoto_tenure() {
         nakamoto_tip_block_id.clone(),
         nakamoto_header.consensus_hash.clone(),
         nakamoto_header.parent_block_id.clone(),
+        None,
     )
     .unwrap();
     let mut all_block_bytes = vec![];
