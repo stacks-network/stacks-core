@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use std::{cmp, env, fs, thread};
+use std::{cmp, env, fs, io, thread};
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
@@ -157,8 +157,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     // if there's just one node, then this must be true for tests to pass
     conf.miner.wait_for_block_download = false;
@@ -3321,8 +3321,8 @@ fn microblock_fork_poison_integration_test() {
     conf.miner.subsequent_attempt_time_ms = 5_000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -4352,8 +4352,8 @@ fn size_check_integration_test() {
     conf.node.microblock_frequency = 5000;
     conf.miner.microblock_attempt_time_ms = 120_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4528,8 +4528,8 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.microblock_frequency = 5_000;
     conf.miner.microblock_attempt_time_ms = 120_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
     conf.events_observers.insert(EventObserverConfig {
@@ -4724,8 +4724,8 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
     conf.events_observers.insert(EventObserverConfig {
@@ -4918,8 +4918,8 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
     conf.events_observers.insert(EventObserverConfig {
@@ -5180,8 +5180,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.microblock_frequency = 15000;
     conf.miner.microblock_attempt_time_ms = 120_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
@@ -5355,8 +5355,8 @@ fn block_replay_integration_test() {
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 5_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -5805,8 +5805,8 @@ fn mining_events_integration_test() {
     conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -6076,8 +6076,8 @@ fn block_limit_hit_integration_test() {
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 1000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -6289,12 +6289,12 @@ fn microblock_limit_hit_integration_test() {
     conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
 
-    conf.miner.microblock_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.microblock_attempt_time_ms = i64::MAX as u64;
     conf.burnchain.max_rbf = 10_000_000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
@@ -6500,12 +6500,12 @@ fn block_large_tx_integration_test() {
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 1000;
 
-    conf.miner.microblock_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.microblock_attempt_time_ms = i64::MAX as u64;
     conf.burnchain.max_rbf = 10_000_000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -6638,8 +6638,8 @@ fn microblock_large_tx_integration_test_FLAKY() {
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 1000;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     conf.miner.microblock_attempt_time_ms = 1_000;
     conf.node.wait_time_for_microblocks = 0;
@@ -8093,8 +8093,8 @@ fn atlas_stress_integration_test() {
         .initial_balances
         .append(&mut initial_balances.clone());
 
-    conf_bootstrap_node.miner.first_attempt_time_ms = u64::max_value();
-    conf_bootstrap_node.miner.subsequent_attempt_time_ms = u64::max_value();
+    conf_bootstrap_node.miner.first_attempt_time_ms = u64::MAX;
+    conf_bootstrap_node.miner.subsequent_attempt_time_ms = u64::MAX;
 
     conf_bootstrap_node.node.mine_microblocks = true;
     conf_bootstrap_node.miner.microblock_attempt_time_ms = 2_000;
@@ -10256,8 +10256,11 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     // at least one block was mined (hard to say how many due to the raciness between the burnchain
     // downloader and this thread).
+    info!(
+        "tip_info.stacks_tip_height = {}, old_tip_info.stacks_tip_height = {}",
+        tip_info.stacks_tip_height, old_tip_info.stacks_tip_height
+    );
     assert!(tip_info.stacks_tip_height > old_tip_info.stacks_tip_height);
-
     // one was problematic -- i.e. the one that included tx_high
     assert_eq!(all_new_files.len(), 1);
 
@@ -12129,4 +12132,130 @@ fn filter_txs_by_origin() {
     }
 
     test_observer::clear();
+}
+
+// https://stackoverflow.com/questions/26958489/how-to-copy-a-folder-recursively-in-rust
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn bitcoin_reorg_flap() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, _miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // stop bitcoind and copy its DB to simulate a chain flap
+    btcd_controller.stop_bitcoind().unwrap();
+    thread::sleep(Duration::from_secs(5));
+
+    let btcd_dir = conf.get_burnchain_path_str();
+    let mut new_conf = conf.clone();
+    new_conf.node.working_dir = format!("{}.new", &conf.node.working_dir);
+    fs::create_dir_all(&new_conf.node.working_dir).unwrap();
+
+    copy_dir_all(&btcd_dir, &new_conf.get_burnchain_path_str()).unwrap();
+
+    // resume
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    thread::sleep(Duration::from_secs(5));
+
+    info!("\n\nBegin fork A\n\n");
+
+    // make fork A
+    for _i in 0..3 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from A to B\n\n");
+
+    // carry out the flap to fork B -- new_conf's state was the same as before the reorg
+    let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(new_conf.clone(), None);
+
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    for _i in 0..5 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from B to A\n\n");
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    // carry out the flap back to fork A
+    for _i in 0..7 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    assert_eq!(channel.get_sortitions_processed(), 225);
+    btcd_controller.stop_bitcoind().unwrap();
+    channel.stop_chains_coordinator();
 }
