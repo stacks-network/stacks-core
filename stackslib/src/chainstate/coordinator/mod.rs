@@ -2489,7 +2489,7 @@ impl<
                 BurnchainDB::get_burnchain_block(&self.burnchain_blocks_db.conn(), &cursor)
                     .map_err(|e| {
                         warn!(
-                            "ChainsCoordinator: could not retrieve  block burnhash={}",
+                            "ChainsCoordinator: could not retrieve block burnhash={}",
                             &cursor
                         );
                         Error::NonContiguousBurnchainBlock(e)
