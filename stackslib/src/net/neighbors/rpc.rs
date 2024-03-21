@@ -94,23 +94,43 @@ impl NeighborRPC {
         std::mem::replace(&mut self.broken, HashSet::new())
     }
 
-    /// Iterate over all in-flight RPC requests
-    pub fn iter_replies<'a>(
-        &'a mut self,
-        network: &'a mut PeerNetwork,
-    ) -> NeighborRPCMessageIterator {
-        NeighborRPCMessageIterator {
-            network,
-            neighbor_rpc: self,
-        }
-    }
-
-    /// Collect all in-flight replies into a vec
+    /// Collect all in-flight replies into a vec.
+    /// This also pushes data into each connection's socket write buffer,
+    /// so the client of this module should eagerly call this over and over again.
     pub fn collect_replies(
         &mut self,
         network: &mut PeerNetwork,
     ) -> Vec<(NeighborAddress, StacksHttpResponse)> {
-        self.iter_replies(network).collect()
+        let mut inflight = HashMap::new();
+        let mut dead = vec![];
+        let mut ret = vec![];
+        for (naddr, (event_id, mut request_opt)) in self.state.drain() {
+            let response = match NeighborRPC::poll_next_reply(network, event_id, &mut request_opt) {
+                Ok(Some(response)) => response,
+                Ok(None) => {
+                    // keep trying
+                    inflight.insert(naddr, (event_id, request_opt));
+                    continue;
+                }
+                Err(NetError::WaitingForDNS) => {
+                    // keep trying
+                    inflight.insert(naddr, (event_id, request_opt));
+                    continue;
+                }
+                Err(_e) => {
+                    // declare this neighbor as dead by default
+                    dead.push(naddr);
+                    continue;
+                }
+            };
+
+            ret.push((naddr, response));
+        }
+        for naddr in dead.into_iter() {
+            self.add_dead(network, &naddr);
+        }
+        self.state.extend(inflight);
+        ret
     }
 
     /// How many inflight requests remaining?
@@ -235,57 +255,5 @@ impl NeighborRPC {
 
             Ok(Some(http_response))
         })
-    }
-}
-
-/// This struct represents everything we need to iterate through a set of ongoing requests, in
-/// order to pull out completed replies.
-pub struct NeighborRPCMessageIterator<'a> {
-    network: &'a mut PeerNetwork,
-    neighbor_rpc: &'a mut NeighborRPC,
-}
-
-/// This is an iterator over completed requests
-impl Iterator for NeighborRPCMessageIterator<'_> {
-    type Item = (NeighborAddress, StacksHttpResponse);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut inflight = HashMap::new();
-        let mut ret = None;
-        let mut dead = vec![];
-        for (naddr, (event_id, mut request_opt)) in self.neighbor_rpc.state.drain() {
-            if ret.is_some() {
-                // just save for retry
-                inflight.insert(naddr, (event_id, request_opt));
-                continue;
-            }
-
-            let response =
-                match NeighborRPC::poll_next_reply(self.network, event_id, &mut request_opt) {
-                    Ok(Some(response)) => response,
-                    Ok(None) => {
-                        // keep trying
-                        inflight.insert(naddr, (event_id, request_opt));
-                        continue;
-                    }
-                    Err(NetError::WaitingForDNS) => {
-                        // keep trying
-                        inflight.insert(naddr, (event_id, request_opt));
-                        continue;
-                    }
-                    Err(_e) => {
-                        // declare this neighbor as dead by default
-                        dead.push(naddr);
-                        continue;
-                    }
-                };
-
-            ret = Some((naddr, response));
-        }
-        for naddr in dead.into_iter() {
-            self.neighbor_rpc.add_dead(self.network, &naddr);
-        }
-        self.neighbor_rpc.state.extend(inflight);
-        ret
     }
 }

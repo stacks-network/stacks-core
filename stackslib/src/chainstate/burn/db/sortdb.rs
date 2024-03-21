@@ -1844,8 +1844,9 @@ impl<'a> SortitionHandleConn<'a> {
                 self.context
                     .pox_constants
                     .reward_cycle_length
-                    .saturating_mul(2),
+                    .saturating_mul(1),
             )
+            + u64::from(self.context.pox_constants.prepare_length)
             < sn.block_height
         {
             // too far in the past

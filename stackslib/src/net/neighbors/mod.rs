@@ -37,10 +37,7 @@ pub mod neighbor;
 pub mod rpc;
 pub mod walk;
 
-pub use comms::{
-    NeighborComms, NeighborCommsMessageIterator, NeighborCommsRequest, PeerNetworkComms,
-    ToNeighborKey,
-};
+pub use comms::{NeighborComms, PeerNetworkComms, ToNeighborKey};
 pub use db::{NeighborReplacements, NeighborWalkDB, PeerDBNeighborWalk};
 pub use walk::{NeighborPingback, NeighborWalk, NeighborWalkResult};
 
