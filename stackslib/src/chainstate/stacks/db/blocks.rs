@@ -6075,6 +6075,40 @@ impl StacksChainState {
                 }
             };
 
+        let microblocks_disabled_by_epoch_25 =
+            SortitionDB::are_microblocks_disabled(sort_tx.tx(), u64::from(burn_header_height))?;
+
+        // microblocks are not allowed after Epoch 2.5 starts
+        if microblocks_disabled_by_epoch_25 {
+            if next_staging_block.parent_microblock_seq != 0
+                || next_staging_block.parent_microblock_hash != BlockHeaderHash([0; 32])
+            {
+                let msg = format!(
+                    "Invalid stacks block {}/{} ({}). Confirms microblocks after Epoch 2.5 start.",
+                    &next_staging_block.consensus_hash,
+                    &next_staging_block.anchored_block_hash,
+                    &StacksBlockId::new(
+                        &next_staging_block.consensus_hash,
+                        &next_staging_block.anchored_block_hash
+                    ),
+                );
+                warn!("{msg}");
+
+                // clear out
+                StacksChainState::set_block_processed(
+                    chainstate_tx.deref_mut(),
+                    None,
+                    &blocks_path,
+                    &next_staging_block.consensus_hash,
+                    &next_staging_block.anchored_block_hash,
+                    false,
+                )?;
+                chainstate_tx.commit().map_err(Error::DBError)?;
+
+                return Err(Error::InvalidStacksBlock(msg));
+            }
+        }
+
         debug!(
             "Process staging block {}/{} in burn block {}, parent microblock {}",
             next_staging_block.consensus_hash,
