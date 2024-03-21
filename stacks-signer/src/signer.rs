@@ -753,7 +753,7 @@ impl Signer {
             );
             let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
             stacks_client
-                .submit_block_for_validation(block)
+                .submit_block_for_validation_with_retry(block)
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}",);
                 });
