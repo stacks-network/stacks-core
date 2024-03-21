@@ -1,12 +1,13 @@
 openapi: 3.0.2
 servers:
-  - url: http://localhost:20443/
+  - url: http://localhost:20443
     description: Local
 info:
   title: Stacks 2.0+ RPC API
   version: '1.0.0'
   description: |
     This is the documentation for the `stacks-node` RPC interface.
+  license: CC-0
 
 paths:
   /v2/transactions:
@@ -39,6 +40,7 @@ paths:
                 $ref: ./api/transaction/post-core-node-transactions-error.schema.json
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
+
   /v2/burn_ops/{burn_height}/{op_type}:
     get:
       summary: Get burn operations
@@ -46,6 +48,19 @@ paths:
       tags:
         - Info
       operationId: get_burn_ops
+      parameters:
+        - name: burn_height
+          in: path
+          required: true
+          description: height of the burnchain (Bitcoin)
+          schema:
+            type: integer
+        - name: op_type
+          in: path
+          required: true
+          description: name of the burnchain operation type
+          schema:
+            type: string
       responses:
         200:
           description: Burn operations list
@@ -61,6 +76,7 @@ paths:
                 peg_out_fulfill:
                   value:
                     $ref: ./api/core-node/get-burn-ops-peg-out-fulfill.example.json
+
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
       summary: Get contract interface
@@ -594,6 +610,13 @@ paths:
         Used to get stacker and signer set information for a given cycle.
 
         This will only return information for cycles started in Epoch-2.5 where PoX-4 was active and subsequent cycles.
+      parameters:
+        - name: cycle_number
+          in: path
+          required: true
+          description: reward cycle number
+          schema:
+            type: integer
       responses:
         200:
           description: Information for the given reward cycle
@@ -616,6 +639,13 @@ paths:
       operationId: get_block_v3
       description:
         Fetch a Nakamoto block by its index block hash.
+      parameters:
+        - name: block_id
+          in: path
+          description: The block's ID hash
+          required: true
+          schema:
+            type: string
       responses:
         200:
           description: The raw SIP-003-encoded block will be returned.
@@ -662,12 +692,18 @@ paths:
                 type: string
                 format: binary
     parameters:
-      name: stop
-      in: query
-      description:
+      - name: block_id
+        in: path
+        description:
+          The tenure-start block ID of the tenure to query
+        required: true
+        schema:
+          type: string
+      - name: stop
+        in: query
+        description:
           The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
-      required: false
-      schema:
-        type: string
-        format: 64-character hex string
+        required: false
+        schema:
+          type: string
 
