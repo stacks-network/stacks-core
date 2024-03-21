@@ -2639,13 +2639,11 @@ impl NakamotoDownloadStateMachine {
         tenure_start_blocks: &mut HashMap<StacksBlockId, NakamotoBlock>,
     ) -> Result<(), NetError> {
         for wt in wanted_tenures {
-            if tenure_start_blocks.contains_key(&wt.winning_block_id) {
-                continue;
-            }
             let Some(tenure_start_block) = chainstate
                 .nakamoto_blocks_db()
                 .get_nakamoto_tenure_start_block(&wt.tenure_id_consensus_hash)?
             else {
+                test_debug!("No tenure-start block for {}", &wt.tenure_id_consensus_hash);
                 continue;
             };
             tenure_start_blocks.insert(tenure_start_block.block_id(), tenure_start_block);

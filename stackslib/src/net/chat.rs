@@ -2733,7 +2733,7 @@ impl ConversationP2P {
         if self.data_ip.is_some() {
             return;
         }
-        if self.data_url.len() == 0 {
+        if self.data_url.is_empty() {
             return;
         }
         if let Some(ipaddr) = Self::try_decode_data_url_ipaddr(&self.data_url) {
