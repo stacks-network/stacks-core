@@ -1547,7 +1547,7 @@ impl BlockMinerThread {
 
         // has the tip changed from our previously-mined block for this epoch?
         let should_unconditionally_mine = last_mined_blocks.is_empty()
-            || (last_mined_blocks.len() == 1 && self.failed_to_submit_last_attempt);
+            || (last_mined_blocks.len() == 1 && !self.failed_to_submit_last_attempt);
         let (attempt, max_txs) = if should_unconditionally_mine {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we

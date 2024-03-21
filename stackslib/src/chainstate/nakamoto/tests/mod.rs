@@ -83,6 +83,7 @@ use crate::chainstate::stacks::{
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
+use crate::net::stackerdb::MINER_SLOT_COUNT;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
@@ -2037,12 +2038,14 @@ fn test_make_miners_stackerdb_config() {
         .collect();
 
     // active miner alternates slots (part of stability)
-    assert_eq!(stackerdb_chunks[0].slot_id, 0);
-    assert_eq!(stackerdb_chunks[1].slot_id, 1);
-    assert_eq!(stackerdb_chunks[2].slot_id, 0);
-    assert_eq!(stackerdb_chunks[3].slot_id, 1);
-    assert_eq!(stackerdb_chunks[4].slot_id, 0);
-    assert_eq!(stackerdb_chunks[5].slot_id, 1);
+    let first_miner_slot = 0;
+    let second_miner_slot = first_miner_slot + MINER_SLOT_COUNT;
+    assert_eq!(stackerdb_chunks[0].slot_id, first_miner_slot);
+    assert_eq!(stackerdb_chunks[1].slot_id, second_miner_slot);
+    assert_eq!(stackerdb_chunks[2].slot_id, first_miner_slot);
+    assert_eq!(stackerdb_chunks[3].slot_id, second_miner_slot);
+    assert_eq!(stackerdb_chunks[4].slot_id, first_miner_slot);
+    assert_eq!(stackerdb_chunks[5].slot_id, second_miner_slot);
 
     assert!(stackerdb_chunks[0].verify(&miner_addrs[1]).unwrap());
     assert!(stackerdb_chunks[1].verify(&miner_addrs[2]).unwrap());
