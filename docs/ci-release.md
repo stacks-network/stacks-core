@@ -135,6 +135,35 @@ ex:
 - `Stacks Blockchain Tests`:
   - `full-genesis`: Tests related to full genesis
 
+### Checking the result of multiple tests at once
+
+You can use the [check-jobs-status](https://github.com/stacks-network/actions/tree/main/check-jobs-status) composite action in order to check that multiple tests are successful in 1 job.
+If any of the tests given to the action (JSON string of `needs` field) fails, the step that calls the action will also fail.
+
+If you have to mark more than 1 job from the same workflow required in a ruleset, you can use this action in a separate job and only add that job as required.
+
+In the following example, `unit-tests` is a matrix job with 8 partitions (i.e. 8 jobs are running), while the others are normal jobs.
+If any of the 11 jobs are failing, the `check-tests` job will also fail.
+
+```yaml
+check-tests:
+  name: Check Tests
+  runs-on: ubuntu-latest
+  if: always()
+  needs:
+    - full-genesis
+    - unit-tests
+    - open-api-validation
+    - core-contracts-clarinet-test
+  steps:
+    - name: Check Tests Status
+      id: check_tests_status
+      uses: stacks-network/actions/check-jobs-status@main
+      with:
+        jobs: ${{ toJson(needs) }}
+        summary_print: "true"
+```
+
 ## Triggering a workflow
 
 ### PR a branch to develop
