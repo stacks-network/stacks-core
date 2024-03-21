@@ -242,13 +242,9 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     ) -> Result<Option<u64>, ChainstateError> {
         let qry = "SELECT length(data) FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
         let args: &[&dyn ToSql] = &[index_block_hash];
-        let res: Option<i64> = query_row(self, qry, args)?;
-        let Some(size_i64) = res else {
-            return Ok(None);
-        };
-        Ok(Some(
-            u64::try_from(size_i64).expect("FATAL: block exceeds i64::MAX"),
-        ))
+        let res = query_row(self, qry, args)?
+            .map(|size: i64| u64::try_from(size).expect("FATAL: block size exceeds i64::MAX"));
+        Ok(res)
     }
 
     /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.

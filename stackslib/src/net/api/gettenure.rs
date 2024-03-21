@@ -155,9 +155,9 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
 
         let block_id_str = captures
             .name("block_id")
-            .ok_or(Error::DecodeError(
-                "Failed to match path to block ID group".to_string(),
-            ))?
+            .ok_or_else(|| {
+                Error::DecodeError("Failed to match path to block ID group".to_string())
+            })?
             .as_str();
 
         let block_id = StacksBlockId::from_hex(block_id_str).map_err(|_| {
