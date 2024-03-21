@@ -54,13 +54,13 @@ use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
-    check_pox_print_event, generate_pox_clarity_value, get_partial_stacked,
+    check_pox_print_event, generate_pox_clarity_value, get_partial_stacked, get_reward_cycle_total,
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
     PoxPrintFields, StackingStateCheckData,
 };
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
-    POX_3_NAME,
+    PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -88,6 +88,48 @@ const ERR_REUSED_SIGNER_KEY: i128 = 33;
 ///  SortitionDB option-reference. Panics on any errors.
 pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+}
+
+fn make_simple_pox_4_lock(
+    key: &StacksPrivateKey,
+    peer: &mut TestPeer,
+    amount: u128,
+    lock_period: u128,
+) -> StacksTransaction {
+    let addr = key_to_stacks_addr(key);
+    let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+    let signer_pk = StacksPublicKey::from_private(&key);
+    let tip = get_tip(peer.sortdb.as_ref());
+    let next_reward_cycle = peer
+        .config
+        .burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+    let nonce = get_account(peer, &addr.into()).nonce;
+    let auth_id = u128::from(nonce);
+
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &key,
+        next_reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        amount,
+        auth_id,
+    );
+
+    make_pox_4_lockup(
+        key,
+        nonce,
+        amount,
+        &pox_addr,
+        lock_period,
+        &signer_pk,
+        tip.block_height,
+        Some(signature),
+        amount,
+        auth_id,
+    )
 }
 
 pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
@@ -5296,4 +5338,351 @@ pub fn get_last_block_sender_transactions(
             false
         })
         .collect::<Vec<_>>()
+}
+
+/// In this test case, two Stackers, Alice and Bob stack in PoX 4. Alice stacks enough
+///  to qualify for slots, but Bob does not. In PoX-2 and PoX-3, this would result
+///  in an auto unlock, but PoX-4 it should not.
+#[test]
+fn missed_slots_no_unlock() {
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants = None;
+
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+
+    let mut coinbase_nonce = 0;
+
+    let first_v4_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
+        .unwrap()
+        + 1;
+
+    // produce blocks until epoch 2.5
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[7].start_height {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // perform lockups so we can test that pox-4 does not exhibit unlock-on-miss behavior
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let alice_lockup =
+        make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
+
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+
+    let txs = [alice_lockup, bob_lockup];
+    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    // check that the "raw" reward set will contain entries for alice and bob
+    //  for the pox-4 cycles
+    for cycle_number in first_v4_cycle..first_v4_cycle + 6 {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(
+            reward_set_entries.len(),
+            2,
+            "Reward set should contain two entries in cycle {cycle_number}"
+        );
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            bob_address.bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            alice_address.bytes.0.to_vec()
+        );
+    }
+
+    // we'll produce blocks until the next reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(first_v4_cycle) + 1;
+    let auto_unlock_coinbase = height_target - 1 - EMPTY_SORTITIONS;
+
+    // but first, check that bob has locked tokens at (height_target + 1)
+    let bob_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &bob_address.to_account_principal(),
+    );
+    assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward sets for all cycles contain entries for alice and bob still!
+    for cycle_number in first_v4_cycle..(first_v4_cycle + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            bob_address.bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            alice_address.bytes.0.to_vec()
+        );
+    }
+
+    let expected_unlock_height = burnchain.reward_cycle_to_block_height(first_v4_cycle + 6) - 1;
+    // now check that bob has an unlock height of `height_target`
+    let bob_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &bob_address.to_account_principal(),
+    );
+    assert_eq!(bob_bal.unlock_height(), expected_unlock_height);
+    assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
+
+    let alice_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &alice_address.to_account_principal(),
+    );
+    assert_eq!(alice_bal.unlock_height(), expected_unlock_height);
+    assert_eq!(alice_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX * 1024);
+
+    // check that the total reward cycle amounts have not decremented
+    for cycle_number in first_v4_cycle..(first_v4_cycle + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            1025 * POX_THRESHOLD_STEPS_USTX
+        );
+    }
+
+    // check that bob's stacking-state is gone and alice's stacking-state is correct
+    let bob_state = get_stacking_state_pox(
+        &mut peer,
+        &latest_block,
+        &bob_address.to_account_principal(),
+        PoxVersions::Pox4.get_name_str(),
+    )
+    .expect("Bob should have stacking-state entry")
+    .expect_tuple()
+    .unwrap();
+    let reward_indexes_str = bob_state.get("reward-set-indexes").unwrap().to_string();
+    assert_eq!(reward_indexes_str, "(u1 u1 u1 u1 u1 u1)");
+
+    let alice_state = get_stacking_state_pox(
+        &mut peer,
+        &latest_block,
+        &alice_address.to_account_principal(),
+        PoxVersions::Pox4.get_name_str(),
+    )
+    .expect("Alice should have stacking-state entry")
+    .expect_tuple()
+    .unwrap();
+    let reward_indexes_str = alice_state.get("reward-set-indexes").unwrap().to_string();
+    assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
+
+    // check that bob is still locked at next block
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    let bob_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &bob_address.to_account_principal(),
+    );
+    assert_eq!(bob_bal.unlock_height(), expected_unlock_height);
+    assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
+
+    // now let's check some tx receipts
+
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+    let mut coinbase_txs = vec![];
+    let mut reward_cycles_in_2_5 = 0u64;
+
+    for b in blocks.into_iter() {
+        if let Some(ref reward_set_data) = b.reward_set_data {
+            let signers_set = reward_set_data.reward_set.signers.as_ref().unwrap();
+            assert_eq!(signers_set.len(), 1);
+            assert_eq!(
+                StacksPublicKey::from_private(&alice).to_bytes_compressed(),
+                signers_set[0].signing_key.to_vec()
+            );
+            let rewarded_addrs = HashSet::<_>::from_iter(
+                reward_set_data
+                    .reward_set
+                    .rewarded_addresses
+                    .iter()
+                    .map(|a| a.to_burnchain_repr()),
+            );
+            assert_eq!(rewarded_addrs.len(), 1);
+            assert_eq!(
+                reward_set_data.reward_set.rewarded_addresses[0].bytes(),
+                alice_address.bytes.0.to_vec(),
+            );
+            reward_cycles_in_2_5 += 1;
+            eprintln!("{:?}", b.reward_set_data)
+        }
+
+        for (i, r) in b.receipts.into_iter().enumerate() {
+            if i == 0 {
+                coinbase_txs.push(r);
+                continue;
+            }
+            match r.transaction {
+                TransactionOrigin::Stacks(ref t) => {
+                    let addr = t.auth.origin().address_testnet();
+                    if addr == alice_address {
+                        alice_txs.insert(t.auth.get_origin_nonce(), r);
+                    } else if addr == bob_address {
+                        bob_txs.insert(t.auth.get_origin_nonce(), r);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), 1);
+    assert_eq!(bob_txs.len(), 1);
+    // only mined one 2.5 reward cycle, but make sure it was picked up in the events loop above
+    assert_eq!(reward_cycles_in_2_5, 1);
+
+    //  all should have committedd okay
+    assert!(
+        match bob_txs.get(&0).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Bob tx0 should have committed okay"
+    );
+
+    // Check that the event produced by "handle-unlock" has a well-formed print event
+    // and that this event is included as part of the coinbase tx
+    for unlock_coinbase_index in [auto_unlock_coinbase] {
+        // expect the unlock to occur 1 block after the handle-unlock method was invoked.
+        let expected_unlock_height = unlock_coinbase_index + EMPTY_SORTITIONS + 1;
+        let expected_cycle = pox_constants
+            .block_height_to_reward_cycle(0, expected_unlock_height)
+            .unwrap();
+        assert!(
+            coinbase_txs[unlock_coinbase_index as usize].events.is_empty(),
+            "handle-unlock events are coinbase events and there should be no handle-unlock invocation in this test"
+        );
+    }
+}
+
+/// In this test case, we lockup enough to get participation to be non-zero, but not enough to qualify for a reward slot.
+#[test]
+fn no_lockups_2_5() {
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants = None;
+
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+
+    let mut coinbase_nonce = 0;
+
+    let first_v4_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
+        .unwrap()
+        + 1;
+
+    // produce blocks until epoch 2.5
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[7].start_height {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+
+    let txs = [bob_lockup];
+    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    // check that the "raw" reward set will contain an entry for bob
+    for cycle_number in first_v4_cycle..first_v4_cycle + 6 {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(
+            reward_set_entries.len(),
+            1,
+            "Reward set should contain one entry in cycle {cycle_number}"
+        );
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            bob_address.bytes.0.to_vec()
+        );
+    }
+
+    // we'll produce blocks until the next reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(first_v4_cycle + 1) + 1;
+    let auto_unlock_coinbase = height_target - 1 - EMPTY_SORTITIONS;
+
+    // but first, check that bob has locked tokens at (height_target + 1)
+    let bob_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &bob_address.to_account_principal(),
+    );
+    assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let blocks = observer.get_blocks();
+    for b in blocks.into_iter() {
+        if let Some(ref reward_set_data) = b.reward_set_data {
+            assert_eq!(reward_set_data.reward_set.signers, Some(vec![]));
+            assert!(reward_set_data.reward_set.rewarded_addresses.is_empty());
+            eprintln!("{:?}", b.reward_set_data)
+        }
+    }
 }
