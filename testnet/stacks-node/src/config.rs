@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -10,6 +10,8 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use lazy_static::lazy_static;
 use rand::RngCore;
+use serde::Deserialize;
+use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -198,6 +200,74 @@ mod tests {
             Some("password".to_string())
         );
     }
+
+    #[test]
+    fn should_load_affirmation_map() {
+        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 1
+                    affirmation = "{affirmation_string}"
+                "#
+            ))
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
+        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
+        assert_eq!(
+            config.burnchain.affirmation_overrides.get(&1),
+            Some(&affirmation)
+        );
+    }
+
+    #[test]
+    fn should_fail_to_load_invalid_affirmation_map() {
+        let bad_affirmation_string = "bad_map";
+        let file = ConfigFile::from_str(&format!(
+            r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 1
+                    affirmation = "{bad_affirmation_string}"
+                "#
+        ))
+        .expect("Expected to be able to parse config file from string");
+
+        assert!(Config::from_config_file(file).is_err());
+    }
+
+    #[test]
+    fn should_load_empty_affirmation_map() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(r#""#)
+                .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert!(config.burnchain.affirmation_overrides.is_empty());
+    }
+
+    #[test]
+    fn should_include_xenon_default_affirmation_overrides() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+                "#,
+            )
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 3);
+    }
 }
 
 impl ConfigFile {
@@ -223,14 +293,16 @@ impl ConfigFile {
     }
 
     pub fn xenon() -> ConfigFile {
-        let burnchain = BurnchainConfigFile {
+        let mut burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.testnet.stacks.co".to_string()),
             magic_bytes: Some("T2".into()),
             ..BurnchainConfigFile::default()
         };
+
+        burnchain.add_affirmation_overrides_xenon();
 
         let node = NodeConfigFile {
             bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
@@ -1185,6 +1257,7 @@ pub struct BurnchainConfig {
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
+    pub affirmation_overrides: HashMap<u64, AffirmationMap>,
 }
 
 impl BurnchainConfig {
@@ -1220,6 +1293,7 @@ impl BurnchainConfig {
             sunset_end: None,
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
+            affirmation_overrides: HashMap::new(),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1275,6 +1349,12 @@ pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
+pub struct AffirmationOverride {
+    pub reward_cycle: u64,
+    pub affirmation: String,
+}
+
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1304,9 +1384,38 @@ pub struct BurnchainConfigFile {
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
+    pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
 }
 
 impl BurnchainConfigFile {
+    /// Add affirmation overrides required to sync Xenon Testnet node.
+    ///
+    /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
+    /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
+    /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
+    pub fn add_affirmation_overrides_xenon(&mut self) {
+        let default_overrides = vec![
+        AffirmationOverride {
+            reward_cycle: 413,
+            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
+        },
+        AffirmationOverride {
+            reward_cycle: 414,
+            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa".to_string()
+        },
+        AffirmationOverride {
+            reward_cycle: 415,
+            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
+        }];
+        if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
+            for affirmation in default_overrides {
+                affirmation_overrides.push(affirmation);
+            }
+        } else {
+            self.affirmation_overrides = Some(default_overrides);
+        };
+    }
+
     fn into_config_default(
         mut self,
         default_burnchain_config: BurnchainConfig,
@@ -1315,6 +1424,7 @@ impl BurnchainConfigFile {
             if self.magic_bytes.is_none() {
                 self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
             }
+            self.add_affirmation_overrides_xenon();
         }
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
@@ -1330,6 +1440,19 @@ impl BurnchainConfigFile {
                     "Attempted to run mainnet node with bad magic bytes '{}'",
                     self.magic_bytes.as_ref().unwrap()
                 ));
+            }
+        }
+
+        let mut affirmation_overrides = HashMap::new();
+        if let Some(aos) = self.affirmation_overrides {
+            for ao in aos {
+                let Some(affirmation_map) = AffirmationMap::decode(&ao.affirmation) else {
+                    return Err(format!(
+                        "Invalid affirmation override for reward cycle {}: {}",
+                        ao.reward_cycle, ao.affirmation
+                    ));
+                };
+                affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
             }
         }
 
@@ -1422,6 +1545,7 @@ impl BurnchainConfigFile {
             pox_prepare_length: self
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
+            affirmation_overrides,
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
