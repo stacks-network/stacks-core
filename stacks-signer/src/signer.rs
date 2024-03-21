@@ -427,7 +427,7 @@ impl Signer {
                 block_info.valid = Some(is_valid);
                 self.signer_db
                     .insert_block(self.reward_cycle, &block_info)
-                    .expect(&format!("{self}: Failed to insert block in DB"));
+                    .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
                     &block_info.block.block_id(),
@@ -504,7 +504,7 @@ impl Signer {
         }
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
-            .expect(&format!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
     /// Handle signer messages submitted to signers stackerdb
@@ -570,7 +570,7 @@ impl Signer {
                         });
                     // Submit the block for validation
                     stacks_client
-                        .submit_block_for_validation(proposal.block.clone())
+                        .submit_block_for_validation_with_retry(proposal.block.clone())
                         .unwrap_or_else(|e| {
                             warn!("{self}: Failed to submit block for validation: {e:?}");
                         });
@@ -640,7 +640,7 @@ impl Signer {
         match self
             .signer_db
             .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
-            .expect(&format!("{self}: Failed to connect to DB"))
+            .unwrap_or_else(|_| panic!("{self}: Failed to connect to DB"))
             .map(|b| b.vote)
         {
             Some(Some(vote)) => {
@@ -702,9 +702,9 @@ impl Signer {
                 let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
                 self.signer_db
                     .insert_block(self.reward_cycle, &block_info)
-                    .expect(&format!("{self}: Failed to insert block in DB"));
+                    .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 stacks_client
-                    .submit_block_for_validation(block)
+                    .submit_block_for_validation_with_retry(block)
                     .unwrap_or_else(|e| {
                         warn!("{self}: Failed to submit block for validation: {e:?}",);
                     });
@@ -722,7 +722,7 @@ impl Signer {
         self.determine_vote(&mut block_info, nonce_request);
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
-            .expect(&format!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
         true
     }
 
@@ -988,11 +988,7 @@ impl Signer {
     ) -> std::collections::HashMap<StacksAddress, u64> {
         let mut account_nonces = std::collections::HashMap::with_capacity(signer_addresses.len());
         for address in signer_addresses {
-            let Ok(account_nonce) = retry_with_exponential_backoff(|| {
-                stacks_client
-                    .get_account_nonce(address)
-                    .map_err(backoff::Error::transient)
-            }) else {
+            let Ok(account_nonce) = stacks_client.get_account_nonce(address) else {
                 warn!("{self}: Unable to get account nonce for address: {address}.");
                 continue;
             };
@@ -1021,7 +1017,7 @@ impl Signer {
             debug!("{self}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.");
         } else if epoch == StacksEpochId::Epoch25 {
             debug!("{self}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.");
-            stacks_client.submit_transaction(&new_transaction)?;
+            stacks_client.submit_transaction_with_retry(&new_transaction)?;
             info!("{self}: Submitted DKG vote transaction ({txid:?}) to the mempool");
         } else {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
@@ -1082,7 +1078,7 @@ impl Signer {
             let Some(block_info) = self
                 .signer_db
                 .block_lookup(self.reward_cycle, &block_vote.signer_signature_hash)
-                .expect(&format!("{self}: Failed to connect to signer DB"))
+                .unwrap_or_else(|_| panic!("{self}: Failed to connect to signer DB"))
             else {
                 debug!(
                     "{self}: Received a signature result for a block we have not seen before. Ignoring..."
