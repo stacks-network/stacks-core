@@ -3700,7 +3700,7 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
 
                     let mut miner_epoch_info = builder
-                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                         .unwrap();
                     let mut epoch = builder
                         .epoch_begin(&sort_iconn, &mut miner_epoch_info)

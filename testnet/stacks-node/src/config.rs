@@ -1,6 +1,7 @@
 use std::collections::HashSet;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
@@ -1111,6 +1112,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
             },
             miner_status,
+            confirm_microblocks: true,
         }
     }
 
@@ -1764,6 +1766,18 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
+    /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
+    pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
+        let rpc_port = SocketAddr::from_str(&self.rpc_bind)
+            .or_else(|e| {
+                error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
+                Err(())
+            })
+            .ok()?
+            .port();
+        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
+    }
+
     pub fn add_signers_stackerdbs(&mut self, is_mainnet: bool) {
         for signer_set in 0..2 {
             for message_id in 0..SIGNER_SLOTS_PER_USER {

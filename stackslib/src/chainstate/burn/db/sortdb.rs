@@ -319,6 +319,19 @@ impl FromRow<StackStxOp> for StackStxOp {
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
+        let signing_key_str_opt: Option<String> = row.get("signer_key")?;
+        let signer_key = match signing_key_str_opt {
+            Some(key_str) => serde_json::from_str(&key_str).ok(),
+            None => None,
+        };
+        let max_amount_str_opt: Option<String> = row.get("max_amount")?;
+        let max_amount = match max_amount_str_opt {
+            Some(max_amount_str) => u128::from_str_radix(&max_amount_str, 10)
+                .map_err(|_| db_error::ParseError)
+                .ok(),
+            None => None,
+        };
+        let auth_id = row.get("auth_id")?;
 
         Ok(StackStxOp {
             txid,
@@ -329,6 +342,9 @@ impl FromRow<StackStxOp> for StackStxOp {
             reward_addr,
             stacked_ustx,
             num_cycles,
+            signer_key,
+            max_amount,
+            auth_id,
         })
     }
 }
@@ -702,6 +718,9 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
+    r#"ALTER TABLE stack_stx ADD signer_key TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD max_amount TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD auth_id INTEGER DEFAULT NULL;"#,
     r#"
     -- table definition for `vote-for-aggregate-key` burn op
     CREATE TABLE vote_for_aggregate_key (
@@ -3256,6 +3275,54 @@ impl SortitionDB {
         Ok(())
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    ///  reward set (if it exists) for the active reward cycle during `tip`
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
+            error!(
+                "Could not find snapshot for sortition while fetching reward set";
+                "tip_sortition_id" => %tip,
+            );
+            db_error::NotFoundError
+        })?;
+
+        let reward_cycle_id = self
+            .pox_constants
+            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
+            .expect("FATAL: stored snapshot with block height < first_block_height");
+
+        let prepare_phase_start = self
+            .pox_constants
+            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
+            .saturating_sub(self.pox_constants.prepare_length.into());
+
+        let first_sortition = get_ancestor_sort_id(
+            &self.index_conn(),
+            prepare_phase_start,
+            &tip_sn.sortition_id,
+        )?
+        .ok_or_else(|| {
+            error!(
+                "Could not find prepare phase start ancestor while fetching reward set";
+                "tip_sortition_id" => %tip,
+                "reward_cycle_id" => reward_cycle_id,
+                "prepare_phase_start_height" => prepare_phase_start
+            );
+            db_error::NotFoundError
+        })?;
+
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+    }
+
     /// Get a pre-processed reawrd set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
     pub fn get_preprocessed_reward_set(
@@ -4742,6 +4809,18 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
+    /// Are microblocks disabled by Epoch 2.5 at the height specified
+    /// in `at_burn_height`?
+    pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
+        match Self::get_stacks_epoch_by_epoch_id(conn, &StacksEpochId::Epoch25)? {
+            Some(epoch_25) => Ok(at_burn_height >= epoch_25.start_height),
+            None => {
+                // Epoch 2.5 is not defined, so it cannot disable microblocks
+                Ok(false)
+            }
+        }
+    }
+
     /// Get the last reward cycle in epoch 2.05
     pub fn get_last_epoch_2_05_reward_cycle(&self) -> Result<u64, db_error> {
         Self::static_get_last_epoch_2_05_reward_cycle(
@@ -5095,9 +5174,12 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
+            &serde_json::to_string(&op.signer_key).unwrap(),
+            &serde_json::to_string(&op.max_amount).unwrap(),
+            &op.auth_id,
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", args)?;
 
         Ok(())
     }
@@ -10094,6 +10176,9 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0u32),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10186,6 +10271,9 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

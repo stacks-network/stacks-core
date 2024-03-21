@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
 use clarity::vm::ast::ASTRules;
@@ -90,7 +90,7 @@ use crate::clarity_vm::clarity::{
 };
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
-use crate::net::stackerdb::StackerDBConfig;
+use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
@@ -3249,13 +3249,13 @@ impl NakamotoChainState {
         let signers = miner_key_hash160s
             .into_iter()
             .map(|hash160|
-                // each miner gets one slot
+                // each miner gets two slots
                 (
                     StacksAddress {
                         version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
                         bytes: hash160
                     },
-                    1
+                    MINER_SLOT_COUNT,
                 ))
             .collect();
 
@@ -3269,36 +3269,34 @@ impl NakamotoChainState {
         })
     }
 
-    /// Get the slot number for the given miner's public key.
-    /// Returns Some(u32) if the miner is in the StackerDB config.
+    /// Get the slot range for the given miner's public key.
+    /// Returns Some(Range<u32>) if the miner is in the StackerDB config, where the range of slots for the miner is [start, end).
+    ///   i.e., inclusive of `start`, exclusive of `end`.
     /// Returns None if the miner is not in the StackerDB config.
     /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
     pub fn get_miner_slot(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         miner_pubkey: &StacksPublicKey,
-    ) -> Result<Option<u32>, ChainstateError> {
+    ) -> Result<Option<Range<u32>>, ChainstateError> {
         let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
         let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
 
         // find out which slot we're in
-        let Some(slot_id_res) =
-            stackerdb_config
-                .signers
-                .iter()
-                .enumerate()
-                .find_map(|(i, (addr, _))| {
-                    if addr.bytes == miner_hash160 {
-                        Some(u32::try_from(i).map_err(|_| {
-                            CodecError::OverflowError(
-                                "stackerdb config slot ID cannot fit into u32".into(),
-                            )
-                        }))
-                    } else {
-                        None
-                    }
-                })
-        else {
+        let mut slot_index = 0;
+        let mut slot_id_result = None;
+        for (addr, slot_count) in stackerdb_config.signers.iter() {
+            if addr.bytes == miner_hash160 {
+                slot_id_result = Some(Range {
+                    start: slot_index,
+                    end: slot_index + slot_count,
+                });
+                break;
+            }
+            slot_index += slot_count;
+        }
+
+        let Some(slot_id_range) = slot_id_result else {
             // miner key does not match any slot
             warn!("Miner is not in the miners StackerDB config";
                   "miner" => %miner_hash160,
@@ -3306,7 +3304,7 @@ impl NakamotoChainState {
 
             return Ok(None);
         };
-        Ok(Some(slot_id_res?))
+        Ok(Some(slot_id_range))
     }
 
     /// Boot code instantiation for the aggregate public key.
