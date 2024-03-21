@@ -943,7 +943,8 @@ impl<'a> BurnchainDBTransaction<'a> {
         affirmation_map: AffirmationMap,
     ) -> Result<(), DBError> {
         assert_eq!((affirmation_map.len() as u64) + 1, reward_cycle);
-        let qry = "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
+        let qry =
+            "INSERT OR REPLACE INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?, &affirmation_map.encode()];
 
         let mut stmt = self.sql_tx.prepare(qry)?;
