@@ -194,6 +194,12 @@ impl StackerDBChunkData {
         Ok(())
     }
 
+    pub fn recover_pk(&self) -> Result<StacksPublicKey, Error> {
+        let digest = self.get_slot_metadata().auth_digest();
+        StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.sig)
+            .map_err(|ve| Error::VerifyingError(ve.to_string()))
+    }
+
     /// Verify that this chunk was signed by the given
     /// public key hash (`addr`).  Only fails if the underlying signing library fails.
     pub fn verify(&self, addr: &StacksAddress) -> Result<bool, Error> {

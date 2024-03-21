@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use hashbrown::{HashMap, HashSet};
+use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -28,9 +28,7 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
-use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::PublicKeys;
 
 use crate::signer::SignerSlotID;
 
@@ -112,22 +110,6 @@ impl Network {
     }
 }
 
-/// Parsed Reward Set
-#[derive(Debug, Clone)]
-pub struct ParsedSignerEntries {
-    /// The signer addresses mapped to signer id
-    pub signer_ids: HashMap<StacksAddress, u32>,
-    /// The signer ids mapped to public key and key ids mapped to public keys
-    pub public_keys: PublicKeys,
-    /// The signer ids mapped to key ids
-    pub signer_key_ids: HashMap<u32, Vec<u32>>,
-    /// The signer ids mapped to wsts public keys
-    pub signer_public_keys: HashMap<u32, Point>,
-    /// The signer ids mapped to a hash set of key ids
-    /// The wsts coordinator uses a hash set for each signer since it needs to do lots of lookups
-    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
-}
-
 /// The Configuration info needed for an individual signer per reward cycle
 #[derive(Debug, Clone)]
 pub struct SignerConfig {
@@ -140,7 +122,7 @@ pub struct SignerConfig {
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
-    pub signer_entries: ParsedSignerEntries,
+    pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication
@@ -361,7 +343,13 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     let mut port = 30000;
-    for stacks_private_key in stacks_private_keys {
+    let run_stamp = rand::random::<u16>();
+    let db_dir = format!(
+        "/tmp/stacks-node-tests/integrations-signers/{:#X}",
+        run_stamp,
+    );
+    fs::create_dir_all(&db_dir).unwrap();
+    for (ix, stacks_private_key) in stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
         port += 1;
         let stacks_private_key = stacks_private_key.to_hex();
@@ -372,7 +360,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
-db_path = ":memory:"
+db_path = "{db_dir}/{ix}.sqlite"
 "#
         );
 

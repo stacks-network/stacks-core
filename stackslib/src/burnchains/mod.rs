@@ -534,6 +534,11 @@ impl PoxConstants {
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
     }
 
+    pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {
+        let effective_height = burn_height.checked_sub(first_block_height)?;
+        Some(effective_height % u64::from(self.reward_cycle_length))
+    }
+
     pub fn block_height_to_reward_cycle(
         &self,
         first_block_height: u64,

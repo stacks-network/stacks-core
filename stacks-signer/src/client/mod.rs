@@ -121,6 +121,7 @@ pub(crate) mod tests {
     use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
+    use libsigner::SignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -135,7 +136,7 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig};
     use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
@@ -229,7 +230,7 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
-    /// Build a response to get_pox_data where it returns a specific reward cycle id and block height
+    /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
     pub fn build_get_pox_data_response(
         reward_cycle: Option<u64>,
         prepare_phase_start_height: Option<u64>,
@@ -345,7 +346,7 @@ pub(crate) mod tests {
         build_read_only_response(&clarity_value)
     }
 
-    /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
+    /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
         pox_consensus_hash: Option<ConsensusHash>,
@@ -496,7 +497,7 @@ pub(crate) mod tests {
             signer_id: 0,
             signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            signer_entries: ParsedSignerEntries {
+            signer_entries: SignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,

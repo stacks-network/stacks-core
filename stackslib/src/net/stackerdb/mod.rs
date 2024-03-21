@@ -151,6 +151,7 @@ pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
 
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
+pub const MINER_SLOT_COUNT: u32 = 2;
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
