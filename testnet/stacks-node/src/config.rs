@@ -625,9 +625,7 @@ impl Config {
         }
 
         // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
-        if self.burnchain.mode == "nakamoto-neon" {
-            self.check_nakamoto_config(&burnchain);
-        }
+        self.check_nakamoto_config(&burnchain);
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
@@ -941,10 +939,8 @@ impl Config {
             node.require_affirmed_anchor_blocks = false;
         }
 
-        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
+        if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
-        }
-        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
             node.add_signers_stackerdbs(is_mainnet);
         }
 
