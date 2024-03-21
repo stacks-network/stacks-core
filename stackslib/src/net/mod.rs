@@ -1867,6 +1867,7 @@ pub mod test {
         pub winner_txid: Txid,
         pub matured_rewards: Vec<MinerReward>,
         pub matured_rewards_info: Option<MinerRewardInfo>,
+        pub reward_set_data: Option<RewardSetData>,
     }
 
     pub struct TestEventObserver {
@@ -1912,6 +1913,7 @@ pub mod test {
                 winner_txid,
                 matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
+                reward_set_data: reward_set_data.clone(),
             })
         }
 
