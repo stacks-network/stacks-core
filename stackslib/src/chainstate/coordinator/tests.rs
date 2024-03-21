@@ -38,6 +38,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
@@ -2885,6 +2886,9 @@ fn test_pox_btc_ops() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 4,
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0u32),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -5078,6 +5082,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 1,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -5093,6 +5100,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 2,
                 num_cycles: 5,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -5106,6 +5116,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 4,
                 num_cycles: 1,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
