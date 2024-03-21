@@ -273,10 +273,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .to_socket_addrs()
             .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
-            .ok_or_else(|| ConfigError::BadField(
-                "endpoint".to_string(),
-                raw_data.endpoint.clone(),
-            ))?;
+            .ok_or_else(|| {
+                ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
+            })?;
 
         let stacks_private_key =
             StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {

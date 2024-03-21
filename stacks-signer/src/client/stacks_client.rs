@@ -264,7 +264,10 @@ impl StacksClient {
             function_args,
         )?;
         let inner_data = value.expect_optional()?;
-        inner_data.map_or_else(|| Ok(None), |key_value| self.parse_aggregate_public_key(key_value))
+        inner_data.map_or_else(
+            || Ok(None),
+            |key_value| self.parse_aggregate_public_key(key_value),
+        )
     }
 
     /// Retrieve the current account nonce for the provided address
