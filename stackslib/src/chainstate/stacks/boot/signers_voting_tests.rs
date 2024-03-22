@@ -2202,7 +2202,7 @@ fn nakamoto_tenure(
     blocks_and_sizes
 }
 
-fn make_dummy_tx(
+pub fn make_dummy_tx(
     peer: &mut TestPeer,
     private_key: &StacksPrivateKey,
     nonce: &mut u64,
