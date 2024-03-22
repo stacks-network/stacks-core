@@ -329,6 +329,7 @@ fn handle_generate_stacking_signature(
             "maxAmount": format!("{}", args.max_amount),
             "period": args.period,
             "poxAddress": args.pox_address.to_b58(),
+            "method": args.method.topic().to_string(),
         }))
         .expect("Failed to serialize JSON")
     } else {
