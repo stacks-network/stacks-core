@@ -31,7 +31,9 @@ use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
+use clarity::util::hash::to_hex;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use reqwest::header::AUTHORIZATION;
@@ -194,6 +196,40 @@ impl StacksClient {
         } else {
             Ok(None)
         }
+    }
+
+    /// Retrieve the medium estimated transaction fee in uSTX from the stacks node for the given transaction
+    pub fn get_medium_estimated_fee_ustx(
+        &self,
+        tx: &StacksTransaction,
+    ) -> Result<u64, ClientError> {
+        let request = FeeRateEstimateRequestBody {
+            estimated_len: Some(tx.tx_len()),
+            transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
+        };
+        let send_request = || {
+            self.stacks_node_client
+                .post(self.fees_transaction_path())
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let fee_estimate_response = response.json::<RPCFeeEstimateResponse>()?;
+        let fee = fee_estimate_response
+            .estimations
+            .get(1)
+            .map(|estimate| estimate.fee)
+            .ok_or_else(|| {
+                ClientError::UnexpectedResponseFormat(
+                    "RPCFeeEstimateResponse missing medium fee estimate".into(),
+                )
+            })?;
+        Ok(fee)
     }
 
     /// Determine the stacks node current epoch
@@ -560,6 +596,10 @@ impl StacksClient {
         format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
     }
 
+    fn fees_transaction_path(&self) -> String {
+        format!("{}/v2/fees/transaction", self.http_origin)
+    }
+
     /// Helper function to create a stacks transaction for a modifying contract call
     #[allow(clippy::too_many_arguments)]
     pub fn build_signed_contract_call_transaction(
@@ -634,7 +674,8 @@ mod tests {
     use super::*;
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
+        build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
+        build_get_peer_info_response, build_get_pox_data_response,
         build_get_vote_for_aggregate_key_response, build_read_only_response, write_response,
         MockServerClient,
     };
@@ -1184,5 +1225,29 @@ mod tests {
         });
         write_response(mock.server, key_response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), None);
+    }
+
+    #[test]
+    fn get_medium_estimated_fee_ustx_should_succeed() {
+        let mock = MockServerClient::new();
+        let private_key = StacksPrivateKey::new();
+        let unsigned_tx = StacksClient::build_signed_contract_call_transaction(
+            &mock.client.stacks_address,
+            ContractName::from("contract-name"),
+            ClarityName::from("function-name"),
+            &[],
+            &private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            10_000,
+            0,
+        )
+        .unwrap();
+
+        let estimate = thread_rng().next_u64();
+        let response = build_get_medium_estimated_fee_ustx_response(estimate).0;
+        let h = spawn(move || mock.client.get_medium_estimated_fee_ustx(&unsigned_tx));
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), estimate);
     }
 }
