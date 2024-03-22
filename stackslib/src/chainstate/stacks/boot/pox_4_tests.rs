@@ -6420,15 +6420,20 @@ fn test_solo_stacking() {
     let bob_stack = make_pox_4_lockup(
         bob_private_key, 
         bob_nonce_stack,
-        min_ustx,
+        min_ustx*2,
         &bob_pox_addr,
         lock_period,
-        &bob_public_key, 
+        &bob_signing_key, 
         block_height, 
         None, 
         u128::MAX, 
-        2);
+        3);
 
+    // Print all of bobs nonces
+    println!("Bob Nonces: {:?}", bob_nonce_err);
+    println!("Bob Nonces: {:?}", bob_nonce_auth);
+    println!("Bob Nonces: {:?}", bob_nonce_stack);
+    coinbase_nonce += 1;
     // Stacking Block
     let latest_block = peer.tenure_with_txs(&[alice_stack_err, alice_stack, bob_stack], &mut coinbase_nonce);
     // Get transaction results
@@ -6439,8 +6444,8 @@ fn test_solo_stacking() {
     println!("Alice Stack Error Result: {:?}", alice_stack_err_result);
     let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
     println!("Bob TX: {:?}", bob_tx);
-    let bob_stack_result = bob_tx.get(bob_nonce_stack as usize).unwrap().result.clone();
-    //println!("Bob Stack Result: {:?}", bob_stack_result);
+    let bob_stack_result = bob_tx.get(2 as usize);
+    println!("Bob Stack Result Fuck: {:?}", bob_stack_result);
 
     // Advance to next reward cycle
     for i in 0..3 {
