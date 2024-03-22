@@ -469,8 +469,8 @@ impl PoxConstants {
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,
-            1,
-            1,
+            3,
+            2,
             3333333333333333,
             1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,

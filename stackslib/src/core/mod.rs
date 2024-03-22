@@ -443,13 +443,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6000,
-            end_height: 7000,
+            end_height: 7001,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 7000,
+            start_height: 7001,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
