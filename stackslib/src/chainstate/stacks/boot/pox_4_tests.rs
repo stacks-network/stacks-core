@@ -58,6 +58,7 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
     PoxPrintFields, StackingStateCheckData,
 };
+use crate::chainstate::stacks::boot::signers_voting_tests::make_dummy_tx;
 use crate::chainstate::stacks::boot::{
     PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_NAME, POX_3_NAME,
@@ -5074,6 +5075,165 @@ fn delegate_stack_increase() {
     assert_eq!(pox_addr, reward_entry.reward_address);
     assert_eq!(min_ustx * 2, reward_entry.amount_stacked);
     assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
+}
+
+// In this test two solo stacker-signers Alice & Bob sign & stack
+//  for one tenure. Alice provides a signature, Bob uses
+//  'set-signer-key-authorizations' to authorize
+#[test]
+fn test_solo_stacking() {
+    let lock_period = 1;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) = prepare_pox4_test(function_name!(), Some(&observer));
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let mut coinbase_nonce = coinbase_nonce;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    // Print current reward cycle
+    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+
+    // Alice Setup
+    let mut alice_nonce = 0;
+    let alice_private_key = &keys[0];
+    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
+    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
+    let alice_address = key_to_stacks_addr(alice_private_key);
+    let alice_pox_addr = pox_addr_from(&alice_private_key);
+    let alice_signature = make_signer_key_signature(
+        &alice_pox_addr,
+        &alice_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let alice_signature_err = make_signer_key_signature(
+        &alice_pox_addr,
+        &alice_private_key,
+        current_reward_cycle - 1,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        100,
+        2,
+    );
+
+    // print signature
+    println!("Alice Signature: {:?}", alice_signature);
+
+    // Bob Setup
+    let mut bob_nonce = 0;
+    let bob_private_key = &keys[1];
+    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
+    let bob_address = key_to_stacks_addr(bob_private_key);
+    let bob_pox_addr = pox_addr_from(&bob_private_key);
+    let bob_authorization_low = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &bob_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        bob_nonce,
+        Some(&bob_private_key),
+        100,
+        2,
+    );
+    let bob_authorization = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &bob_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        bob_nonce,
+        Some(&bob_private_key),
+        u128::MAX,
+        2,
+    );
+
+    // Prepare Block (create approval)
+    let latest_block = peer.tenure_with_txs(&[bob_authorization], &mut coinbase_nonce);
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    let bob_authorization_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+
+    // Alice stacks
+    let alice_stack_nonce = alice_nonce;
+    let alice_stack = make_pox_4_lockup(
+        alice_private_key, 
+        alice_nonce, 
+        min_ustx*2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key, 
+        block_height, 
+        Some(alice_signature), 
+        u128::MAX, 
+        1);
+
+    let alice_err_nonce  = alice_stack_nonce + 1;
+    let alice_stack_err = make_pox_4_lockup(
+        alice_private_key, 
+        alice_err_nonce, 
+        min_ustx*2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key, 
+        block_height, 
+        Some(alice_signature_err), 
+        u128::MAX, 
+        1);
+    
+    // Bob stacks
+    bob_nonce += 1;
+    let bob_stack = make_pox_4_lockup(
+        bob_private_key, 
+        bob_nonce,
+        min_ustx,
+        &bob_pox_addr,
+        1,
+        &bob_public_key, 
+        block_height, 
+        None, 
+        min_ustx, 
+        2);
+    
+
+    // print bob authorization result
+    println!("Bob Authorization Result: {:?}", bob_authorization_result);
+
+    // Stacking Block
+    let latest_block = peer.tenure_with_txs(&[alice_stack, alice_stack_err], &mut coinbase_nonce);
+    // Get transaction results
+    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    let alice_stack_result = alice_tx.get(alice_stack_nonce as usize).unwrap().result.clone();
+    let alice_stack_err = alice_tx.get(alice_err_nonce as usize).unwrap().result.clone();
+    println!("Alice Stack Result: {:?}", alice_stack_result);
+    println!("Alice Stack Error Result: {:?}", alice_stack_err);
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    //let bob_stack_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+    //println!("Bob Stack Result: {:?}", bob_stack_result);
+
+    // Advance to next reward cycle
+    for i in 0..3 {
+        alice_nonce += 1;
+        let dummy_tx = make_dummy_tx(&mut peer, &alice_private_key, &mut alice_nonce);
+        coinbase_nonce += 1;
+        let dummy_block = peer.tenure_with_txs(&[dummy_tx], &mut coinbase_nonce);
+    }
+
+    let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    // Print current reward cycle
+    println!("Later Reward Cycle: {:?}", next_reward_cycle);
+
+    // let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
+    // let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
+    // let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
+    // let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
+
+    
 }
 
 pub fn get_stacking_state_pox_4(
