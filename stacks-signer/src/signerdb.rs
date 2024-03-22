@@ -252,13 +252,13 @@ mod tests {
 
     fn create_signer_state(id: u32) -> SignerState {
         let ps1 = PartyState {
-            polynomial: Polynomial::new(vec![1.into(), 2.into(), 3.into()]),
+            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
             private_keys: vec![(1, 45.into()), (2, 56.into())],
             nonce: Nonce::zero(),
         };
 
         let ps2 = PartyState {
-            polynomial: Polynomial::new(vec![1.into(), 2.into(), 3.into()]),
+            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
             private_keys: vec![(1, 45.into()), (2, 56.into())],
             nonce: Nonce::zero(),
         };
