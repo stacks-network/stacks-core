@@ -1,5 +1,5 @@
 import { describe, it } from "vitest";
-import { initSimnet, Simnet } from "@hirosystems/clarinet-sdk";
+import { initSimnet } from "@hirosystems/clarinet-sdk";
 import { Real, Stub, StxAddress, Wallet } from "./pox_CommandModel.ts";
 
 import {
@@ -8,9 +8,7 @@ import {
 } from "@stacks/encryption";
 import { StacksDevnet } from "@stacks/network";
 import {
-  Cl,
   createStacksPrivateKey,
-  cvToValue,
   getAddressFromPrivateKey,
   TransactionVersion,
 } from "@stacks/transactions";
@@ -18,36 +16,6 @@ import { StackingClient } from "@stacks/stacking";
 
 import fc from "fast-check";
 import { PoxCommands } from "./pox_Commands.ts";
-
-export const currentCycle = (network: Simnet) =>
-  Number(cvToValue(
-    network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "current-pox-reward-cycle",
-      [],
-      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-    ).result,
-  ));
-
-export const currentCycleFirstBlock = (network: Simnet) =>
-  Number(cvToValue(
-    network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "reward-cycle-to-burn-height",
-      [Cl.uint(currentCycle(network))],
-      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-    ).result,
-  ));
-
-export const nextCycleFirstBlock = (network: Simnet) =>
-  Number(cvToValue(
-    network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "reward-cycle-to-burn-height",
-      [Cl.uint(currentCycle(network) + 1)],
-      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-    ).result,
-  ));
 
 describe("PoX-4 invariant tests", () => {
   it("statefully does solo stacking with a signature", async () => {
