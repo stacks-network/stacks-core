@@ -67,6 +67,7 @@ describe("PoX-4 invariant tests", () => {
         hasPoolMembers: [],
         delegatedTo: "",
         delegatedMaxAmount: 0,
+        delegatedUntilBurnHt: 0,
         amountLocked: 0,
         amountUnlocked: initialUstxBalance,
         unlockHeight: 0,

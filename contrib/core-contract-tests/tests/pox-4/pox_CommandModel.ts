@@ -28,6 +28,7 @@ export type Wallet = {
   hasPoolMembers: StxAddress[];
   delegatedTo: StxAddress;
   delegatedMaxAmount: number;
+  delegatedUntilBurnHt: number;
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;
