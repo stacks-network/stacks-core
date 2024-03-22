@@ -512,6 +512,8 @@ impl Config {
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch10)
             {
+                // Epoch 1.0 start height can be equal to the first block height iff epoch 2.0
+                // start height is also equal to the first block height.
                 assert!(
                     epoch.start_height <= burnchain.first_block_height,
                     "FATAL: Epoch 1.0 start height must be at or before the first block height"
