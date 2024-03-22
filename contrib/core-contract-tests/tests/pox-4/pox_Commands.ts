@@ -6,7 +6,7 @@ import { StackStxCommand } from "./pox_StackStxCommand";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
-import { currentCycleFirstBlock, nextCycleFirstBlock } from "./pox-4.stateful-prop.test";
+import { Cl, cvToValue } from "@stacks/transactions";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>, network: Simnet,
@@ -111,3 +111,33 @@ export function PoxCommands(
   // More on cmds: https://github.com/dubzzz/fast-check/discussions/3026
   return fc.commands(cmds, { size: "large" });
 }
+
+const currentCycle = (network: Simnet) =>
+  Number(cvToValue(
+    network.callReadOnlyFn(
+      "ST000000000000000000002AMW42H.pox-4",
+      "current-pox-reward-cycle",
+      [],
+      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    ).result,
+  ));
+
+const currentCycleFirstBlock = (network: Simnet) =>
+  Number(cvToValue(
+    network.callReadOnlyFn(
+      "ST000000000000000000002AMW42H.pox-4",
+      "reward-cycle-to-burn-height",
+      [Cl.uint(currentCycle(network))],
+      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    ).result,
+  ));
+
+const nextCycleFirstBlock = (network: Simnet) =>
+  Number(cvToValue(
+    network.callReadOnlyFn(
+      "ST000000000000000000002AMW42H.pox-4",
+      "reward-cycle-to-burn-height",
+      [Cl.uint(currentCycle(network) + 1)],
+      "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    ).result,
+  ));
