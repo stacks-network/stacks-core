@@ -1029,19 +1029,26 @@ impl Signer {
             .unwrap_or(StacksEpochId::Epoch24);
         let tx_fee = if epoch < StacksEpochId::Epoch30 {
             debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
-            Some(self.tx_fee_ustx)
+            self.tx_fee_ustx
         } else {
-            None
+            0
         };
-        match stacks_client.build_vote_for_aggregate_public_key(
+        match stacks_client.build_unsigned_vote_for_aggregate_public_key(
             self.stackerdb.get_signer_slot_id().0,
             self.coordinator.current_dkg_id,
             *dkg_public_key,
             self.reward_cycle,
-            tx_fee,
             next_nonce,
         ) {
-            Ok(new_transaction) => {
+            Ok(mut unsigned_tx) => {
+                unsigned_tx.set_tx_fee(tx_fee);
+                let new_transaction = match stacks_client.sign_transaction(unsigned_tx) {
+                    Ok(tx) => tx,
+                    Err(e) => {
+                        warn!("{self}: Failed to sign DKG public key vote transaction: {e:?}.");
+                        return;
+                    }
+                };
                 if let Err(e) = self.broadcast_dkg_vote(
                     stacks_client,
                     epoch,
