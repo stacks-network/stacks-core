@@ -185,7 +185,7 @@ impl BlockMinerThread {
                 }
 
                 let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
-                    &new_block,
+                    &mut new_block,
                     &mut stackerdbs,
                     &mut attempts,
                 ) {
@@ -238,7 +238,7 @@ impl BlockMinerThread {
 
     fn coordinate_signature(
         &mut self,
-        new_block: &NakamotoBlock,
+        new_block: &mut NakamotoBlock,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(Point, ThresholdSignature), NakamotoNodeError> {
@@ -809,6 +809,9 @@ impl BlockMinerThread {
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
+        let signer_bitvec_len =
+            &burn_db.get_preprocessed_reward_set_size(&self.burn_block.sortition_id);
+
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
@@ -827,6 +830,7 @@ impl BlockMinerThread {
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
+            signer_bitvec_len.unwrap_or(1),
         )
         .map_err(|e| {
             if !matches!(

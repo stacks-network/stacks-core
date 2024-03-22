@@ -30,6 +30,7 @@ use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::boot::boot_code_id;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use wsts::common::PolyCommitment;
@@ -62,6 +63,7 @@ pub struct SignCoordinator {
     is_mainnet: bool,
     miners_session: StackerDBSession,
     signing_round_timeout: Duration,
+    pub next_signer_bitvec: BitVec<4000>,
 }
 
 pub struct NakamotoSigningParams {
@@ -209,6 +211,15 @@ impl SignCoordinator {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
+        let next_signer_bitvec: BitVec<4000> = BitVec::zeros(
+            reward_set_signers
+                .clone()
+                .len()
+                .try_into()
+                .expect("FATAL: signer set length greater than u16"),
+        )
+        .expect("FATAL: unable to construct initial bitvec for signer set");
+
         let NakamotoSigningParams {
             num_signers,
             num_keys,
@@ -264,6 +275,7 @@ impl SignCoordinator {
             is_mainnet,
             miners_session,
             signing_round_timeout: config.miner.wait_on_signers.clone(),
+            next_signer_bitvec,
         })
     }
 
@@ -386,6 +398,22 @@ impl SignCoordinator {
                 debug!("Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
                 continue;
             }
+            let modified_slots = &event.modified_slots;
+
+            // Update `next_signers_bitvec` with the slots that were modified in the event
+            modified_slots.iter().for_each(|chunk| {
+                if let Ok(slot_id) = chunk.slot_id.try_into() {
+                    match &self.next_signer_bitvec.set(slot_id, true) {
+                        Err(e) => {
+                            warn!("Failed to set bitvec for next signer: {e:?}");
+                        }
+                        _ => (),
+                    };
+                } else {
+                    error!("FATAL: slot_id greater than u16, which should never happen.");
+                }
+            });
+
             let Ok(signer_event) = SignerEvent::try_from(event).map_err(|e| {
                 warn!("Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
             }) else {
@@ -456,6 +484,10 @@ impl SignCoordinator {
                                 "Signature failed to validate over the expected block".into(),
                             ));
                         } else {
+                            info!(
+                                "SignCoordinator: Generated a valid signature for the block";
+                                "next_signer_bitvec" => self.next_signer_bitvec.binary_str(),
+                            );
                             return Ok(signature);
                         }
                     }

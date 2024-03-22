@@ -3507,6 +3507,24 @@ impl SortitionDB {
 
         Ok(rc_info)
     }
+
+    pub fn get_preprocessed_reward_set_size(&self, tip: &SortitionId) -> Option<u16> {
+        let Ok(Some(reward_info)) = &self.get_preprocessed_reward_set_of(&tip) else {
+            return None;
+        };
+        let Some(reward_set) = reward_info.known_selected_anchor_block() else {
+            return None;
+        };
+        Some(
+            reward_set
+                .signers
+                .clone()
+                .map(|x| x.len())
+                .unwrap_or(0)
+                .try_into()
+                .expect("FATAL: size of reward set is larger than u16"),
+        )
+    }
 }
 
 impl<'a> SortitionDBTx<'a> {
