@@ -159,8 +159,11 @@ pub struct Signer {
     pub next_signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
-    /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
+    /// The default tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0).
     pub tx_fee_ustx: u64,
+    /// If estimating the tx fee, the max tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0)
+    /// If None, will not cap the fee.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The coordinator info for the signer
     pub coordinator_selector: CoordinatorSelector,
     /// The approved key registered to the contract
@@ -199,10 +202,10 @@ impl Signer {
                 return (Some(selected.0), selected.1);
             };
             // coordinator is the current miner.
-            (None, cur_miner.clone())
+            (None, *cur_miner)
         } else {
             let selected = self.coordinator_selector.get_coordinator();
-            return (Some(selected.0), selected.1);
+            (Some(selected.0), selected.1)
         }
     }
 }
@@ -295,6 +298,7 @@ impl From<SignerConfig> for Signer {
             next_signer_addresses: vec![],
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ustx: signer_config.tx_fee_ustx,
+            max_tx_fee_ustx: signer_config.max_tx_fee_ustx,
             coordinator_selector,
             approved_aggregate_public_key: None,
             miner_key: None,
@@ -527,31 +531,29 @@ impl Signer {
                 sig: vec![],
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
+        } else if block_info.valid.unwrap_or(false)
+            && !block_info.signed_over
+            && coordinator_id == Some(self.signer_id)
+        {
+            // We are the coordinator. Trigger a signing round for this block
+            debug!(
+                "{self}: attempt to trigger a signing round for block";
+                "signer_sighash" => %block_info.block.header.signer_signature_hash(),
+                "block_hash" => %block_info.block.header.block_hash(),
+            );
+            self.commands.push_back(Command::Sign {
+                block: block_info.block.clone(),
+                is_taproot: false,
+                merkle_root: None,
+            });
         } else {
-            if block_info.valid.unwrap_or(false)
-                && !block_info.signed_over
-                && coordinator_id == Some(self.signer_id)
-            {
-                // We are the coordinator. Trigger a signing round for this block
-                debug!(
-                    "{self}: attempt to trigger a signing round for block";
-                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
-                    "block_hash" => %block_info.block.header.block_hash(),
-                );
-                self.commands.push_back(Command::Sign {
-                    block: block_info.block.clone(),
-                    is_taproot: false,
-                    merkle_root: None,
-                });
-            } else {
-                debug!(
-                    "{self}: ignoring block.";
-                    "block_hash" => block_info.block.header.block_hash(),
-                    "valid" => block_info.valid,
-                    "signed_over" => block_info.signed_over,
-                    "coordinator_id" => coordinator_id,
-                );
-            }
+            debug!(
+                "{self}: ignoring block.";
+                "block_hash" => block_info.block.header.block_hash(),
+                "valid" => block_info.valid,
+                "signed_over" => block_info.signed_over,
+                "coordinator_id" => coordinator_id,
+            );
         }
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
@@ -936,7 +938,7 @@ impl Signer {
                     };
                     self.signer_db
                         .insert_block(self.reward_cycle, &updated_block_info)
-                        .expect(&format!("{self}: Failed to insert block in DB"));
+                        .unwrap_or_else(|e| panic!("{self}: Failed to insert block in DB: {e:?}"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
                         debug!("Failed to validate nonce request");
@@ -999,15 +1001,14 @@ impl Signer {
         ) {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);
-        } else {
-            if let Err(e) = self
-                .stackerdb
-                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-            {
-                error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
+        } else if let Err(e) = self
+            .stackerdb
+            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+        {
+            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
                        "error" => %e);
-            }
         }
+
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
         // Retreieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
@@ -1027,28 +1028,8 @@ impl Signer {
         let epoch = stacks_client
             .get_node_epoch()
             .unwrap_or(StacksEpochId::Epoch24);
-        let tx_fee = if epoch < StacksEpochId::Epoch30 {
-            debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
-            self.tx_fee_ustx
-        } else {
-            0
-        };
-        match stacks_client.build_unsigned_vote_for_aggregate_public_key(
-            self.stackerdb.get_signer_slot_id().0,
-            self.coordinator.current_dkg_id,
-            *dkg_public_key,
-            self.reward_cycle,
-            next_nonce,
-        ) {
-            Ok(mut unsigned_tx) => {
-                unsigned_tx.set_tx_fee(tx_fee);
-                let new_transaction = match stacks_client.sign_transaction(unsigned_tx) {
-                    Ok(tx) => tx,
-                    Err(e) => {
-                        warn!("{self}: Failed to sign DKG public key vote transaction: {e:?}.");
-                        return;
-                    }
-                };
+        match self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key) {
+            Ok(new_transaction) => {
                 if let Err(e) = self.broadcast_dkg_vote(
                     stacks_client,
                     epoch,
@@ -1066,6 +1047,44 @@ impl Signer {
                 );
             }
         }
+    }
+
+    /// Build a signed DKG vote transaction
+    fn build_dkg_vote(
+        &mut self,
+        stacks_client: &StacksClient,
+        epoch: &StacksEpochId,
+        nonce: u64,
+        dkg_public_key: Point,
+    ) -> Result<StacksTransaction, ClientError> {
+        let mut unsigned_tx = stacks_client.build_unsigned_vote_for_aggregate_public_key(
+            self.stackerdb.get_signer_slot_id().0,
+            self.coordinator.current_dkg_id,
+            dkg_public_key,
+            self.reward_cycle,
+            nonce,
+        )?;
+        let tx_fee = if epoch < &StacksEpochId::Epoch30 {
+            debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
+            let fee = if let Some(max_fee) = self.max_tx_fee_ustx {
+                let estimated_fee = stacks_client
+                    .get_medium_estimated_fee_ustx(&unsigned_tx)
+                    .map_err(|e| {
+                        debug!("{self}: unable to estimate fee for DKG vote transaction: {e:?}");
+                        e
+                    })
+                    .unwrap_or(self.tx_fee_ustx);
+                std::cmp::min(estimated_fee, max_fee)
+            } else {
+                self.tx_fee_ustx
+            };
+            debug!("{self}: Using a fee of {fee} uSTX for DKG vote transaction.");
+            fee
+        } else {
+            0
+        };
+        unsigned_tx.set_tx_fee(tx_fee);
+        stacks_client.sign_transaction(unsigned_tx)
     }
 
     // Get the account nonces for the provided list of signer addresses

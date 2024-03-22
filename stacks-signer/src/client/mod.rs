@@ -554,6 +554,7 @@ pub(crate) mod tests {
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
             tx_fee_ustx: config.tx_fee_ustx,
+            max_tx_fee_ustx: config.max_tx_fee_ustx,
             db_path: config.db_path.clone(),
         }
     }

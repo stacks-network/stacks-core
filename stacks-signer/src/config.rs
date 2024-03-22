@@ -33,8 +33,7 @@ use wsts::curve::scalar::Scalar;
 use crate::signer::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-// Default transaction fee in microstacks (if unspecificed in the config file)
-// TODO: Use the fee estimation endpoint to get the default fee.
+// Default transaction fee to use in microstacks (if unspecificed in the config file)
 const TX_FEE_USTX: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
@@ -143,8 +142,10 @@ pub struct SignerConfig {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX.
     pub tx_fee_ustx: u64,
+    /// If set, will use the estimated fee up to this amount.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
 }
@@ -176,8 +177,10 @@ pub struct GlobalConfig {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX.
     pub tx_fee_ustx: u64,
+    /// the max STX tx fee to use in uSTX when estimating fees
+    pub max_tx_fee_ustx: Option<u64>,
     /// the authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file
@@ -208,8 +211,11 @@ struct RawConfigFile {
     pub nonce_timeout_ms: Option<u64>,
     /// timeout in (millisecs) to gather signature shares
     pub sign_timeout_ms: Option<u64>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX. If not set, will default to TX_FEE_USTX
     pub tx_fee_ustx: Option<u64>,
+    /// the max STX tx fee to use in uSTX when estimating fees.
+    /// If not set, will use tx_fee_ustx.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
@@ -305,6 +311,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             nonce_timeout,
             sign_timeout,
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
+            max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
         })
@@ -340,6 +347,7 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
+    max_tx_fee_ustx: Option<u64>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -371,7 +379,16 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}   
+event_timeout = {event_timeout_ms}
+"#
+            )
+        }
+
+        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+max_tx_fee_ustx = {max_tx_fee_ustx}
 "#
             )
         }
@@ -405,6 +422,7 @@ mod tests {
             password,
             rand::random(),
             3000,
+            None,
         );
 
         let config =

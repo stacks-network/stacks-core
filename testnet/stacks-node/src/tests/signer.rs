@@ -120,6 +120,7 @@ impl SignerTest {
             password,
             run_stamp,
             3000,
+            Some(100_000),
         );
 
         let mut running_signers = Vec::new();
