@@ -1,12 +1,13 @@
 openapi: 3.0.2
 servers:
-  - url: http://localhost:20443/
+  - url: http://localhost:20443
     description: Local
 info:
-  title: Stacks 2.0 RPC API
+  title: Stacks 2.0+ RPC API
   version: '1.0.0'
   description: |
     This is the documentation for the `stacks-node` RPC interface.
+  license: CC-0
 
 paths:
   /v2/transactions:
@@ -39,6 +40,7 @@ paths:
                 $ref: ./api/transaction/post-core-node-transactions-error.schema.json
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
+
   /v2/burn_ops/{burn_height}/{op_type}:
     get:
       summary: Get burn operations
@@ -46,6 +48,19 @@ paths:
       tags:
         - Info
       operationId: get_burn_ops
+      parameters:
+        - name: burn_height
+          in: path
+          required: true
+          description: height of the burnchain (Bitcoin)
+          schema:
+            type: integer
+        - name: op_type
+          in: path
+          required: true
+          description: name of the burnchain operation type
+          schema:
+            type: string
       responses:
         200:
           description: Burn operations list
@@ -61,6 +76,7 @@ paths:
                 peg_out_fulfill:
                   value:
                     $ref: ./api/core-node/get-burn-ops-peg-out-fulfill.example.json
+
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
       summary: Get contract interface
@@ -560,8 +576,8 @@ paths:
       operationId: post_block_proposal
       description: |
         Used by stackers to validate a proposed Stacks block from a miner.
-        
-        **This endpoint will only accept requests over the local loopback network interface.**
+
+        **This API endpoint requires a basic Authorization header.**
       responses:
         202:
           description: Block proposal has been accepted for processing. The result will be returned via the event observer.
@@ -594,6 +610,13 @@ paths:
         Used to get stacker and signer set information for a given cycle.
 
         This will only return information for cycles started in Epoch-2.5 where PoX-4 was active and subsequent cycles.
+      parameters:
+        - name: cycle_number
+          in: path
+          required: true
+          description: reward cycle number
+          schema:
+            type: integer
       responses:
         200:
           description: Information for the given reward cycle
@@ -607,3 +630,80 @@ paths:
             application/json:
               example:
                 $ref: ./api/core-node/get_stacker_set.400.example.json
+
+  /v3/blocks/{block_id}:
+    get:
+      summary: Fetch a Nakamoto block 
+      tags:
+        - Blocks
+      operationId: get_block_v3
+      description:
+        Fetch a Nakamoto block by its index block hash.
+      parameters:
+        - name: block_id
+          in: path
+          description: The block's ID hash
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: The raw SIP-003-encoded block will be returned.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        404:
+          description: The block could not be found
+          content:
+            application/text-plain: {}
+
+  /v3/tenures/info:
+    get:
+      summary: Fetch metadata about the ongoing Nakamoto tenure
+      tags:
+        - Blocks
+      operationId: get_tenure_info
+      description:
+        Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
+      responses:
+        200:
+          description: Metadata about the ongoing tenure
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_tenure_info.json
+  
+  /v3/tenures/{block_id}:
+    get:
+      summary: Fetch a sequence of Nakamoto blocks in a tenure
+      tags:
+        - Blocks
+      operationId: get_tenures
+      description:
+        Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
+      responses:
+        200:
+          description: SIP-003-encoded Nakamoto blocks, concatenated together
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    parameters:
+      - name: block_id
+        in: path
+        description:
+          The tenure-start block ID of the tenure to query
+        required: true
+        schema:
+          type: string
+      - name: stop
+        in: query
+        description:
+          The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
+        required: false
+        schema:
+          type: string
+
