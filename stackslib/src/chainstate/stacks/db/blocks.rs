@@ -10272,6 +10272,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &peer_config.burnchain,
                     )
                     .unwrap();
 
@@ -10453,6 +10454,7 @@ pub mod test {
     #[test]
     fn test_get_parent_block_header() {
         let peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
+        let burnchain = peer_config.burnchain.clone();
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
@@ -10522,6 +10524,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &burnchain,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -10999,6 +11002,7 @@ pub mod test {
         epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11076,6 +11080,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &burnchain,
                         )
                         .unwrap();
 
@@ -11323,6 +11328,7 @@ pub mod test {
         epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11397,6 +11403,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &burnchain,
                         )
                         .unwrap();
 
