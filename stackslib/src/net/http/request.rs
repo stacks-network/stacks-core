@@ -265,7 +265,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
         }
 
         // "User-Agent: $agent\r\nHost: $host\r\n"
-        fd.write_all("User-Agent: stacks/2.0\r\nHost: ".as_bytes())
+        fd.write_all("User-Agent: stacks/3.0\r\nHost: ".as_bytes())
             .map_err(CodecError::WriteError)?;
         fd.write_all(format!("{}", self.host).as_bytes())
             .map_err(CodecError::WriteError)?;

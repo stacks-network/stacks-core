@@ -26,11 +26,12 @@ use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::db::SlotValidation;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
@@ -223,6 +224,199 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 
         let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
         let peer_2_db_configs = peer_2.config.get_stacker_db_configs();
+
+        let mut i = 0;
+        loop {
+            // run peer network state-machines
+            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
+            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+
+            let res_1 = peer_1.step_with_ibd(false);
+            let res_2 = peer_2.step_with_ibd(false);
+
+            if let Ok(mut res) = res_1 {
+                Relayer::process_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    res.stacker_db_sync_results,
+                    None,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    &mut res.unhandled_messages,
+                    None,
+                )
+                .unwrap();
+            }
+
+            if let Ok(mut res) = res_2 {
+                Relayer::process_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    res.stacker_db_sync_results,
+                    None,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    &mut res.unhandled_messages,
+                    None,
+                )
+                .unwrap();
+            }
+
+            let db1 = load_stackerdb(&peer_1, idx_1);
+            let db2 = load_stackerdb(&peer_2, idx_2);
+
+            if db1 == db2 {
+                break;
+            }
+            i += 1;
+        }
+
+        debug!("Completed stacker DB sync in {} step(s)", i);
+    })
+}
+
+#[test]
+fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
+    with_timeout(600, || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
+        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT);
+        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 2);
+
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
+
+        // short-lived walks...
+        peer_1_config.connection_opts.walk_max_duration = 10;
+        peer_2_config.connection_opts.walk_max_duration = 10;
+
+        // peer 1 crawls peer 2, and peer 2 crawls peer 1
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+        // set up stacker DBs for both peers
+        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
+        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        // peer 1 gets the DB
+        setup_stackerdb(&mut peer_1, idx_1, true, 1);
+        setup_stackerdb(&mut peer_2, idx_2, false, 1);
+
+        // verify that peer 1 got the data
+        let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
+        assert_eq!(peer_1_db_chunks.len(), 1);
+        assert_eq!(peer_1_db_chunks[0].0.slot_id, 0);
+        assert_eq!(peer_1_db_chunks[0].0.slot_version, 1);
+        assert!(peer_1_db_chunks[0].1.len() > 0);
+
+        // verify that peer 2 did NOT get the data
+        let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
+        assert_eq!(peer_2_db_chunks.len(), 1);
+        assert_eq!(peer_2_db_chunks[0].0.slot_id, 0);
+        assert_eq!(peer_2_db_chunks[0].0.slot_version, 0);
+        assert!(peer_2_db_chunks[0].1.len() == 0);
+
+        let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
+        let peer_2_db_configs = peer_2.config.get_stacker_db_configs();
+
+        // force peer 2 to have a stale view
+        let (old_tip_ch, old_tip_bh) = {
+            let sortdb = peer_1.sortdb();
+            let (tip_bh, tip_ch) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+            SortitionDB::set_canonical_stacks_chain_tip(
+                sortdb.conn(),
+                &ConsensusHash([0x22; 20]),
+                &BlockHeaderHash([0x33; 32]),
+                45,
+            )
+            .unwrap();
+            (tip_bh, tip_ch)
+        };
+
+        let mut i = 0;
+        let mut peer_1_stale = false;
+        let mut peer_2_stale = false;
+        loop {
+            // run peer network state-machines
+            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
+            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+
+            let res_1 = peer_1.step_with_ibd(false);
+            let res_2 = peer_2.step_with_ibd(false);
+
+            if let Ok(mut res) = res_1 {
+                for sync_res in res.stacker_db_sync_results.iter() {
+                    assert_eq!(sync_res.chunks_to_store.len(), 0);
+                    if sync_res.stale.len() > 0 {
+                        peer_1_stale = true;
+                    }
+                }
+                Relayer::process_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    res.stacker_db_sync_results,
+                    None,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    &mut res.unhandled_messages,
+                    None,
+                )
+                .unwrap();
+            }
+
+            if let Ok(mut res) = res_2 {
+                for sync_res in res.stacker_db_sync_results.iter() {
+                    assert_eq!(sync_res.chunks_to_store.len(), 0);
+                    if sync_res.stale.len() > 0 {
+                        peer_2_stale = true;
+                    }
+                }
+                Relayer::process_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    res.stacker_db_sync_results,
+                    None,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    &mut res.unhandled_messages,
+                    None,
+                )
+                .unwrap();
+            }
+
+            if peer_1_stale && peer_2_stale {
+                break;
+            }
+
+            i += 1;
+        }
+
+        debug!("Completed stacker DB stale detection in {} step(s)", i);
+
+        // fix and re-run
+        {
+            let sortdb = peer_1.sortdb();
+            SortitionDB::set_canonical_stacks_chain_tip(sortdb.conn(), &old_tip_ch, &old_tip_bh, 0)
+                .unwrap();
+
+            // force chain view refresh
+            peer_1.network.num_state_machine_passes = 0;
+        }
 
         let mut i = 0;
         loop {

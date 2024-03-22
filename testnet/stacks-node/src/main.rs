@@ -441,9 +441,6 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
-        let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(None, mine_start.unwrap_or(0));
-    } else if conf.burnchain.mode == "nakamoto-neon" {
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {

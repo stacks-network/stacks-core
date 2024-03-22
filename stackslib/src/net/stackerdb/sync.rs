@@ -33,9 +33,9 @@ use crate::net::stackerdb::{
     StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
 };
 use crate::net::{
-    Error as net_error, NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData,
-    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData,
-    StacksMessageType,
+    Error as net_error, NackData, NackErrorCodes, Neighbor, NeighborAddress, NeighborKey,
+    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData,
+    StackerDBPushChunkData, StacksMessageType,
 };
 
 const MAX_CHUNKS_IN_FLIGHT: usize = 6;
@@ -71,6 +71,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             total_pushed: 0,
             last_run_ts: 0,
             need_resync: false,
+            stale_neighbors: HashSet::new(),
         };
         dbsync.reset(None, config);
         dbsync
@@ -177,6 +178,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             chunks_to_store: chunks,
             dead: self.comms.take_dead_neighbors(),
             broken: self.comms.take_broken_neighbors(),
+            stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
@@ -245,7 +247,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let local_write_timestamps = self
             .stackerdbs
             .get_slot_write_timestamps(&self.smart_contract_id)?;
-        assert_eq!(local_slot_versions.len(), local_write_timestamps.len());
+
+        if local_slot_versions.len() != local_write_timestamps.len() {
+            // interleaved DB write?
+            return Err(net_error::Transient(
+                "Interleaved DB write has led to an inconsistent view of the stackerdb. Try again."
+                    .into(),
+            ));
+        }
 
         let mut need_chunks: HashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
             HashMap::new();
@@ -267,11 +276,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
 
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
-                assert_eq!(
-                    chunk_inv.slot_versions.len(),
-                    local_slot_versions.len(),
-                    "FATAL: did not validate StackerDBChunkInvData"
-                );
+                if chunk_inv.slot_versions.len() != local_slot_versions.len() {
+                    // need to retry -- our view of the versions got changed through a
+                    // reconfiguration
+                    continue;
+                }
 
                 if *local_version >= chunk_inv.slot_versions[i] {
                     // remote peer has same view as local peer, or stale
@@ -355,11 +364,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         for (i, local_version) in local_slot_versions.iter().enumerate() {
             let mut local_chunk = None;
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
-                assert_eq!(
-                    chunk_inv.slot_versions.len(),
-                    local_slot_versions.len(),
-                    "FATAL: did not validate StackerDBChunkData"
-                );
+                if chunk_inv.slot_versions.len() != local_slot_versions.len() {
+                    continue;
+                }
 
                 if *local_version <= chunk_inv.slot_versions[i] {
                     // remote peer has same or newer view than local peer
@@ -676,6 +683,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                             &network.get_chain_view().rc_consensus_hash,
                             &db_data.rc_consensus_hash
                         );
+                        self.connected_replicas.remove(&naddr);
                         continue;
                     }
                     db_data
@@ -687,6 +695,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
@@ -783,14 +795,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &mut PeerNetwork,
     ) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
-            let chunk_inv = match message.payload {
+            let chunk_inv_opt = match message.payload {
                 StacksMessageType::StackerDBChunkInv(data) => {
                     if data.slot_versions.len() != self.num_slots {
-                        info!("{:?}: Received malformed StackerDBChunkInv from {:?}: expected {} chunks, got {}", network.get_local_peer(), &naddr, self.num_slots, data.slot_versions.len());
-                        self.comms.add_broken(network, &naddr);
-                        continue;
+                        info!("{:?}: Received malformed StackerDBChunkInv for {} from {:?}: expected {} chunks, got {}", network.get_local_peer(), &self.smart_contract_id, &naddr, self.num_slots, data.slot_versions.len());
+                        None
+                    } else {
+                        Some(data)
                     }
-                    data
                 }
                 StacksMessageType::Nack(data) => {
                     debug!(
@@ -799,10 +811,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
                     info!("Received unexpected message {:?}", &x);
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
             };
@@ -811,8 +828,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 network.get_local_peer(),
                 &naddr
             );
-            self.chunk_invs.insert(naddr.clone(), chunk_inv);
-            self.connected_replicas.insert(naddr);
+
+            if let Some(chunk_inv) = chunk_inv_opt {
+                self.chunk_invs.insert(naddr.clone(), chunk_inv);
+                self.connected_replicas.insert(naddr);
+            }
         }
         if self.comms.count_inflight() > 0 {
             // not done yet, so blocked
@@ -928,10 +948,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
                     info!("Received unexpected message {:?}", &x);
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
             };
@@ -942,7 +966,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     "Remote neighbor {:?} served an invalid chunk for ID {}",
                     &naddr, data.slot_id
                 );
-                self.comms.add_broken(network, &naddr);
                 self.connected_replicas.remove(&naddr);
                 continue;
             }
@@ -1071,6 +1094,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
@@ -1082,7 +1108,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // must be well-formed
             if new_chunk_inv.slot_versions.len() != self.num_slots {
                 info!("{:?}: Received malformed StackerDBChunkInv from {:?}: expected {} chunks, got {}", network.get_local_peer(), &naddr, self.num_slots, new_chunk_inv.slot_versions.len());
-                self.comms.add_broken(network, &naddr);
                 continue;
             }
 

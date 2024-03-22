@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -25,7 +26,8 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{BlockResponse, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{SignerSession, StackerDBSession};
+use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -33,7 +35,6 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
@@ -47,9 +48,9 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_TESTNET,
 };
-use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
+use stacks::libstackerdb::SlotMetadata;
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
@@ -69,7 +70,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::sleep_ms;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -80,7 +82,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
     run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
 };
-use crate::tests::{make_stacks_transfer, to_addr};
+use crate::tests::{get_chain_info, make_stacks_transfer, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -154,6 +156,51 @@ lazy_static! {
     ];
 }
 
+pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
+
+pub struct TestSigningChannel {
+    pub recv: Option<Receiver<ThresholdSignature>>,
+    pub send: Sender<ThresholdSignature>,
+}
+
+impl TestSigningChannel {
+    /// If the integration test has instantiated the singleton TEST_SIGNING channel,
+    ///  wait for a signature from the blind-signer.
+    /// Returns None if the singleton isn't instantiated and the miner should coordinate
+    ///  a real signer set signature.
+    /// Panics if the blind-signer times out.
+    pub fn get_signature() -> Option<ThresholdSignature> {
+        let mut signer = TEST_SIGNING.lock().unwrap();
+        let Some(sign_channels) = signer.as_mut() else {
+            return None;
+        };
+        let recv = sign_channels.recv.take().unwrap();
+        drop(signer); // drop signer so we don't hold the lock while receiving.
+        let signature = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let overwritten = TEST_SIGNING
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .recv
+            .replace(recv);
+        assert!(overwritten.is_none());
+        Some(signature)
+    }
+
+    /// Setup the TestSigningChannel as a singleton using TEST_SIGNING,
+    ///  returning an owned Sender to the channel.
+    pub fn instantiate() -> Sender<ThresholdSignature> {
+        let (send, recv) = channel();
+        let existed = TEST_SIGNING.lock().unwrap().replace(Self {
+            recv: Some(recv),
+            send: send.clone(),
+        });
+        assert!(existed.is_none());
+        send
+    }
+}
+
 pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v2/stacker_set/{cycle}");
@@ -216,13 +263,12 @@ pub fn add_initial_balances(
 pub fn blind_signer(
     conf: &Config,
     signers: &TestSigners,
-    signer: &Secp256k1PrivateKey,
     proposals_count: RunLoopCounter,
 ) -> JoinHandle<()> {
+    let sender = TestSigningChannel::instantiate();
     let mut signed_blocks = HashSet::new();
     let conf = conf.clone();
     let signers = signers.clone();
-    let signer = signer.clone();
     let mut last_count = proposals_count.load(Ordering::SeqCst);
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(100));
@@ -231,7 +277,7 @@ pub fn blind_signer(
             continue;
         }
         last_count = cur_count;
-        match read_and_sign_block_proposal(&conf, &signers, &signer, &signed_blocks) {
+        match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender) {
             Ok(signed_block) => {
                 if signed_blocks.contains(&signed_block) {
                     continue;
@@ -249,8 +295,8 @@ pub fn blind_signer(
 pub fn read_and_sign_block_proposal(
     conf: &Config,
     signers: &TestSigners,
-    signer: &Secp256k1PrivateKey,
     signed_blocks: &HashSet<Sha512Trunc256Sum>,
+    channel: &Sender<ThresholdSignature>,
 ) -> Result<Sha512Trunc256Sum, String> {
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -267,12 +313,13 @@ pub fn read_and_sign_block_proposal(
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
-            .get_latest(miner_slot_id)
+            .get_latest(miner_slot_id.start)
             .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
             .ok_or("No chunk found")?
     };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
     let signer_sig_hash = proposed_block.header.signer_signature_hash();
+
     if signed_blocks.contains(&signer_sig_hash) {
         // already signed off on this block, don't sign again.
         return Ok(signer_sig_hash);
@@ -288,35 +335,10 @@ pub fn read_and_sign_block_proposal(
         .clone()
         .sign_nakamoto_block(&mut proposed_block, reward_cycle);
 
-    let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted((
-        signer_sig_hash.clone(),
-        proposed_block.header.signer_signature.clone(),
-    )));
-
-    let signers_contract_id =
-        NakamotoSigners::make_signers_db_contract_id(reward_cycle, libsigner::BLOCK_MSG_ID, false);
-
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let signers_info = get_stacker_set(&http_origin, reward_cycle);
-    let signer_index = get_signer_index(&signers_info, &Secp256k1PublicKey::from_private(signer))
-        .unwrap()
-        .try_into()
+    channel
+        .send(proposed_block.header.signer_signature)
         .unwrap();
-
-    let next_version = get_stackerdb_slot_version(&http_origin, &signers_contract_id, signer_index)
-        .map(|x| x + 1)
-        .unwrap_or(0);
-    let mut signers_contract_sess = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
-    let mut chunk_to_put = StackerDBChunkData::new(
-        u32::try_from(signer_index).unwrap(),
-        next_version,
-        signer_message.serialize_to_vec(),
-    );
-    chunk_to_put.sign(signer).unwrap();
-    signers_contract_sess
-        .put_chunk(&chunk_to_put)
-        .map_err(|e| e.to_string())?;
-    Ok(signer_sig_hash)
+    return Ok(signer_sig_hash);
 }
 
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
@@ -378,6 +400,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.burnchain.pox_prepare_length = Some(5);
     conf.burnchain.pox_reward_length = Some(20);
+
+    conf.connection_options.inv_sync_interval = 1;
 
     (conf, miner_account)
 }
@@ -991,7 +1015,7 @@ fn simple_neon_integration() {
     }
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
 
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -1220,7 +1244,7 @@ fn mine_multiple_per_tenure_integration() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
 
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -1526,7 +1550,7 @@ fn correct_burn_outs() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
-    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
 
     // we should already be able to query the stacker set via RPC
     let burnchain = naka_conf.get_burnchain();
@@ -1735,7 +1759,7 @@ fn block_proposal_api_endpoint() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    blind_signer(&conf, &signers, &sender_signer_sk, proposals_submitted);
+    blind_signer(&conf, &signers, proposals_submitted);
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -2103,7 +2127,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     );
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &sender_signer_sk, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -2140,14 +2164,13 @@ fn miner_writes_proposed_block_to_stackerdb() {
         let mut miners_stackerdb =
             StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
         miners_stackerdb
-            .get_latest(slot_id)
+            .get_latest(slot_id.start)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
     };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
-    proposed_zero_block.header.miner_signature = MessageSignature::empty();
     proposed_zero_block.header.signer_signature = ThresholdSignature::empty();
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
@@ -2257,7 +2280,7 @@ fn vote_for_aggregate_key_burn_op() {
     .unwrap();
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &signer_sk, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -2431,6 +2454,263 @@ fn vote_for_aggregate_key_burn_op() {
     run_loop_thread.join().unwrap();
 }
 
+/// This test boots a follower node using the block downloader
+#[test]
+#[ignore]
+fn follower_bootup() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        Some(&signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    let mut follower_conf = naka_conf.clone();
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
+
+    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
+    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+
+    let node_info = get_chain_info(&naka_conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        CHAIN_ID_TESTNET,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+
+    debug!(
+        "Booting follower-thread ({},{})",
+        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
+    );
+    debug!(
+        "Booting follower-thread: neighbors = {:?}",
+        &follower_conf.node.bootstrap_node
+    );
+
+    // spawn a follower thread
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    debug!("Booted follower-thread");
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        let mut last_tip_height = 0;
+
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            assert_ne!(info.stacks_tip, last_tip);
+            assert_ne!(info.stacks_tip_height, last_tip_height);
+
+            last_tip = info.stacks_tip;
+            last_tip_height = info.stacks_tip_height;
+        }
+
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
+
+    // wait for follower to reach the chain tip
+    loop {
+        sleep_ms(1000);
+        let follower_node_info = get_chain_info(&follower_conf);
+
+        info!(
+            "Follower tip is now {}/{}",
+            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+        );
+        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
+        {
+            break;
+        }
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
+}
+
 #[test]
 #[ignore]
 fn stack_stx_burn_op_integration_test() {
@@ -2496,7 +2776,7 @@ fn stack_stx_burn_op_integration_test() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &signer_sk_1, proposals_submitted);
+    blind_signer(&naka_conf, &signers, proposals_submitted);
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
