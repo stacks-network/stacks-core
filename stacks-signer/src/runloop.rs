@@ -210,6 +210,7 @@ impl RunLoop {
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
             tx_fee_ustx: self.config.tx_fee_ustx,
+            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
         })
     }

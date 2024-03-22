@@ -114,6 +114,7 @@ impl SignerTest {
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
             password,
+            Some(100_000),
         );
 
         let mut running_signers = Vec::new();
