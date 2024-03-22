@@ -1,8 +1,11 @@
+# https://blog.mergify.com/github-codeowners-on-steroids/
+
+
 # These owners will be the default owners for everything in
 # the repo. Unless a later match takes precedence,
-# @global-owner1 and @global-owner2 will be requested for
+# @stacks-network/blockchain-team/codeowners will be requested for
 # review when someone opens a pull request.
-* @jcnelson @kantai @obycode
+* @stacks-network/blockchain-team-codeowners
 
 # Generic file extensions that shouldn't require much scrutiny
 *.md @stacks-network/blockchain-team
@@ -12,9 +15,12 @@
 *.toml @stacks-network/blockchain-team
 
 # Signer code
-libsigner/**/*.rs @jferrant @xoloki @jcnelson @kantai
-stacks-signer/**/*.rs @jferrant @xoloki @jcnelson @kantai
+libsigner/**/*.rs @stacks-network/blockchain-team-signer
+stacks-signer/**/*.rs @stacks-network/blockchain-team-signer
 
-## CI workflows
-./github/workflows/ @wileyj @CharlieC3
-./github/actions/ @wileyj @CharlieC3
+# CI workflows
+./github/workflows/ @stacks-network/blockchain-team-ci
+./github/actions/ @stacks-network/blockchain-team-ci
+
+# Require a codeowner approval for changes to this file
+# .github/CODEOWNERS @stacks-network/blockchain-team-codeowners
