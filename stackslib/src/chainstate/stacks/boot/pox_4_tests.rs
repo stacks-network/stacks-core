@@ -5076,13 +5076,12 @@ fn test_solo_stacking() {
         2,
     );
 
-    // print signature
-    println!("Alice Signature: {:?}", alice_signature);
 
     // Bob Setup
-    let mut bob_nonce = 0;
+    let bob_nonce_err = 0;
     let bob_private_key = &keys[1];
     let bob_public_key = StacksPublicKey::from_private(bob_private_key);
+    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
     let bob_address = key_to_stacks_addr(bob_private_key);
     let bob_pox_addr = pox_addr_from(&bob_private_key);
     let bob_authorization_low = make_pox_4_set_signer_key_auth(
@@ -5092,11 +5091,12 @@ fn test_solo_stacking() {
         &Pox4SignatureTopic::StackStx,
         lock_period,
         true,
-        bob_nonce,
+        bob_nonce_err,
         Some(&bob_private_key),
         100,
         2,
     );
+    let bob_nonce_auth = bob_nonce_err + 1;
     let bob_authorization = make_pox_4_set_signer_key_auth(
         &bob_pox_addr,
         &bob_private_key,
@@ -5104,34 +5104,24 @@ fn test_solo_stacking() {
         &Pox4SignatureTopic::StackStx,
         lock_period,
         true,
-        bob_nonce,
+        bob_nonce_auth,
         Some(&bob_private_key),
         u128::MAX,
-        2,
+        3,
     );
 
     // Prepare Block (create approval)
-    let latest_block = peer.tenure_with_txs(&[bob_authorization], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&[bob_authorization_low, bob_authorization], &mut coinbase_nonce);
     let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    let bob_authorization_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+    let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
+    let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
+    println!("Bob Authorization Error: {:?}", bob_authorization_err);
+    println!("Bob Authorization Result: {:?}", bob_authorization_result);
 
     let block_height = get_tip(peer.sortdb.as_ref()).block_height;
 
     // Alice stacks
-    let alice_stack_nonce = alice_nonce;
-    let alice_stack = make_pox_4_lockup(
-        alice_private_key, 
-        alice_nonce, 
-        min_ustx*2,
-        &alice_pox_addr.clone(),
-        lock_period,
-        &alice_signing_key, 
-        block_height, 
-        Some(alice_signature), 
-        u128::MAX, 
-        1);
-
-    let alice_err_nonce  = alice_stack_nonce + 1;
+    let alice_err_nonce  = alice_nonce;
     let alice_stack_err = make_pox_4_lockup(
         alice_private_key, 
         alice_err_nonce, 
@@ -5141,37 +5131,47 @@ fn test_solo_stacking() {
         &alice_signing_key, 
         block_height, 
         Some(alice_signature_err), 
+        100, 
+        1);
+
+    let alice_stack_nonce = alice_err_nonce + 1;
+    let alice_stack = make_pox_4_lockup(
+        alice_private_key, 
+        alice_stack_nonce, 
+        min_ustx*2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key, 
+        block_height, 
+        Some(alice_signature), 
         u128::MAX, 
         1);
     
     // Bob stacks
-    bob_nonce += 1;
+    let bob_nonce_stack = bob_nonce_auth + 1;
     let bob_stack = make_pox_4_lockup(
         bob_private_key, 
-        bob_nonce,
+        bob_nonce_stack,
         min_ustx,
         &bob_pox_addr,
-        1,
+        lock_period,
         &bob_public_key, 
         block_height, 
         None, 
-        min_ustx, 
+        u128::MAX, 
         2);
-    
-
-    // print bob authorization result
-    println!("Bob Authorization Result: {:?}", bob_authorization_result);
 
     // Stacking Block
-    let latest_block = peer.tenure_with_txs(&[alice_stack, alice_stack_err], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&[alice_stack_err, alice_stack, bob_stack], &mut coinbase_nonce);
     // Get transaction results
     let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
     let alice_stack_result = alice_tx.get(alice_stack_nonce as usize).unwrap().result.clone();
-    let alice_stack_err = alice_tx.get(alice_err_nonce as usize).unwrap().result.clone();
+    let alice_stack_err_result = alice_tx.get(alice_err_nonce as usize).unwrap().result.clone();
     println!("Alice Stack Result: {:?}", alice_stack_result);
-    println!("Alice Stack Error Result: {:?}", alice_stack_err);
+    println!("Alice Stack Error Result: {:?}", alice_stack_err_result);
     let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    //let bob_stack_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+    println!("Bob TX: {:?}", bob_tx);
+    let bob_stack_result = bob_tx.get(bob_nonce_stack as usize).unwrap().result.clone();
     //println!("Bob Stack Result: {:?}", bob_stack_result);
 
     // Advance to next reward cycle
