@@ -701,6 +701,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 let spending_account = &mut peers[1].config.spending_account.clone();
+                let burnchain = peers[1].config.burnchain.clone();
 
                 // function to make a tenure in which a the peer's miner stacks its STX
                 let mut make_stacking_tenure = |miner: &mut TestMiner,
@@ -792,6 +793,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     );
 
                     let mut builder = StacksBlockBuilder::make_block_builder(
+                        &burnchain,
                         chainstate.mainnet,
                         &parent_tip,
                         vrfproof,
@@ -1392,6 +1394,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         .unwrap();
 
                         let chainstate_path = peers[1].chainstate_path.clone();
+                        let burnchain = peers[1].config.burnchain.clone();
 
                         let (mut burn_ops, stacks_block, _) = peers[1].make_tenure(
                             |ref mut miner,
@@ -1436,6 +1439,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                                         &coinbase_tx,
                                         BlockBuilderSettings::max_value(),
                                         None,
+                                        &burnchain,
                                     )
                                     .unwrap();
                                 (anchored_block, vec![])
