@@ -459,13 +459,12 @@ impl StacksClient {
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
-    pub fn build_vote_for_aggregate_public_key(
+    pub fn build_unsigned_vote_for_aggregate_public_key(
         &self,
         signer_index: u32,
         round: u64,
         dkg_public_key: Point,
         reward_cycle: u64,
-        tx_fee: Option<u64>,
         nonce: u64,
     ) -> Result<StacksTransaction, ClientError> {
         debug!("Building {SIGNERS_VOTING_FUNCTION_NAME} transaction...");
@@ -478,9 +477,8 @@ impl StacksClient {
             ClarityValue::UInt(round as u128),
             ClarityValue::UInt(reward_cycle as u128),
         ];
-        let tx_fee = tx_fee.unwrap_or(0);
 
-        Self::build_signed_contract_call_transaction(
+        let unsigned_tx = Self::build_unsigned_contract_call_transaction(
             &contract_address,
             contract_name,
             function_name,
@@ -489,8 +487,8 @@ impl StacksClient {
             self.tx_version,
             self.chain_id,
             nonce,
-            tx_fee,
-        )
+        )?;
+        Ok(unsigned_tx)
     }
 
     /// Helper function to submit a transaction to the Stacks mempool
@@ -602,7 +600,7 @@ impl StacksClient {
 
     /// Helper function to create a stacks transaction for a modifying contract call
     #[allow(clippy::too_many_arguments)]
-    pub fn build_signed_contract_call_transaction(
+    pub fn build_unsigned_contract_call_transaction(
         contract_addr: &StacksAddress,
         contract_name: ContractName,
         function_name: ClarityName,
@@ -611,7 +609,6 @@ impl StacksClient {
         tx_version: TransactionVersion,
         chain_id: u32,
         nonce: u64,
-        tx_fee: u64,
     ) -> Result<StacksTransaction, ClientError> {
         let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
             address: *contract_addr,
@@ -630,17 +627,22 @@ impl StacksClient {
         );
 
         let mut unsigned_tx = StacksTransaction::new(tx_version, tx_auth, tx_payload);
-
-        unsigned_tx.set_tx_fee(tx_fee);
         unsigned_tx.set_origin_nonce(nonce);
 
         unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
         unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
         unsigned_tx.chain_id = chain_id;
+        Ok(unsigned_tx)
+    }
 
+    /// Sign an unsigned transaction
+    pub fn sign_transaction(
+        &self,
+        unsigned_tx: StacksTransaction,
+    ) -> Result<StacksTransaction, ClientError> {
         let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
         tx_signer
-            .sign_origin(stacks_private_key)
+            .sign_origin(&self.stacks_private_key)
             .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
 
         tx_signer
@@ -845,12 +847,11 @@ mod tests {
         assert!(result.is_err())
     }
 
-    #[ignore]
     #[test]
     fn transaction_contract_call_should_send_bytes_to_node() {
         let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
-        let tx = StacksClient::build_signed_contract_call_transaction(
+        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
             &mock.client.stacks_address,
             ContractName::from("contract-name"),
             ClarityName::from("function-name"),
@@ -859,9 +860,10 @@ mod tests {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             0,
-            10_000,
         )
         .unwrap();
+
+        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
 
         let mut tx_bytes = [0u8; 1024];
         {
@@ -897,7 +899,6 @@ mod tests {
         );
     }
 
-    #[ignore]
     #[test]
     fn build_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
@@ -908,19 +909,17 @@ mod tests {
         let reward_cycle = thread_rng().next_u64();
 
         let h = spawn(move || {
-            mock.client.build_vote_for_aggregate_public_key(
+            mock.client.build_unsigned_vote_for_aggregate_public_key(
                 signer_index,
                 round,
                 point,
                 reward_cycle,
-                None,
                 nonce,
             )
         });
         assert!(h.join().unwrap().is_ok());
     }
 
-    #[ignore]
     #[test]
     fn broadcast_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
@@ -929,28 +928,27 @@ mod tests {
         let signer_index = thread_rng().next_u32();
         let round = thread_rng().next_u64();
         let reward_cycle = thread_rng().next_u64();
+        let unsigned_tx = mock
+            .client
+            .build_unsigned_vote_for_aggregate_public_key(
+                signer_index,
+                round,
+                point,
+                reward_cycle,
+                nonce,
+            )
+            .unwrap();
+        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
+        let tx_clone = tx.clone();
+        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
 
-        let h = spawn(move || {
-            let tx = mock
-                .client
-                .clone()
-                .build_vote_for_aggregate_public_key(
-                    signer_index,
-                    round,
-                    point,
-                    reward_cycle,
-                    None,
-                    nonce,
-                )
-                .unwrap();
-            mock.client.submit_transaction(&tx)
-        });
-        let mock = MockServerClient::from_config(mock.config);
         write_response(
             mock.server,
-            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+            format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
         );
-        assert!(h.join().unwrap().is_ok());
+        let returned_txid = h.join().unwrap().unwrap();
+
+        assert_eq!(returned_txid, tx.txid());
     }
 
     #[test]
@@ -1231,7 +1229,7 @@ mod tests {
     fn get_medium_estimated_fee_ustx_should_succeed() {
         let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
-        let unsigned_tx = StacksClient::build_signed_contract_call_transaction(
+        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
             &mock.client.stacks_address,
             ContractName::from("contract-name"),
             ClarityName::from("function-name"),
@@ -1239,7 +1237,6 @@ mod tests {
             &private_key,
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
-            10_000,
             0,
         )
         .unwrap();
