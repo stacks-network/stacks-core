@@ -89,13 +89,7 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionDB,
-    SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::burn::operations::{
-    DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp, TransferStxOp,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::{
@@ -154,9 +148,11 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         PRIMARY KEY(burn_view_consensus_hash,tenure_index)
     );
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
+    CREATE INDEX nakamoto_tenures_by_tenure_id ON nakamoto_tenures(tenure_id_consensus_hash);
     CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
     CREATE INDEX nakamoto_tenures_by_burn_view_consensus_hash ON nakamoto_tenures(burn_view_consensus_hash);
     CREATE INDEX nakamoto_tenures_by_tenure_index ON nakamoto_tenures(tenure_index);
+    CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -392,6 +388,18 @@ impl NakamotoChainState {
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
     }
 
+    /// Determine if a tenure has been fully processed.
+    pub fn has_processed_nakamoto_tenure(
+        conn: &Connection,
+        tenure_id_consensus_hash: &ConsensusHash,
+    ) -> Result<bool, ChainstateError> {
+        // a tenure will have been processed if any of its children have been processed
+        let sql = "SELECT 1 FROM nakamoto_tenures WHERE prev_tenure_id_consensus_hash = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
+        let found: Option<i64> = query_row(conn, sql, args)?;
+        Ok(found.is_some())
+    }
+
     /// Insert a nakamoto tenure.
     /// No validation will be done.
     pub(crate) fn insert_nakamoto_tenure(
@@ -450,6 +458,18 @@ impl NakamotoChainState {
             "FATAL: multiple rows for the same consensus hash".to_string()
         })
         .map_err(ChainstateError::DBError)
+    }
+
+    /// Get the consensus hash of the parent tenure
+    /// Used by the p2p code.
+    /// Don't use in consensus code.
+    pub fn get_nakamoto_parent_tenure_id_consensus_hash(
+        chainstate_conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let sql = "SELECT prev_tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
+        let args: &[&dyn ToSql] = &[consensus_hash];
+        query_row(chainstate_conn, sql, args).map_err(ChainstateError::DBError)
     }
 
     /// Get the last block header in a Nakamoto tenure
@@ -1004,12 +1024,13 @@ impl NakamotoChainState {
         ))
     }
 
-    /// Check that a given Nakamoto block's tenure's sortition exists and was processed.
-    /// Return the sortition's burnchain block's hash and its burnchain height
+    /// Check that a given Nakamoto block's tenure's sortition exists and was processed on this
+    /// particular burnchain fork.
+    /// Return the block snapshot if so.
     pub(crate) fn check_sortition_exists(
         burn_dbconn: &mut SortitionHandleTx,
         block_consensus_hash: &ConsensusHash,
-    ) -> Result<(BurnchainHeaderHash, u64), ChainstateError> {
+    ) -> Result<BlockSnapshot, ChainstateError> {
         // check that the burnchain block that this block is associated with has been processed.
         // N.B. we must first get its hash, and then verify that it's in the same Bitcoin fork as
         // our `burn_dbconn` indicates.
@@ -1024,7 +1045,7 @@ impl NakamotoChainState {
                 })?;
 
         let sortition_tip = burn_dbconn.context.chain_tip.clone();
-        let burn_header_height = burn_dbconn
+        let snapshot = burn_dbconn
             .get_block_snapshot(&burn_header_hash, &sortition_tip)?
             .ok_or_else(|| {
                 warn!(
@@ -1032,9 +1053,8 @@ impl NakamotoChainState {
                     "burn_header_hash" => %burn_header_hash,
                 );
                 ChainstateError::NoSuchBlockError
-            })?
-            .block_height;
+            })?;
 
-        Ok((burn_header_hash, burn_header_height))
+        Ok(snapshot)
     }
 }

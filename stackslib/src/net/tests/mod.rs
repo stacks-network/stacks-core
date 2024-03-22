@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod download;
 pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
@@ -233,6 +234,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     block.clone(),
+                    None,
                 )
                 .unwrap();
                 if accepted {
@@ -248,6 +250,7 @@ impl NakamotoBootPlan {
 
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
+            peer.refresh_burnchain_view();
         }
     }
 
@@ -594,6 +597,7 @@ impl NakamotoBootPlan {
                             txs
                         });
 
+                    peer.refresh_burnchain_view();
                     consensus_hashes.push(next_consensus_hash);
 
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
@@ -707,6 +711,7 @@ impl NakamotoBootPlan {
                             blocks_since_last_tenure += 1;
                             txs
                         });
+                    peer.refresh_burnchain_view();
 
                     consensus_hashes.push(consensus_hash);
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes

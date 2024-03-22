@@ -563,10 +563,22 @@ impl TestStacksNode {
                 Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
                     .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
-            let cycle = miner
-                .burnchain
-                .block_height_to_reward_cycle(burn_tip.block_height)
-                .expect("FATAL: failed to get reward cycle");
+
+            let tenure_sn =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)
+                    .unwrap()
+                    .unwrap();
+            let cycle = sortdb
+                .pox_constants
+                .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
+                .unwrap();
+
+            test_debug!(
+                "Signing Nakamoto block {} in tenure {} with key in cycle {}",
+                nakamoto_block.block_id(),
+                tenure_id_consensus_hash,
+                cycle
+            );
             signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
 
             let block_id = nakamoto_block.block_id();
@@ -587,6 +599,7 @@ impl TestStacksNode {
                 &mut sort_handle,
                 chainstate,
                 nakamoto_block.clone(),
+                None,
             ) {
                 Ok(accepted) => accepted,
                 Err(e) => {
@@ -1035,9 +1048,26 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
-        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        let tenure_extend_payload =
+            if let TransactionPayload::TenureChange(ref tc) = &tenure_extend_tx.payload {
+                tc
+            } else {
+                panic!("Not a tenure-extend payload");
+            };
+
+        let tenure_start_sn = SortitionDB::get_block_snapshot_consensus(
+            sortdb.conn(),
+            &tenure_extend_payload.tenure_consensus_hash,
+        )
+        .unwrap()
+        .unwrap();
+        let cycle = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_start_sn.block_height)
+            .unwrap();
 
         // Ensure the signers are setup for the current cycle
         signers.generate_aggregate_key(cycle);
@@ -1090,6 +1120,7 @@ impl<'a> TestPeer<'a> {
                 &mut sort_handle,
                 &mut node.chainstate,
                 block,
+                None,
             )
             .unwrap();
             if accepted {

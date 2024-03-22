@@ -82,6 +82,7 @@ pub enum Error {
     // stack stx related errors
     StackStxMustBePositive,
     StackStxInvalidCycles,
+    StackStxInvalidKey,
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
@@ -142,6 +143,7 @@ impl fmt::Display for Error {
                 f,
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
+            Error::StackStxInvalidKey => write!(f, "Signer key is invalid"),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
             Error::VoteForAggregateKeyInvalidKey => {
                 write!(f, "Aggregate key is invalid")
@@ -190,6 +192,9 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
+    pub signer_key: Option<StacksPublicKeyBuffer>,
+    pub max_amount: Option<u128>,
+    pub auth_id: Option<u32>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -478,6 +483,9 @@ impl BlockstackOperationType {
                 "stacked_ustx": op.stacked_ustx,
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
+                "signer_key": op.signer_key.as_ref().map(|k| serde_json::Value::String(k.to_hex())).unwrap_or(serde_json::Value::Null),
+                "max_amount": op.max_amount.map_or(serde_json::Value::Null, |amount| serde_json::Value::Number(serde_json::Number::from(amount))),
+                "auth_id": op.auth_id.map_or(serde_json::Value::Null, |id| serde_json::Value::Number(serde_json::Number::from(id))),
             }
         })
     }

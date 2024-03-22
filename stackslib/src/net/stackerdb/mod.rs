@@ -151,6 +151,7 @@ pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
 
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
+pub const MINER_SLOT_COUNT: u32 = 2;
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
@@ -164,6 +165,8 @@ pub struct StackerDBSyncResult {
     dead: HashSet<NeighborKey>,
     /// neighbors that misbehaved while syncing
     broken: HashSet<NeighborKey>,
+    /// neighbors that have stale views, but are otherwise online
+    pub(crate) stale: HashSet<NeighborAddress>,
 }
 
 /// Settings for the Stacker DB
@@ -385,6 +388,8 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// whether or not we should immediately re-fetch chunks because we learned about new chunks
     /// from our peers when they replied to our chunk-pushes with new inventory state
     need_resync: bool,
+    /// Track stale neighbors
+    pub(crate) stale_neighbors: HashSet<NeighborAddress>,
 }
 
 impl StackerDBSyncResult {
@@ -397,6 +402,7 @@ impl StackerDBSyncResult {
             chunks_to_store: vec![chunk.chunk_data],
             dead: HashSet::new(),
             broken: HashSet::new(),
+            stale: HashSet::new(),
         }
     }
 }

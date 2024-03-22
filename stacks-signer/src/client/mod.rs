@@ -23,7 +23,6 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
-use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -48,9 +47,6 @@ pub enum ClientError {
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
-    /// Failed to write to stacker-db due to RPC error
-    #[error("Failed to write to stacker-db instance: {0}")]
-    PutChunkFailed(#[from] RPCError),
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
@@ -72,33 +68,18 @@ pub enum ClientError {
     /// Failed to parse a Clarity value
     #[error("Received a malformed clarity value: {0}")]
     MalformedClarityValue(String),
-    /// Invalid Clarity Name
-    #[error("Invalid Clarity Name: {0}")]
-    InvalidClarityName(String),
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
     /// Not connected
     #[error("Not connected")]
     NotConnected,
-    /// Invalid signing key
-    #[error("Signing key not represented in the list of signers")]
-    InvalidSigningKey,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
     ClarityError(#[from] ClarityError),
-    /// Our stacks address does not belong to a registered signer
-    #[error("Our stacks address does not belong to a registered signer")]
-    NotRegistered,
-    /// Reward set not yet calculated for the given reward cycle
-    #[error("Reward set not yet calculated for reward cycle: {0}")]
-    RewardSetNotYetCalculated(u64),
     /// Malformed reward set
     #[error("Malformed contract data: {0}")]
     MalformedContractData(String),
-    /// No reward set exists for the given reward cycle
-    #[error("No reward set exists for reward cycle {0}")]
-    NoRewardSet(u64),
     /// Stacks node does not support a feature we need
     #[error("Stacks node does not support a required feature: {0}")]
     UnsupportedStacksFeature(String),
@@ -140,6 +121,7 @@ pub(crate) mod tests {
     use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
+    use libsigner::SignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -154,7 +136,7 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig};
     use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
@@ -248,7 +230,7 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
-    /// Build a response to get_pox_data where it returns a specific reward cycle id and block height
+    /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
     pub fn build_get_pox_data_response(
         reward_cycle: Option<u64>,
         prepare_phase_start_height: Option<u64>,
@@ -364,7 +346,7 @@ pub(crate) mod tests {
         build_read_only_response(&clarity_value)
     }
 
-    /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
+    /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
         pox_consensus_hash: Option<ConsensusHash>,
@@ -515,7 +497,7 @@ pub(crate) mod tests {
             signer_id: 0,
             signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            signer_entries: ParsedSignerEntries {
+            signer_entries: SignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,

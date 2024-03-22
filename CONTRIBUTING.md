@@ -59,8 +59,8 @@ is responsible for:
 6. Merging the new PR.
 
 For an example of this process, see PRs
-[#3598](https://github.com/stacks-network/stacks-blockchain/pull/3598) and
-[#3626](https://github.com/stacks-network/stacks-blockchain/pull/3626).
+[#3598](https://github.com/stacks-network/stacks-core/pull/3598) and
+[#3626](https://github.com/stacks-network/stacks-core/pull/3626).
 
 
 ### Documentation Updates
@@ -226,7 +226,7 @@ Contributions should not contain `unsafe` blocks if at all possible.
 ## Documentation
 
 * Each file must have a **copyright statement**.
-* Any new non-test modules should have **module-level documentation** explaining what the module does, and how it fits into the blockchain as a whole ([example](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L17)).
+* Any new non-test modules should have **module-level documentation** explaining what the module does, and how it fits into the blockchain as a whole ([example](https://github.com/stacks-network/stacks-core/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L17)).
 * Any new files must have some **top-of-file documentation** that describes what the contained code does, and how it fits into the overall module.
 
 Within the source files, the following **code documentation** standards are expected:
@@ -247,7 +247,7 @@ Within the source files, the following **code documentation** standards are expe
   handle I/O reads and writes in an "outer" function.  The "outer"
   function only does the needful I/O and passes the data into the
   "inner" function.  The "inner" function is often private, whereas
-  the "outer" function is often public. For example, [`inner_try_mine_microblock` and `try_mine_microblock`](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L1148-L1216).
+  the "outer" function is often public. For example, [`inner_try_mine_microblock` and `try_mine_microblock`](https://github.com/stacks-network/stacks-core/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L1148-L1216).
 
 ## Refactoring
 
@@ -281,7 +281,7 @@ Within the source files, the following **code documentation** standards are expe
   does not decode with the allotted resources, then no further
   processing may be done and the data is discarded. For an example, see
   how the parsing functions in the http module use `BoundReader` and
-  `MAX_PAYLOAD_LEN` in [http.rs](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/src/net/http.rs#L2260-L2285).
+  `MAX_PAYLOAD_LEN` in [http.rs](https://github.com/stacks-network/stacks-core/blob/4852d6439b473e24705f14b8af637aded33cb422/src/net/http.rs#L2260-L2285).
 
 * **All network input reception is time-bound.**  Every piece of code that ingests data _from the network_ must impose a maximum amount of time that ingestion can take.  If the data takes too long to arrive, then it must be discarded without any further processing.  There is no time bound for data ingested from disk or passed as an argument; this requirement is meant by the space-bound requirement.
 
@@ -303,7 +303,7 @@ Changes to the peer network should be deployed incrementally and tested by multi
 
 Any PRs that claim to improve performance **must ship with reproducible benchmarks** that accurately measure the improvement.  This data must also be reported in the PR submission.
 
-For an example, see [PR #3075](https://github.com/stacks-network/stacks-blockchain/pull/3075).
+For an example, see [PR #3075](https://github.com/stacks-network/stacks-core/pull/3075).
 
 ## Error Handling
 
@@ -597,7 +597,7 @@ Keep in mind that better variable names can reduce the need for comments, e.g.:
 
 # Licensing and contributor license agreement
 
-`stacks-blockchain` is released under the terms of the GPL version 3.  Contributions
+`stacks-core` is released under the terms of the GPL version 3.  Contributions
 that are not licensed under compatible terms will be rejected.  Moreover,
 contributions will not be accepted unless _all_ authors accept the project's
 contributor license agreement.

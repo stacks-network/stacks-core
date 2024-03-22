@@ -165,6 +165,8 @@ pub struct BlockBuilderSettings {
     pub max_miner_time_ms: u64,
     pub mempool_settings: MemPoolWalkSettings,
     pub miner_status: Arc<Mutex<MinerStatus>>,
+    /// Should the builder attempt to confirm any parent microblocks
+    pub confirm_microblocks: bool,
 }
 
 impl BlockBuilderSettings {
@@ -173,6 +175,7 @@ impl BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
+            confirm_microblocks: true,
         }
     }
 
@@ -181,6 +184,7 @@ impl BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
+            confirm_microblocks: true,
         }
     }
 }
@@ -1800,6 +1804,7 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
+        confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
             "Miner epoch begin";
@@ -1830,7 +1835,10 @@ impl StacksBlockBuilder {
         )
         .expect("FATAL: more than 2^32 sortitions");
 
-        let parent_microblocks = if StacksChainState::block_crosses_epoch_boundary(
+        let parent_microblocks = if !confirm_microblocks {
+            debug!("Block assembly invoked with confirm_microblocks = false. Will not confirm any microblocks.");
+            vec![]
+        } else if StacksChainState::block_crosses_epoch_boundary(
             chainstate.db(),
             &self.parent_consensus_hash,
             &self.parent_header_hash,
@@ -1991,7 +1999,7 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
-        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
@@ -2417,9 +2425,14 @@ impl StacksBlockBuilder {
             pubkey_hash,
         )?;
 
+        if !settings.confirm_microblocks {
+            builder.parent_microblock_hash = None;
+        }
+
         let ts_start = get_epoch_time_ms();
 
-        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+        let mut miner_epoch_info =
+            builder.pre_epoch_begin(&mut chainstate, burn_dbconn, settings.confirm_microblocks)?;
         let ast_rules = miner_epoch_info.ast_rules;
         if ast_rules != ASTRules::Typical {
             builder.header.version = cmp::max(

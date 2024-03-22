@@ -19,6 +19,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 
 use lazy_static::lazy_static;
+use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -42,10 +43,13 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
   CREATE TABLE nakamoto_staging_blocks (
                  -- SHA512/256 hash of this block
                  block_hash TEXT NOT NULL,
-                 -- the consensus hash of the burnchain block that selected this block's miner's block-commit
+                 -- The consensus hash of the burnchain block that selected this block's miner's block-commit.
+                 -- This identifies the tenure to which this block belongs.
                  consensus_hash TEXT NOT NULL,
                  -- the parent index_block_hash
                  parent_block_id TEXT NOT NULL,
+                 -- whether or not this is the first block in its tenure
+                 is_tenure_start BOOL NOT NULL,
 
                  -- has the burnchain block with this block's `consensus_hash` been processed?
                  burn_attachable INT NOT NULL,
@@ -54,6 +58,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
                  -- set to 1 if this block can never be attached
                  orphaned INT NOT NULL,
 
+                 -- block height
                  height INT NOT NULL,
 
                  -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
@@ -70,7 +75,9 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
                 
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
-    r#"CREATE INDEX by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash_and_consensus_hash ON nakamoto_staging_blocks(index_block_hash,consensus_hash);"#,
+    r#"CREATE INDEX nakamoto_staging_blocks_by_tenure_start_block ON nakamoto_staging_blocks(is_tenure_start,consensus_hash);"#,
 ];
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
@@ -134,7 +141,34 @@ impl<'a> DerefMut for NakamotoStagingBlocksTx<'a> {
     }
 }
 
+impl NakamotoStagingBlocksConn {
+    /// Open a Blob handle to a Nakamoto block
+    pub fn open_nakamoto_block<'a>(
+        &'a self,
+        rowid: i64,
+        readwrite: bool,
+    ) -> Result<Blob<'a>, ChainstateError> {
+        let blob = self.blob_open(
+            rusqlite::DatabaseName::Main,
+            "nakamoto_staging_blocks",
+            "data",
+            rowid,
+            !readwrite,
+        )?;
+        Ok(blob)
+    }
+}
+
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    /// Determine if there exists any unprocessed Nakamoto blocks
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    pub fn has_any_unprocessed_nakamoto_block(&self) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE processed = 0 LIMIT 1";
+        let res: Option<i64> = query_row(self, qry, NO_PARAMS)?;
+        Ok(res.is_some())
+    }
+
     /// Determine whether or not we have processed at least one Nakamoto block in this sortition history.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` is updated by a separate
     /// tx from block-processing, so it's imperative that the thread that calls this function is
@@ -158,10 +192,57 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res.is_some())
     }
 
+    /// Determine if we have a particular block
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    /// Returns Err(..) on DB error
+    pub fn has_nakamoto_block(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res: Option<i64> = query_row(self, qry, args)?;
+        Ok(res.is_some())
+    }
+
+    /// Get a staged Nakamoto tenure-start block
+    pub fn get_nakamoto_tenure_start_block(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
+        let args: &[&dyn ToSql] = &[consensus_hash];
+        let data: Option<Vec<u8>> = query_row(self, qry, args)?;
+        let Some(block_bytes) = data else {
+            return Ok(None);
+        };
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
+        if &block.header.consensus_hash != consensus_hash {
+            error!(
+                "Staging DB corruption: expected {}, got {}",
+                consensus_hash, block.header.consensus_hash
+            );
+            return Err(DBError::Corruption.into());
+        }
+        Ok(Some(block))
+    }
+
+    /// Get the rowid of a Nakamoto block
+    pub fn get_nakamoto_block_rowid(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<i64>, ChainstateError> {
+        let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res: Option<i64> = query_row(self, sql, args)?;
+        Ok(res)
+    }
+
     /// Get a Nakamoto block by index block hash, as well as its size.
     /// Verifies its integrity.
     /// Returns Ok(Some(block, size)) if the block was present
-    /// Returns Ok(None) if there were no such rows.
+    /// Returns Ok(None) if there was no such block
     /// Returns Err(..) on DB error, including block corruption
     pub fn get_nakamoto_block(
         &self,
@@ -186,6 +267,21 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             block,
             u64::try_from(block_bytes.len()).expect("FATAL: block is greater than a u64"),
         )))
+    }
+
+    /// Get the size of a Nakamoto block, given its index block hash
+    /// Returns Ok(Some(size)) if the block was present
+    /// Returns Ok(None) if there was no such block
+    /// Returns Err(..) on DB error, including block corruption
+    pub fn get_nakamoto_block_size(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let qry = "SELECT length(data) FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res = query_row(self, qry, args)?
+            .map(|size: i64| u64::try_from(size).expect("FATAL: block size exceeds i64::MAX"));
+        Ok(res)
     }
 
     /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
@@ -352,13 +448,20 @@ impl StacksChainState {
     /// Get the path to the Nakamoto staging blocks DB.
     /// It's separate from the headers DB in order to avoid DB contention between downloading
     /// blocks and processing them.
-    pub fn get_nakamoto_staging_blocks_path(root_path: PathBuf) -> Result<String, ChainstateError> {
+    pub fn static_get_nakamoto_staging_blocks_path(
+        root_path: PathBuf,
+    ) -> Result<String, ChainstateError> {
         let mut nakamoto_blocks_path = Self::blocks_path(root_path);
         nakamoto_blocks_path.push("nakamoto.sqlite");
         Ok(nakamoto_blocks_path
             .to_str()
             .ok_or(ChainstateError::DBError(DBError::ParseError))?
             .to_string())
+    }
+
+    /// Get the path to the Nakamoto staging blocks DB.
+    pub fn get_nakamoto_staging_blocks_path(&self) -> Result<String, ChainstateError> {
+        Self::static_get_nakamoto_staging_blocks_path(PathBuf::from(self.root_path.as_str()))
     }
 
     /// Open and set up a DB for nakamoto staging blocks.

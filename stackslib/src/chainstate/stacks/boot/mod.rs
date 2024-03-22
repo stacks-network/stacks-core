@@ -432,7 +432,7 @@ impl StacksChainState {
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_2_NAME)
+        Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox2)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
@@ -444,7 +444,7 @@ impl StacksChainState {
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
+        Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox3)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
@@ -452,29 +452,36 @@ impl StacksChainState {
     ///
     /// This should only be called for PoX v4 cycles.
     pub fn handle_pox_cycle_start_pox_4(
-        clarity: &mut ClarityTransactionConnection,
-        cycle_number: u64,
-        cycle_info: Option<PoxStartCycleInfo>,
+        _clarity: &mut ClarityTransactionConnection,
+        _cycle_number: u64,
+        _cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_4_NAME)
+        // PASS
+        Ok(vec![])
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
-    fn handle_pox_cycle_start(
+    fn handle_pox_cycle_missed_unlocks(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
-        pox_contract_name: &str,
+        pox_contract_ver: &PoxVersions,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))??;
+
+        if !matches!(pox_contract_ver, PoxVersions::Pox2 | PoxVersions::Pox3) {
+            return Err(Error::InvalidStacksBlock(format!(
+                "Attempted to invoke missed unlocks handling on invalid PoX version ({pox_contract_ver})"
+            )));
+        }
 
         debug!(
             "Handling PoX reward cycle start";
             "reward_cycle" => cycle_number,
             "cycle_active" => cycle_info.is_some(),
-            "pox_contract" => pox_contract_name
+            "pox_contract" => %pox_contract_ver,
         );
 
         let cycle_info = match cycle_info {
@@ -483,7 +490,8 @@ impl StacksChainState {
         };
 
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
+        let pox_contract =
+            boot::boot_code_id(pox_contract_ver.get_name_str(), clarity.is_mainnet());
 
         let mut total_events = vec![];
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
@@ -509,7 +517,8 @@ impl StacksChainState {
             }).expect("FATAL: failed to accelerate PoX unlock");
 
             // query the stacking state for this user before deleting it
-            let user_data = Self::get_user_stacking_state(clarity, principal, pox_contract_name);
+            let user_data =
+                Self::get_user_stacking_state(clarity, principal, pox_contract_ver.get_name_str());
 
             // perform the unlock
             let (result, _, mut events, _) = clarity
@@ -814,12 +823,19 @@ impl StacksChainState {
             //   pointer set by the PoX contract, then add them to auto-unlock list
             if slots_taken == 0 && !contributed_stackers.is_empty() {
                 info!(
-                    "Stacker missed reward slot, added to unlock list";
-                    //                    "stackers" => %VecDisplay(&contributed_stackers),
+                    "{}",
+                    if epoch_id.supports_pox_missed_slot_unlocks() {
+                        "Stacker missed reward slot, added to unlock list"
+                    } else {
+                        "Stacker missed reward slot"
+                    };
                     "reward_address" => %address.clone().to_b58(),
                     "threshold" => threshold,
                     "stacked_amount" => stacked_amt
                 );
+                if !epoch_id.supports_pox_missed_slot_unlocks() {
+                    continue;
+                }
                 contributed_stackers
                     .sort_by_cached_key(|(stacker, ..)| to_hex(&stacker.serialize_to_vec()));
                 while let Some((contributor, amt)) = contributed_stackers.pop() {
@@ -838,6 +854,9 @@ impl StacksChainState {
                     missed_slots.push((contributor, total_amount));
                 }
             }
+        }
+        if !epoch_id.supports_pox_missed_slot_unlocks() {
+            missed_slots.clear();
         }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
         RewardSet {
