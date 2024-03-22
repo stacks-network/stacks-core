@@ -20,7 +20,7 @@ rand_core = "0.6"
 rand = "0.8"
 rand_chacha = "0.3.1"
 tikv-jemallocator = "0.5.4"
-wsts = { git = "https://github.com/stacks-network/wsts.git", default-features = false, rev = "af2b907" }
+wsts = { git = "https://github.com/stacks-network/wsts.git", default-features = false, rev = "cf395701cb1332e4d66e70d8baf60b1658c168b5" }
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution
