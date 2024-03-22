@@ -128,10 +128,7 @@ impl RunLoop {
         reward_cycle: u64,
     ) -> Result<Option<SignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self
-            .stacks_client
-            .get_reward_set_signers_with_retry(reward_cycle)?
-        else {
+        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
@@ -390,11 +387,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
 
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client, current_reward_cycle)
-                        .map_err(backoff::Error::transient)
-                }) {
+                if let Err(e) = signer.update_dkg(&self.stacks_client, current_reward_cycle) {
                     error!("{signer}: failed to update DKG: {e}");
                 }
             }
