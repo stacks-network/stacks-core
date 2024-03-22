@@ -6416,7 +6416,19 @@ fn test_solo_stacking() {
         1);
     
     // Bob stacks
-    let bob_nonce_stack = bob_nonce_auth + 1;
+    let bob_nonce_stack_err = bob_nonce_auth + 1;
+    let bob_stack_err = make_pox_4_lockup(
+        bob_private_key, 
+        bob_nonce_stack_err,
+        min_ustx*2,
+        &bob_pox_addr,
+        lock_period,
+        &bob_signing_key, 
+        block_height, 
+        None, 
+        u128::MAX, 
+        2);
+    let bob_nonce_stack = bob_nonce_stack_err + 1;
     let bob_stack = make_pox_4_lockup(
         bob_private_key, 
         bob_nonce_stack,
@@ -6429,23 +6441,37 @@ fn test_solo_stacking() {
         u128::MAX, 
         3);
 
-    // Print all of bobs nonces
-    println!("Bob Nonces: {:?}", bob_nonce_err);
-    println!("Bob Nonces: {:?}", bob_nonce_auth);
-    println!("Bob Nonces: {:?}", bob_nonce_stack);
     coinbase_nonce += 1;
     // Stacking Block
-    let latest_block = peer.tenure_with_txs(&[alice_stack_err, alice_stack, bob_stack], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&[alice_stack_err, alice_stack, bob_stack_err, bob_stack], &mut coinbase_nonce);
     // Get transaction results
     let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
-    let alice_stack_result = alice_tx.get(alice_stack_nonce as usize).unwrap().result.clone();
     let alice_stack_err_result = alice_tx.get(alice_err_nonce as usize).unwrap().result.clone();
-    println!("Alice Stack Result: {:?}", alice_stack_result);
-    println!("Alice Stack Error Result: {:?}", alice_stack_err_result);
+    let alice_stack_result = alice_tx.get(alice_stack_nonce as usize).unwrap().result.clone();
+
+    // Err Amount Too High
+    assert_eq!(alice_stack_err_result, Value::error(Value::Int(38)).unwrap());
+
+    // Alice Success Checks, amount locked & signer key
+    let alice_stack_tuple = alice_stack_result.clone()
+        .expect_result_ok().unwrap()
+        .expect_tuple().unwrap();
+    // Check amount locked
+    let amount_locked_expected = Value::UInt(min_ustx * 2);
+    let amount_locked_actual = alice_stack_tuple.data_map.get("lock-amount").unwrap();
+    assert_eq!(amount_locked_actual, &amount_locked_expected);
+    // Check signer key
+    let signer_key_expected = Value::buff_from(alice_signing_key.to_bytes_compressed());
+    let signer_key_actual = alice_stack_tuple.data_map.get("signer-key").unwrap().clone();
+    assert_eq!(signer_key_actual, signer_key_actual);
+
+
     let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    println!("Bob TX: {:?}", bob_tx);
-    let bob_stack_result = bob_tx.get(2 as usize);
-    println!("Bob Stack Result Fuck: {:?}", bob_stack_result);
+    println!("Bob TX fuck: {:?}", bob_tx);
+    let bob_stack_result_err = bob_tx.get(0 as usize).unwrap().result.clone();
+    let bob_stack_result = bob_tx.get(1 as usize).unwrap().result.clone();
+    println!("Bob Stack Result Err: {:?}", bob_stack_result_err);
+    println!("Bob Stack Result Success {:?}", bob_stack_result);
 
     // Advance to next reward cycle
     for i in 0..3 {
