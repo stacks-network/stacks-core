@@ -62,5 +62,5 @@ pub mod consts {
 
     /// The number of StackerDB slots each signing key needs
     ///  to use to participate in DKG and block validation signing.
-    pub const SIGNER_SLOTS_PER_USER: u32 = 12;
+    pub const SIGNER_SLOTS_PER_USER: u32 = 13;
 }

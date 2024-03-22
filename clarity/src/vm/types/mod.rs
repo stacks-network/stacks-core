@@ -108,6 +108,11 @@ impl QualifiedContractIdentifier {
         }
     }
 
+    /// Was this contract issued by the null issuer address? (i.e., is it a "boot contract")
+    pub fn is_boot(&self) -> bool {
+        self.issuer.1 == [0; 20]
+    }
+
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {

@@ -3487,6 +3487,54 @@ impl SortitionDB {
         Ok(())
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    ///  reward set (if it exists) for the active reward cycle during `tip`
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
+            error!(
+                "Could not find snapshot for sortition while fetching reward set";
+                "tip_sortition_id" => %tip,
+            );
+            db_error::NotFoundError
+        })?;
+
+        let reward_cycle_id = self
+            .pox_constants
+            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
+            .expect("FATAL: stored snapshot with block height < first_block_height");
+
+        let prepare_phase_start = self
+            .pox_constants
+            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
+            .saturating_sub(self.pox_constants.prepare_length.into());
+
+        let first_sortition = get_ancestor_sort_id(
+            &self.index_conn(),
+            prepare_phase_start,
+            &tip_sn.sortition_id,
+        )?
+        .ok_or_else(|| {
+            error!(
+                "Could not find prepare phase start ancestor while fetching reward set";
+                "tip_sortition_id" => %tip,
+                "reward_cycle_id" => reward_cycle_id,
+                "prepare_phase_start_height" => prepare_phase_start
+            );
+            db_error::NotFoundError
+        })?;
+
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+    }
+
     /// Get a pre-processed reawrd set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
     pub fn get_preprocessed_reward_set(
@@ -5038,6 +5086,18 @@ impl SortitionDB {
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
+    }
+
+    /// Are microblocks disabled by Epoch 2.5 at the height specified
+    /// in `at_burn_height`?
+    pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
+        match Self::get_stacks_epoch_by_epoch_id(conn, &StacksEpochId::Epoch25)? {
+            Some(epoch_25) => Ok(at_burn_height >= epoch_25.start_height),
+            None => {
+                // Epoch 2.5 is not defined, so it cannot disable microblocks
+                Ok(false)
+            }
+        }
     }
 
     /// Get the last reward cycle in epoch 2.05

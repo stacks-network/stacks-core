@@ -663,7 +663,7 @@ fn make_genesis_block_with_recipients(
     .unwrap();
 
     let iconn = sort_db.index_conn();
-    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
     let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
@@ -926,7 +926,7 @@ fn make_stacks_block_with_input(
         next_hash160(),
     )
     .unwrap();
-    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
     let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
@@ -4920,7 +4920,7 @@ fn test_epoch_verify_active_pox_contract() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
-    let pox_v2_unlock_ht = u32::max_value();
+    let pox_v2_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         6,

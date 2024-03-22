@@ -72,6 +72,7 @@ jobs:
           - tests::neon_integrations::confirm_unparsed_ongoing_ops
           - tests::neon_integrations::min_txs
           - tests::neon_integrations::vote_for_aggregate_key_burn_op_test
+          - tests::epoch_25::microblocks_disabled
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
@@ -85,6 +86,8 @@ jobs:
           - tests::signer::stackerdb_filter_bad_transactions
           - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
+          # Do not run this one until we figure out why it fails in CI
+          # - tests::neon_integrations::bitcoin_reorg_flap
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -109,3 +112,17 @@ jobs:
         uses: stacks-network/actions/codecov@main
         with:
           test-name: ${{ matrix.test-name }}
+
+  check-tests:
+    name: Check Tests
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - integration-tests
+    steps:
+      - name: Check Tests Status
+        id: check_tests_status
+        uses: stacks-network/actions/check-jobs-status@main
+        with:
+          jobs: ${{ toJson(needs) }}
+          summary_print: "true"

@@ -14,18 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
-use blockstack_lib::util_lib::boot::boot_code_addr;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::ContractName;
 use hashbrown::HashMap;
-use libsigner::{SignerMessage, SignerSession, StackerDBSession, TRANSACTIONS_MSG_ID};
+use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
 
@@ -38,11 +33,11 @@ use crate::signer::SignerSlotID;
 pub struct StackerDB {
     /// The stacker-db sessions for each signer set and message type.
     /// Maps message ID to the DB session.
-    signers_message_stackerdb_sessions: HashMap<u32, StackerDBSession>,
+    signers_message_stackerdb_sessions: HashMap<MessageSlotID, StackerDBSession>,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
-    slot_versions: HashMap<u32, HashMap<SignerSlotID, u32>>,
+    slot_versions: HashMap<MessageSlotID, HashMap<SignerSlotID, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
     signer_slot_id: SignerSlotID,
     /// The reward cycle of the connecting signer
@@ -72,33 +67,16 @@ impl StackerDB {
         signer_slot_id: SignerSlotID,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
-        let stackerdb_issuer = boot_code_addr(is_mainnet);
-        for msg_id in 0..SIGNER_SLOTS_PER_USER {
+        for msg_id in MessageSlotID::ALL {
             signers_message_stackerdb_sessions.insert(
-                msg_id,
-                StackerDBSession::new(
-                    host,
-                    QualifiedContractIdentifier::new(
-                        stackerdb_issuer.into(),
-                        ContractName::from(
-                            NakamotoSigners::make_signers_db_name(reward_cycle, msg_id).as_str(),
-                        ),
-                    ),
-                ),
+                *msg_id,
+                StackerDBSession::new(host, msg_id.stacker_db_contract(is_mainnet, reward_cycle)),
             );
         }
         let next_transaction_session = StackerDBSession::new(
             host,
-            QualifiedContractIdentifier::new(
-                stackerdb_issuer.into(),
-                ContractName::from(
-                    NakamotoSigners::make_signers_db_name(
-                        reward_cycle.wrapping_add(1),
-                        TRANSACTIONS_MSG_ID,
-                    )
-                    .as_str(),
-                ),
-            ),
+            MessageSlotID::Transactions
+                .stacker_db_contract(is_mainnet, reward_cycle.wrapping_add(1)),
         );
 
         Self {
@@ -116,11 +94,21 @@ impl StackerDB {
         &mut self,
         message: SignerMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let message_bytes = message.serialize_to_vec();
         let msg_id = message.msg_id();
+        let message_bytes = message.serialize_to_vec();
+        self.send_message_bytes_with_retry(&msg_id, message_bytes)
+    }
+
+    /// Sends message (as a raw msg ID and bytes) to the .signers stacker-db with an
+    ///  exponential backoff retry
+    pub fn send_message_bytes_with_retry(
+        &mut self,
+        msg_id: &MessageSlotID,
+        message_bytes: Vec<u8>,
+    ) -> Result<StackerDBChunkAckData, ClientError> {
         let slot_id = self.signer_slot_id;
         loop {
-            let mut slot_version = if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+            let mut slot_version = if let Some(versions) = self.slot_versions.get_mut(msg_id) {
                 if let Some(version) = versions.get(&slot_id) {
                     *version
                 } else {
@@ -130,14 +118,14 @@ impl StackerDB {
             } else {
                 let mut versions = HashMap::new();
                 versions.insert(slot_id, 0);
-                self.slot_versions.insert(msg_id, versions);
+                self.slot_versions.insert(*msg_id, versions);
                 1
             };
 
             let mut chunk = StackerDBChunkData::new(slot_id.0, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
 
-            let Some(session) = self.signers_message_stackerdb_sessions.get_mut(&msg_id) else {
+            let Some(session) = self.signers_message_stackerdb_sessions.get_mut(msg_id) else {
                 panic!("FATAL: would loop forever trying to send a message with ID {}, for which we don't have a session", msg_id);
             };
 
@@ -149,7 +137,7 @@ impl StackerDB {
             let send_request = || session.put_chunk(&chunk).map_err(backoff::Error::transient);
             let chunk_ack: StackerDBChunkAckData = retry_with_exponential_backoff(send_request)?;
 
-            if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+            if let Some(versions) = self.slot_versions.get_mut(msg_id) {
                 // NOTE: per the above, this is always executed
                 versions.insert(slot_id, slot_version.saturating_add(1));
             } else {
@@ -171,7 +159,7 @@ impl StackerDB {
                         } else {
                             warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unknown version number. Incrementing and retrying...", slot_version);
                         }
-                        if let Some(versions) = self.slot_versions.get_mut(&msg_id) {
+                        if let Some(versions) = self.slot_versions.get_mut(msg_id) {
                             // NOTE: per the above, this is always executed
                             versions.insert(slot_id, slot_version.saturating_add(1));
                         } else {
@@ -241,7 +229,7 @@ impl StackerDB {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
-            .get_mut(&TRANSACTIONS_MSG_ID)
+            .get_mut(&MessageSlotID::Transactions)
         else {
             return Err(ClientError::NotConnected);
         };

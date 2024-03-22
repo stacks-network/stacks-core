@@ -312,8 +312,8 @@ impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
         &self,
         header: &BurnchainBlockHeader,
-    ) -> Result<i64, BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_headers
+    ) -> Result<(), BurnchainError> {
+        let sql = "INSERT OR IGNORE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
@@ -323,10 +323,15 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
-        match self.sql_tx.execute(sql, args) {
-            Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
-            Err(e) => Err(e.into()),
+        let affected_rows = self.sql_tx.execute(sql, args)?;
+        if affected_rows == 0 {
+            // This means a duplicate entry was found and the insert operation was ignored
+            debug!(
+                "Duplicate entry for block_hash: {}, insert operation ignored.",
+                header.block_hash
+            );
         }
+        Ok(())
     }
 
     /// Add an affirmation map into the database.  Returns the affirmation map ID.
@@ -943,7 +948,8 @@ impl<'a> BurnchainDBTransaction<'a> {
         affirmation_map: AffirmationMap,
     ) -> Result<(), DBError> {
         assert_eq!((affirmation_map.len() as u64) + 1, reward_cycle);
-        let qry = "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
+        let qry =
+            "INSERT OR REPLACE INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?, &affirmation_map.encode()];
 
         let mut stmt = self.sql_tx.prepare(qry)?;

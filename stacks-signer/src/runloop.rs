@@ -18,19 +18,17 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use blockstack_lib::burnchains::PoxConstants;
-use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
-use hashbrown::{HashMap, HashSet};
-use libsigner::{SignerEvent, SignerRunLoop};
+use hashbrown::HashMap;
+use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
-use wsts::curve::ecdsa;
-use wsts::curve::point::{Compressed, Point};
-use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
-use crate::config::{GlobalConfig, ParsedSignerEntries, SignerConfig};
+use crate::config::{GlobalConfig, SignerConfig};
 use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
 
 /// Which operation to perform
@@ -123,63 +121,12 @@ impl From<GlobalConfig> for RunLoop {
 }
 
 impl RunLoop {
-    /// Parse Nakamoto signer entries into relevant signer information
-    pub fn parse_nakamoto_signer_entries(
-        signers: &[NakamotoSignerEntry],
-        is_mainnet: bool,
-    ) -> ParsedSignerEntries {
-        let mut weight_end = 1;
-        let mut coordinator_key_ids = HashMap::with_capacity(4000);
-        let mut signer_key_ids = HashMap::with_capacity(signers.len());
-        let mut signer_ids = HashMap::with_capacity(signers.len());
-        let mut public_keys = PublicKeys {
-            signers: HashMap::with_capacity(signers.len()),
-            key_ids: HashMap::with_capacity(4000),
-        };
-        let mut signer_public_keys = HashMap::with_capacity(signers.len());
-        for (i, entry) in signers.iter().enumerate() {
-            // TODO: track these signer ids as non participating if any of the conversions fail
-            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice())
-                .expect("FATAL: corrupted signing key");
-            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
-                .expect("FATAL: corrupted signing key");
-            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
-                .expect("FATAL: Corrupted signing key");
-
-            let stacks_address = StacksAddress::p2pkh(is_mainnet, &stacks_public_key);
-            signer_ids.insert(stacks_address, signer_id);
-            signer_public_keys.insert(signer_id, signer_public_key);
-            let weight_start = weight_end;
-            weight_end = weight_start + entry.weight;
-            for key_id in weight_start..weight_end {
-                public_keys.key_ids.insert(key_id, ecdsa_public_key);
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
-                coordinator_key_ids
-                    .entry(signer_id)
-                    .or_insert(HashSet::with_capacity(entry.weight as usize))
-                    .insert(key_id);
-                signer_key_ids
-                    .entry(signer_id)
-                    .or_insert(Vec::with_capacity(entry.weight as usize))
-                    .push(key_id);
-            }
-        }
-        ParsedSignerEntries {
-            signer_ids,
-            public_keys,
-            signer_key_ids,
-            signer_public_keys,
-            coordinator_key_ids,
-        }
-    }
-
     /// Get the registered signers for a specific reward cycle
     /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_parsed_reward_set(
         &self,
         reward_cycle: u64,
-    ) -> Result<Option<ParsedSignerEntries>, ClientError> {
+    ) -> Result<Option<SignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
         let Some(signers) = self
             .stacks_client
@@ -192,10 +139,8 @@ impl RunLoop {
             warn!("No registered signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         }
-        Ok(Some(Self::parse_nakamoto_signer_entries(
-            &signers,
-            self.config.network.is_mainnet(),
-        )))
+        let entries = SignerEntries::parse(self.config.network.is_mainnet(), &signers).unwrap();
+        Ok(Some(entries))
     }
 
     /// Get the stackerdb signer slots for a specific reward cycle
@@ -431,7 +376,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
                 //  and the vec could be heterogenous, so, don't differentiate.
-                Some(SignerEvent::ProposedBlocks(_))
+                Some(SignerEvent::MinerMessages(..))
                 | Some(SignerEvent::NewBurnBlock(_))
                 | Some(SignerEvent::StatusCheck)
                 | None => None,
@@ -447,7 +392,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if signer.approved_aggregate_public_key.is_none() {
                 if let Err(e) = retry_with_exponential_backoff(|| {
                     signer
-                        .update_dkg(&self.stacks_client)
+                        .update_dkg(&self.stacks_client, current_reward_cycle)
                         .map_err(backoff::Error::transient)
                 }) {
                     error!("{signer}: failed to update DKG: {e}");
@@ -481,7 +426,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 }
             }
             // After processing event, run the next command for each signer
-            signer.process_next_command(&self.stacks_client);
+            signer.process_next_command(&self.stacks_client, current_reward_cycle);
         }
         None
     }
@@ -489,9 +434,8 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
+    use libsigner::SignerEntries;
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-
-    use super::RunLoop;
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
@@ -509,7 +453,7 @@ mod tests {
             });
         }
 
-        let parsed_entries = RunLoop::parse_nakamoto_signer_entries(&signer_entries, false);
+        let parsed_entries = SignerEntries::parse(false, &signer_entries).unwrap();
         assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
         let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
         signer_ids.sort();
