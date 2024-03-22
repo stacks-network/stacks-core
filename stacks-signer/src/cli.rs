@@ -263,7 +263,7 @@ fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String>
 /// Parse a BTC address argument and return a `PoxAddress`
 pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
     PoxAddress::from_b58(pox_address_literal).map_or_else(
-        || Err(format!("Invalid pox address: {}", pox_address_literal)),
+        || Err(format!("Invalid pox address: {pox_address_literal}")),
         |pox_address| Ok(pox_address),
     )
 }
