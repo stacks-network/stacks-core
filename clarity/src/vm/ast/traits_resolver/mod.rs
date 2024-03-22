@@ -74,7 +74,7 @@ impl TraitsResolver {
                                 Entry::Vacant(e) => {
                                     // Traverse and probe for generics nested in the trait definition
                                     self.probe_for_generics(
-                                        trait_definition.iter().collect(),
+                                        trait_definition.iter(),
                                         &mut referenced_traits,
                                         true,
                                     )?;
