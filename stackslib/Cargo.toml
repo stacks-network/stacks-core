@@ -57,7 +57,7 @@ libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", bran
 siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
-clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "chore/update-clarity" }
+clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = {workspace = true}
