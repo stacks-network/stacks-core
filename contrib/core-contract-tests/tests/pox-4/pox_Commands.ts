@@ -7,6 +7,7 @@ import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
 import { Cl, cvToValue } from "@stacks/transactions";
+import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>, network: Simnet,
@@ -64,6 +65,24 @@ export function PoxCommands(
         r.delegateTo,
         r.untilBurnHt,
         r.amount,
+      )
+    ),
+    // RevokeDelegateStxCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      delegateTo: fc.constantFrom(...wallets.values()),
+      untilBurnHt: fc.integer({ min: 1 }),
+      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        delegateTo: Wallet;
+        untilBurnHt: number;
+        amount: bigint;
+      },
+    ) =>
+      new RevokeDelegateStxCommand(
+        r.wallet
       )
     ),
     // DelegateStackStxCommand
