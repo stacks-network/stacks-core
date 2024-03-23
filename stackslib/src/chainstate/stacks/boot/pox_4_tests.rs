@@ -51,6 +51,8 @@ use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::nakamoto::tests::node::TestStacker;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::coordinator::tests::pox_addr_from;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
@@ -58,7 +60,10 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
     PoxPrintFields, StackingStateCheckData,
 };
-use crate::chainstate::stacks::boot::signers_voting_tests::make_dummy_tx;
+use crate::chainstate::stacks::boot::signers_voting_tests::{make_dummy_tx, nakamoto_tenure};
+use crate::chainstate::stacks::boot::signers_tests::{
+    get_signer_index, prepare_signers_test, readonly_call,
+};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
     POX_3_NAME,
@@ -5263,6 +5268,130 @@ fn test_solo_stacking() {
     let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
     println!("Later Reward Cycle: {:?}", next_reward_cycle);
 
+}
+
+// Test that Alice & Bob can solo stack provided 
+//  with a signature from Carl & explicit approval
+//  from David.
+#[test]
+fn test_solo_stacking_delegated_signing() {
+    let lock_period = 1;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let mut coinbase_nonce = coinbase_nonce;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    // Print current reward cycle
+    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+
+    // Alice Setup
+    let mut alice_nonce = 0;
+    let alice_private_key = &keys[0];
+    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
+    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
+    let alice_address = key_to_stacks_addr(alice_private_key);
+    let alice_pox_addr = pox_addr_from(&alice_private_key);
+
+    // Bob Setup
+    let bob_nonce = 0;
+    let bob_private_key = &keys[1];
+    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
+    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
+    let bob_address = key_to_stacks_addr(bob_private_key);
+    let bob_pox_addr = pox_addr_from(&bob_private_key);
+
+    // Carl Setup
+    let carl_nonce = 0;
+    let carl_private_key = &keys[2];
+    let carl_public_key = StacksPublicKey::from_private(carl_private_key);
+    let carl_signing_key = Secp256k1PublicKey::from_private(carl_private_key);
+    let carl_address = key_to_stacks_addr(carl_private_key);
+    let carl_pox_addr = pox_addr_from(&carl_private_key);
+    let carl_signature_for_alice = make_signer_key_signature(
+        &alice_pox_addr,
+        &carl_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+
+    // David Setup
+    let david_nonce = 0;
+    let david_private_key = &keys[3];
+    let david_public_key = StacksPublicKey::from_private(david_private_key);
+    let david_signing_key = Secp256k1PublicKey::from_private(david_private_key);
+    let david_address = key_to_stacks_addr(david_private_key);
+    let david_pox_addr = pox_addr_from(&david_private_key);
+    let david_authorization_for_bob = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &david_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        david_nonce,
+        None,
+        u128::MAX,
+        1,
+    );
+
+    // Alice Stack
+    let alice_stack = make_pox_4_lockup(
+        alice_private_key,
+        alice_nonce,
+        min_ustx * 2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &carl_signing_key,
+        block_height,
+        Some(carl_signature_for_alice),
+        u128::MAX,
+        1,
+    );
+
+    // Bob Stack
+    let bob_stack = make_pox_4_lockup(
+        bob_private_key,
+        bob_nonce,
+        min_ustx * 2,
+        &bob_pox_addr.clone(),
+        lock_period,
+        &david_signing_key,
+        block_height,
+        None,
+        u128::MAX,
+        1,
+    );
+
+    // Prepare Block (create approval)
+    let latest_block = peer.tenure_with_txs(
+        &[david_authorization_for_bob, alice_stack, bob_stack],
+        &mut coinbase_nonce,
+    );
+    let david_tx = get_last_block_sender_transactions(&observer, david_address);
+    // print davic_tx length
+    println!("David TX Length: {:?}", david_tx.len());
+    let david_tx_result = david_tx.get(david_nonce as usize).unwrap().result.clone();
+    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    let alice_tx_result = alice_tx.get(alice_nonce as usize).unwrap().result.clone();
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    let bob_tx_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+
+    // Print all three tx results
+    println!("David TX Result: {:?}", david_tx_result);
+    println!("Alice TX Result: {:?}", alice_tx_result);
+    println!("Bob TX Result: {:?}", bob_tx_result);
+
+
+    // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
+    // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
+
+    // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    
 }
 
 pub fn get_stacking_state_pox_4(
