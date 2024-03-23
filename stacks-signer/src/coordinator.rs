@@ -51,7 +51,7 @@ impl From<PublicKeys> for CoordinatorSelector {
     /// Create a new Coordinator selector from the given list of public keys
     fn from(public_keys: PublicKeys) -> Self {
         let coordinator_ids =
-            CoordinatorSelector::calculate_coordinator_ids(&public_keys, &ConsensusHash::empty());
+            Self::calculate_coordinator_ids(&public_keys, &ConsensusHash::empty());
         let coordinator_id = *coordinator_ids
             .first()
             .expect("FATAL: No registered signers");

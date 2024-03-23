@@ -80,7 +80,7 @@ pub struct BlockInfo {
 
 impl BlockInfo {
     /// Create a new BlockInfo
-    pub fn new(block: NakamotoBlock) -> Self {
+    pub const fn new(block: NakamotoBlock) -> Self {
         Self {
             block,
             vote: None,
@@ -91,7 +91,7 @@ impl BlockInfo {
     }
 
     /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_with_request(block: NakamotoBlock, nonce_request: NonceRequest) -> Self {
+    pub const fn new_with_request(block: NakamotoBlock, nonce_request: NonceRequest) -> Self {
         Self {
             block,
             vote: None,
@@ -124,7 +124,7 @@ pub enum Command {
 }
 
 /// The Signer state
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
@@ -284,7 +284,7 @@ impl From<SignerConfig> for Signer {
             coordinator_selector,
             approved_aggregate_public_key: None,
             miner_key: None,
-            db_path: signer_config.db_path.clone(),
+            db_path: signer_config.db_path,
             signer_db,
         }
     }
