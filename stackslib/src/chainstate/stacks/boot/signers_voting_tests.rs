@@ -2167,7 +2167,7 @@ pub fn get_threshold_weight(
     threshold_weight
 }
 
-fn nakamoto_tenure(
+pub fn nakamoto_tenure(
     peer: &mut TestPeer,
     test_signers: &mut TestSigners,
     txs_of_blocks: Vec<Vec<StacksTransaction>>,
