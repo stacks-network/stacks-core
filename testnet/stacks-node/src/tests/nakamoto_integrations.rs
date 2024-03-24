@@ -779,31 +779,48 @@ fn signer_vote_if_needed(
     }
 }
 
-///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
-/// * `signer_pks` - must be the same size as `stacker_sks`
-pub fn boot_to_epoch_3_reward_set(
+/// Helper function to epoch 3.0's reward cycle, reward cycle boundary burn block height, and activation burn block height
+pub fn get_epoch_3_info(
+    btc_regtest_controller: &BitcoinRegtestController,
     naka_conf: &Config,
-    blocks_processed: &Arc<AtomicU64>,
-    stacker_sks: &[StacksPrivateKey],
-    signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
-) {
-    assert_eq!(stacker_sks.len(), signer_sks.len());
-
+) -> (u64, u64, u64) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
-    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
-
     let epoch_3_start_height = epoch_3.start_height;
     assert!(
         epoch_3_start_height > 0,
         "Epoch 3.0 start height must be greater than 0"
     );
     let epoch_3_reward_cycle_boundary =
-        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % 20);
+    let epoch_3_reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(epoch_3_reward_cycle_boundary)
+        .unwrap();
+    (
+        epoch_3_reward_cycle,
+        epoch_3_reward_cycle_boundary,
+        epoch_3_start_height,
+    )
+}
+
+///
+/// * Will boot to epoch 3 with the provided transactions
+/// * Note: must ensure initial_txs contains necessary stacks-stx transactions to register signers
+/// * or the chain will halt at epoch 3.0 boundary
+pub fn boot_to_epoch_3_reward_set_with_txs(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    initial_txs: Vec<Vec<u8>>,
+) {
+    let (_epoch_3_reward_cycle, epoch_3_reward_cycle_boundary, epoch_3_start_height) =
+        get_epoch_3_info(btc_regtest_controller, naka_conf);
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
     let epoch_3_reward_set_calculation_boundary =
         epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
     let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // +2 to ensure we are at the second block of the prepare phase
@@ -819,7 +836,6 @@ pub fn boot_to_epoch_3_reward_set(
         .get_burnchain()
         .block_height_to_reward_cycle(block_height)
         .unwrap();
-    let lock_period = 12;
     debug!("Test Cycle Info";
      "prepare_phase_len" => {prepare_phase_len},
      "reward_cycle_len" => {reward_cycle_len},
@@ -829,47 +845,8 @@ pub fn boot_to_epoch_3_reward_set(
      "epoch_3_reward_set_calculation" => {epoch_3_reward_set_calculation},
      "epoch_3_start_height" => {epoch_3_start_height},
     );
-    for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
-        let pox_addr = PoxAddress::from_legacy(
-            AddressHashMode::SerializeP2PKH,
-            tests::to_addr(&stacker_sk).bytes,
-        );
-        let pox_addr_tuple: clarity::vm::Value =
-            pox_addr.clone().as_clarity_tuple().unwrap().into();
-        let signature = make_pox_4_signer_key_signature(
-            &pox_addr,
-            &signer_sk,
-            reward_cycle.into(),
-            &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
-            lock_period,
-            u128::MAX,
-            1,
-        )
-        .unwrap()
-        .to_rsv();
-
-        let signer_pk = StacksPublicKey::from_private(signer_sk);
-        let stacking_tx = tests::make_contract_call(
-            &stacker_sk,
-            0,
-            1000,
-            &StacksAddress::burn_address(false),
-            "pox-4",
-            "stack-stx",
-            &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
-                pox_addr_tuple.clone(),
-                clarity::vm::Value::UInt(block_height as u128),
-                clarity::vm::Value::UInt(lock_period),
-                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
-                    .unwrap(),
-                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
-                clarity::vm::Value::UInt(u128::MAX),
-                clarity::vm::Value::UInt(1),
-            ],
-        );
-        submit_tx(&http_origin, &stacking_tx);
+    for tx in initial_txs {
+        submit_tx(&http_origin, &tx);
     }
 
     run_until_burnchain_height(
@@ -880,6 +857,83 @@ pub fn boot_to_epoch_3_reward_set(
     );
 
     info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+/// * Note: will automatically call stack-stx for the provided stacker private keys and signer private keys,
+/// * (automatically registers the signers for the appropriate reward cycles)
+pub fn boot_to_epoch_3_reward_set(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    assert_eq!(stacker_sks.len(), signer_sks.len());
+
+    // stack enough to activate pox-4
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let lock_period = 12;
+    let initial_txs = stacker_sks
+        .iter()
+        .zip(signer_sks.iter())
+        .map(|(stacker_sk, signer_sk)| {
+            let pox_addr = PoxAddress::from_legacy(
+                AddressHashMode::SerializeP2PKH,
+                tests::to_addr(&stacker_sk).bytes,
+            );
+            let pox_addr_tuple: clarity::vm::Value =
+                pox_addr.clone().as_clarity_tuple().unwrap().into();
+            let signature = make_pox_4_signer_key_signature(
+                &pox_addr,
+                &signer_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                lock_period,
+                u128::MAX,
+                1,
+            )
+            .unwrap()
+            .to_rsv();
+
+            let signer_pk = StacksPublicKey::from_private(signer_sk);
+            tests::make_contract_call(
+                &stacker_sk,
+                0,
+                1000,
+                &StacksAddress::burn_address(false),
+                "pox-4",
+                "stack-stx",
+                &[
+                    clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                    pox_addr_tuple.clone(),
+                    clarity::vm::Value::UInt(block_height as u128),
+                    clarity::vm::Value::UInt(lock_period),
+                    clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                        .unwrap(),
+                    clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                    clarity::vm::Value::UInt(u128::MAX),
+                    clarity::vm::Value::UInt(1),
+                ],
+            )
+        })
+        .collect();
+    boot_to_epoch_3_reward_set_with_txs(
+        naka_conf,
+        blocks_processed,
+        stacker_sks,
+        signer_sks,
+        btc_regtest_controller,
+        initial_txs,
+    )
 }
 
 #[test]
