@@ -51,19 +51,19 @@ use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use crate::chainstate::nakamoto::tests::node::TestStacker;
-use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::coordinator::tests::pox_addr_from;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
     check_pox_print_event, generate_pox_clarity_value, get_partial_stacked,
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
     PoxPrintFields, StackingStateCheckData,
 };
-use crate::chainstate::stacks::boot::signers_voting_tests::{make_dummy_tx, nakamoto_tenure};
 use crate::chainstate::stacks::boot::signers_tests::{
     get_signer_index, prepare_signers_test, readonly_call,
 };
+use crate::chainstate::stacks::boot::signers_voting_tests::{make_dummy_tx, nakamoto_tenure};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
     POX_3_NAME,
@@ -5267,10 +5267,9 @@ fn test_solo_stacking() {
 
     let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
     println!("Later Reward Cycle: {:?}", next_reward_cycle);
-
 }
 
-// Test that Alice & Bob can solo stack provided 
+// Test that Alice & Bob can solo stack provided
 //  with a signature from Carl & explicit approval
 //  from David.
 #[test]
@@ -5386,12 +5385,10 @@ fn test_solo_stacking_delegated_signing() {
     println!("Alice TX Result: {:?}", alice_tx_result);
     println!("Bob TX Result: {:?}", bob_tx_result);
 
-
     // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
     // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
 
     // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-    
 }
 
 pub fn get_stacking_state_pox_4(

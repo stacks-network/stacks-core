@@ -16,8 +16,17 @@ use rand::thread_rng;
 use rand_core::RngCore;
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::coordinator::tests::pox_addr_from;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
+use stacks::chainstate::stacks::boot::pox_4_tests::{
+    get_last_block_sender_transactions, get_stacking_minimum, get_tip, prepare_pox4_test,
+};
+use stacks::chainstate::stacks::boot::test::{
+    get_current_reward_cycle, key_to_stacks_addr, make_pox_4_delegate_stack_stx,
+    make_pox_4_delegate_stx, make_pox_4_lockup, make_pox_4_set_signer_key_auth,
+    make_signer_key_signature,
+};
 use stacks::chainstate::stacks::boot::{
     SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
@@ -29,6 +38,9 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::net::test::TestEventObserver;
+use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -42,7 +54,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
+use stacks_signer::signer::{self, Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::common::Signature;
@@ -92,17 +104,30 @@ struct SignerTest {
     pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
+    // the private keys of the stackers
+    pub stacker_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
     pub stacks_client: StacksClient,
 }
 
 impl SignerTest {
-    fn new(num_signers: usize) -> Self {
+    fn new(num_signers: usize, num_stackers: usize) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
+        let stacker_stacks_private_keys = (0..num_stackers)
+            .map(|_| StacksPrivateKey::new())
+            .collect::<Vec<StacksPrivateKey>>();
+        Self::from_private_keys(signer_stacks_private_keys, stacker_stacks_private_keys)
+    }
 
+    fn from_private_keys(
+        signer_stacks_private_keys: Vec<StacksPrivateKey>,
+        stacker_stacks_private_keys: Vec<StacksPrivateKey>,
+    ) -> Self {
+        let num_signers = signer_stacks_private_keys.len();
+        let num_stackers = stacker_stacks_private_keys.len();
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
@@ -135,7 +160,12 @@ impl SignerTest {
         }
 
         // Setup the nodes and deploy the contract to it
-        let node = setup_stx_btc_node(naka_conf, &signer_stacks_private_keys, &signer_configs);
+        let node = setup_stx_btc_node(
+            naka_conf,
+            &signer_stacks_private_keys,
+            &stacker_stacks_private_keys,
+            &signer_configs,
+        );
         let config = SignerConfig::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
 
@@ -145,6 +175,7 @@ impl SignerTest {
             signer_cmd_senders,
             running_signers,
             signer_stacks_private_keys,
+            stacker_stacks_private_keys,
             stacks_client,
         }
     }
@@ -861,6 +892,7 @@ fn spawn_signer(
 fn setup_stx_btc_node(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
+    stacker_stacks_private_keys: &[StacksPrivateKey],
     signer_config_tomls: &[String],
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
@@ -893,12 +925,15 @@ fn setup_stx_btc_node(
     let mut initial_balances = Vec::new();
 
     // TODO: separate keys for stacking and signing (because they'll be different in prod)
-    for key in signer_stacks_private_keys {
-        initial_balances.push(InitialBalance {
-            address: to_addr(key).into(),
-            amount: POX_4_DEFAULT_STACKER_BALANCE,
+    signer_stacks_private_keys
+        .iter()
+        .chain(stacker_stacks_private_keys.iter())
+        .for_each(|key| {
+            initial_balances.push(InitialBalance {
+                address: to_addr(key).into(),
+                amount: POX_4_DEFAULT_STACKER_BALANCE,
+            });
         });
-    }
     naka_conf.initial_balances.append(&mut initial_balances);
     naka_conf.node.stacker = true;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
@@ -984,7 +1019,7 @@ fn stackerdb_dkg() {
 
     info!("------------------------- Test Setup -------------------------");
     let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(10);
+    let mut signer_test = SignerTest::new(10, 0);
     info!("Boot to epoch 3.0 reward calculation...");
     boot_to_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
@@ -1102,7 +1137,7 @@ fn stackerdb_sign() {
     let msg2 = block2_vote.serialize_to_vec();
 
     let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(10);
+    let mut signer_test = SignerTest::new(10, 0);
     let key = signer_test.boot_to_epoch_3(timeout);
 
     info!("------------------------- Test Sign -------------------------");
@@ -1220,7 +1255,7 @@ fn stackerdb_block_proposal() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(5);
+    let mut signer_test = SignerTest::new(5, 0);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1313,7 +1348,7 @@ fn stackerdb_mine_2_nakamoto_reward_cycles() {
 
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
-    let mut signer_test = SignerTest::new(5);
+    let mut signer_test = SignerTest::new(5, 0);
     let timeout = Duration::from_secs(200);
     let first_dkg = signer_test.boot_to_epoch_3(timeout);
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -1388,7 +1423,7 @@ fn stackerdb_filter_bad_transactions() {
 
     info!("------------------------- Test Setup -------------------------");
     // Advance to the prepare phase of a post epoch 3.0 reward cycle to force signers to look at the next signer transactions to compare against a proposed block
-    let mut signer_test = SignerTest::new(5);
+    let mut signer_test = SignerTest::new(5, 0);
     let timeout = Duration::from_secs(200);
     let current_signers_dkg = signer_test.boot_to_epoch_3(timeout);
     let next_signers_dkg = signer_test
@@ -1451,4 +1486,303 @@ fn stackerdb_filter_bad_transactions() {
         );
     }
     signer_test.shutdown();
+}
+
+// Helper struct to hold information about stackers and signers
+struct StackerSignerInfo {
+    private_key: StacksPrivateKey,
+    public_key: StacksPublicKey,
+    address: StacksAddress,
+    pox_address: StacksAddress,
+    nonce: u32,
+}
+
+impl StackerSignerInfo {
+    fn new() -> Self {
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let address = key_to_stacks_addr(&private_key);
+        let pox_address = pox_addr_from(&private_key);
+        let nonce = 0;
+        Self {
+            private_key,
+            public_key,
+            address,
+            pox_address,
+            nonce,
+        }
+    }
+}
+
+// In this scenario, two service signers (Alice, Bob), one stacker-signer (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank, Grace, Heidi, Ivan, Judy, Mallory).
+
+// First Nakamoto Reward Cycle
+// First Nakamoto Tenure
+
+// 1.Franks stacks for 1 reward cycle, Grace stacks for 2 reward cycles & so on…Mallory stacks for 6 reward cycles: (so 6 wallets stacking n, n+1, n+2… cycles)
+// 2. Dave asks Alice for 3 signatures
+// 3. Eve asks Bob for 3 set-authorizations
+// 4. Ivan - Mallory ask Bob to set-approval-authorization
+// 5. Carl stx-stacks & self-signs for 2 reward cycle
+#[test]
+fn test_scenario_five() {
+    let lock_period = 1;
+    // Have Alice, Bob, and Carl as signers
+    let signer_keys = (0..3).map(|_| StackerSignerInfo::new()).collect::<Vec<_>>();
+    // Have Dave, Eve, Frank, Grace, Heidi, Ivan, Judy, Mallory as non-signers
+    let stacker_keys = (0..8).map(|_| StackerSignerInfo::new()).collect::<Vec<_>>();
+    let signers = SignerTest::from_private_keys(
+        signer_keys.iter().map(|info| info.private_key).collect(),
+        stacker_keys.iter().map(|info| info.private_key).collect(),
+    );
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let mut coinbase_nonce = coinbase_nonce;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let start_burn_height = current_reward_cycle + 1; // FIXME: get burn height
+
+    // Print current reward cycle
+    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+
+    // Alice service signer setup
+    let alice = &mut signer_keys[0];
+    // Bob service signer setup
+    let bob = &mut signer_keys[1];
+    // Carl solo stacker and signer setup
+    let carl = &mut signer_keys[2];
+    // David stacking pool operator (delegating signing to Alice) Setup
+    let david = &mut stacker_keys[0];
+    // Eve stacking pool operator (delegating signing to Bob) Setup
+    let eve = &mut stacker_keys[1];
+    // Frank pool stacker delegating STX to David
+    let frank = &mut stacker_keys[2];
+    // Grace pool stacker delegating STX to David
+    let grace = &mut stacker_keys[3];
+    // Heidi pool stacker delegating STX to David
+    let heidi = &mut stacker_keys[4];
+    // Ivan pool stacker delegating STX to Eve
+    let ivan = &mut stacker_keys[5];
+    // Jude pool stacker delegating STX to Eve
+    let jude = &mut stacker_keys[6];
+    // Mallory pool stacker delegating STX to Eve
+    let mallory = &mut stacker_keys[7];
+
+    // Lock periods for each stacker
+    let carl_lock_period = 2;
+    let carl_end_burn_height = current_reward_cycle + carl_lock_period; // FIXME: get the burn height
+    let frank_lock_period = 1;
+    let frank_end_burn_height = current_reward_cycle + frank_lock_period; // FIXME: get the burn height
+    let grace_lock_period = 2;
+    let grace_end_burn_height = current_reward_cycle + grace_lock_period; // FIXME: get the burn height
+    let heidi_lock_period = 3;
+    let heidi_end_burn_height = current_reward_cycle + heidi_lock_period; // FIXME: get the burn height
+    let ivan_lock_period = 4;
+    let ivan_end_burn_height = current_reward_cycle + ivan_lock_period; // FIXME: get the burn height
+    let jude_lock_period = 5;
+    let jude_end_burn_height = current_reward_cycle + jude_lock_period; // FIXME: get the burn height
+    let mallory_lock_period = 6;
+    let mallory_end_burn_height = current_reward_cycle + mallory_lock_period; // FIXME: get the burn height
+
+    // The pool operators should lock up for as long as their longest stacker
+    let david_lock_period = heidi_lock_period;
+    let david_end_burn_height = heidi_end_burn_height;
+    let eve_lock_period = mallory_lock_period;
+    let eve_end_burn_height = mallory_end_burn_height; // FIXME: get the burn height
+
+    let carl_signature_for_carl = make_signer_key_signature(
+        &carl.pox_address,
+        &carl.private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        carl_lock_period,
+        u128::MAX,
+        1,
+    );
+    let carl_stack_tx = make_pox_4_lockup(
+        &carl.private_key,
+        carl.nonce,
+        min_ustx * 2,
+        &carl.pox_address.clone(),
+        carl_lock_period,
+        &carl.private_key,
+        block_height,
+        Some(carl_signature_for_carl),
+        u128::MAX,
+        1,
+    );
+    carl.nonce += 1;
+
+    let david_authorization_for_alice_tx = make_pox_4_set_signer_key_auth(
+        &alice.pox_address,
+        &david.private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        david_lock_period,
+        true,
+        david.nonce,
+        None,
+        u128::MAX,
+        1,
+    );
+    david.nonce += 1;
+
+    // Eve stacking pool operator (delegating signing to Bob) Setup
+    let eve_authorization_for_bob_tx = make_pox_4_set_signer_key_auth(
+        &bob.pox_address,
+        &eve.private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        eve_lock_period,
+        true,
+        eve.nonce,
+        None,
+        u128::MAX,
+        1,
+    );
+    eve.nonce += 1;
+
+    // Frank pool stacker delegating STX to David
+    let frank_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &frank.private_key,
+        frank.nonce,
+        min_ustx,
+        &david.pox_address.into(),
+        Some(frank_end_burn_height), // FIXME: use burn height
+        Some(frank.pox_address.clone()),
+    );
+    frank.nonce += 1;
+
+    // Grace pool stacker delegating STX to David
+    let grace_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &grace.private_key,
+        grace.nonce,
+        min_ustx,
+        &david.pox_address.into(),
+        Some(grace_end_burn_height), // FIXME: use burn height
+        Some(grace.pox_address.clone()),
+    );
+    grace.nonce += 1;
+
+    // Heidi pool stacker delegating STX to David
+    let heidi_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &heidi.private_key,
+        heidi.nonce,
+        min_ustx,
+        &david.pox_address.into(),
+        Some(heidi_end_burn_height), // FIXME: use burn height
+        Some(heidi.pox_address.clone()),
+    );
+    heidi.nonce += 1;
+
+    // Ivan pool stacker delegating STX to Eve
+    let ivan_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &ivan.private_key,
+        ivan.nonce,
+        min_ustx,
+        &eve.pox_address.into(),
+        Some(ivan_end_burn_height), // FIXME: use burn height
+        Some(ivan.pox_address.clone()),
+    );
+    ivan.nonce += 1;
+
+    // Jude pool stacker delegating STX to Eve
+    let jude_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &jude.private_key,
+        jude.nonce,
+        min_ustx,
+        &eve.pox_address.into(),
+        Some(jude_end_burn_height), // FIXME: use burn height
+        Some(jude.pox_address.clone()),
+    );
+    jude.nonce += 1;
+
+    // Mallory pool stacker delegating STX to Eve
+    let mallory_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &mallory.private_key,
+        mallory.nonce,
+        min_ustx,
+        &eve.pox_address.into(),
+        Some(mallory_end_burn_height), // FIXME: use burn height
+        Some(mallory.pox_address.clone()),
+    );
+    mallory.nonce += 1;
+
+    let davids_stackers = &[
+        (eve, eve_lock_period),
+        (frank, frank_lock_period),
+        (grace, grace_lock_period),
+        (heidi, heidi_lock_period),
+    ];
+    let davids_delegate_stack_stx_txs = davids_stackers
+        .iter()
+        .map(|(stacker, lock_period)| {
+            let tx = make_pox_4_delegate_stack_stx(
+                &david.private_key,
+                david.nonce,
+                stacker,
+                min_ustx,
+                &stacker.into(),
+                Some(start_burn_height),
+                Some(lock_period),
+            );
+            david.nonce += 1;
+            tx
+        })
+        .collect();
+
+    davids_delegate_stack_stx_txs.extend(&[
+        david_authorization_for_alice_tx,
+        eve_authorization_for_bob_tx,
+        frank_delegate_stx_to_david_tx,
+        grace_delegate_stx_to_david_tx,
+        heidi_delegate_stx_to_david_tx,
+        ivan_delegate_stx_to_eve_tx,
+        jude_delegate_stx_to_eve_tx,
+        mallory_delegate_stx_to_eve_tx,
+        carl_stack_tx,
+    ]);
+
+    let eves_stackers = &[
+        (ivan, ivan_lock_period),
+        (jude, jude_lock_period),
+        (mallory, mallory_lock_period),
+    ];
+    let eves_delegate_stack_stx_txs = eves_stackers
+        .iter()
+        .map(|(stacker, lock_period)| {
+            let tx = make_pox_4_delegate_stack_stx(
+                &eve.private_key,
+                eve.nonce,
+                stacker,
+                min_ustx,
+                &stacker.into(),
+                Some(start_burn_height),
+                Some(lock_period),
+            );
+            eve.nonce += 1;
+            tx
+        })
+        .collect();
+
+    // Prepare Block (create approval)
+    // TODO: pass transactions to the miner
+
+    //et david_tx = get_last_block_sender_transactions(&observer, david_address);
+    // print davic_tx length
+    // println!("David TX Length: {:?}", david_tx.len());
+    // let david_tx_result = david_tx.get(david_nonce as usize).unwrap().result.clone();
+    // let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    // let alice_tx_result = alice_tx.get(alice_nonce as usize).unwrap().result.clone();
+    // let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    // let bob_tx_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+
+    // Print all three tx results
+    // println!("David TX Result: {:?}", david_tx_result);
+    // println!("Alice TX Result: {:?}", alice_tx_result);
+    // println!("Bob TX Result: {:?}", bob_tx_result);
+
+    // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
+    // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
+
+    // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
 }
