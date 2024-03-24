@@ -209,12 +209,12 @@ impl HttpResponse for RPCMicroblocksIndexedRequestHandler {
 
 /// Stream implementation for HeaderStreamData
 impl HttpChunkGenerator for StacksIndexedMicroblockStream {
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "testing")))]
     fn hint_chunk_size(&self) -> usize {
         4096
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn hint_chunk_size(&self) -> usize {
         // make this hurt
         32
@@ -277,7 +277,7 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_getmicroblocks_indexed(
         mblocks: Vec<StacksMicroblock>,
         with_content_length: bool,

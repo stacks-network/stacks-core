@@ -109,7 +109,7 @@ impl HttpRequestPreamble {
     }
 
     /// Test helper to construct an HTTP request preamble from headers
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_headers(
         version: HttpVersion,
         verb: String,

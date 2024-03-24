@@ -882,7 +882,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use super::*;
 

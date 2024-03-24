@@ -176,7 +176,7 @@ macro_rules! using {
 }
 
 impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_test_conn(
         datastore: WritableMarfStore<'a>,
         header_db: &'b dyn HeadersDB,
@@ -732,7 +732,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn commit_block(self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
         self.datastore.test_commit();
@@ -1592,7 +1592,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.datastore
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_epoch(&mut self, epoch_id: StacksEpochId) {
         self.epoch = epoch_id;
     }
@@ -1857,7 +1857,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     }
 
     /// Evaluate a raw Clarity snippit
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| vm_env.eval_raw(code).map_err(Error::from),
@@ -1866,7 +1866,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         Ok(result)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn eval_read_only(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -1880,7 +1880,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use std::fs;
 

@@ -1034,7 +1034,7 @@ impl StacksChainState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::StacksAddressExtensions;

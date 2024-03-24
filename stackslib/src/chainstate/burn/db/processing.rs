@@ -354,7 +354,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::hex_bytes;

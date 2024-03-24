@@ -92,7 +92,7 @@ pub struct TrieBenchmark {
     time_errors: u64,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
         TrieBenchmark {
@@ -410,7 +410,7 @@ impl TrieBenchmark {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
         TrieBenchmark {

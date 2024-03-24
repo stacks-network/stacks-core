@@ -195,13 +195,13 @@ impl HttpResponse for RPCBlocksRequestHandler {
 
 /// Stream implementation for HeaderStreamData
 impl HttpChunkGenerator for StacksBlockStream {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn hint_chunk_size(&self) -> usize {
         // make this hurt
         32
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "testing")))]
     fn hint_chunk_size(&self) -> usize {
         4096
     }
@@ -275,7 +275,7 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_getblock(block: StacksBlock, with_content_length: bool) -> StacksHttpResponse {
         let value = block.serialize_to_vec();
         let length = value.len();

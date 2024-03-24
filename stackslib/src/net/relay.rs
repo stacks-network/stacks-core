@@ -2574,7 +2574,7 @@ impl PeerNetwork {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;

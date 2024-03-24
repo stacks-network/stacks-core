@@ -541,7 +541,7 @@ impl BurnchainBlockParser for BitcoinBlockParser {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;

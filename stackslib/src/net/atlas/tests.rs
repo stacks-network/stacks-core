@@ -46,7 +46,7 @@ fn new_attachment_from(content: &str) -> Attachment {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn new_attachment_instance_from(
     attachment: &Attachment,
     attachment_index: u32,
@@ -87,7 +87,7 @@ fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityRepo
     new_peers
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn new_attachment_request(
     sources: Vec<(&str, u32, u32)>,
     content_hash: &Hash160,
@@ -109,7 +109,7 @@ fn new_attachment_request(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn new_attachments_inventory_request(
     url: &str,
     pages: Vec<u32>,

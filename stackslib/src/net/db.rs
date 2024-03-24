@@ -749,7 +749,7 @@ impl PeerDB {
     }
 
     /// Open a peer database in memory (used for testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_memory(
         network_id: u32,
         parent_network_id: u32,
@@ -938,7 +938,7 @@ impl PeerDB {
     }
 
     /// Get peer by port (used in tests where the IP address doesn't really matter)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_peer_by_port(
         conn: &DBConn,
         network_id: u32,
@@ -1813,7 +1813,7 @@ impl PeerDB {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
     use stacks_common::types::chainstate::StacksAddress;

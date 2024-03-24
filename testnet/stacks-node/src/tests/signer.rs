@@ -17,17 +17,15 @@ use rand_core::RngCore;
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::tests::pox_addr_from;
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
 use stacks::chainstate::stacks::boot::pox_4_tests::{
     get_last_block_sender_transactions, get_stacking_minimum, get_tip, prepare_pox4_test,
 };
 use stacks::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_delegate_stack_stx,
-    make_pox_4_delegate_stx, make_pox_4_lockup, make_pox_4_set_signer_key_auth,
-    make_signer_key_signature,
+    key_to_stacks_addr, make_pox_4_delegate_stack_stx, make_pox_4_delegate_stx, make_pox_4_lockup,
+    make_pox_4_set_signer_key_auth, make_signer_key_signature,
 };
-
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
 use stacks::chainstate::stacks::boot::{
     SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
@@ -1488,30 +1486,30 @@ fn stackerdb_filter_bad_transactions() {
 }
 
 // Helper struct to hold information about stackers and signers
-// struct StackerSignerInfo {
-//     private_key: StacksPrivateKey,
-//     public_key: StacksPublicKey,
-//     address: StacksAddress,
-//     pox_address: StacksAddress,
-//     nonce: u32,
-// }
+struct StackerSignerInfo {
+    private_key: StacksPrivateKey,
+    public_key: StacksPublicKey,
+    address: StacksAddress,
+    pox_address: StacksAddress,
+    nonce: u32,
+}
 
-// impl StackerSignerInfo {
-//     fn new() -> Self {
-//         let private_key = StacksPrivateKey::new();
-//         let public_key = StacksPublicKey::from_private(&private_key);
-//         let address = key_to_stacks_addr(&private_key);
-//         let pox_address = pox_addr_from(&private_key);
-//         let nonce = 0;
-//         Self {
-//             private_key,
-//             public_key,
-//             address,
-//             pox_address,
-//             nonce,
-//         }
-//     }
-// }
+impl StackerSignerInfo {
+    fn new() -> Self {
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let address = key_to_stacks_addr(&private_key);
+        let pox_address = pox_addr_from(&private_key);
+        let nonce = 0;
+        Self {
+            private_key,
+            public_key,
+            address,
+            pox_address,
+            nonce,
+        }
+    }
+}
 
 // In this scenario, two service signers (Alice, Bob), one stacker-signer (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank, Grace, Heidi, Ivan, Judy, Mallory).
 

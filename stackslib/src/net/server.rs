@@ -672,7 +672,7 @@ impl HttpPeer {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::cell::RefCell;
     use std::net::{SocketAddr, TcpStream};

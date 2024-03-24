@@ -164,7 +164,7 @@ pub trait TrieNode {
         write_path_to_bytes(self.path().as_slice(), w)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn to_bytes(&self) -> Vec<u8> {
         let mut r = Vec::new();
         self.write_bytes(&mut r)
@@ -192,7 +192,7 @@ pub trait ConsensusSerializable<M> {
         w: &mut W,
     ) -> Result<(), Error>;
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn to_consensus_bytes(&self, additional_data: &mut M) -> Vec<u8> {
         let mut r = Vec::new();
         self.write_consensus_bytes(additional_data, &mut r)

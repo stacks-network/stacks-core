@@ -46,7 +46,7 @@ struct ParsedData {
 }
 
 impl TransferStxOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(
         sender: &StacksAddress,
         recipient: &StacksAddress,
@@ -239,7 +239,7 @@ impl TransferStxOp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;

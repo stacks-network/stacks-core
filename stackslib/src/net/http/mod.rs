@@ -20,7 +20,7 @@ pub mod request;
 pub mod response;
 pub mod stream;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests;
 
 use std::collections::BTreeMap;

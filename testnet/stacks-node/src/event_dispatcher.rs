@@ -1284,7 +1284,7 @@ impl EventDispatcher {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};

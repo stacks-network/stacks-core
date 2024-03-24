@@ -48,7 +48,7 @@ struct ParsedData {
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(sender: &StacksAddress) -> PreStxOp {
         PreStxOp {
             output: sender.clone(),
@@ -146,7 +146,7 @@ impl PreStxOp {
 }
 
 impl StackStxOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(
         sender: &StacksAddress,
         reward_addr: &PoxAddress,
@@ -358,7 +358,7 @@ impl StackStxOp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;

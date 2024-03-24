@@ -259,7 +259,7 @@ impl StacksMessageCodec for DelegateStxOp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};

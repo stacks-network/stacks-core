@@ -326,7 +326,7 @@ impl<T: MarfTrieId> TrieCache<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::collections::VecDeque;
     use std::fs;

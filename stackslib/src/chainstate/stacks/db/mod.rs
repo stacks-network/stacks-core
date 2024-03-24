@@ -532,7 +532,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.seal()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn commit_block(self) -> () {
         self.block.commit_block();
     }
@@ -1121,7 +1121,7 @@ impl StacksChainState {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn open_db_without_migrations(
         mainnet: bool,
         chain_id: u32,
@@ -2276,7 +2276,7 @@ impl StacksChainState {
     }
 
     /// Create a Clarity VM transaction connection for testing in 2.1
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_genesis_block_begin_2_1<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -2330,7 +2330,7 @@ impl StacksChainState {
     }
 
     /// Create a Clarity VM transaction connection for testing in 2.05
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_genesis_block_begin_2_05<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -2662,7 +2662,7 @@ impl StacksChainState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::{env, fs};
 

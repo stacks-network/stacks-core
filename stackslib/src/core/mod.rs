@@ -30,7 +30,7 @@ use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 use std::cmp::Ordering;
@@ -94,9 +94,9 @@ pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
@@ -574,29 +574,29 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 pub trait StacksEpochExtension {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_1(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_2(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_3(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_4(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_5(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_3_0(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch>;
     fn all(
         epoch_2_0_block_height: u64,
@@ -632,7 +632,7 @@ impl StacksEpochExtension for StacksEpoch {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -657,7 +657,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -695,7 +695,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_05_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -733,7 +733,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -784,7 +784,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_2(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -848,7 +848,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_3(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test_2_3 first_burn_height = {}",
@@ -925,7 +925,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_4(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test_2_4 first_burn_height = {}",
@@ -1015,7 +1015,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_5(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test_2_5 first_burn_height = {}",
@@ -1118,7 +1118,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_3_0(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test_3_0 first_burn_height = {}",
@@ -1234,7 +1234,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_2_1_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -1285,7 +1285,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -1359,7 +1359,7 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> Vec<StacksEpoch> {
         match stacks_epoch_id {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {

@@ -82,7 +82,7 @@ impl PeerNetwork {
             };
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             test_debug!(
                 "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
@@ -374,7 +374,7 @@ impl PeerNetwork {
     }
 
     /// Dump our peer table
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn dump_peer_table(&mut self) -> (Vec<String>, Vec<String>) {
         let mut inbound: Vec<String> = vec![];
         let mut outbound: Vec<String> = vec![];
@@ -445,7 +445,7 @@ impl PeerNetwork {
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             if pruned_by_ip.len() > 0 || pruned_by_org.len() > 0 {
                 let (mut inbound, mut outbound) = self.dump_peer_table();

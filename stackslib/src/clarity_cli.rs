@@ -92,13 +92,13 @@ lazy_static! {
     ];
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 macro_rules! panic_test {
     () => {
         panic!()
     };
 }
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 macro_rules! panic_test {
     () => {
         process::exit(1)
@@ -1898,7 +1898,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use super::*;
 

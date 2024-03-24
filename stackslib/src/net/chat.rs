@@ -482,7 +482,7 @@ impl Neighbor {
             }
         };
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
             // for this peer
@@ -2818,7 +2818,7 @@ impl ConversationP2P {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::fs;
     use std::io::prelude::*;

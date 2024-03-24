@@ -338,7 +338,7 @@ macro_rules! impl_byte_array_from_column {
 }
 
 /// Load the path of the database from the connection
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn get_db_path(conn: &Connection) -> Result<String, Error> {
     let sql = "PRAGMA database_list";
     let path: Result<Option<String>, sqlite_error> =
@@ -353,7 +353,7 @@ fn get_db_path(conn: &Connection) -> Result<String, Error> {
 /// Generate debug output to be fed into an external script to examine query plans.
 /// TODO: it uses mocked arguments, which it assumes are strings. This does not always result in a
 /// valid query.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn log_sql_eqp(conn: &Connection, sql_query: &str) {
     if std::env::var("BLOCKSTACK_DB_TRACE") != Ok("1".to_string()) {
         return;
@@ -379,7 +379,7 @@ fn log_sql_eqp(conn: &Connection, sql_query: &str) {
     debug!("{}", &eqp_sql);
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 
 /// boilerplate code for querying rows
@@ -959,7 +959,7 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use std::fs;
 

@@ -146,7 +146,7 @@ pub fn make_json_boot_contracts_reference() -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use super::make_json_boot_contracts_reference;
 

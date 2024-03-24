@@ -558,7 +558,7 @@ impl BitcoinAddress {
         return false;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_legacy(self) -> LegacyBitcoinAddress {
         match self {
             BitcoinAddress::Legacy(addr) => addr,
@@ -568,7 +568,7 @@ impl BitcoinAddress {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_segwit(self) -> SegwitBitcoinAddress {
         match self {
             BitcoinAddress::Segwit(addr) => addr,
@@ -578,7 +578,7 @@ impl BitcoinAddress {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_segwit(mainnet: bool, scriptpubkey_hex: &str) -> BitcoinAddress {
         let scriptpubkey = hex_bytes(scriptpubkey_hex).unwrap();
         BitcoinAddress::try_from_segwit(mainnet, &scriptpubkey)
@@ -599,7 +599,7 @@ impl BitcoinAddress {
         return None;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_legacy(mainnet: bool, scriptpubkey_hex: &str) -> BitcoinAddress {
         let network_id = if mainnet {
             BitcoinNetworkType::Mainnet
@@ -696,7 +696,7 @@ impl Address for BitcoinAddress {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::types::Address;
     use stacks_common::util::hash::{hex_bytes, Hash160};

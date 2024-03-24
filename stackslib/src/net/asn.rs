@@ -222,7 +222,7 @@ impl ASEntry4 {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::io;
     use std::io::BufRead;

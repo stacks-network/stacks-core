@@ -1504,7 +1504,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
                             // if we're testing, then permit the prover to return an invalid proof
                             // if the test requests it
-                            #[cfg(test)]
+                            #[cfg(any(test, feature = "testing"))]
                             {
                                 use std::env;
                                 if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID")

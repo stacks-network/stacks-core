@@ -5751,7 +5751,7 @@ impl PeerNetwork {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::{thread, time};
 

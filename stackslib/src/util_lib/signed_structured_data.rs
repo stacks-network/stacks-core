@@ -158,7 +158,7 @@ pub mod pox4 {
         signer_key.sign(msg_hash.as_bytes())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     mod tests {
         use clarity::vm::ast::ASTRules;
         use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
@@ -402,7 +402,7 @@ pub mod pox4 {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::types::{TupleData, Value};
     use stacks_common::consts::CHAIN_ID_MAINNET;

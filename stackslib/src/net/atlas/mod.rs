@@ -241,5 +241,5 @@ impl AttachmentInstance {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests;

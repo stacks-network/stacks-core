@@ -420,7 +420,7 @@ impl ConsensusHashExtensions for ConsensusHash {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use rusqlite::Connection;
     use stacks_common::types::chainstate::BurnchainHeaderHash;

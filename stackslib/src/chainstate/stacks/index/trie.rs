@@ -435,7 +435,7 @@ impl Trie {
         Ok(ret)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_promote_leaf_to_node4<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         cursor: &mut TrieCursor<T>,
@@ -512,7 +512,7 @@ impl Trie {
         Ok(Some(cursor.ptr()))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_try_attach_leaf<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         cursor: &mut TrieCursor<T>,
@@ -574,7 +574,7 @@ impl Trie {
         Ok(ret)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_insert_leaf<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         cursor: &mut TrieCursor<T>,
@@ -693,7 +693,7 @@ impl Trie {
         Ok(ret)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_splice_leaf<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         cursor: &mut TrieCursor<T>,

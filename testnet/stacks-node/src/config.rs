@@ -67,7 +67,7 @@ pub struct LegacyMstxConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use super::*;
 

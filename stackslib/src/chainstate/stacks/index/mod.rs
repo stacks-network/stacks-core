@@ -39,7 +39,7 @@ pub mod storage;
 pub mod trie;
 pub mod trie_sql;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test;
 
 #[derive(Debug)]
@@ -142,13 +142,13 @@ macro_rules! impl_clarity_marf_trie_id {
 impl_clarity_marf_trie_id!(BurnchainHeaderHash);
 impl_clarity_marf_trie_id!(StacksBlockId);
 impl_clarity_marf_trie_id!(SortitionId);
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl_clarity_marf_trie_id!(BlockHeaderHash);
 
 impl MarfTrieId for SortitionId {}
 impl MarfTrieId for StacksBlockId {}
 impl MarfTrieId for BurnchainHeaderHash {}
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl MarfTrieId for BlockHeaderHash {}
 
 pub trait TrieHashExtension {
@@ -416,7 +416,7 @@ pub trait BlockMap {
     fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32, Error>;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl BlockMap for () {
     type TrieId = BlockHeaderHash;
     fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {

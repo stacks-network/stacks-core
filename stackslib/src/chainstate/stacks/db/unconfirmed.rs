@@ -638,7 +638,7 @@ impl StacksChainState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::fs;
 

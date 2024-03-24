@@ -247,7 +247,7 @@ impl StacksHttpRequest {
 
 impl StacksHttpResponse {
     /// Make a new neighbors response
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_getneighbors(
         neighbors: RPCNeighborsInfo,
         with_content_length: bool,

@@ -1484,7 +1484,7 @@ impl<'a> SortitionHandleTx<'a> {
             stacks_block_height,
         )?;
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             let (ch, bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
             debug!(
@@ -1715,7 +1715,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Update the canonical Stacks tip (testing only)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_update_canonical_stacks_tip(
         &mut self,
         sort_id: &SortitionId,
@@ -2729,7 +2729,7 @@ impl SortitionDB {
     }
 
     /// Open a burn database at random tmp dir (used for testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_test(
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
@@ -2744,7 +2744,7 @@ impl SortitionDB {
 
     /// Open a burn database at random tmp dir (used for testing)
     /// But, take a particular epoch configuration
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_test_with_epochs(
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
@@ -2769,7 +2769,7 @@ impl SortitionDB {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_v1(
         path: &str,
         first_block_height: u64,
@@ -2920,7 +2920,7 @@ impl SortitionDB {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn instantiate_v1(
         &mut self,
         first_block_height: u64,
@@ -4082,7 +4082,7 @@ impl SortitionDB {
         Ok((new_snapshot.0, new_snapshot.1))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_get_next_block_recipients(
         &mut self,
         burnchain: &Burnchain,
@@ -4910,7 +4910,7 @@ impl SortitionDB {
 
     /// Given the last_tenure_id (e.g. in a block-commit in Nakamoto), find its sortition in the
     /// given sortition fork.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_block_snapshot_for_winning_nakamoto_tenure(
         ic: &SortitionDBConn,
         tip: &SortitionId,
@@ -4948,7 +4948,7 @@ impl SortitionDB {
     }
 
     /// Get a blockstack burnchain operation by txid
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_burnchain_transaction(
         conn: &Connection,
         txid: &Txid,
@@ -5193,7 +5193,7 @@ impl<'a> SortitionHandleTx<'a> {
             sn.canonical_stacks_tip_height,
         )?;
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
@@ -6271,7 +6271,7 @@ impl ChainstateDB for SortitionDB {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;

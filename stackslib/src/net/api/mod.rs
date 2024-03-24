@@ -63,7 +63,7 @@ pub mod postmicroblock;
 pub mod poststackerdbchunk;
 pub mod posttransaction;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests;
 
 impl StacksHttp {

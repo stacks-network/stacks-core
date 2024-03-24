@@ -34,9 +34,9 @@ use clarity::vm::types::{
 };
 use clarity::vm::Value::Sequence;
 use clarity::vm::{ast, execute as vm_execute, ClarityVersion};
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 use rstest::rstest;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 use rstest_reuse::{self, *};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,

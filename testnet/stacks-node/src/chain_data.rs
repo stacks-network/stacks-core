@@ -524,7 +524,7 @@ impl MinerStats {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests {
     use std::fs;
     use std::io::Write;

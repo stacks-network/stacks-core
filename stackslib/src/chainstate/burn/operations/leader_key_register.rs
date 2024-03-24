@@ -44,7 +44,7 @@ pub struct ParsedData {
 }
 
 impl LeaderKeyRegisterOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
@@ -59,7 +59,7 @@ impl LeaderKeyRegisterOp {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_from_secrets(
         num_sigs: u16,
         hash_mode: &AddressHashMode,
@@ -243,7 +243,7 @@ impl LeaderKeyRegisterOp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;

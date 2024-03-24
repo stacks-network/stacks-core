@@ -1559,7 +1559,7 @@ impl StacksChainState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;

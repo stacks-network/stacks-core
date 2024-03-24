@@ -228,7 +228,7 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
     use stacks_common::types;

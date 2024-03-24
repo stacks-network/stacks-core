@@ -252,7 +252,7 @@ impl HttpResponsePreamble {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_headers(
         status_code: u16,
         reason: String,

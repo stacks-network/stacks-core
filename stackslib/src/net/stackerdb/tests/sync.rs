@@ -48,7 +48,7 @@ const NUM_NEIGHBORS: usize = 8;
 
 /// Some testable configurations for stacker DB configs
 impl StackerDBConfig {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn template() -> StackerDBConfig {
         StackerDBConfig {
             chunk_size: CHUNK_SIZE,

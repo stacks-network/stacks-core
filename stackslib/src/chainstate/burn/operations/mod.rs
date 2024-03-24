@@ -47,7 +47,7 @@ pub mod stack_stx;
 pub mod transfer_stx;
 pub mod vote_for_aggregate_key;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test;
 
 #[derive(Debug)]
@@ -419,7 +419,7 @@ impl BlockstackOperationType {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_block_height(&mut self, height: u64) {
         match self {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
@@ -436,7 +436,7 @@ impl BlockstackOperationType {
         };
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_burn_header_hash(&mut self, hash: BurnchainHeaderHash) {
         match self {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => {

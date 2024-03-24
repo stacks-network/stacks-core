@@ -481,7 +481,7 @@ impl BitcoinTxInputStructured {
 }
 
 impl BitcoinTxInputRaw {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_hex_parts(scriptsig: &str, witness: &[&str]) -> BitcoinTxInputRaw {
         let witness_bytes: Vec<_> = witness.iter().map(|w| hex_bytes(w).unwrap()).collect();
         BitcoinTxInputRaw {
@@ -632,7 +632,7 @@ impl BitcoinTxOutput {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;

@@ -1078,7 +1078,7 @@ impl TransactionAuth {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use super::*;
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};

@@ -324,7 +324,7 @@ impl BurnSamplePoint {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn make_distribution(
         all_block_candidates: Vec<LeaderBlockCommitOp>,
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
@@ -393,7 +393,7 @@ impl BurnSamplePoint {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use std::marker::PhantomData;
 

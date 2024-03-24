@@ -181,7 +181,7 @@ impl SpvClient {
         Ok(client)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_without_migration(
         headers_path: &str,
         start_block: u64,
@@ -210,7 +210,7 @@ impl SpvClient {
         Ok(client)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn disable_check_txcount(&mut self) {
         self.check_txcount = false;
     }
@@ -219,7 +219,7 @@ impl SpvClient {
         &self.headers_db
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn conn_mut(&mut self) -> &mut DBConn {
         &mut self.headers_db
     }
@@ -276,7 +276,7 @@ impl SpvClient {
             .and_then(|_| Ok(()))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_db_migrate(conn: &mut DBConn) -> Result<(), btc_error> {
         SpvClient::db_migrate(conn)
     }
@@ -924,7 +924,7 @@ impl SpvClient {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_write_block_headers(
         &mut self,
         height: u64,
@@ -1304,7 +1304,7 @@ impl BitcoinMessageHandler for SpvClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
 
     use std::env;

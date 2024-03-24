@@ -334,7 +334,7 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_posttransaction(txid: Txid, with_content_length: bool) -> StacksHttpResponse {
         let value = serde_json::to_value(txid).expect("FATAL: failed to serialize infallible data");
         let length = serde_json::to_string(&value)

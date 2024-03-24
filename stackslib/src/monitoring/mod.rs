@@ -366,7 +366,7 @@ fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f
     result
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 macro_rules! assert_approx_eq {
     ($a: expr, $b: expr) => {{
         let (a, b) = (&$a, &$b);

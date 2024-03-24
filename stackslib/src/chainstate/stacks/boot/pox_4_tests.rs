@@ -42,7 +42,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stdext::num::integer::Integer;
 use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
@@ -5286,7 +5285,7 @@ fn test_solo_stacking_delegated_signing() {
     println!("Current Reward Cycle: {:?}", current_reward_cycle);
 
     // Alice Setup
-    let mut alice_nonce = 0;
+    let alice_nonce = 0;
     let alice_private_key = &keys[0];
     let alice_public_key = StacksPublicKey::from_private(alice_private_key);
     let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);

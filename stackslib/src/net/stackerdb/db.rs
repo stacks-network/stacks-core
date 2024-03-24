@@ -486,7 +486,7 @@ impl StackerDBs {
         Self::instantiate(path, readwrite)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_memory() -> StackerDBs {
         Self::instantiate(":memory:", true).unwrap()
     }

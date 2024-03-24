@@ -1101,7 +1101,7 @@ impl BurnchainDB {
         BurnchainDB::inner_get_canonical_chain_tip(&self.conn)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
@@ -1416,7 +1416,7 @@ impl BurnchainDB {
         Ok(blockstack_ops)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn raw_store_burnchain_block<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,

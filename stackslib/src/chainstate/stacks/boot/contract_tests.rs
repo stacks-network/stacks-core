@@ -287,7 +287,7 @@ pub fn test_sim_hash_to_fork(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
     let analysis = mem_type_check(contract, version, StacksEpochId::latest())
         .unwrap()
@@ -469,7 +469,7 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,

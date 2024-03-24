@@ -541,7 +541,7 @@ impl StacksAddressExtensions for StacksAddress {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::types::BuffData;
     use stacks_common::util::hash::*;

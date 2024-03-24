@@ -540,7 +540,7 @@ impl StacksHttpRequest {
         (self.preamble, self.contents)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn try_serialize(&self) -> Result<Vec<u8>, NetError> {
         let mut ret = vec![];
         self.send(&mut ret)?;
@@ -664,7 +664,7 @@ impl StacksHttpResponse {
         self.preamble.headers.clear();
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn try_serialize(&self) -> Result<Vec<u8>, NetError> {
         let mut ret = vec![];
         self.send(&mut ret)?;
@@ -688,7 +688,7 @@ pub enum StacksHttpPreamble {
 }
 
 impl StacksHttpPreamble {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_request(self) -> HttpRequestPreamble {
         match self {
             Self::Request(x) => x,
@@ -696,7 +696,7 @@ impl StacksHttpPreamble {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_response(self) -> HttpResponsePreamble {
         match self {
             Self::Response(x) => x,
@@ -925,7 +925,7 @@ impl StacksHttp {
     }
 
     /// Force the state machine to expect a response
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_response_handler(&mut self, request_verb: &str, request_path: &str) {
         let handler_index = self
             .find_response_handler(request_verb, request_path)
@@ -937,7 +937,7 @@ impl StacksHttp {
     }
 
     /// Try to parse an inbound HTTP request using a given handler, preamble, and body
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn handle_try_parse_request(
         &self,
         handler: &mut dyn RPCRequestHandler,
@@ -1125,7 +1125,7 @@ impl StacksHttp {
         Ok((response_preamble, response_contents))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn num_pending(&self) -> usize {
         self.reply.as_ref().map(|_| 1).unwrap_or(0)
     }
@@ -1245,7 +1245,7 @@ impl StacksHttp {
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn parse_response(
         verb: &str,
         request_path: &str,
