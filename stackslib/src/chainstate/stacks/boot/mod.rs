@@ -589,7 +589,7 @@ impl StacksChainState {
 
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_stacking_minimum(
         &mut self,
         sortdb: &SortitionDB,
@@ -647,7 +647,7 @@ impl StacksChainState {
     }
 
     /// Determine how many uSTX are stacked in a given reward cycle
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_get_total_ustx_stacked(
         &mut self,
         sortdb: &SortitionDB,

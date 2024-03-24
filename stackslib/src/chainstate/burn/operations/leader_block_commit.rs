@@ -63,7 +63,7 @@ pub static OUTPUTS_PER_COMMIT: usize = 2;
 pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
 impl LeaderBlockCommitOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn initial(
         block_header_hash: &BlockHeaderHash,
         block_height: u64,
@@ -103,7 +103,7 @@ impl LeaderBlockCommitOp {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(
         block_header_hash: &BlockHeaderHash,
         block_height: u64,
@@ -141,7 +141,7 @@ impl LeaderBlockCommitOp {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_burn_height(&mut self, height: u64) {
         self.block_height = height;
         let new_burn_parent_modulus = if height > 0 {

@@ -349,7 +349,7 @@ impl PoxConstants {
             _shadow: PhantomData,
         }
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
         PoxConstants::new(
@@ -367,7 +367,7 @@ impl PoxConstants {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     /// Create a PoX constants used in tests with 5-block cycles,
     ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
     ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.

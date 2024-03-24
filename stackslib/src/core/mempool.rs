@@ -1377,7 +1377,7 @@ impl MemPoolDB {
             .map(String::from)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn open_test(
         mainnet: bool,
         chain_id: u32,
@@ -1949,7 +1949,7 @@ impl MemPoolDB {
     }
 
     /// Get all transactions across all tips
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
@@ -1957,7 +1957,7 @@ impl MemPoolDB {
     }
 
     /// Get all transactions at a specific block
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_num_tx_at_block(
         conn: &DBConn,
         consensus_hash: &ConsensusHash,
@@ -2221,7 +2221,7 @@ impl MemPoolDB {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn clear_before_height(&mut self, min_height: u64) -> Result<(), db_error> {
         let mut tx = self.tx_begin()?;
         MemPoolDB::garbage_collect(&mut tx, min_height, None)?;

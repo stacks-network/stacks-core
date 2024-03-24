@@ -410,7 +410,7 @@ impl FromRow<StagingBlock> for StagingBlock {
 }
 
 impl StagingMicroblock {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
         StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
     }
@@ -655,7 +655,7 @@ impl StacksChainState {
     }
 
     /// Store an empty block to the chunk store, named by its hash.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn store_empty_block(
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
@@ -755,7 +755,7 @@ impl StacksChainState {
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn list_microblocks(
         blocks_conn: &DBConn,
         blocks_dir: &str,
@@ -1021,7 +1021,7 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::from(e)))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn load_staging_block_data(
         block_conn: &DBConn,
         blocks_path: &str,
@@ -1489,7 +1489,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn load_parent_block_header(
         sort_ic: &SortitionDBConn,
         blocks_path: &str,
@@ -2506,7 +2506,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn set_block_orphaned<'a>(
         tx: &mut DBTx<'a>,
         blocks_path: &str,
@@ -2807,7 +2807,7 @@ impl StacksChainState {
 
     /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
     /// index block hash?
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn has_microblocks_indexed(
         &self,
         parent_index_block_hash: &StacksBlockId,
@@ -2873,7 +2873,7 @@ impl StacksChainState {
 
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
     /// Returns None if no such microblock.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn stream_microblock_get_rowid(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
@@ -2892,7 +2892,7 @@ impl StacksChainState {
 
     /// Load up the metadata on a microblock stream (but don't get the data itself)
     /// DO NOT USE IN PRODUCTION -- doesn't work for microblock forks.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn stream_microblock_get_info(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
@@ -3585,7 +3585,7 @@ impl StacksChainState {
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
     /// This does not work when forking
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn preprocess_stacks_epoch(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -6330,7 +6330,7 @@ impl StacksChainState {
     ///  PoX aware (i.e., unit tests, and old stacks-node loops),
     /// Elsewhere, block processing is invoked by the ChainsCoordinator,
     ///  which handles tracking the chain tip itself
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn process_blocks_at_tip(
         &mut self,
         burnchain_db_conn: &DBConn,

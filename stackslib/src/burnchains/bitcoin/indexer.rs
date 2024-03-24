@@ -167,7 +167,7 @@ impl BitcoinIndexerConfig {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_default(spv_headers_path: String) -> BitcoinIndexerConfig {
         BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
@@ -203,7 +203,7 @@ impl BitcoinIndexerRuntime {
 }
 
 impl BitcoinIndexer {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(
         config: BitcoinIndexerConfig,
         runtime: BitcoinIndexerRuntime,
@@ -216,7 +216,7 @@ impl BitcoinIndexer {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_unit_test(working_dir: &str) -> BitcoinIndexer {
         let mut working_dir_path = PathBuf::from(working_dir);
         if fs::metadata(&working_dir_path).is_err() {
@@ -461,7 +461,7 @@ impl BitcoinIndexer {
             .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn new_reorg_spv_client(
         reorg_headers_path: &str,
         start_block: u64,
@@ -478,7 +478,7 @@ impl BitcoinIndexer {
         )
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "testing")))]
     fn new_reorg_spv_client(
         reorg_headers_path: &str,
         start_block: u64,
@@ -857,7 +857,7 @@ impl BitcoinIndexer {
         Ok(new_tip)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn raw_store_header(&mut self, header: BurnchainBlockHeader) -> Result<(), btc_error> {
         let mut spv_client = SpvClient::new(
             &self.config.spv_headers_path,
@@ -883,7 +883,7 @@ impl BitcoinIndexer {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn mock_bitcoin_header(
         parent_block_hash: &BurnchainHeaderHash,
         timestamp: u32,

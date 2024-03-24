@@ -110,7 +110,7 @@ impl NewBurnchainBlockStatus {
     /// Test helper to convert this status into the optional hash of the missing PoX anchor block.
     /// Because there are unit tests that expect a Some(..) result if PoX cannot proceed, the
     /// missing Nakamoto anchor block case is converted into a placeholder Some(..) value
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn into_missing_block_hash(self) -> Option<BlockHeaderHash> {
         match self {
             Self::Ready => None,
@@ -624,7 +624,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
     ChainsCoordinator<'a, T, (), U, (), (), B>
 {
     /// Create a coordinator for testing, with some parameters defaulted to None
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_new(
         burnchain: &Burnchain,
         chain_id: u32,
@@ -644,7 +644,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
     }
 
     /// Create a coordinator for testing allowing for all configurable params
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_new_full(
         burnchain: &Burnchain,
         chain_id: u32,

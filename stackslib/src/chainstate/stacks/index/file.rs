@@ -167,7 +167,7 @@ impl TrieFile {
     }
 
     /// Read a trie blob in its entirety from the blobs file
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_trie_blob(&mut self, db: &Connection, block_id: u32) -> Result<Vec<u8>, Error> {
         let (offset, length) = trie_sql::get_external_trie_offset_length(db, block_id)?;
         self.seek(SeekFrom::Start(offset))?;
@@ -409,7 +409,7 @@ impl TrieFile {
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         &mut self,
         db: &Connection,
@@ -423,7 +423,7 @@ impl TrieFile {
     }
 
     /// Get all (root hash, trie hash) pairs for this TrieFile
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
         &mut self,
         db: &Connection,

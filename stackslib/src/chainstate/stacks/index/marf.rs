@@ -96,7 +96,7 @@ impl MARFOpenOpts {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn all() -> Vec<MARFOpenOpts> {
         vec![
             MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
@@ -293,7 +293,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -573,7 +573,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
 // static methods
 impl<T: MarfTrieId> MARF<T> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_storage_opened(storage: TrieFileStorage<T>, opened_to: &T) -> MARF<T> {
         MARF {
             storage,
@@ -584,7 +584,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -592,7 +592,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
         let mut tx = self.begin_tx()?;
         let result = tx.begin_unconfirmed(chain_tip)?;
@@ -600,7 +600,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(result)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn seal(&mut self) -> Result<TrieHash, Error> {
         let mut tx = self.begin_tx()?;
         let h = tx.seal()?;
@@ -1158,7 +1158,7 @@ impl<T: MarfTrieId> MARF<T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -1189,7 +1189,7 @@ impl<T: MarfTrieId> MARF<T> {
         height: u32,
         current_block_hash: &T,
     ) -> Result<Option<T>, Error> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -1494,12 +1494,12 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<T> {
         self.storage.connection()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<T> {
         self.storage.transaction().unwrap()
     }
