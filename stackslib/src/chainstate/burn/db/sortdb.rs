@@ -6271,7 +6271,7 @@ impl ChainstateDB for SortitionDB {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;

@@ -141,7 +141,7 @@ pub mod stackerdb;
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 #[derive(Debug)]
@@ -1590,7 +1590,7 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::collections::HashMap;
     use std::io::{Cursor, ErrorKind, Read, Write};

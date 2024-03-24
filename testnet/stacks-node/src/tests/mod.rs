@@ -61,6 +61,7 @@ mod integrations;
 mod mempool;
 mod nakamoto_integrations;
 pub mod neon_integrations;
+//#[cfg(test)]
 mod signer;
 mod stackerdb;
 

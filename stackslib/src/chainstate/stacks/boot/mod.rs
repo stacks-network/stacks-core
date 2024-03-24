@@ -1328,18 +1328,18 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod contract_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod pox_2_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod pox_3_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod pox_4_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod signers_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod signers_voting_tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::collections::{HashMap, HashSet};
     use std::fs;

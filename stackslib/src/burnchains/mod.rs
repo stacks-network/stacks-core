@@ -55,7 +55,7 @@ pub mod burnchain;
 pub mod db;
 pub mod indexer;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 pub struct Txid(pub [u8; 32]);

@@ -82,7 +82,7 @@ use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use crate::util_lib::db::{DBConn, DBTx, Error as DBError};
 
 pub mod comm;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 /// The 3 different states for the current

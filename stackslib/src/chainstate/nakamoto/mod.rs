@@ -105,7 +105,7 @@ pub mod signer_set;
 pub mod staging_blocks;
 pub mod tenure;
 pub mod test_signers;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 pub use self::staging_blocks::{

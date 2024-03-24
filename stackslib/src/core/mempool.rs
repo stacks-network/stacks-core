@@ -1123,7 +1123,7 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
     query_row(conn, sql, rusqlite::params![&addr_str])
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_error> {
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
