@@ -793,12 +793,12 @@ pub fn get_epoch_3_info(
     );
     let epoch_3_reward_cycle_boundary =
         epoch_3_start_height.saturating_sub(epoch_3_start_height % 20);
-    let epoch_3_reward_cycle = btc_regtest_controller
+    let epoch_3_boundary_reward_cycle = btc_regtest_controller
         .get_burnchain()
         .block_height_to_reward_cycle(epoch_3_reward_cycle_boundary)
         .unwrap();
     (
-        epoch_3_reward_cycle,
+        epoch_3_boundary_reward_cycle.wrapping_add(1), // We must get the next reward cycle as we are at the boundary height
         epoch_3_reward_cycle_boundary,
         epoch_3_start_height,
     )
