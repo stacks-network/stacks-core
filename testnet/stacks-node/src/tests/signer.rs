@@ -281,7 +281,7 @@ impl SignerTest {
     }
 
     // Only call after already past the epoch 3.0 boundary
-    fn run_to_dkg(&mut self, timeout: Duration) -> Option<Point> {
+    fn run_to_dkg(&mut self, timeout: Duration) -> (Option<Point>, Vec<MinedNakamotoBlockEvent>) {
         let curr_reward_cycle = self.get_current_reward_cycle();
         let set_dkg = self
             .stacks_client
@@ -296,10 +296,12 @@ impl SignerTest {
             .saturating_sub(1) // Must subtract 1 since get_headers_height returns current block height + 1
             .saturating_add(nmb_blocks_to_mine_to_dkg);
         let mut point = None;
+        let mut mined_events = vec![];
         info!("Mining {nmb_blocks_to_mine_to_dkg} Nakamoto block(s) to reach DKG calculation at block height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
             info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine_to_dkg}");
-            self.mine_nakamoto_block(timeout);
+            // TODO: store these mined blocks on the side so outer callers can verify contents further
+            mined_events.push(self.mine_nakamoto_block(timeout));
             let hash = self.wait_for_validate_ok_response(timeout);
             let (signatures, points) = if i != nmb_blocks_to_mine_to_dkg {
                 (self.wait_for_frost_signatures(timeout), vec![])
@@ -312,7 +314,7 @@ impl SignerTest {
             }
             point = points.last().copied();
         }
-        point
+        (point, mined_events)
     }
 
     // Only call after already past the epoch 3.0 boundary
@@ -320,8 +322,9 @@ impl SignerTest {
         &mut self,
         timeout: Duration,
         burnchain_height: u64,
-    ) -> Vec<Point> {
+    ) -> (Vec<Point>, Vec<MinedNakamotoBlockEvent>) {
         let mut points = vec![];
+        let mut mined_nakamoto_block_events = vec![];
         let current_block_height = self
             .running_nodes
             .btc_regtest_controller
@@ -332,7 +335,8 @@ impl SignerTest {
         let mut blocks_to_dkg = self.nmb_blocks_to_reward_set_calculation();
         while total_nmb_blocks_to_mine > 0 && blocks_to_dkg > 0 {
             if blocks_to_dkg > 0 && total_nmb_blocks_to_mine >= blocks_to_dkg {
-                let dkg = self.run_to_dkg(timeout);
+                let (dkg, mined_events) = self.run_to_dkg(timeout);
+                mined_nakamoto_block_events.extend(mined_events);
                 total_nmb_blocks_to_mine -= blocks_to_dkg;
                 if dkg.is_some() {
                     points.push(dkg.unwrap());
@@ -358,7 +362,7 @@ impl SignerTest {
                         .get_approved_aggregate_key(curr_reward_cycle)
                         .expect("Failed to get approved aggregate key")
                         .expect("No approved aggregate key found");
-                    self.mine_nakamoto_block(timeout);
+                    mined_nakamoto_block_events.push(self.mine_nakamoto_block(timeout));
                     let hash = self.wait_for_validate_ok_response(timeout);
                     let signatures = self.wait_for_frost_signatures(timeout);
                     // Verify the signers accepted the proposed block and are using the new DKG to sign it
@@ -379,7 +383,7 @@ impl SignerTest {
                 .get_approved_aggregate_key(curr_reward_cycle)
                 .expect("Failed to get approved aggregate key")
                 .expect("No approved aggregate key found");
-            self.mine_nakamoto_block(timeout);
+            mined_nakamoto_block_events.push(self.mine_nakamoto_block(timeout));
             let hash = self.wait_for_validate_ok_response(timeout);
             let signatures = self.wait_for_frost_signatures(timeout);
             // Verify the signers accepted the proposed block and are using the new DKG to sign it
@@ -387,7 +391,7 @@ impl SignerTest {
                 assert!(signature.verify(&set_dkg, hash.0.as_slice()));
             }
         }
-        points
+        (points, mined_nakamoto_block_events)
     }
 
     fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {
@@ -1381,7 +1385,7 @@ fn stackerdb_mine_2_nakamoto_reward_cycles() {
         .saturating_sub(1);
 
     info!("------------------------- Test Mine 2 Nakamoto Reward Cycles -------------------------");
-    let dkgs = signer_test
+    let (dkgs, _)= signer_test
         .run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height_boundary);
     assert_eq!(dkgs.len() as u64, nmb_reward_cycles.saturating_add(1)); // We will have mined the DKG vote for the following reward cycle
     let last_dkg = dkgs
@@ -1445,7 +1449,7 @@ fn stackerdb_filter_bad_transactions() {
     let timeout = Duration::from_secs(200);
     let current_signers_dkg = signer_test.boot_to_epoch_3(timeout);
     let next_signers_dkg = signer_test
-        .run_to_dkg(timeout)
+        .run_to_dkg(timeout).0
         .expect("Failed to run to DKG");
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
@@ -1887,7 +1891,7 @@ fn test_scenario_five() {
     // Note: carl should appear in BOTH lists
 
     info!("------------------------- Mine 1 Nakamoto Reward Cycle -------------------------");
-    let dkgs = test.run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height);
+    let (dkgs, mined_events) = test.run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height);
     assert_eq!(dkgs.len() as u64, nmb_reward_cycles.saturating_add(1)); // We will have mined the DKG vote for the following reward cycle
     let last_dkg = dkgs
         .last()
@@ -1902,6 +1906,21 @@ fn test_scenario_five() {
         .expect("Failed to get approved aggregate key")
         .expect("No approved aggregate key found");
     assert_eq!(set_dkg, last_dkg);
+    // The very first block should contain all the transactions we submitted
+    let first_block = mined_events.first().expect("No mined events");
+    for initial_tx in txs {
+        for tx in first_block.tx_events {
+            match tx {
+                TransactionEvent::Success(tx_success) => {
+                    if tx_success.txid == initial_tx.txid() {
+                        continue;
+                    }
+                }
+                _ => panic!("All of our transactions should have succeeded"),
+            }
+        }
+        panic!("We are missing tx: {:?}", initial_tx);
+    }
 
     // TODO: GET CONFIRMED STACKING SET get-stacker-info
     // Confirm that the stacking set contains all stackers (minus Alice, Bob, AND Frank)
