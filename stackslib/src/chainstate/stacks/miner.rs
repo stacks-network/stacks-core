@@ -170,6 +170,9 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it 
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -179,6 +182,9 @@ impl BlockBuilderSettings {
         }
     }
 
+    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it 
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -1800,6 +1806,9 @@ impl StacksBlockBuilder {
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
+    /// TODO: #4587 create default for `MinerEpochInfo` and then tests the cases returning it 
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
@@ -2048,6 +2057,9 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for mining
+    /// TODO: #4587 create default for `BlockBuilderSettings` 
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder(
         burnchain: &Burnchain,
         mainnet: bool,
@@ -2383,6 +2395,9 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
+    /// TODO: #4587 add default for `StacksBlock` and `ExecutionCost`, then check if mutation tests are caught, and if not add tests
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,

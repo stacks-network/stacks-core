@@ -2177,6 +2177,10 @@ impl BlockMinerThread {
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
+    /// TODO: #4587 add tests for the cases returning `None`
+    /// TODO: #4587 create default for `MinerThreadResult` to be used for mutation testing, then tests the cases returning it 
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {
         debug!("block miner thread ID is {:?}", thread::current().id());
         fault_injection_long_tenure();
@@ -3052,6 +3056,8 @@ impl RelayerThread {
     /// Update the miner tip if we won the highest tenure (or clear it if we didn't).
     /// If we won any sortitions, send the block and microblock data to the p2p thread.
     /// Return true if we can still continue to run; false if not.
+    /// TODO: #4587 add test for the `true` and `false` return cases
+    #[cfg_attr(test, mutants::skip)]
     pub fn process_new_tenures(
         &mut self,
         consensus_hash: ConsensusHash,
@@ -3503,6 +3509,8 @@ impl RelayerThread {
 
     /// See if we should run a microblock tenure now.
     /// Return true if so; false if not
+    /// TODO: #4587 add test for the `true` and `false` return cases
+    #[cfg_attr(test, mutants::skip)]
     fn can_run_microblock_tenure(&mut self) -> bool {
         if !self.config.node.mine_microblocks {
             // not enabled

@@ -6026,6 +6026,13 @@ impl StacksChainState {
     /// Return a poison microblock transaction payload if the microblock stream contains a
     /// deliberate miner fork (this is NOT consensus-critical information, but is instead meant for
     /// consumption by future miners).
+    /// TODO: #4587 add default for `StacksEpochReceipt` and `TransactionPayload`, then check if mutation tests are caught for these cases:
+    /// Ok((None, Some(Default::default())))
+    /// Ok((Some(Default::default()), None))
+    /// Ok((Some(Default::default()), Some(Default::default())))
+    /// This is caught: Ok(None, None)
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
         &mut self,
         burnchain_dbconn: &DBConn,

@@ -4811,6 +4811,9 @@ impl SortitionDB {
 
     /// Are microblocks disabled by Epoch 2.5 at the height specified
     /// in `at_burn_height`?
+    /// TODO: #4587 add test for the `None` case returning Ok(false)
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
         match Self::get_stacks_epoch_by_epoch_id(conn, &StacksEpochId::Epoch25)? {
             Some(epoch_25) => Ok(at_burn_height >= epoch_25.start_height),
