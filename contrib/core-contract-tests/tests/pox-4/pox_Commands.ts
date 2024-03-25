@@ -90,21 +90,23 @@ export function PoxCommands(
       }),
       period: fc.integer({ min: 1, max: 12 }),
       amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
-    }).map((
-      r: {
-        operator: Wallet;
-        stacker: Wallet;
-        startBurnHt: number;
-        period: number;
-        amount: bigint;
-      },
-    ) =>
+    }).chain((r) =>
+      fc.record({
+        unlockBurnHt: fc.constant(
+          currentCycleFirstBlock(network) + 1050 * (r.period + 1),
+        ),
+      }).map((unlockBurnHtRecord) => ({
+        ...r,
+        ...unlockBurnHtRecord,
+      }))
+    ).map((r) =>
       new DelegateStackStxCommand(
         r.operator,
         r.stacker,
         r.startBurnHt,
         r.period,
-        r.amount
+        r.amount,
+        r.unlockBurnHt,
       )
     ),
     // AllowContractCallerCommand

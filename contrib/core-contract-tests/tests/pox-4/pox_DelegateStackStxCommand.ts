@@ -2,7 +2,6 @@ import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
-import { currentCycleFirstBlock } from "./pox_Commands.ts";
 
 /**
  * The `DelegateStackStxCommand` locks STX for stacking within PoX-4 on behalf of a delegator.
@@ -29,6 +28,7 @@ export class DelegateStackStxCommand implements PoxCommand {
   readonly startBurnHt: number;
   readonly period: number;
   readonly amountUstx: bigint;
+  readonly unlockBurnHt: number;
 
   /**
    * Constructs a `DelegateStackStxCommand` to lock uSTX as a Pool Operator
@@ -40,6 +40,7 @@ export class DelegateStackStxCommand implements PoxCommand {
    * @param period - Number of reward cycles to lock uSTX.
    * @param amountUstx - The uSTX amount stacked by the Operator on behalf
    *                     of the Stacker
+   * @param unlockBurnHt - The burn height at which the uSTX is unlocked.
    */
   constructor(
     operator: Wallet,
@@ -47,12 +48,14 @@ export class DelegateStackStxCommand implements PoxCommand {
     startBurnHt: number,
     period: number,
     amountUstx: bigint,
+    unlockBurnHt: number,
   ) {
     this.operator = operator;
     this.stacker = stacker;
     this.startBurnHt = startBurnHt;
     this.period = period;
     this.amountUstx = amountUstx;
+    this.unlockBurnHt = unlockBurnHt;
   }
 
   check(model: Readonly<Stub>): boolean {
@@ -73,7 +76,6 @@ export class DelegateStackStxCommand implements PoxCommand {
 
     const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
-    const unlockBurnHt = currentCycleFirstBlock(model.network) + 1050 * (this.period + 1)
 
     return (
       model.stackingMinimum > 0 &&
@@ -83,7 +85,7 @@ export class DelegateStackStxCommand implements PoxCommand {
       Number(this.amountUstx) <= stackerWallet.ustxBalance &&
       Number(this.amountUstx) >= model.stackingMinimum &&
       operatorWallet.hasPoolMembers.includes(stackerWallet.stxAddress) &&
-      unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+      this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
     );
   }
 
