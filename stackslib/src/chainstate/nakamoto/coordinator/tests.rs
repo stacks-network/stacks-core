@@ -42,6 +42,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
 use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
@@ -220,6 +221,44 @@ pub fn make_all_signers_vote_for_aggregate_key(
             )
         })
         .collect()
+}
+
+// Create a peer configured for for testing Nakamoto functionality
+pub fn nakamoto_peer<'a>(
+    test_name: &str,
+    mut initial_balances: Vec<(PrincipalData, u64)>,
+    test_signers: &mut TestSigners,
+    observer: Option<&'a TestEventObserver>,
+) -> TestPeer<'a> {
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 21;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 27;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
+    peer_config.test_signers = Some(test_signers.clone());
+    TestPeer::new_with_observer(peer_config, observer)
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
