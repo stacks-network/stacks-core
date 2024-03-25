@@ -347,12 +347,9 @@ pub fn build_signer_config_tomls(
         port_start += 1;
 
         let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
-        let db_dir = std::env::temp_dir().join(format!(
-            "stacks-node-tests/integrations-signers/signer_{stacks_public_key}"
-        ));
-        let db_path = db_dir.join("signerdb.sqlite");
-        let db_path = db_path.display();
-
+        let db_dir =
+            format!("/tmp/stacks-node-tests/integrations-signers/signer_{stacks_public_key}");
+        let db_path = format!("{db_dir}/signerdb.sqlite");
         fs::create_dir_all(&db_dir).unwrap();
 
         let stacks_private_key = stacks_private_key.to_hex();
