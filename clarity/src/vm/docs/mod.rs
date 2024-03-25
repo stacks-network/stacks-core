@@ -41,7 +41,9 @@ pub struct KeywordAPI {
     pub description: &'static str,
     pub example: &'static str,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 #[derive(Serialize, Clone)]
@@ -63,7 +65,9 @@ pub struct FunctionAPI {
     pub description: String,
     pub example: String,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 pub struct SimpleFunctionAPI {
@@ -129,7 +133,8 @@ const STACKS_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     description: "Returns the current block height of the Stacks blockchain.",
     example:
         "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
-    version: ClarityVersion::Clarity3,
+    min_version: ClarityVersion::Clarity3,
+    max_version: None,
 };
 
 const TENURE_HEIGHT_KEYWORD: KeywordAPI = KeywordAPI {
@@ -140,7 +145,8 @@ const TENURE_HEIGHT_KEYWORD: KeywordAPI = KeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
-    version: ClarityVersion::Clarity3,
+    min_version: ClarityVersion::Clarity3,
+    max_version: None,
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -880,7 +886,8 @@ fn make_for_simple_native(
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2581,7 +2588,8 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         output_type: simple_api.output_type,
         description: simple_api.description,
         example: simple_api.example,
-        version: variable.get_version(),
+        min_version: variable.get_min_version(),
+        max_version: variable.get_max_version(),
     })
 }
 
@@ -2594,7 +2602,8 @@ fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2607,7 +2616,8 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: ClarityVersion::Clarity1,
+        min_version: ClarityVersion::Clarity1,
+        max_version: None,
     }
 }
 

@@ -201,10 +201,14 @@ impl NativeFunctions {
         version: &ClarityVersion,
     ) -> Option<NativeFunctions> {
         NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() <= version {
-                Some(native_function)
-            } else {
-                None
+            match native_function.get_max_version() {
+                Some(ref max_version)
+                    if &native_function.get_min_version() <= version && version <= max_version =>
+                {
+                    Some(native_function)
+                }
+                None if &native_function.get_min_version() <= version => Some(native_function),
+                _ => None,
             }
         })
     }

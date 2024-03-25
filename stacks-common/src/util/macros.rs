@@ -88,30 +88,50 @@ macro_rules! define_named_enum {
 ///  and EnumType.get_name() for free.
 #[macro_export]
 macro_rules! define_versioned_named_enum {
-    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $Version:expr),)* }) =>
-    {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, None)),*
+        });
+    };
+}
+#[macro_export]
+macro_rules! define_versioned_named_enum_with_max {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, $MaxVersion)),*
+        });
+    };
+}
+
+// An internal macro that does the actual enum definition
+#[macro_export]
+macro_rules! define_versioned_named_enum_internal {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
         #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
             $($Variant),*,
         }
+
         impl $Name {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
             pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
 
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
-                    $(
-                        $VarName => Some($Name::$Variant),
-                    )*
-                    _ => None
+                    $($VarName => Some($Name::$Variant),)*
+                    _ => None,
                 }
             }
 
-            pub fn get_version(&self) -> $VerType {
+            pub fn get_min_version(&self) -> $VerType {
                 match self {
-                    $(
-                        $Name::$Variant => $Version,
-                    )*
+                    $(Self::$Variant => $MinVersion,)*
+                }
+            }
+
+            pub fn get_max_version(&self) -> Option<$VerType> {
+                match self {
+                    $(Self::$Variant => $MaxVersion,)*
                 }
             }
 
@@ -125,18 +145,17 @@ macro_rules! define_versioned_named_enum {
 
             pub fn get_name_str(&self) -> &'static str {
                 match self {
-                    $(
-                        $Name::$Variant => $VarName,
-                    )*
+                    $(Self::$Variant => $VarName,)*
                 }
             }
         }
+
         impl ::std::fmt::Display for $Name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.get_name_str())
             }
         }
-    }
+    };
 }
 
 #[allow(clippy::crate_in_macro_def)]
