@@ -89,7 +89,6 @@ use crate::util_lib::db::{
 };
 
 pub mod accounts;
-#[cfg(any(test, feature = "testing"))]
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
