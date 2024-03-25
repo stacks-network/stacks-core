@@ -92,6 +92,8 @@ struct SignerTest {
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
     pub stacks_client: StacksClient,
+    // Unique number used to isolate files created during the test
+    pub run_stamp: u16,
 }
 
 impl SignerTest {
@@ -107,6 +109,8 @@ impl SignerTest {
         let password = "12345";
         naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
+        let run_stamp = rand::random();
+
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
             &signer_stacks_private_keys,
@@ -114,6 +118,7 @@ impl SignerTest {
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
             password,
+            run_stamp,
             3000,
         );
 
@@ -145,6 +150,7 @@ impl SignerTest {
             running_signers,
             signer_stacks_private_keys,
             stacks_client,
+            run_stamp,
         }
     }
 
@@ -716,6 +722,7 @@ impl SignerTest {
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
             "12345", // It worked sir, we have the combination! -Great, what's the combination?
+            self.run_stamp,
             3000 + signer_idx,
         )
         .pop()
