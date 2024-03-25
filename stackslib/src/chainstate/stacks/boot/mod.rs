@@ -1728,6 +1728,63 @@ pub mod test {
         }
     }
 
+    pub fn get_stacker_info_pox_4(
+        peer: &mut TestPeer,
+        addr: &PrincipalData,
+    ) -> Option<(PoxAddress, u128, u128, Vec<u128>)> {
+        let value_opt = eval_at_tip(
+            peer,
+            "pox-4",
+            &format!("(get-stacker-info '{})", addr.to_string()),
+        );
+        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
+            d
+        } else {
+            return None;
+        };
+        // { pox-addr: pox-addr,
+        //   first-reward-cycle: first-reward-cycle,
+        //   reward-set-indexes: (list),
+        //   lock-period: lock-period,
+        //   delegated-to: (some tx-sender) }
+
+        let data = data.expect_tuple().unwrap();
+        let pox_addr = tuple_to_pox_addr(
+            data.get("pox-addr")
+                .unwrap()
+                .to_owned()
+                .expect_tuple()
+                .unwrap(),
+        );
+        let first_reward_cycle = data
+            .get("first-reward-cycle")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let lock_period = data
+            .get("lock-period")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let reward_set_indices = data
+            .get("reward-set-indexes")
+            .unwrap()
+            .to_owned()
+            .expect_list()
+            .unwrap()
+            .iter()
+            .map(|v| v.to_owned().expect_u128().unwrap())
+            .collect();
+        Some((
+            pox_addr,
+            first_reward_cycle,
+            lock_period,
+            reward_set_indices,
+        ))
+    }
+
     pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
