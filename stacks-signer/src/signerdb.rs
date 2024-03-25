@@ -16,8 +16,10 @@
 
 use std::path::Path;
 
-use blockstack_lib::util_lib::db::{query_row, sqlite_open, table_exists, Error as DBError};
-use rusqlite::{Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use blockstack_lib::util_lib::db::{
+    query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
+};
+use rusqlite::{Connection, Error as SqliteError, OpenFlags, ToSql, NO_PARAMS};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -86,7 +88,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT state FROM signer_states WHERE reward_cycle = ?",
-            &[reward_cycle.to_string()],
+            &[u64_to_sql(reward_cycle)?],
         )?;
 
         try_deserialize(result)
@@ -101,7 +103,7 @@ impl SignerDb {
         let serialized_state = serde_json::to_string(signer_state)?;
         self.db.execute(
             "INSERT OR REPLACE INTO signer_states (reward_cycle, state) VALUES (?1, ?2)",
-            &[reward_cycle.to_string(), serialized_state],
+            &[&u64_to_sql(reward_cycle)? as &dyn ToSql, &serialized_state],
         )?;
         Ok(())
     }
@@ -110,7 +112,7 @@ impl SignerDb {
     pub fn delete_signer_state(&self, reward_cycle: u64) -> Result<(), DBError> {
         self.db.execute(
             "DELETE FROM signer_states WHERE reward_cycle = ?",
-            &[reward_cycle.to_string()],
+            &[u64_to_sql(reward_cycle)?],
         )?;
 
         Ok(())
@@ -126,7 +128,10 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[&reward_cycle.to_string(), &format!("{}", hash)],
+            &[
+                &u64_to_sql(reward_cycle)? as &dyn ToSql,
+                &format!("{}", hash),
+            ],
         )?;
 
         try_deserialize(result)
@@ -157,7 +162,7 @@ impl SignerDb {
         self.db
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
-                &[reward_cycle.to_string(), format!("{}", hash), block_json],
+                &[&u64_to_sql(reward_cycle)? as &dyn ToSql, &format!("{}", hash), &block_json],
             )?;
 
         Ok(())
@@ -173,7 +178,10 @@ impl SignerDb {
 
         self.db.execute(
             "DELETE FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[reward_cycle.to_string(), format!("{}", hash)],
+            &[
+                &u64_to_sql(reward_cycle)? as &dyn ToSql,
+                &format!("{}", hash),
+            ],
         )?;
 
         Ok(())
