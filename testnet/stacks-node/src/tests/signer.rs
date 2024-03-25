@@ -1385,7 +1385,7 @@ fn stackerdb_mine_2_nakamoto_reward_cycles() {
         .saturating_sub(1);
 
     info!("------------------------- Test Mine 2 Nakamoto Reward Cycles -------------------------");
-    let (dkgs, _)= signer_test
+    let (dkgs, _) = signer_test
         .run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height_boundary);
     assert_eq!(dkgs.len() as u64, nmb_reward_cycles.saturating_add(1)); // We will have mined the DKG vote for the following reward cycle
     let last_dkg = dkgs
@@ -1449,7 +1449,8 @@ fn stackerdb_filter_bad_transactions() {
     let timeout = Duration::from_secs(200);
     let current_signers_dkg = signer_test.boot_to_epoch_3(timeout);
     let next_signers_dkg = signer_test
-        .run_to_dkg(timeout).0
+        .run_to_dkg(timeout)
+        .0
         .expect("Failed to run to DKG");
     assert_ne!(current_signers_dkg, next_signers_dkg);
 
@@ -1667,9 +1668,9 @@ fn test_scenario_five() {
     let carl_signature_for_carl = make_signer_key_signature(
         &carl.pox_address,
         &carl.private_key,
-        epoch_3_reward_cycle,
+        epoch_3_reward_cycle.into(),
         &Pox4SignatureTopic::StackStx,
-        carl_lock_period,
+        carl_lock_period.into(),
         u128::MAX,
         1,
     );
@@ -1891,7 +1892,8 @@ fn test_scenario_five() {
     // Note: carl should appear in BOTH lists
 
     info!("------------------------- Mine 1 Nakamoto Reward Cycle -------------------------");
-    let (dkgs, mined_events) = test.run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height);
+    let (dkgs, mined_events) =
+        test.run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height);
     assert_eq!(dkgs.len() as u64, nmb_reward_cycles.saturating_add(1)); // We will have mined the DKG vote for the following reward cycle
     let last_dkg = dkgs
         .last()
@@ -1931,9 +1933,9 @@ fn test_scenario_five() {
     let alice_signature_for_carl = make_signer_key_signature(
         &carl.pox_address,
         &alice.private_key,
-        epoch_3_reward_cycle.wrapping_add(1), // In carl's first reward cycle, we extend
+        epoch_3_reward_cycle.wrapping_add(1).into(), // In carl's first reward cycle, we extend
         &Pox4SignatureTopic::StackExtend,
-        carl_lock_period,
+        carl_lock_period.into(),
         u128::MAX,
         1,
     );
@@ -1956,9 +1958,9 @@ fn test_scenario_five() {
     let carl_signature_for_carl = make_signer_key_signature(
         &carl.pox_address,
         &carl.private_key,
-        current_reward_cycle,
+        current_reward_cycle.into(),
         &Pox4SignatureTopic::StackIncrease,
-        carl_lock_period,
+        carl_lock_period.into(),
         u128::MAX,
         2,
     );
