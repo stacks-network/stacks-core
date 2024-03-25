@@ -32,6 +32,8 @@ export type Wallet = {
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;
+  allowedContractCaller: StxAddress;
+  callerAllowedBy: StxAddress[];
 };
 
 export type PoxCommand = fc.Command<Stub, Real>;

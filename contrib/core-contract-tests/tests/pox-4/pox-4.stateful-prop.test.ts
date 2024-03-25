@@ -71,6 +71,8 @@ describe("PoX-4 invariant tests", () => {
         amountLocked: 0,
         amountUnlocked: initialUstxBalance,
         unlockHeight: 0,
+        allowedContractCaller: '',
+        callerAllowedBy: []
       };
     });
 
