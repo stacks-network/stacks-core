@@ -9,7 +9,6 @@ export type StxAddress = string;
 export type Stub = {
   stackingMinimum: number;
   wallets: Map<StxAddress, Wallet>;
-  network: Simnet;
 };
 
 export type Real = {

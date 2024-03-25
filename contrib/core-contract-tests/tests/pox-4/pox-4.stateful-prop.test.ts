@@ -28,7 +28,6 @@ describe("PoX-4 invariant tests", () => {
     const model: Stub = {
       stackingMinimum: 0,
       wallets: new Map<StxAddress, Wallet>(),
-      network: sut.network
     };
 
     const wallets = [
