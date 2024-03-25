@@ -71,15 +71,9 @@ export function PoxCommands(
     // RevokeDelegateStxCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
-      delegateTo: fc.constantFrom(...wallets.values()),
-      untilBurnHt: fc.integer({ min: 1 }),
-      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
     }).map((
       r: {
         wallet: Wallet;
-        delegateTo: Wallet;
-        untilBurnHt: number;
-        amount: bigint;
       },
     ) =>
       new RevokeDelegateStxCommand(
