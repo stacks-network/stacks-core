@@ -1207,11 +1207,7 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
+    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
@@ -1230,8 +1226,8 @@ impl Signer {
             }
             return Ok(());
         };
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
-        if Some(self.signer_id) == coordinator_id && self.state == State::Idle {
+        let coordinator_id = self.coordinator_selector.get_coordinator().0;
+        if self.signer_id == coordinator_id && self.state == State::Idle {
             debug!("{self}: Checking if old vote transaction exists in StackerDB...");
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
