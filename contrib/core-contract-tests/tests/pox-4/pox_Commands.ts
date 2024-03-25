@@ -6,7 +6,7 @@ import { StackStxCommand } from "./pox_StackStxCommand";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
-import { Cl, cvToValue } from "@stacks/transactions";
+import { Cl, cvToValue, OptionalCV, UIntCV } from "@stacks/transactions";
 import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 import { AllowContractCallerCommand } from "./pox_AllowContractCallerCommand";
 
@@ -111,13 +111,16 @@ export function PoxCommands(
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       allowanceTo: fc.constantFrom(...wallets.values()),
-      alllowUntilBurnHt: fc.option(fc.integer({ min: 1 }), {nil: undefined}),
+      alllowUntilBurnHt: fc.oneof(
+        fc.constant(Cl.none()),
+        fc.integer({ min: 1 }).map((value) => Cl.some(Cl.uint(value))),
+      ),
     })
       .map(
         (r: {
           wallet: Wallet;
           allowanceTo: Wallet;
-          alllowUntilBurnHt: number | undefined;
+          alllowUntilBurnHt: OptionalCV<UIntCV>;
         }) =>
           new AllowContractCallerCommand(
             r.wallet,
