@@ -1,6 +1,6 @@
 import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
 import { expect } from "vitest";
-import { boolCV, Cl } from "@stacks/transactions";
+import { boolCV, Cl, ClarityType, OptionalCV, UIntCV } from "@stacks/transactions";
 
 /**
  * The `AllowContractCallerComand` gives a `contract-caller` authorization to call stacking methods.
@@ -13,7 +13,7 @@ import { boolCV, Cl } from "@stacks/transactions";
 export class AllowContractCallerCommand implements PoxCommand {
   readonly wallet: Wallet;
   readonly allowanceTo: Wallet;
-  readonly allowUntilBurnHt: number | undefined;
+  readonly allowUntilBurnHt: OptionalCV<UIntCV>;
 
   /**
    * Constructs an `AllowContractCallerComand` that authorizes a `contract-caller` to call
@@ -27,7 +27,7 @@ export class AllowContractCallerCommand implements PoxCommand {
   constructor(
     wallet: Wallet,
     allowanceTo: Wallet,
-    allowUntilBurnHt: number | undefined,
+    allowUntilBurnHt: OptionalCV<UIntCV>,
   ) {
     this.wallet = wallet;
     this.allowanceTo = allowanceTo;
@@ -40,11 +40,6 @@ export class AllowContractCallerCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
-    // Arrange
-    const untilBurnHtOptionalCv = this.allowUntilBurnHt === undefined
-      ? Cl.none()
-      : Cl.some(Cl.uint(this.allowUntilBurnHt));
-
     // Act
     const allowContractCaller = real.network.callPublicFn(
       "ST000000000000000000002AMW42H.pox-4",
@@ -53,7 +48,7 @@ export class AllowContractCallerCommand implements PoxCommand {
         // (caller principal)
         Cl.principal(this.allowanceTo.stxAddress),
         // (until-burn-ht (optional uint))
-        untilBurnHtOptionalCv,
+        this.allowUntilBurnHt,
       ],
       this.wallet.stxAddress,
     );
@@ -83,7 +78,7 @@ export class AllowContractCallerCommand implements PoxCommand {
           " ",
         )
       } ${this.allowanceTo.label.padStart(12, " ")} ${"until".padStart(53)} ${
-        (this.allowUntilBurnHt || "none").toString().padStart(17)
+        optionalCVToString(this.allowUntilBurnHt).padStart(17)
       }`,
     );
   }
@@ -92,6 +87,13 @@ export class AllowContractCallerCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.stxAddress} allow-contract-caller ${this.allowanceTo.stxAddress} until burn ht ${this.allowUntilBurnHt}`;
+    return `${this.wallet.stxAddress} allow-contract-caller ${this.allowanceTo.stxAddress} until burn ht ${
+      optionalCVToString(this.allowUntilBurnHt)
+    }`;
   }
 }
+
+const optionalCVToString = (optional: OptionalCV): string =>
+  optional.type === ClarityType.OptionalSome
+    ? (optional.value as UIntCV).value.toString()
+    : "none";
