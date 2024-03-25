@@ -2,6 +2,7 @@ import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
+import { currentCycleFirstBlock } from "./pox_Commands.ts";
 
 /**
  * The `DelegateStackStxCommand` locks STX for stacking within PoX-4 on behalf of a delegator.
@@ -16,10 +17,11 @@ import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
  * - The stacked STX amount should be less than or equal to the
  *   delegated amount.
  * - The stacked uSTX amount should be less than or equal to the
- *   Stacker's balance
+ *   Stacker's balance.
  * - The stacked uSTX amount should be greater than or equal to the
- *   minimum threshold of uSTX
+ *   minimum threshold of uSTX.
  * - The Operator has to currently be delegated by the Stacker.
+ * - The Period has to fit the last delegation burn block height.
  */
 export class DelegateStackStxCommand implements PoxCommand {
   readonly operator: Wallet;
@@ -58,18 +60,21 @@ export class DelegateStackStxCommand implements PoxCommand {
     // - A minimum threshold of uSTX must be met, determined by the
     //   `get-stacking-minimum` function at the time of this call.
     // - The Stacker cannot currently be engaged in another stacking
-    //   operation
-    // - The Stacker has to currently be delegating to the Operator
+    //   operation.
+    // - The Stacker has to currently be delegating to the Operator.
     // - The stacked uSTX amount should be less than or equal to the
-    //   delegated amount
+    //   delegated amount.
     // - The stacked uSTX amount should be less than or equal to the
-    //   Stacker's balance
+    //   Stacker's balance.
     // - The stacked uSTX amount should be greater than or equal to the
-    //   minimum threshold of uSTX
-    // - The Operator has to currently be delegated by the Stacker
+    //   minimum threshold of uSTX.
+    // - The Operator has to currently be delegated by the Stacker.
+    // - The Period has to fit the last delegation burn block height.
 
     const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const unlockBurnHt = currentCycleFirstBlock(model.network) + 1050 * (this.period + 1)
+
     return (
       model.stackingMinimum > 0 &&
       !stackerWallet.isStacking &&
@@ -77,7 +82,8 @@ export class DelegateStackStxCommand implements PoxCommand {
       stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
       Number(this.amountUstx) <= stackerWallet.ustxBalance &&
       Number(this.amountUstx) >= model.stackingMinimum &&
-      operatorWallet.hasPoolMembers.includes(stackerWallet.stxAddress)
+      operatorWallet.hasPoolMembers.includes(stackerWallet.stxAddress) &&
+      unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
     );
   }
 
