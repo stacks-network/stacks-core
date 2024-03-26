@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::address::b58;
 use stacks_common::types::chainstate::StacksPrivateKey;
@@ -234,13 +234,14 @@ pub struct GenerateStackingSignatureArgs {
     /// BTC address used to receive rewards
     #[arg(short, long, value_parser = parse_pox_addr)]
     pub pox_address: PoxAddress,
-    /// The reward cycle to be used in the signature's message hash
+    /// The reward cycle during which this signature
+    /// can be used
     #[arg(short, long)]
     pub reward_cycle: u64,
-    /// Path to config file
+    /// Path to signer config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
-    /// Topic for signature
+    /// Stacking method that can be used
     #[arg(long)]
     pub method: StackingSignatureMethod,
     /// Number of cycles used as a lock period.
@@ -253,6 +254,9 @@ pub struct GenerateStackingSignatureArgs {
     /// A unique identifier to prevent re-using this authorization
     #[arg(long)]
     pub auth_id: u128,
+    /// Output information in JSON format
+    #[arg(long, action=ArgAction::SetTrue, required=false)]
+    pub json: bool,
 }
 
 /// Parse the contract ID
