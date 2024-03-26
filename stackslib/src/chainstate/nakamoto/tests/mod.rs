@@ -27,7 +27,7 @@ use rand::{thread_rng, RngCore};
 use rusqlite::{Connection, ToSql};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec};
 use stacks_common::consts::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
@@ -101,7 +101,10 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         let mut blocks = Vec::with_capacity(block_data.len());
         for data in block_data.into_iter() {
-            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+            let block = NakamotoBlock::consensus_deserialize_with_epoch(
+                &mut data.as_slice(),
+                StacksEpochId::latest(),
+            )?;
             blocks.push(block);
         }
         Ok(blocks)

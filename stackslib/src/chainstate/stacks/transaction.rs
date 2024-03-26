@@ -699,7 +699,7 @@ impl StacksTransaction {
             payload,
         };
 
-        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch_id, false) {
+        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch_id, false) {
             warn!("Invalid tx: target epoch is not activated");
             return Err(codec_error::DeserializeError(
                 "Failed to parse transaction: target epoch is not activated".to_string(),
@@ -973,7 +973,8 @@ impl StacksTransaction {
         Ok(next_sighash)
     }
 
-    pub fn sign_no_append_origin(
+    #[cfg(any(test, feature = "testing"))]
+    fn sign_no_append_origin(
         &self,
         cur_sighash: &Txid,
         privk: &StacksPrivateKey,
@@ -994,7 +995,8 @@ impl StacksTransaction {
         Ok(next_sig)
     }
 
-    pub fn append_origin_signature(
+    #[cfg(any(test, feature = "testing"))]
+    fn append_origin_signature(
         &mut self,
         signature: MessageSignature,
         key_encoding: TransactionPublicKeyEncoding,
@@ -1016,7 +1018,8 @@ impl StacksTransaction {
         Ok(())
     }
 
-    pub fn sign_no_append_sponsor(
+    #[cfg(any(test, feature = "testing"))]
+    fn sign_no_append_sponsor(
         &mut self,
         cur_sighash: &Txid,
         privk: &StacksPrivateKey,
@@ -1496,30 +1499,20 @@ mod test {
             TransactionSpendingCondition::Multisig(ref data) => {
                 let mut j = 0;
                 for f in 0..data.fields.len() {
-                    match data.fields[f] {
-                        TransactionAuthField::Signature(_, _) => {
-                            j = f;
-                            break;
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
+                    if matches!(data.fields[f], TransactionAuthField::Signature(..)) {
+                        j = f;
+                        break;
+                    };
                 }
                 j
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
                 let mut j = 0;
                 for f in 0..data.fields.len() {
-                    match data.fields[f] {
-                        TransactionAuthField::Signature(_, _) => {
-                            j = f;
-                            break;
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
+                    if matches!(data.fields[f], TransactionAuthField::Signature(..)) {
+                        j = f;
+                        break;
+                    };
                 }
                 j
             }
@@ -1532,30 +1525,20 @@ mod test {
             TransactionSpendingCondition::Multisig(ref data) => {
                 let mut j = 0;
                 for f in 0..data.fields.len() {
-                    match data.fields[f] {
-                        TransactionAuthField::PublicKey(_) => {
-                            j = f;
-                            break;
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
+                    if matches!(data.fields[f], TransactionAuthField::PublicKey(_)) {
+                        j = f;
+                        break;
+                    };
                 }
                 j
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
                 let mut j = 0;
                 for f in 0..data.fields.len() {
-                    match data.fields[f] {
-                        TransactionAuthField::PublicKey(_) => {
-                            j = f;
-                            break;
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
+                    if matches!(data.fields[f], TransactionAuthField::PublicKey(_)) {
+                        j = f;
+                        break;
+                    };
                 }
                 j
             }

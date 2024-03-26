@@ -41,6 +41,15 @@ use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader
 use crate::core::*;
 use crate::net::Error as net_error;
 
+/// Quietable error
+macro_rules! qerror {
+    ($cond: expr, $($arg:tt)*) => ({
+        if ($cond) {
+            error!($($arg)*);
+        }
+    });
+}
+
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
@@ -583,40 +592,33 @@ impl StacksBlock {
             if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
                 if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    }
+                    qerror!(quiet, "Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
                     return false;
                 }
                 if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
-                    }
+                    qerror!(quiet, "Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
                     return false;
                 }
                 if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    }
+                    qerror!(quiet, "Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
                     return false;
                 }
             }
             if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
                 if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    if !quiet {
-                        error!("Versioned smart contracts not supported before Stacks 2.1");
-                    }
+                    qerror!(
+                        quiet,
+                        "Versioned smart contracts not supported before Stacks 2.1"
+                    );
                     return false;
                 }
             }
             if let TransactionPayload::TenureChange(..) = &tx.payload {
                 if epoch_id < StacksEpochId::Epoch30 {
-                    if !quiet {
-                        error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    }
+                    qerror!(quiet, "TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
                     return false;
                 }
             }
@@ -625,9 +627,7 @@ impl StacksBlock {
                     match origin {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                if !quiet {
-                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                }
+                                qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
                                 return false;
                             }
                         }
@@ -636,9 +636,7 @@ impl StacksBlock {
                     match sponsor {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                if !quiet {
-                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                }
+                                qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
                                 return false;
                             }
                         }
@@ -648,9 +646,7 @@ impl StacksBlock {
                 TransactionAuth::Standard(ref origin) => match origin {
                     TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                         if epoch_id < StacksEpochId::Epoch30 {
-                            if !quiet {
-                                error!("Order independent multisig transactions not supported before Stacks 3.0");
-                            }
+                            qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
                             return false;
                         }
                     }

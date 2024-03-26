@@ -6719,7 +6719,7 @@ impl StacksChainState {
         let epoch = clarity_connection.get_epoch().clone();
 
         let is_transaction_valid_in_epoch =
-            StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch, true);
+            StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch, true);
 
         if !is_transaction_valid_in_epoch {
             return Err(MemPoolRejection::Other(

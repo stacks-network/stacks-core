@@ -1354,7 +1354,6 @@ simulating a miner.
     let events_file = &argv[3];
     let mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
     let mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
-    let epoch_id = parse_input_epoch(6);
 
     let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
@@ -1367,6 +1366,11 @@ simulating a miner.
 
     let estimator = Box::new(UnitEstimator);
     let metric = Box::new(UnitMetric);
+
+    let epoch_id = SortitionDB::get_stacks_epoch(&sort_db.conn(), chain_tip.block_height)
+        .expect("Error getting Epoch")
+        .expect("No Epoch found")
+        .epoch_id;
 
     let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
         .expect("Failed to open mempool db");
