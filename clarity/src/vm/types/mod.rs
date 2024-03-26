@@ -1528,7 +1528,7 @@ impl TupleData {
     pub fn is_empty(&self) -> bool {
         self.data_map.is_empty()
     }
-    
+
     ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
     /// Ok((Default::default()))    
     /// Or keep the skip and remove the comment
