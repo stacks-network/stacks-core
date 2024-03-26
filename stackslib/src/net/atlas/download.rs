@@ -724,7 +724,7 @@ impl BatchedDNSLookupsState {
                     match url.host() {
                         Some(url::Host::Domain(domain)) => {
                             let res = dns_client.queue_lookup(
-                                domain.clone(),
+                                domain,
                                 port,
                                 get_epoch_time_ms() + connection_options.dns_timeout,
                             );

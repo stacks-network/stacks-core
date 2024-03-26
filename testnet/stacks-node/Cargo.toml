@@ -8,8 +8,7 @@ rust-version = "1.61"
 
 [dependencies]
 lazy_static = "1.4.0"
-pico-args = "0.3.1"
-rand = "0.7.3"
+pico-args = "0.5.0"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
@@ -21,13 +20,20 @@ async-std = { version = "1.6", features = ["attributes"] }
 http-types = "2.12"
 base64 = "0.12.0"
 backtrace = "0.3.50"
-libc = "0.2"
+libc = "0.2.151"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 clarity = { path = "../../clarity" }
 stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
 libsigner = { path = "../../libsigner" }
+wsts = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+hashbrown = { workspace = true }
+
+[target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
+tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -38,10 +44,10 @@ clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer" }
-p256k1 = "5.5"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-wsts = "4.0"
+wsts = {workspace = true}
+mutants = "0.0.3"
 
 [dependencies.rusqlite]
 version = "=0.24.2"
@@ -59,4 +65,5 @@ path = "src/stacks_events.rs"
 monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
+portable = []
 default = []

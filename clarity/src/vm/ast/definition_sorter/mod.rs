@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
@@ -90,14 +89,14 @@ impl DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let mut deps_props = vec![];
-            for i in deps.iter() {
-                let exp = &contract_ast.pre_expressions[*i];
-                if let Some(def) = self.find_expression_definition(exp) {
-                    deps_props.push(def);
-                }
-            }
-            let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
+            let functions_names = deps
+                .into_iter()
+                .filter_map(|i| {
+                    let exp = &contract_ast.pre_expressions[i];
+                    self.find_expression_definition(exp)
+                })
+                .map(|i| i.0.to_string())
+                .collect::<Vec<_>>();
 
             let error = ParseError::new(ParseErrors::CircularReference(functions_names));
             return Err(error);
@@ -117,7 +116,7 @@ impl DefinitionSorter {
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -125,7 +124,7 @@ impl DefinitionSorter {
             TraitReference(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -384,8 +383,8 @@ impl DefinitionSorter {
             DefineFunctions::lookup_by_name(function_name)?;
             Some(args)
         }?;
-        let defined_name = match args.get(0)?.match_list() {
-            Some(list) => list.get(0)?,
+        let defined_name = match args.first()?.match_list() {
+            Some(list) => list.first()?,
             _ => &args[0],
         };
         let tle_name = defined_name.match_atom()?;
@@ -413,9 +412,17 @@ impl Graph {
         self.adjacency_list.push(vec![]);
     }
 
-    fn add_directed_edge(&mut self, src_expr_index: usize, dst_expr_index: usize) {
-        let list = self.adjacency_list.get_mut(src_expr_index).unwrap();
+    fn add_directed_edge(
+        &mut self,
+        src_expr_index: usize,
+        dst_expr_index: usize,
+    ) -> ParseResult<()> {
+        let list = self
+            .adjacency_list
+            .get_mut(src_expr_index)
+            .ok_or_else(|| ParseErrors::InterpreterFailure)?;
         list.push(dst_expr_index);
+        Ok(())
     }
 
     fn get_node_descendants(&self, expr_index: usize) -> Vec<usize> {

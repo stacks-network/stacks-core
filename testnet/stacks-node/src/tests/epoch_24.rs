@@ -31,8 +31,7 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
-use stacks_common::types::Address;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
@@ -149,13 +148,12 @@ fn fix_to_pox_contract() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -190,7 +188,6 @@ fn fix_to_pox_contract() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         pox_3_activation_height as u32,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -506,10 +503,13 @@ fn fix_to_pox_contract() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {
@@ -790,13 +790,12 @@ fn verify_auto_unlock_behavior() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -831,7 +830,6 @@ fn verify_auto_unlock_behavior() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         pox_3_activation_height as u32,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -988,7 +986,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -1007,7 +1005,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -1228,10 +1226,13 @@ fn verify_auto_unlock_behavior() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         if !burnchain_config.is_in_prepare_phase(height) {
             if pox_addrs.len() > 0 {

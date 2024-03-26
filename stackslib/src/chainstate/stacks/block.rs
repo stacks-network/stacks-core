@@ -257,7 +257,7 @@ impl StacksBlockHeader {
         let valid = match VRF::verify(
             &leader_key.public_key,
             &self.proof,
-            &sortition_chain_tip.sortition_hash.as_bytes().to_vec(),
+            sortition_chain_tip.sortition_hash.as_bytes().as_ref(),
         ) {
             Ok(v) => {
                 if !v {
@@ -2185,16 +2185,18 @@ mod test {
         );
 
         let tenure_change_payload = TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0x01; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+            burn_view_consensus_hash: ConsensusHash([0x03; 20]),
             previous_tenure_end: StacksBlockId([0x00; 32]),
             previous_tenure_blocks: 0,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
-            signers: vec![],
         };
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::TenureChange(tenure_change_payload, ThresholdSignature::mock()),
+            TransactionPayload::TenureChange(tenure_change_payload),
         );
 
         let dup_txs = vec![

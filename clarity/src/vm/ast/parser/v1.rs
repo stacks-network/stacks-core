@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::convert::TryInto;
 
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -92,6 +91,7 @@ enum ParseContext {
 
 impl LexMatcher {
     fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
+        #[allow(clippy::unwrap_used)]
         LexMatcher {
             matcher: Regex::new(&format!("^{}", regex_str)).unwrap(),
             handler: handles,
@@ -219,7 +219,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
         let current_slice = &input[munch_index..];
         for matcher in lex_matchers.iter() {
             if let Some(captures) = matcher.matcher.captures(current_slice) {
-                let whole_match = captures.get(0).unwrap();
+                let whole_match = captures
+                    .get(0)
+                    .ok_or_else(|| ParseErrors::InterpreterFailure)?;
                 assert_eq!(whole_match.start(), 0);
                 munch_index += whole_match.end();
 
@@ -506,12 +508,12 @@ fn handle_expression(
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
+pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for (item, line_pos, column_pos) in input.drain(..) {
+    for (item, line_pos, column_pos) in input.into_iter() {
         match item {
             LexItem::LeftParen => {
                 // start new list.

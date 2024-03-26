@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -53,9 +51,12 @@ pub mod getneighbors;
 pub mod getpoxinfo;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
+pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettransaction_unconfirmed;
+pub mod liststackerdbreplicas;
 pub mod postblock;
+pub mod postblock_proposal;
 pub mod postfeerate;
 pub mod postmempoolquery;
 pub mod postmicroblock;
@@ -103,15 +104,23 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(
+            liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
+        );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
+        self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
+            self.block_proposal_token.clone(),
+        ));
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
     }
 }
 
@@ -120,7 +129,7 @@ impl From<NetError> for Error {
     fn from(e: NetError) -> Error {
         match e {
             NetError::Http(e) => e,
-            x => Error::AppError(format!("{:?}", &x)),
+            x => Error::AppError(format!("{x:?}")),
         }
     }
 }

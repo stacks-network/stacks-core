@@ -239,7 +239,8 @@ fn make_logger() -> Logger {
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
         let isatty = isatty(Stream::Stdout);
         let drain = TermFormat::new(plain, false, debug, isatty);
-        Logger::root(drain.ignore_res(), o!())
+        let logger = Logger::root(drain.ignore_res(), o!());
+        logger
     }
 }
 
@@ -250,6 +251,8 @@ fn inner_get_loglevel() -> slog::Level {
         || env::var("BLOCKSTACK_DEBUG") == Ok("1".into())
     {
         slog::Level::Debug
+    } else if env::var("STACKS_LOG_CRITONLY") == Ok("1".into()) {
+        slog::Level::Critical
     } else {
         slog::Level::Info
     }

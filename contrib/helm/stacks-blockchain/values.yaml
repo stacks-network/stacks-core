@@ -211,7 +211,7 @@ node:
 ## OR you can uncomment the config.raw field, which will take precedence over the aforementationed config fields
 ##
 ## For more info, please reference our docs and example config files:
-## https://docs.blockstack.org/stacks-blockchain/running-testnet-node
+## https://docs.stacks.co/docs/nodes-and-miners/run-a-node
 ## https://github.com/blockstack/stacks-blockchain/tree/master/testnet/stacks-node/conf
 ##
 config:
@@ -225,7 +225,7 @@ config:
   burnchain:
     chain: bitcoin
     mode: krypton
-    peer_host: bitcoind.blockstack.org
+    peer_host: bitcoin.testnet.stacks.org
     # process_exit_at_block_height: 5340
     # commit_anchor_block_within: 10000
     rpc_port: 18443
@@ -255,7 +255,7 @@ config:
   #   [burnchain]
   #   chain = "bitcoin"
   #   mode = "krypton"
-  #   peer_host = "bitcoind.blockstack.org"
+  #   peer_host = "bitcoin.mainnet.stacks.org"
   #   #process_exit_at_block_height = 5340
   #   #commit_anchor_block_within = 10000
   #   rpc_port = 18443

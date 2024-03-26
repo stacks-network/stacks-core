@@ -31,13 +31,14 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, 
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -653,7 +654,8 @@ impl Relayer {
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
-        sort_handle: &SortitionHandleConn,
+        sortdb: &SortitionDB,
+        sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
         block: NakamotoBlock,
     ) -> Result<bool, chainstate_error> {
@@ -711,16 +713,41 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash()
         );
+        let reject_msg = format!(
+            "Rejected incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
 
         let config = chainstate.config();
-        let staging_db_tx = chainstate.db_tx_begin()?;
-        let accepted =
-            NakamotoChainState::accept_block(&config, block, sort_handle, &staging_db_tx)?;
+        let Ok(aggregate_public_key) =
+            NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
+        else {
+            warn!("Failed to get aggregate public key. Will not store or relay";
+                "stacks_block_hash" => %block.header.block_hash(),
+                "consensus_hash" => %block.header.consensus_hash,
+                "burn_height" => block.header.chain_length,
+                "sortition_height" => block_sn.block_height,
+            );
+            return Ok(false);
+        };
+        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
+        let accepted = NakamotoChainState::accept_block(
+            &config,
+            block,
+            sort_handle,
+            &staging_db_tx,
+            headers_conn,
+            &aggregate_public_key,
+        )?;
         staging_db_tx.commit()?;
 
         if accepted {
             debug!("{}", &accept_msg);
+        } else {
+            debug!("{}", &reject_msg);
         }
+
         Ok(accepted)
     }
 
@@ -2589,7 +2616,7 @@ pub mod test {
     use crate::net::download::*;
     use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
     use crate::net::httpcore::StacksHttpMessage;
-    use crate::net::inv::*;
+    use crate::net::inv::inv2x::*;
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
@@ -3979,9 +4006,11 @@ pub mod test {
                         .chainstate
                         .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                clarity_db.get_account_nonce(
-                                    &spending_account.origin_address().unwrap().into(),
-                                )
+                                clarity_db
+                                    .get_account_nonce(
+                                        &spending_account.origin_address().unwrap().into(),
+                                    )
+                                    .unwrap()
                             })
                         })
                         .unwrap();

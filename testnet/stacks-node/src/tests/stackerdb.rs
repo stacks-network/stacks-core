@@ -113,7 +113,7 @@ fn test_stackerdb_load_store() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -246,7 +246,7 @@ fn test_stackerdb_event_observer() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::StackerDBChunks],
     });

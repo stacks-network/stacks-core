@@ -1,0 +1,4 @@
+{
+    "toml_file_location": "Path/To/miner.toml",
+    "polling_delay_seconds": 60
+}

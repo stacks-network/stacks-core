@@ -73,7 +73,7 @@ fn advance_to_2_1(
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -101,7 +101,6 @@ fn advance_to_2_1(
         u64::max_value() - 2,
         u64::max_value() - 1,
         u32::max_value(),
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -200,7 +199,7 @@ fn advance_to_2_1(
     // these should all succeed across the epoch 2.1 boundary
     for _i in 0..5 {
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
@@ -433,19 +432,21 @@ fn transition_adds_burn_block_height() {
                             false,
                         )
                         .unwrap();
-                        let pair = clarity_value.expect_tuple();
-                        let height = pair.get("height").unwrap().clone().expect_u128() as u64;
-                        let bhh_opt =
-                            pair.get("hash")
-                                .unwrap()
-                                .clone()
-                                .expect_optional()
-                                .map(|inner_buff| {
-                                    let buff_bytes_vec = inner_buff.expect_buff(32);
-                                    let mut buff_bytes = [0u8; 32];
-                                    buff_bytes.copy_from_slice(&buff_bytes_vec[0..32]);
-                                    BurnchainHeaderHash(buff_bytes)
-                                });
+                        let pair = clarity_value.expect_tuple().unwrap();
+                        let height =
+                            pair.get("height").unwrap().clone().expect_u128().unwrap() as u64;
+                        let bhh_opt = pair
+                            .get("hash")
+                            .unwrap()
+                            .clone()
+                            .expect_optional()
+                            .unwrap()
+                            .map(|inner_buff| {
+                                let buff_bytes_vec = inner_buff.expect_buff(32).unwrap();
+                                let mut buff_bytes = [0u8; 32];
+                                buff_bytes.copy_from_slice(&buff_bytes_vec[0..32]);
+                                BurnchainHeaderHash(buff_bytes)
+                            });
 
                         header_hashes.insert(height, bhh_opt);
                     }
@@ -581,7 +582,7 @@ fn transition_fixes_bitcoin_rigidity() {
     ];
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -607,7 +608,6 @@ fn transition_fixes_bitcoin_rigidity() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::max_value(),
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1056,7 +1056,6 @@ fn transition_adds_get_pox_addr_recipients() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1133,7 +1132,7 @@ fn transition_adds_get_pox_addr_recipients() {
         );
 
         submit_tx(&http_origin, &tx);
-        expected_pox_addrs.insert(pox_addr_tuple);
+        expected_pox_addrs.insert(pox_addr_tuple.to_string());
     }
 
     // stack some STX to segwit addressses
@@ -1173,7 +1172,7 @@ fn transition_adds_get_pox_addr_recipients() {
         );
 
         submit_tx(&http_origin, &tx);
-        expected_pox_addrs.insert(pox_addr_tuple);
+        expected_pox_addrs.insert(pox_addr_tuple.to_string());
     }
 
     let contract = "
@@ -1276,25 +1275,36 @@ fn transition_adds_get_pox_addr_recipients() {
                             false,
                         )
                         .unwrap();
-                        let pair = clarity_value.expect_tuple();
-                        let burn_block_height =
-                            pair.get("burn-height").unwrap().clone().expect_u128() as u64;
-                        let pox_addr_tuples_opt =
-                            pair.get("pox-addrs").unwrap().clone().expect_optional();
+                        let pair = clarity_value.expect_tuple().unwrap();
+                        let burn_block_height = pair
+                            .get("burn-height")
+                            .unwrap()
+                            .clone()
+                            .expect_u128()
+                            .unwrap() as u64;
+                        let pox_addr_tuples_opt = pair
+                            .get("pox-addrs")
+                            .unwrap()
+                            .clone()
+                            .expect_optional()
+                            .unwrap();
 
                         if let Some(pox_addr_tuples_list) = pox_addr_tuples_opt {
-                            let pox_addrs_and_payout_tuple = pox_addr_tuples_list.expect_tuple();
+                            let pox_addrs_and_payout_tuple =
+                                pox_addr_tuples_list.expect_tuple().unwrap();
                             let pox_addr_tuples = pox_addrs_and_payout_tuple
                                 .get("addrs")
                                 .unwrap()
                                 .to_owned()
-                                .expect_list();
+                                .expect_list()
+                                .unwrap();
 
                             let payout = pox_addrs_and_payout_tuple
                                 .get("payout")
                                 .unwrap()
                                 .to_owned()
-                                .expect_u128();
+                                .expect_u128()
+                                .unwrap();
 
                             // NOTE: there's an even number of payouts here, so this works
                             eprintln!("payout at {} = {}", burn_block_height, &payout);
@@ -1345,7 +1355,7 @@ fn transition_adds_get_pox_addr_recipients() {
         .map(|addr| Value::Tuple(addr.as_clarity_tuple().unwrap()))
     {
         eprintln!("Contains: {:?}", &addr);
-        assert!(expected_pox_addrs.contains(&addr));
+        assert!(expected_pox_addrs.contains(&addr.to_string()));
     }
 }
 
@@ -1368,7 +1378,6 @@ fn transition_adds_mining_from_segwit() {
         u64::MAX,
         u64::MAX,
         v1_unlock_height,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1482,7 +1491,7 @@ fn transition_removes_pox_sunset() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1538,7 +1547,6 @@ fn transition_removes_pox_sunset() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1586,7 +1594,7 @@ fn transition_removes_pox_sunset() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -1629,7 +1637,7 @@ fn transition_removes_pox_sunset() {
     }
 
     // pox must activate
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info in pox-1 = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(
@@ -1644,7 +1652,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-1: {} <= {}", sort_height, epoch_21);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     // pox is still "active" despite unlock, because there's enough participation, and also even
     // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
@@ -1689,7 +1697,7 @@ fn transition_removes_pox_sunset() {
         sort_height
     );
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
     // get pox back online
@@ -1699,7 +1707,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-2: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
@@ -1798,7 +1806,7 @@ fn transition_empty_blocks() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1819,7 +1827,6 @@ fn transition_empty_blocks() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         (epoch_2_1 + 1) as u32,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1877,7 +1884,7 @@ fn transition_empty_blocks() {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
@@ -2183,7 +2190,6 @@ fn test_pox_reorgs_three_flaps() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
-            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -2724,7 +2730,6 @@ fn test_pox_reorg_one_flap() {
             u32::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3147,7 +3152,6 @@ fn test_pox_reorg_flap_duel() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
-            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -3586,7 +3590,6 @@ fn test_pox_reorg_flap_reward_cycles() {
             u32::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4016,7 +4019,6 @@ fn test_pox_missing_five_anchor_blocks() {
             u32::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4418,7 +4420,6 @@ fn test_sortition_divergence_pre_21() {
             u32::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4757,7 +4758,7 @@ fn trait_invocation_cross_epoch() {
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4781,7 +4782,6 @@ fn trait_invocation_cross_epoch() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::max_value(),
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5003,13 +5003,12 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5033,7 +5032,6 @@ fn test_v1_unlock_height_with_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5176,10 +5174,13 @@ fn test_v1_unlock_height_with_current_stackers() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         if height < 215 {
             if !burnchain_config.is_in_prepare_phase(height) {
@@ -5267,13 +5268,12 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5297,7 +5297,6 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
-        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5455,10 +5454,13 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {

@@ -20,8 +20,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddre
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{Address, StacksEpochId};
 
 use super::TestRPC;
 use crate::chainstate::stacks::test::make_codec_test_block;

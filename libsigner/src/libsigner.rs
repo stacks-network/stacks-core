@@ -39,13 +39,17 @@ mod tests;
 mod error;
 mod events;
 mod http;
+mod messages;
 mod runloop;
 mod session;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    EventReceiver, EventStopSignaler, StackerDBChunksEvent, StackerDBEventReceiver,
-    StackerDBStopSignaler,
+    BlockProposalSigners, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
+    SignerStopSignaler,
+};
+pub use crate::messages::{
+    BlockRejection, BlockResponse, RejectCode, SignerMessage, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

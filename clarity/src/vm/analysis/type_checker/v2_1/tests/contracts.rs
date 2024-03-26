@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::fs::read_to_string;
 
 use assert_json_diff::assert_json_eq;
@@ -214,7 +213,10 @@ fn test_names_tokens_contracts_interface() {
     ";
 
     let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
-    let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
+    let test_contract_json_str = build_contract_interface(&contract_analysis)
+        .unwrap()
+        .serialize()
+        .unwrap();
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -3481,6 +3483,13 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
         Ok(_) => (),
         res => panic!("expected success, got {:?}", res),
     };
+}
+
+#[cfg(test)]
+impl From<CheckErrors> for String {
+    fn from(o: CheckErrors) -> Self {
+        o.to_string()
+    }
 }
 
 #[apply(test_clarity_versions)]

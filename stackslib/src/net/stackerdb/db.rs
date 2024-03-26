@@ -446,7 +446,7 @@ impl StackerDBs {
                 let ppath = Path::new(path);
                 let pparent_path = ppath
                     .parent()
-                    .expect(&format!("BUG: no parent of '{}'", path));
+                    .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
                 fs::create_dir_all(&pparent_path).map_err(|e| db_error::IOError(e))?;
 
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -537,6 +537,19 @@ impl StackerDBs {
         query_row(&self.conn, &sql, args).map_err(|e| e.into())
     }
 
+    /// Get all principals who can write to a particular stacker DB.
+    /// Returns Ok(list of addr) if this contract exists in the DB
+    /// Returns Err(..) if the DB doesn't exist of some other DB error happens
+    pub fn get_signers(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+    ) -> Result<Vec<StacksAddress>, net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let sql = "SELECT signer FROM chunks WHERE stackerdb_id = ?1 GROUP BY signer";
+        let args: &[&dyn ToSql] = &[&stackerdb_id];
+        query_rows(&self.conn, &sql, args).map_err(|e| e.into())
+    }
+
     /// Get the slot metadata
     pub fn get_slot_metadata(
         &self,
@@ -565,6 +578,25 @@ impl StackerDBs {
         slot_id: u32,
     ) -> Result<Option<SlotValidation>, net_error> {
         inner_get_slot_validation(&self.conn, smart_contract, slot_id)
+    }
+
+    /// Get the latest version of a given Slot ID from the database.
+    /// Returns Ok(Some(version)) if a chunk exists at the given slot ID.
+    /// Returns Ok(None) if the chunk does not exist at the given slot ID.
+    /// Returns Err(..) if the DB does not exist, or some other DB error occurs
+    pub fn get_slot_version(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+        slot_id: u32,
+    ) -> Result<Option<u32>, net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "SELECT version FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
+
+        self.conn
+            .query_row(qry, args, |row| row.get(0))
+            .optional()
+            .map_err(|e| e.into())
     }
 
     /// Get the list of slot ID versions for a given DB instance at a given reward cycle
@@ -606,6 +638,21 @@ impl StackerDBs {
             .query_row(qry, args, |row| row.get(0))
             .optional()
             .map_err(|e| e.into())
+    }
+
+    /// Get the latest chunk out of the database for each provided slot
+    /// Returns Ok(list of data)
+    /// Returns Err(..) if the DB does not exist, or some other DB error occurs
+    pub fn get_latest_chunks(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+        slot_ids: &[u32],
+    ) -> Result<Vec<Option<Vec<u8>>>, net_error> {
+        let mut results = vec![];
+        for slot_id in slot_ids {
+            results.push(self.get_latest_chunk(smart_contract, *slot_id)?);
+        }
+        Ok(results)
     }
 
     /// Get a versioned chunk out of this database.  If the version is not present, then None will

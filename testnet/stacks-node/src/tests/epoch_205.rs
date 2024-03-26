@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 
@@ -110,7 +109,7 @@ fn test_exact_block_costs() {
         .collect();
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     });
@@ -340,7 +339,7 @@ fn test_dynamic_db_method_costs() {
     };
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -780,7 +779,7 @@ fn test_cost_limit_switch_version205() {
     });
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -993,7 +992,6 @@ fn bigger_microblock_streams_in_2_05() {
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -1041,7 +1039,7 @@ fn bigger_microblock_streams_in_2_05() {
     conf.burnchain.pox_2_activation = Some(10_003);
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });

@@ -1,5 +1,20 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -68,7 +83,7 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
 
 fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
-    let EPOCH_2_1_HEIGHT = 11; // 36
+    let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
     let EPOCH_2_3_HEIGHT = EPOCH_2_2_HEIGHT + 2; // 52
                                                  // epoch-2.4 will start at the first block of cycle 11!
@@ -95,34 +110,34 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 0,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT,
+            end_height: EPOCH_2_1_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT,
+            start_height: EPOCH_2_1_HEIGHT,
+            end_height: EPOCH_2_2_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_3_HEIGHT,
+            start_height: EPOCH_2_2_HEIGHT,
+            end_height: EPOCH_2_3_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_3_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT,
+            start_height: EPOCH_2_3_HEIGHT,
+            end_height: EPOCH_2_4_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT,
+            start_height: EPOCH_2_4_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_4,
@@ -133,10 +148,10 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     pox_constants.reward_cycle_length = 5;
     pox_constants.prepare_length = 2;
     pox_constants.anchor_threshold = 1;
-    pox_constants.v1_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT + 1) as u32;
-    pox_constants.v2_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT + 1) as u32;
+    pox_constants.v1_unlock_height = (EPOCH_2_1_HEIGHT + 1) as u32;
+    pox_constants.v2_unlock_height = (EPOCH_2_2_HEIGHT + 1) as u32;
     pox_constants.v3_unlock_height = u32::MAX;
-    pox_constants.pox_3_activation_height = (EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT + 1) as u32;
+    pox_constants.pox_3_activation_height = (EPOCH_2_4_HEIGHT + 1) as u32;
     pox_constants.pox_4_activation_height = u32::MAX;
 
     (epochs, pox_constants)
@@ -739,7 +754,8 @@ fn pox_auto_unlock(alice_first: bool) {
         &key_to_stacks_addr(&alice).to_account_principal(),
     )
     .expect("Alice should have stacking-state entry")
-    .expect_tuple();
+    .expect_tuple()
+    .unwrap();
     let reward_indexes_str = format!("{}", alice_state.get("reward-set-indexes").unwrap());
     assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
 
@@ -878,7 +894,8 @@ fn pox_auto_unlock(alice_first: bool) {
         POX_3_NAME,
     )
     .expect("Alice should have stacking-state entry")
-    .expect_tuple();
+    .expect_tuple()
+    .unwrap();
     let reward_indexes_str = format!("{}", alice_state.get("reward-set-indexes").unwrap());
     assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
 
@@ -1682,7 +1699,7 @@ fn stack_increase() {
     let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
     assert_eq!(alice_bal.amount_locked(), first_lockup_amt);
     assert_eq!(alice_bal.unlock_height(), expected_pox_2_unlock_ht);
-    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+    assert_eq!(alice_bal.get_total_balance().unwrap(), total_balance,);
 
     // check that the "raw" reward set will contain entries for alice at the cycle start
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..first_v3_cycle {
@@ -1736,7 +1753,7 @@ fn stack_increase() {
     let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
     assert_eq!(alice_bal.amount_locked(), first_lockup_amt + increase_amt,);
     assert_eq!(alice_bal.unlock_height(), expected_pox_2_unlock_ht);
-    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+    assert_eq!(alice_bal.get_total_balance().unwrap(), total_balance,);
 
     // check that the total reward cycle amounts have incremented correctly
     for cycle_number in first_v2_cycle..(first_v2_cycle + 2) {
@@ -1848,7 +1865,7 @@ fn stack_increase() {
     let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
     assert_eq!(alice_bal.amount_locked(), first_lockup_amt);
     assert_eq!(alice_bal.unlock_height(), expected_pox_3_unlock_ht);
-    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+    assert_eq!(alice_bal.get_total_balance().unwrap(), total_balance,);
 
     // check that the "raw" reward set will contain entries for alice at the cycle start
     for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
@@ -1912,7 +1929,7 @@ fn stack_increase() {
     let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
     assert_eq!(alice_bal.amount_locked(), first_lockup_amt + increase_amt,);
     assert_eq!(alice_bal.unlock_height(), expected_pox_3_unlock_ht);
-    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+    assert_eq!(alice_bal.get_total_balance().unwrap(), total_balance,);
 
     // check that the total reward cycle amounts have incremented correctly
     for cycle_number in first_v3_cycle..(first_v3_cycle + 4) {
@@ -3090,7 +3107,7 @@ fn pox_3_getters() {
         tip.block_height,
     );
 
-    // bob deleates to charlie
+    // bob delegates to charlie
     let bob_delegate_tx = make_pox_3_contract_call(
         &bob,
         0,
@@ -3211,13 +3228,14 @@ fn pox_3_getters() {
     ));
 
     eprintln!("{}", &result);
-    let data = result.expect_tuple().data_map;
+    let data = result.expect_tuple().unwrap().data_map;
 
     let alice_delegation_info = data
         .get("get-delegation-info-alice")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(alice_delegation_info.is_none());
 
     let bob_delegation_info = data
@@ -3226,23 +3244,28 @@ fn pox_3_getters() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map;
     let bob_delegation_addr = bob_delegation_info
         .get("delegated-to")
         .cloned()
         .unwrap()
-        .expect_principal();
+        .expect_principal()
+        .unwrap();
     let bob_delegation_amt = bob_delegation_info
         .get("amount-ustx")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let bob_pox_addr_opt = bob_delegation_info
         .get("pox-addr")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert_eq!(bob_delegation_addr, charlie_address.to_account_principal());
     assert_eq!(bob_delegation_amt, LOCKUP_AMT as u128);
     assert!(bob_pox_addr_opt.is_none());
@@ -3251,27 +3274,30 @@ fn pox_3_getters() {
         .get("get-allowance-contract-callers")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(allowance.is_none());
 
     let current_num_reward_addrs = data
         .get("get-num-reward-set-pox-addresses-current")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(current_num_reward_addrs, 2);
 
     let future_num_reward_addrs = data
         .get("get-num-reward-set-pox-addresses-future")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(future_num_reward_addrs, 0);
 
     for i in 0..3 {
         let key =
             ClarityName::try_from(format!("get-partial-stacked-by-cycle-bob-{}", &i)).unwrap();
-        let partial_stacked = data.get(&key).cloned().unwrap().expect_optional();
+        let partial_stacked = data.get(&key).cloned().unwrap().expect_optional().unwrap();
         assert!(partial_stacked.is_none());
     }
     let partial_stacked = data
@@ -3280,33 +3306,39 @@ fn pox_3_getters() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map
         .get("stacked-amount")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(partial_stacked, LOCKUP_AMT as u128);
 
     let rejected = data
         .get("get-total-pox-rejection-now")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, LOCKUP_AMT as u128);
 
     let rejected = data
         .get("get-total-pox-rejection-next")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, 0);
 
     let rejected = data
         .get("get-total-pox-rejection-future")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, 0);
 }
 
@@ -3339,14 +3371,17 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
     })
     .unwrap()
     .expect_optional()
+    .unwrap()
     .expect("FATAL: expected list")
-    .expect_tuple();
+    .expect_tuple()
+    .unwrap();
 
     let addrs = addrs_and_payout
         .get("addrs")
         .unwrap()
         .to_owned()
         .expect_list()
+        .unwrap()
         .into_iter()
         .map(|tuple| PoxAddress::try_from_pox_tuple(false, &tuple).unwrap())
         .collect();
@@ -3355,7 +3390,8 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
         .get("payout")
         .unwrap()
         .to_owned()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     (addrs, payout)
 }
 
@@ -4329,14 +4365,15 @@ fn pox_3_delegate_stx_addr_validation() {
     );
 
     eprintln!("{}", &result);
-    let data = result.expect_tuple().data_map;
+    let data = result.expect_tuple().unwrap().data_map;
 
     // bob had an invalid PoX address
     let bob_delegation_info = data
         .get("get-delegation-info-bob")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(bob_delegation_info.is_none());
 
     // alice was valid
@@ -4346,23 +4383,28 @@ fn pox_3_delegate_stx_addr_validation() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map;
     let alice_delegation_addr = alice_delegation_info
         .get("delegated-to")
         .cloned()
         .unwrap()
-        .expect_principal();
+        .expect_principal()
+        .unwrap();
     let alice_delegation_amt = alice_delegation_info
         .get("amount-ustx")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let alice_pox_addr_opt = alice_delegation_info
         .get("pox-addr")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert_eq!(
         alice_delegation_addr,
         charlie_address.to_account_principal()

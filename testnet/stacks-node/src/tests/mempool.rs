@@ -1,4 +1,3 @@
-use std::convert::{From, TryFrom};
 use std::sync::Mutex;
 
 use clarity::vm::costs::ExecutionCost;
@@ -759,13 +758,7 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
-                assert!(
-                    if let MemPoolRejection::PoisonMicroblocksDoNotConflict = e {
-                        true
-                    } else {
-                        false
-                    }
-                );
+                assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let microblock_1 = StacksMicroblockHeader {
                     version: 0,
@@ -799,11 +792,7 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::InvalidMicroblocks = e {
-                    true
-                } else {
-                    false
-                });
+                assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let mut microblock_1 = StacksMicroblockHeader {
                     version: 0,
@@ -840,13 +829,7 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
-                assert!(
-                    if let MemPoolRejection::NoAnchorBlockWithPubkeyHash(_) = e {
-                        true
-                    } else {
-                        false
-                    }
-                );
+                assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let tx_bytes = make_coinbase(&contract_sk, 5, 1000);
                 let tx = StacksTransaction::consensus_deserialize_with_epoch(
@@ -915,7 +898,7 @@ fn mempool_setup_chainstate() {
                     StacksEpochId::Epoch25,
                 )
                 .unwrap();
-                chain_state
+                let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
                         consensus_hash,
@@ -923,7 +906,9 @@ fn mempool_setup_chainstate() {
                         &tx,
                         tx_bytes.len() as u64,
                     )
-                    .unwrap();
+                    .unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),

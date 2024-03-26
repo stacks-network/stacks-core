@@ -26,8 +26,14 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -63,13 +69,14 @@ use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::db::LocalPeer;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
+use blockstack_lib::net::StacksMessage;
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use stacks_common::codec::{read_next, DeserializeWithEpoch, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
@@ -215,7 +222,8 @@ fn main() {
         }
 
         let block_path = &argv[2];
-        let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
+        let block_data =
+            fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
         let epoch_id = parse_input_epoch(3);
 
         let block = StacksBlock::consensus_deserialize_with_epoch(
@@ -230,6 +238,35 @@ fn main() {
 
         println!("{:#?}", &block);
         process::exit(0);
+    }
+
+    if argv[1] == "decode-net-message" {
+        let data: String = argv[2].clone();
+        let buf = if data == "-" {
+            let mut buffer = vec![];
+            io::stdin().read_to_end(&mut buffer).unwrap();
+            buffer
+        } else {
+            let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+            let data_array = data.as_array().unwrap();
+            let mut buf = vec![];
+            for elem in data_array {
+                buf.push(elem.as_u64().unwrap() as u8);
+            }
+            buf
+        };
+        match read_next::<StacksMessage, _>(&mut &buf[..]) {
+            Ok(msg) => {
+                println!("{:#?}", &msg);
+                process::exit(0);
+            }
+            Err(_) => {
+                let ptr = &mut &buf[..];
+                let mut debug_cursor = LogReader::from_reader(ptr);
+                let _ = read_next::<StacksMessage, _>(&mut debug_cursor);
+                process::exit(1);
+            }
+        }
     }
 
     if argv[1] == "get-tenure" {
@@ -334,7 +371,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -381,7 +418,7 @@ check if the associated microblocks can be downloaded
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -492,7 +529,7 @@ check if the associated microblocks can be downloaded
             .unwrap_or(start_height);
 
         let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", argv[2]));
+            .unwrap_or_else(|_| panic!("Failed to open {}", argv[2]));
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
         let sort_conn = sort_db.index_handle(&chain_tip);
@@ -563,7 +600,7 @@ simulating a miner.
         }
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .expect(&format!("Failed to open {}", &sort_db_path));
+            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -605,7 +642,6 @@ simulating a miner.
 
         let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
-        settings.mempool_settings.min_tx_fee = min_fee;
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
@@ -672,7 +708,8 @@ simulating a miner.
         }
 
         let mblock_path = &argv[2];
-        let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
+        let mblock_data =
+            fs::read(mblock_path).unwrap_or_else(|_| panic!("Failed to open {mblock_path}"));
 
         let mut cursor = io::Cursor::new(&mblock_data);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
@@ -741,10 +778,8 @@ simulating a miner.
                 },
             );
 
-            let row = res.expect(&format!(
-                "Failed to query DB for MARF value hash {}",
-                &value
-            ));
+            let row =
+                res.unwrap_or_else(|_| panic!("Failed to query DB for MARF value hash {value}"));
             println!("{}", row);
         } else {
             println!("(undefined)");
@@ -758,8 +793,8 @@ simulating a miner.
             eprintln!("Usage: {} exec_program [program-file.clar]", argv[0]);
             process::exit(1);
         }
-        let program: String =
-            fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
+        let program: String = fs::read_to_string(&argv[2])
+            .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
         let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
             Ok(Some(result)) => println!("{}", result),
@@ -838,6 +873,73 @@ simulating a miner.
     if argv[1] == "local" {
         clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
         return;
+    }
+
+    if argv[1] == "replay-block" {
+        let print_help_and_exit = || -> ! {
+            let n = &argv[0];
+            eprintln!("Usage:");
+            eprintln!("  {n} <chainstate_path>");
+            eprintln!("  {n} <chainstate_path> prefix <index-block-hash-prefix>");
+            eprintln!("  {n} <chainstate_path> range <start_block> <end_block>");
+            eprintln!("  {n} <chainstate_path> <first|last> <block_count>");
+            process::exit(1);
+        };
+        if argv.len() < 2 {
+            print_help_and_exit();
+        }
+        let stacks_path = &argv[2];
+        let mode = argv.get(3).map(String::as_str);
+        let staging_blocks_db_path = format!("{stacks_path}/mainnet/chainstate/vm/index.sqlite");
+        let conn =
+            Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+
+        let query = match mode {
+            Some("prefix") => format!(
+                "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
+                argv[4]
+            ),
+            Some("first") => format!(
+                "SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {}",
+                argv[4]
+            ),
+            Some("range") => {
+                let arg4 = argv[4]
+                    .parse::<u64>()
+                    .expect("<start_block> not a valid u64");
+                let arg5 = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
+                let start = arg4.saturating_sub(1);
+                let blocks = arg5.saturating_sub(arg4);
+                format!("SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {start}, {blocks}")
+            }
+            Some("last") => format!(
+                "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
+                argv[4]
+            ),
+            Some(_) => print_help_and_exit(),
+            // Default to ALL blocks
+            None => "SELECT index_block_hash FROM staging_blocks".into(),
+        };
+
+        let mut stmt = conn.prepare(&query).unwrap();
+        let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
+
+        let mut index_block_hashes: Vec<String> = vec![];
+        while let Ok(Some(row)) = hashes_set.next() {
+            index_block_hashes.push(row.get(0).unwrap());
+        }
+
+        let total = index_block_hashes.len();
+        println!("Will check {total} blocks");
+        for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
+            if i % 100 == 0 {
+                println!("Checked {i}...");
+            }
+            replay_block(stacks_path, index_block_hash);
+        }
+        println!("Finished!");
+        process::exit(0);
     }
 
     if argv[1] == "deserialize-db" {
@@ -1192,7 +1294,6 @@ simulating a miner.
             }
 
             // process all new blocks
-            let mut epoch_receipts = vec![];
             loop {
                 let sortition_tip =
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn())
@@ -1210,11 +1311,6 @@ simulating a miner.
                     .unwrap();
                 if receipts.len() == 0 {
                     break;
-                }
-                for (epoch_receipt_opt, _) in receipts.into_iter() {
-                    if let Some(epoch_receipt) = epoch_receipt_opt {
-                        epoch_receipts.push(epoch_receipt);
-                    }
                 }
             }
         }
@@ -1258,7 +1354,7 @@ simulating a miner.
     let epoch_id = parse_input_epoch(6);
 
     let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-        .expect(&format!("Failed to open {}", &sort_db_path));
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
     let chain_id = CHAIN_ID_MAINNET;
     let mut chain_state = StacksChainState::open(true, chain_id, &chain_state_path, None)
         .expect("Failed to open stacks chain state")
@@ -1490,4 +1586,180 @@ fn parse_input_epoch(epoch_arg_index: usize) -> StacksEpochId {
     }
 
     return epoch_id;
+}
+
+fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
+    let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
+    let chain_state_path = format!("{stacks_path}/mainnet/chainstate/");
+    let sort_db_path = format!("{stacks_path}/mainnet/burnchain/sortition");
+    let burn_db_path = format!("{stacks_path}/mainnet/burnchain/burnchain.sqlite");
+    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
+
+    let (mut chainstate, _) =
+        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+
+    let mut sortdb = SortitionDB::connect(
+        &sort_db_path,
+        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
+        STACKS_EPOCHS_MAINNET.as_ref(),
+        PoxConstants::mainnet_default(),
+        true,
+    )
+    .unwrap();
+    let mut sort_tx = sortdb.tx_begin_at_tip();
+
+    let blocks_path = chainstate.blocks_path.clone();
+    let (mut chainstate_tx, clarity_instance) = chainstate
+        .chainstate_tx_begin()
+        .expect("Failed to start chainstate tx");
+    let mut next_staging_block =
+        StacksChainState::load_staging_block_info(&chainstate_tx.tx, &index_block_hash)
+            .expect("Failed to load staging block data")
+            .expect("No such index block hash in block database");
+
+    next_staging_block.block_data = StacksChainState::load_block_bytes(
+        &blocks_path,
+        &next_staging_block.consensus_hash,
+        &next_staging_block.anchored_block_hash,
+    )
+    .unwrap()
+    .unwrap_or_default();
+
+    let Some(next_microblocks) =
+        StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
+            .unwrap()
+    else {
+        println!("No microblock stream found for {index_block_hash_hex}");
+        return;
+    };
+
+    let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
+        match SortitionDB::get_block_snapshot_consensus(
+            &sort_tx,
+            &next_staging_block.consensus_hash,
+        )
+        .unwrap()
+        {
+            Some(sn) => (
+                sn.burn_header_hash,
+                sn.block_height as u32,
+                sn.burn_header_timestamp,
+                sn.winning_block_txid,
+            ),
+            None => {
+                // shouldn't happen
+                panic!(
+                    "CORRUPTION: staging block {}/{} does not correspond to a burn block",
+                    &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash
+                );
+            }
+        };
+
+    info!(
+        "Process block {}/{} = {} in burn block {}, parent microblock {}",
+        next_staging_block.consensus_hash,
+        next_staging_block.anchored_block_hash,
+        &index_block_hash,
+        &burn_header_hash,
+        &next_staging_block.parent_microblock_hash,
+    );
+
+    let Some(parent_header_info) =
+        StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block).unwrap()
+    else {
+        println!("Failed to load parent head info for block: {index_block_hash_hex}");
+        return;
+    };
+
+    let epoch_id = SortitionDB::get_stacks_epoch(&sort_tx, u64::from(burn_header_height))
+        .expect("Error getting Epoch")
+        .expect("No Epoch found")
+        .epoch_id;
+    let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id)
+        .expect("Failed to get block");
+    let block_size = next_staging_block.block_data.len() as u64;
+
+    let parent_block_header = match &parent_header_info.anchored_header {
+        StacksBlockHeaderTypes::Epoch2(bh) => bh,
+        StacksBlockHeaderTypes::Nakamoto(_) => panic!("Nakamoto blocks not supported yet"),
+    };
+
+    if !StacksChainState::check_block_attachment(&parent_block_header, &block.header) {
+        let msg = format!(
+            "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
+            &next_staging_block.consensus_hash,
+            block.block_hash(),
+            parent_block_header.block_hash(),
+            &parent_header_info.consensus_hash
+        );
+        println!("{msg}");
+        return;
+    }
+
+    // validation check -- validate parent microblocks and find the ones that connect the
+    // block's parent to this block.
+    let next_microblocks = StacksChainState::extract_connecting_microblocks(
+        &parent_header_info,
+        &next_staging_block,
+        &block,
+        next_microblocks,
+    )
+    .unwrap();
+    let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
+        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+        _ => {
+            let l = next_microblocks.len();
+            (
+                next_microblocks[l - 1].block_hash(),
+                next_microblocks[l - 1].header.sequence,
+            )
+        }
+    };
+    assert_eq!(
+        next_staging_block.parent_microblock_hash,
+        last_microblock_hash
+    );
+    assert_eq!(
+        next_staging_block.parent_microblock_seq,
+        last_microblock_seq
+    );
+
+    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
+        &burnchain_blocks_db,
+        sort_tx.tx(),
+        &next_staging_block.consensus_hash,
+        &next_staging_block.anchored_block_hash,
+    )
+    .unwrap();
+
+    let pox_constants = sort_tx.context.pox_constants.clone();
+
+    match StacksChainState::append_block(
+        &mut chainstate_tx,
+        clarity_instance,
+        &mut sort_tx,
+        &pox_constants,
+        &parent_header_info,
+        &next_staging_block.consensus_hash,
+        &burn_header_hash,
+        burn_header_height,
+        burn_header_timestamp,
+        &block,
+        block_size,
+        &next_microblocks,
+        next_staging_block.commit_burn,
+        next_staging_block.sortition_burn,
+        block_am.weight(),
+        true,
+    ) {
+        Ok((_receipt, _, _)) => {
+            info!("Block processed successfully! block = {index_block_hash}");
+        }
+        Err(e) => {
+            println!("Failed processing block! block = {index_block_hash}, error = {e:?}");
+            process::exit(1);
+        }
+    };
 }

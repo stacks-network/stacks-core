@@ -82,7 +82,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str).expect_principal();
+        let p1 = execute(p1_str).expect_principal().unwrap();
         let mut placeholder_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");
@@ -161,7 +161,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
-        let p1 = execute(p1_str).expect_principal();
+        let p1 = execute(p1_str).expect_principal().unwrap();
         let mut placeholder_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");

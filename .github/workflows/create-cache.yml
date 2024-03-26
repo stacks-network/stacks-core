@@ -1,0 +1,60 @@
+## Github workflow to create reusable caches
+
+name: Create Test Cache
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+## env vars are transferred to composite action steps
+env:
+  RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
+  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
+  BTC_VERSION: "0.20.0"
+
+##
+## Cache will exist longer than workflow execution so other runners have access
+##   ex: a failed job should have access to the cache for however long `cleanup.yml` is set to delete old caches
+##       however, this is only relevant if the commit sha does not change between runs
+concurrency:
+  group: create-cache-${{ github.head_ref || github.ref || github.run_id}}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ## Cache cargo data
+  cargo:
+    name: Cargo
+    runs-on: ubuntu-latest
+    steps:
+      ## Perform a lookup to check if the cache already exists
+      - name: Cargo Cache
+        id: cargo-cache
+        uses: stacks-network/actions/stacks-core/cache/cargo@main
+        with:
+          action: save
+
+  ## Cache the bitcoin binary
+  bitcoin-binary:
+    name: Bitcoin Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bitcoin Cache
+        id: bitcoin-cache
+        uses: stacks-network/actions/stacks-core/cache/bitcoin@main
+        with:
+          action: save
+          btc-version: "25.0"
+
+  ## Cache nextest archives for tests
+  nextest-archive:
+    name: Test Archive
+    runs-on: ubuntu-latest
+    needs:
+      - cargo
+    steps:
+      - name: Build Nexttest Cache
+        id: nextest-cache
+        uses: stacks-network/actions/stacks-core/cache/build-cache@main
+        with:
+          genesis: true

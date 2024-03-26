@@ -16,7 +16,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
-use std::string::ToString;
 
 use percent_encoding::percent_decode_str;
 use rand::{thread_rng, Rng};
@@ -612,7 +611,7 @@ impl HttpRequestContents {
     }
 
     /// Get a query argument
-    pub fn get_query_arg(&self, key: &String) -> Option<&String> {
+    pub fn get_query_arg(&self, key: &str) -> Option<&String> {
         self.query_args.get(key)
     }
 

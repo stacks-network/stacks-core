@@ -357,7 +357,7 @@ pub trait NeighborComms {
             }
             Err(Err(e)) => {
                 // disconnected
-                test_debug!(
+                debug!(
                     "{:?}: Failed to get reply: {:?}",
                     network.get_local_peer(),
                     &e
@@ -395,11 +395,12 @@ pub trait NeighborComms {
         }
     }
 
-    /// Are we connected already to a neighbor?
+    /// Are we connected and handshake'd already to a neighbor?
     fn has_neighbor_session<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
-        network
-            .get_neighbor_convo(&nk.to_neighbor_key(network))
-            .is_some()
+        let Some(convo) = network.get_neighbor_convo(&nk.to_neighbor_key(network)) else {
+            return false;
+        };
+        convo.is_authenticated() && convo.peer_version > 0
     }
 
     /// Reset all comms
@@ -492,6 +493,7 @@ impl NeighborComms for PeerNetworkComms {
         self.events.contains(&event_id)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn add_batch_request(&mut self, naddr: NeighborAddress, rh: ReplyHandleP2P) {
         if let Some(ref mut batch) = self.ongoing_batch_request.as_mut() {
             batch.add(naddr, rh);
@@ -678,6 +680,7 @@ impl NeighborCommsRequest {
     }
 
     /// How many inflight requests remaining?
+    #[cfg_attr(test, mutants::skip)]
     pub fn count_inflight(&self) -> usize {
         self.state.len()
     }

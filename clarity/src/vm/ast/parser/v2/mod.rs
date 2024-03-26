@@ -1,6 +1,5 @@
 pub mod lexer;
 
-use std::convert::TryFrom;
 use std::num::ParseIntError;
 
 use stacks_common::util::hash::hex_bytes;
@@ -262,7 +261,7 @@ impl<'a> Parser<'a> {
                             // Report an error, then skip this token
                             self.add_diagnostic(
                                 ParseErrors::UnexpectedToken(token.token.clone()),
-                                token.span.clone(),
+                                token.span,
                             )?;
                             *whitespace = self.ignore_whitespace();
                             Ok(None)
@@ -376,7 +375,7 @@ impl<'a> Parser<'a> {
                                 // This indicates we have reached the end of the input.
                                 // Create a placeholder value so that parsing can continue,
                                 // then return.
-                                let eof_span = last_token.span.clone();
+                                let eof_span = last_token.span;
 
                                 self.add_diagnostic(
                                     ParseErrors::TupleValueExpected,
@@ -428,9 +427,7 @@ impl<'a> Parser<'a> {
                         return Ok(Some(e));
                     }
                     Token::Eof => (),
-                    _ => {
-                        self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span.clone())?
-                    }
+                    _ => self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span)?,
                 }
 
                 let mut comments = self.ignore_whitespace_and_comments();
@@ -463,7 +460,7 @@ impl<'a> Parser<'a> {
     fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
         let mut open_tuple = OpenTuple {
             nodes: vec![],
-            span: lbrace.span.clone(),
+            span: lbrace.span,
             expects: OpenTupleStatus::ParseKey,
             diagnostic_token: self.peek_next_token(),
         };
@@ -474,10 +471,7 @@ impl<'a> Parser<'a> {
         let token = self.peek_next_token();
         match token.token {
             Token::Comma => {
-                self.add_diagnostic(
-                    ParseErrors::UnexpectedToken(token.token),
-                    token.span.clone(),
-                )?;
+                self.add_diagnostic(ParseErrors::UnexpectedToken(token.token), token.span)?;
                 self.next_token();
             }
             Token::Rbrace => {
@@ -531,6 +525,7 @@ impl<'a> Parser<'a> {
 
         // Peek ahead for a '.', indicating a contract identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, contract_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -547,10 +542,7 @@ impl<'a> Parser<'a> {
                 }) => {
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    self.add_diagnostic(
-                        ParseErrors::ExpectedContractIdentifier,
-                        token_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span)?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         "'{}.{}",
                         principal,
@@ -560,7 +552,7 @@ impl<'a> Parser<'a> {
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span.clone())?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.", principal));
                     placeholder.copy_span(&span);
@@ -571,7 +563,7 @@ impl<'a> Parser<'a> {
             if name.len() > MAX_CONTRACT_NAME_LEN {
                 self.add_diagnostic(
                     ParseErrors::ContractNameTooLong(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
@@ -583,7 +575,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(
                         ParseErrors::IllegalContractName(name.clone()),
-                        contract_span.clone(),
+                        contract_span,
                     )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
@@ -595,6 +587,7 @@ impl<'a> Parser<'a> {
 
             // Peek ahead for a '.', indicating a trait identifier
             if self.peek_next_token().token == Token::Dot {
+                #[allow(clippy::unwrap_used)]
                 let dot = self.next_token().unwrap(); // skip over the dot
                 let (name, trait_span) = match self.next_token() {
                     Some(PlacedToken {
@@ -637,10 +630,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(
-                        ParseErrors::NameTooLong(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", contract_id, name,));
                     placeholder.copy_span(&span);
@@ -651,7 +641,7 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         self.add_diagnostic(
                             ParseErrors::IllegalTraitName(name.clone()),
-                            trait_span.clone(),
+                            trait_span,
                         )?;
                         let mut placeholder = PreSymbolicExpression::placeholder(format!(
                             "'{}.{}",
@@ -726,7 +716,7 @@ impl<'a> Parser<'a> {
             Err(_) => {
                 self.add_diagnostic(
                     ParseErrors::IllegalContractName(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
                 placeholder.copy_span(&span);
@@ -736,6 +726,7 @@ impl<'a> Parser<'a> {
 
         // Peek ahead for a '.', indicating a trait identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, trait_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -772,7 +763,7 @@ impl<'a> Parser<'a> {
                 }
             };
             if name.len() > MAX_STRING_LEN {
-                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span.clone())?;
+                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
                 placeholder.copy_span(&span);
@@ -781,10 +772,7 @@ impl<'a> Parser<'a> {
             let trait_name = match ClarityName::try_from(name.clone()) {
                 Ok(id) => id,
                 Err(_) => {
-                    self.add_diagnostic(
-                        ParseErrors::IllegalTraitName(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::IllegalTraitName(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
                     placeholder.copy_span(&span);
@@ -905,12 +893,14 @@ impl<'a> Parser<'a> {
                             Some(expr)
                         }
                         Token::Utf8String(s) => {
-                            let mut data: Vec<Vec<u8>> = Vec::new();
-                            for ch in s.chars() {
-                                let mut bytes = vec![0; ch.len_utf8()];
-                                ch.encode_utf8(&mut bytes);
-                                data.push(bytes);
-                            }
+                            let data: Vec<Vec<u8>> = s
+                                .chars()
+                                .map(|ch| {
+                                    let mut bytes = vec![0; ch.len_utf8()];
+                                    ch.encode_utf8(&mut bytes);
+                                    bytes
+                                })
+                                .collect();
                             let val =
                                 Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
                                     data,
@@ -1002,7 +992,8 @@ impl<'a> Parser<'a> {
                         | Token::LessEqual
                         | Token::Greater
                         | Token::GreaterEqual => {
-                            let name = ClarityName::try_from(token.token.to_string()).unwrap();
+                            let name = ClarityName::try_from(token.token.to_string())
+                                .map_err(|_| ParseErrors::InterpreterFailure)?;
                             let mut e = PreSymbolicExpression::atom(name);
                             e.copy_span(&token.span);
                             Some(e)
@@ -1104,6 +1095,7 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 pub fn parse_collect_diagnostics(
     input: &str,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
@@ -1369,7 +1361,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         assert!(diagnostics.is_empty());
         if let Some(v) = stmts[0].match_atom_value() {
-            assert_eq!(v.clone().expect_ascii(), "new\nline");
+            assert_eq!(v.clone().expect_ascii().unwrap(), "new\nline");
         } else {
             panic!("failed to parse ascii string");
         }
@@ -3392,7 +3384,7 @@ mod tests {
             }
         );
         let val = stmts[0].match_atom_value().unwrap().clone();
-        assert_eq!(val.expect_buff(2), vec![0x12, 0x34]);
+        assert_eq!(val.expect_buff(2).unwrap(), vec![0x12, 0x34]);
     }
 
     #[test]

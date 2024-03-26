@@ -141,13 +141,15 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                         let source = db.get_contract_src(&contract_identifier)?;
                         let contract_commit_key = make_contract_hash_key(&contract_identifier);
                         let (contract_commit, proof) = if with_proof {
-                            db.get_with_proof::<ContractCommitment>(&contract_commit_key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
-                                .expect("BUG: obtained source, but couldn't get contract commit")
+                            db.get_data_with_proof::<ContractCommitment>(&contract_commit_key)
+                                .ok()
+                                .flatten()
+                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                         } else {
-                            db.get::<ContractCommitment>(&contract_commit_key)
-                                .map(|a| (a, None))
-                                .expect("BUG: obtained source, but couldn't get contract commit")
+                            db.get_data::<ContractCommitment>(&contract_commit_key)
+                                .ok()
+                                .flatten()
+                                .map(|a| (a, None))?
                         };
 
                         let publish_height = contract_commit.block_height;

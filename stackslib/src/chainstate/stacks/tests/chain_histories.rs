@@ -43,7 +43,7 @@ use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
@@ -174,7 +174,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -360,7 +360,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -507,7 +507,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -555,7 +555,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -844,7 +844,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -892,7 +892,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1109,7 +1109,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1158,7 +1158,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1457,7 +1457,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1502,7 +1502,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1704,7 +1704,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -1752,7 +1752,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -2012,7 +2012,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -2057,7 +2057,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -2259,7 +2259,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );
@@ -2307,7 +2307,7 @@ where
                     &all_prev_mining_rewards
                 ));
 
-                builder.epoch_finish(epoch);
+                builder.epoch_finish(epoch).unwrap();
                 (stacks_block, microblocks)
             },
         );

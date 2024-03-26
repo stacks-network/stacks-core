@@ -117,6 +117,7 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
 pub enum StackerDBErrorCodes {
     DataAlreadyExists,
     NoSuchSlot,
+    BadSigner,
 }
 
 impl StackerDBErrorCodes {
@@ -124,13 +125,16 @@ impl StackerDBErrorCodes {
         match self {
             Self::DataAlreadyExists => 0,
             Self::NoSuchSlot => 1,
+            Self::BadSigner => 2,
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn reason(&self) -> &'static str {
         match self {
             Self::DataAlreadyExists => "Data for this slot and version already exist",
             Self::NoSuchSlot => "No such StackerDB slot",
+            Self::BadSigner => "Signature does not match slot signer",
         }
     }
 
@@ -140,6 +144,15 @@ impl StackerDBErrorCodes {
             "message": format!("{:?}", &self),
             "reason": self.reason()
         })
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    pub fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 => Some(Self::DataAlreadyExists),
+            1 => Some(Self::NoSuchSlot),
+            _ => None,
+        }
     }
 }
 
@@ -184,11 +197,18 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                         &HttpNotFound::new("StackerDB not found".to_string()),
                     ));
                 }
-                if let Err(_e) = tx.try_replace_chunk(
+                if let Err(e) = tx.try_replace_chunk(
                     &contract_identifier,
                     &stackerdb_chunk.get_slot_metadata(),
                     &stackerdb_chunk.data,
                 ) {
+                    test_debug!(
+                        "Failed to replace chunk {}.{} in {}: {:?}",
+                        stackerdb_chunk.slot_id,
+                        stackerdb_chunk.slot_version,
+                        &contract_identifier,
+                        &e
+                    );
                     let slot_metadata_opt =
                         match tx.get_slot_metadata(&contract_identifier, stackerdb_chunk.slot_id) {
                             Ok(slot_opt) => slot_opt,
@@ -208,27 +228,34 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let (reason, slot_metadata_opt) = if let Some(slot_metadata) = slot_metadata_opt
-                    {
-                        (
-                            serde_json::to_string(
-                                &StackerDBErrorCodes::DataAlreadyExists.into_json(),
+                    let (reason, slot_metadata_opt, err_code) =
+                        if let Some(slot_metadata) = slot_metadata_opt {
+                            let code = if let NetError::BadSlotSigner(..) = e {
+                                StackerDBErrorCodes::BadSigner
+                            } else {
+                                StackerDBErrorCodes::DataAlreadyExists
+                            };
+
+                            (
+                                serde_json::to_string(&code.clone().into_json())
+                                    .unwrap_or("(unable to encode JSON)".to_string()),
+                                Some(slot_metadata),
+                                code,
                             )
-                            .unwrap_or("(unable to encode JSON)".to_string()),
-                            Some(slot_metadata),
-                        )
-                    } else {
-                        (
-                            serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
-                                .unwrap_or("(unable to encode JSON)".to_string()),
-                            None,
-                        )
-                    };
+                        } else {
+                            (
+                                serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
+                                    .unwrap_or("(unable to encode JSON)".to_string()),
+                                None,
+                                StackerDBErrorCodes::DataAlreadyExists,
+                            )
+                        };
 
                     let ack = StackerDBChunkAckData {
                         accepted: false,
                         reason: Some(reason),
                         metadata: slot_metadata_opt,
+                        code: Some(err_code.code()),
                     };
                     return Ok(ack);
                 }
@@ -253,11 +280,20 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     ));
                 }
 
+                debug!(
+                    "Wrote {}-byte chunk to {} slot {} version {}",
+                    &stackerdb_chunk.data.len(),
+                    &contract_identifier,
+                    stackerdb_chunk.slot_id,
+                    stackerdb_chunk.slot_version
+                );
+
                 // success!
                 let ack = StackerDBChunkAckData {
                     accepted: true,
                     reason: None,
                     metadata: Some(slot_metadata),
+                    code: None,
                 };
 
                 return Ok(ack);

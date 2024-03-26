@@ -34,33 +34,40 @@ use crate::LockingError;
 fn parse_pox_stacking_result_v1(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok (tuple (stacker principal) (lock-amount uint) (unlock-burn-height uint)))
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect("FATAL: no 'stacker'")
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let lock_amount = tuple_data
                 .get("lock-amount")
                 .expect("FATAL: no 'lock-amount'")
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -91,20 +98,20 @@ pub fn pox_lock_v1(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
     if snapshot.balance().was_locked_by_v2() {
         debug!("PoX Lock attempted on an account locked by v2");
         return Err(LockingError::DefunctPoxContract);
     }
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v1 lock applied";
@@ -114,7 +121,7 @@ pub fn pox_lock_v1(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
