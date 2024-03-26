@@ -780,6 +780,11 @@ impl StacksChainState {
             ..
         }) = addresses.pop()
         {
+            debug!(
+                "Processing reward set entry";
+                "reward_address" => %address,
+                "stacked_amt" => stacked_amt,
+            );
             let mut contributed_stackers = vec![];
             if let Some(stacker) = stacker.as_ref() {
                 contributed_stackers.push((stacker.clone(), stacked_amt));
@@ -792,6 +797,12 @@ impl StacksChainState {
             //  vector are sorted by address, we know that any entry
             //  with the same `reward_address` as `address` will be at the end of
             //  the list (and therefore found by this loop)
+            println!("SOME ADDRESS {:?}", addresses.last().map(|x| {
+                match &x.reward_address {
+                    PoxAddress::Standard(address, _) => address.to_string(),
+                    _ => panic!("Not making sense"),
+                }
+            } ));
             while addresses.last().map(|x| &x.reward_address) == Some(&address) {
                 let next_contrib = addresses
                     .pop()
@@ -805,6 +816,7 @@ impl StacksChainState {
                 stacked_amt = stacked_amt
                     .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
+                debug!("New Stacked Amount: {stacked_amt}");
             }
             let slots_taken = u32::try_from(stacked_amt / threshold)
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
