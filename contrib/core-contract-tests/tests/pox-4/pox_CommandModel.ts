@@ -1,4 +1,5 @@
 import fc from "fast-check";
+import ololog from "ololog";
 
 import { Simnet } from "@hirosystems/clarinet-sdk";
 import { StacksPrivateKey } from "@stacks/transactions";
@@ -37,3 +38,15 @@ export type Wallet = {
 };
 
 export type PoxCommand = fc.Command<Stub, Real>;
+
+export const logCommand = (...items: (string | undefined)[]) => {
+  // Ensure we only render up to the first 10 items for brevity.
+  const renderItems = items.slice(0, 10);
+  const columnWidth = 23;
+  // Pad each column to the same width.
+  const prettyPrint = renderItems.map((content) =>
+    content ? content.padEnd(columnWidth) : "".padEnd(columnWidth)
+  );
+
+  ololog.configure({ locate: false })(prettyPrint.join(""));
+};

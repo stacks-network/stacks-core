@@ -1,4 +1,4 @@
-import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
+import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
 import { expect } from "vitest";
 import { boolCV, Cl, ClarityType, OptionalCV, UIntCV } from "@stacks/transactions";
 
@@ -66,21 +66,7 @@ export class AllowContractCallerCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    console.info(
-      `✓ ${
-        this.wallet.label.padStart(
-          8,
-          " ",
-        )
-      } ${
-        "allow-contract-caller".padStart(
-          34,
-          " ",
-        )
-      } ${this.allowanceTo.label.padStart(12, " ")} ${"until".padStart(53)} ${
-        optionalCVToString(this.allowUntilBurnHt).padStart(17)
-      }`,
-    );
+    logCommand(`✓ ${this.wallet.label}`, "allow-contract-caller", this.allowanceTo.label, "until", optionalCVToString(this.allowUntilBurnHt));
   }
 
   toString() {

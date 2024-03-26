@@ -1,4 +1,4 @@
-import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
+import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { boolCV, Cl } from "@stacks/transactions";
@@ -88,23 +88,7 @@ export class DelegateStxCommand implements PoxCommand {
     delegatedWallet.hasPoolMembers.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    console.info(
-      `✓ ${this.wallet.label.padStart(8, " ")} ${
-        "delegate-stx".padStart(
-          34,
-          " ",
-        )
-      } ${"amount".padStart(12, " ")} ${
-        amountUstx
-          .toString()
-          .padStart(15, " ")
-      } delegated to ${
-        this.delegateTo.label.padStart(
-          42,
-          " ",
-        )
-      }`,
-    );
+    logCommand(`✓ ${this.wallet.label}`, "delegate-stx", "amount", amountUstx.toString(), "delegated to", this.delegateTo.label);
   }
 
   toString() {
