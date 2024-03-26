@@ -53,7 +53,6 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
-use crate::chainstate::nakamoto::coordinator::tests::nakamoto_peer;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
@@ -7286,9 +7285,9 @@ fn no_lockups_2_5() {
 #[test]
 fn test_scenario_five() {
     // Alice service signer setup
-    let mut alice = StackerSignerInfo::new();
+    let alice = StackerSignerInfo::new();
     // Bob service signer setup
-    let mut bob = StackerSignerInfo::new();
+    let bob = StackerSignerInfo::new();
     // Carl solo stacker and signer setup
     let mut carl = StackerSignerInfo::new();
     // David stacking pool operator (delegating signing to Alice) Setup
@@ -7321,7 +7320,7 @@ fn test_scenario_five() {
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
     let mut test_signers = TestSigners::default();
-    let initial_balances = vec![
+    let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
@@ -7334,12 +7333,36 @@ fn test_scenario_five() {
         (jude.principal.clone(), default_initial_balances),
         (mallory.principal.clone(), default_initial_balances),
     ];
-    let mut peer = nakamoto_peer(
-        function_name!(),
-        initial_balances,
-        &mut test_signers,
-        Some(&observer),
-    );
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(141));
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
 
     let mut peer_nonce = 0;
     // Advance into pox4
@@ -7424,7 +7447,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         default_initial_balances.saturating_sub(1) as u128,
-        &carl.pox_address.clone(),
+        &carl.pox_address,
         carl_lock_period,
         &carl.public_key,
         burn_block_height,
@@ -7438,7 +7461,7 @@ fn test_scenario_five() {
     let frank_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
         &frank.private_key,
         frank.nonce,
-        min_ustx,
+        default_initial_balances.saturating_sub(1) as u128,
         david.principal.clone(),
         None,
         Some(david.pox_address.clone()),
@@ -7449,7 +7472,7 @@ fn test_scenario_five() {
     let grace_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
         &grace.private_key,
         grace.nonce,
-        min_ustx,
+        default_initial_balances.saturating_sub(1) as u128,
         david.principal.clone(),
         None,
         Some(david.pox_address.clone()),
@@ -7482,7 +7505,7 @@ fn test_scenario_five() {
     let jude_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
         &jude.private_key,
         jude.nonce,
-        min_ustx,
+        default_initial_balances.saturating_sub(1) as u128,
         eve.principal.clone(),
         None,
         Some(eve.pox_address.clone()),
@@ -7509,7 +7532,7 @@ fn test_scenario_five() {
                 &david.private_key,
                 david.nonce,
                 stacker.principal.clone(),
-                min_ustx,
+                default_initial_balances.saturating_sub(1) as u128,
                 david.pox_address.clone(),
                 burn_block_height as u128,
                 1, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
@@ -7526,7 +7549,7 @@ fn test_scenario_five() {
                 &eve.private_key,
                 eve.nonce,
                 stacker.principal.clone(),
-                min_ustx,
+                default_initial_balances.saturating_sub(1) as u128,
                 eve.pox_address.clone(),
                 burn_block_height as u128,
                 1, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
@@ -7614,6 +7637,13 @@ fn test_scenario_five() {
         epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len as u64);
     let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // Make it to reward set calculation
     let target_height = epoch_3_reward_set_calculation;
+    debug!("Epoch 3.0 info";
+        "epoch_3_start_height" => epoch_3_start_height,
+        "epoch_3_reward_cycle_boundary" => epoch_3_reward_cycle_boundary,
+        "epoch_3_boundary_reward_cycle" => epoch_3_boundary_reward_cycle,
+        "epoch_3_reward_set_calculation_boundary" => epoch_3_reward_set_calculation_boundary,
+        "epoch_3_reward_set_calculation" => epoch_3_reward_set_calculation
+    );
     info!("Advancing to reward set calculation at burn block height: {target_height}");
     let mut latest_block = None;
     let mut passed_txs = txs.clone();
@@ -7624,10 +7654,25 @@ fn test_scenario_five() {
         passed_txs = vec![];
         if tx_block.is_none() {
             tx_block = Some(observer.get_blocks().last().unwrap().clone());
+            for stacker in davids_stackers {
+                let (pox_address, first_reward_cycle, _lock_period, _indices) =
+                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                        .expect("Failed to find stacker");
+                assert_eq!(first_reward_cycle, next_reward_cycle);
+                assert_eq!(pox_address, david.pox_address);
+            }
+
+            for stacker in eves_stackers {
+                let (pox_address, first_reward_cycle, _lock_period, _indices) =
+                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                        .expect("Failed to find stacker");
+                assert_eq!(first_reward_cycle, next_reward_cycle);
+                assert_eq!(pox_address, eve.pox_address);
+            }
         }
     }
+    let latest_block = latest_block.expect("Failed to get tip");
     let tx_block = tx_block.expect("Failed to get tx_block");
-    let mut latest_block = latest_block.expect("Failed to get latest_block");
     info!("Verifying stacking txs");
     let mut observed_txs = HashSet::new();
     for tx_receipt in &tx_block.receipts {
@@ -7643,6 +7688,7 @@ fn test_scenario_five() {
         }
     }
 
+    debug!("Checking stacking set");
     let cycle_id = next_reward_cycle;
     // Confirm that the stacking set contains all stackers
     let (pox_address, first_reward_cycle, _lock_period, _indices) =
@@ -7663,6 +7709,11 @@ fn test_scenario_five() {
         assert_eq!(first_reward_cycle, next_reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
     }
+
+    debug!("Current info";
+        "reward_cycle" => peer.get_reward_cycle(),
+        "burn_block_height" => peer.get_burn_block_height()
+    );
 
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
