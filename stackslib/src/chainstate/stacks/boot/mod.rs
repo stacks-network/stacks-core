@@ -797,12 +797,15 @@ impl StacksChainState {
             //  vector are sorted by address, we know that any entry
             //  with the same `reward_address` as `address` will be at the end of
             //  the list (and therefore found by this loop)
-            println!("SOME ADDRESS {:?}", addresses.last().map(|x| {
-                match &x.reward_address {
-                    PoxAddress::Standard(address, _) => address.to_string(),
-                    _ => panic!("Not making sense"),
-                }
-            } ));
+            println!(
+                "SOME ADDRESS {:?}",
+                addresses.last().map(|x| {
+                    match &x.reward_address {
+                        PoxAddress::Standard(address, _) => address.to_string(),
+                        _ => panic!("Not making sense"),
+                    }
+                })
+            );
             while addresses.last().map(|x| &x.reward_address) == Some(&address) {
                 let next_contrib = addresses
                     .pop()
@@ -1383,6 +1386,7 @@ pub mod test {
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_common::util::*;
 
+    use self::signers_tests::readonly_call;
     use super::*;
     use crate::burnchains::{Address, PublicKey};
     use crate::chainstate::burn::db::sortdb::*;
@@ -2054,6 +2058,27 @@ pub mod test {
         .unwrap();
         // TODO set tx_fee back to 0 once these txs are free
         make_tx(key, nonce, 1, payload)
+    }
+
+    pub fn get_approved_aggregate_key(
+        peer: &mut TestPeer<'_>,
+        latest_block_id: StacksBlockId,
+        reward_cycle: u128,
+    ) -> Option<Point> {
+        let key_opt = readonly_call(
+            peer,
+            &latest_block_id,
+            SIGNERS_VOTING_NAME.into(),
+            "get-approved-aggregate-key".into(),
+            vec![Value::UInt(reward_cycle)],
+        )
+        .expect_optional()
+        .unwrap();
+        key_opt.map(|key_value| {
+            let data = key_value.expect_buff(33).unwrap();
+            let compressed_data = Compressed::try_from(data.as_slice()).unwrap();
+            Point::try_from(&compressed_data).unwrap()
+        })
     }
 
     pub fn make_pox_2_increase(

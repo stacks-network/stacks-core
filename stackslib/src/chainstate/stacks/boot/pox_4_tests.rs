@@ -6091,9 +6091,9 @@ impl StackerSignerInfo {
 #[test]
 fn test_scenario_five() {
     // Alice service signer setup
-    let alice = StackerSignerInfo::new();
+    let mut alice = StackerSignerInfo::new();
     // Bob service signer setup
-    let bob = StackerSignerInfo::new();
+    let mut bob = StackerSignerInfo::new();
     // Carl solo stacker and signer setup
     let mut carl = StackerSignerInfo::new();
     // David stacking pool operator (delegating signing to Alice) Setup
@@ -6521,69 +6521,73 @@ fn test_scenario_five() {
         "burn_block_height" => peer.get_burn_block_height()
     );
 
+    debug!("Checking signer set for reward cycle {cycle_id}");
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
     let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
 
-    // let alice_vote = make_signers_vote_for_aggregate_public_key(
-    //     &alice.private_key,
-    //     alice.nonce,
-    //     alice_index,
-    //     &test_signers.aggregate_public_key,
-    //     1,
-    //     next_reward_cycle,
-    // );
-    // let bob_vote = make_signers_vote_for_aggregate_public_key(
-    //     &bob.private_key,
-    //     bob.nonce,
-    //     bob_index,
-    //     &test_signers.aggregate_public_key,
-    //     1,
-    //     next_reward_cycle,
-    // );
-    // let carl_vote = make_signers_vote_for_aggregate_public_key(
-    //     &carl.private_key,
-    //     carl.nonce,
-    //     carl_index,
-    //     &test_signers.aggregate_public_key,
-    //     1,
-    //     reward_cycle as u128,
-    // );
-    // let vote_txs = vec![alice_vote, bob_vote, carl_vote];
-    // alice.nonce += 1;
-    // bob.nonce += 1;
-    // carl.nonce += 1;
+    let alice_vote = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let bob_vote = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let carl_vote = make_signers_vote_for_aggregate_public_key(
+        &carl.private_key,
+        carl.nonce,
+        carl_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let vote_txs = vec![alice_vote, bob_vote, carl_vote];
+    alice.nonce += 1;
+    bob.nonce += 1;
+    carl.nonce += 1;
 
-    // info!("Submitting vote txs");
-    // latest_block = peer.tenure_with_txs(&vote_txs, &mut peer_nonce);
+    info!("Submitting vote txs");
+    let latest_block = peer.tenure_with_txs(&vote_txs, &mut peer_nonce);
 
-    // info!("Verifying signer vote txs");
-    // let mut observed_txs = HashSet::new();
-    // for tx_receipt in observer.get_blocks().last().unwrap().clone().receipts {
-    //     if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
-    //         observed_txs.insert(tx.txid());
-    //     }
-    // }
-
-    // for tx in &vote_txs {
-    //     let txid = tx.txid();
-    //     if !observed_txs.contains(&txid) {
-    //         panic!("Failed to find vote transaction ({txid}) in observed transactions")
-    //     }
-    // }
-
-    let mut latest_block = None;
-    let target_height = peer
-        .config
-        .burnchain
-        .reward_cycle_to_block_height(next_reward_cycle as u64);
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+    info!("Verifying signer vote txs");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in observer.get_blocks().last().unwrap().clone().receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
     }
 
-    info!("Block height: {}", peer.get_burn_block_height());
-    info!("Reward cycle: {}", peer.get_reward_cycle());
+    for tx in &vote_txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find vote transaction ({txid}) in observed transactions")
+        }
+    }
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+    assert_eq!(approved_key, test_signers.aggregate_public_key);
+
+    // let mut latest_block = None;
+    // let target_height = peer
+    //     .config
+    //     .burnchain
+    //     .reward_cycle_to_block_height(next_reward_cycle as u64);
+    // while peer.get_burn_block_height() < u64::from(target_height) {
+    //     latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+    // }
+
+    // info!("Block height: {}", peer.get_burn_block_height());
+    // info!("Reward cycle: {}", peer.get_reward_cycle());
 
     // TODO: Mine 1 reward cycle (note that epoch 3.0 starts in the middle of one)
 
