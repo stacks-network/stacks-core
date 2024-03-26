@@ -1534,8 +1534,7 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
-            let entry = type_map.entry(name.clone());
-            match entry {
+            match type_map.entry(name.clone()) {
                 Entry::Vacant(e) => e.insert(type_info),
                 Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
             };

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use hashbrown::hash_map::Entry;
 use hashbrown::{HashMap, HashSet};
 
 use crate::vm::analysis::AnalysisDatabase;
@@ -63,26 +64,30 @@ impl TraitsResolver {
                     match (&args[0].pre_expr, &args[1].pre_expr) {
                         (Atom(trait_name), List(trait_definition)) => {
                             // Check for collisions
-                            if contract_ast.referenced_traits.contains_key(trait_name) {
-                                return Err(
-                                    ParseErrors::NameAlreadyUsed(trait_name.to_string()).into()
-                                );
+                            match contract_ast.referenced_traits.entry(trait_name.to_owned()) {
+                                Entry::Occupied(_) => {
+                                    return Err(ParseErrors::NameAlreadyUsed(
+                                        trait_name.to_string(),
+                                    )
+                                    .into());
+                                }
+                                Entry::Vacant(e) => {
+                                    // Traverse and probe for generics nested in the trait definition
+                                    self.probe_for_generics(
+                                        trait_definition.iter(),
+                                        &mut referenced_traits,
+                                        true,
+                                    )?;
+
+                                    let trait_id = TraitIdentifier {
+                                        name: trait_name.clone(),
+                                        contract_identifier: contract_ast
+                                            .contract_identifier
+                                            .clone(),
+                                    };
+                                    e.insert(TraitDefinition::Defined(trait_id));
+                                }
                             }
-
-                            // Traverse and probe for generics nested in the trait definition
-                            self.probe_for_generics(
-                                trait_definition.iter(),
-                                &mut referenced_traits,
-                                true,
-                            )?;
-
-                            let trait_id = TraitIdentifier {
-                                name: trait_name.clone(),
-                                contract_identifier: contract_ast.contract_identifier.clone(),
-                            };
-                            contract_ast
-                                .referenced_traits
-                                .insert(trait_name.clone(), TraitDefinition::Defined(trait_id));
                         }
                         _ => return Err(ParseErrors::DefineTraitBadSignature.into()),
                     }
@@ -94,27 +99,30 @@ impl TraitsResolver {
 
                     if let Some(trait_name) = args[0].match_atom() {
                         // Check for collisions
-                        if contract_ast.referenced_traits.contains_key(trait_name) {
-                            return Err(ParseErrors::NameAlreadyUsed(trait_name.to_string()).into());
-                        }
-
-                        let trait_id = match &args[1].pre_expr {
-                            SugaredFieldIdentifier(contract_name, name) => {
-                                let contract_identifier = QualifiedContractIdentifier::new(
-                                    contract_ast.contract_identifier.issuer.clone(),
-                                    contract_name.clone(),
+                        match contract_ast.referenced_traits.entry(trait_name.to_owned()) {
+                            Entry::Occupied(_) => {
+                                return Err(
+                                    ParseErrors::NameAlreadyUsed(trait_name.to_string()).into()
                                 );
-                                TraitIdentifier {
-                                    name: name.clone(),
-                                    contract_identifier,
-                                }
                             }
-                            FieldIdentifier(trait_identifier) => trait_identifier.clone(),
-                            _ => return Err(ParseErrors::ImportTraitBadSignature.into()),
-                        };
-                        contract_ast
-                            .referenced_traits
-                            .insert(trait_name.clone(), TraitDefinition::Imported(trait_id));
+                            Entry::Vacant(e) => {
+                                let trait_id = match &args[1].pre_expr {
+                                    SugaredFieldIdentifier(contract_name, name) => {
+                                        let contract_identifier = QualifiedContractIdentifier::new(
+                                            contract_ast.contract_identifier.issuer.clone(),
+                                            contract_name.clone(),
+                                        );
+                                        TraitIdentifier {
+                                            name: name.clone(),
+                                            contract_identifier,
+                                        }
+                                    }
+                                    FieldIdentifier(trait_identifier) => trait_identifier.clone(),
+                                    _ => return Err(ParseErrors::ImportTraitBadSignature.into()),
+                                };
+                                e.insert(TraitDefinition::Imported(trait_id));
+                            }
+                        }
                     } else {
                         return Err(ParseErrors::ImportTraitBadSignature.into());
                     }

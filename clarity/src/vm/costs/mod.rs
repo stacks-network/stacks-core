@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::{cmp, fmt};
 
+use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -819,7 +820,8 @@ impl TrackerData {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
-            if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
+            if let Entry::Vacant(e) = cost_contracts.entry(cost_function_ref.contract_id.to_owned())
+            {
                 let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
                 {
                     Ok(contract) => contract.contract_context,
@@ -833,14 +835,14 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
+                e.insert(contract_context);
             }
 
             m.insert(f, cost_function_ref);
         }
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
-            if !cost_contracts.contains_key(&circuit_target.contract_id) {
+            if let Entry::Vacant(e) = cost_contracts.entry(circuit_target.contract_id.to_owned()) {
                 let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
@@ -853,7 +855,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
+                e.insert(contract_context);
             }
         }
 
