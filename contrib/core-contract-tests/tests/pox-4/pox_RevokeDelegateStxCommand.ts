@@ -1,4 +1,4 @@
-import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
+import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl, someCV, tupleCV } from "@stacks/transactions";
@@ -77,14 +77,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    console.info(
-      `✓ ${
-        this.wallet.label.padStart(
-          8,
-          " ",
-        )
-      } ${"revoke-delegate-stx".padStart(34, " ")}`,
-    );
+    logCommand(`✓ ${this.wallet.label}`, "revoke-delegate-stx");
   }
 
   toString() {
