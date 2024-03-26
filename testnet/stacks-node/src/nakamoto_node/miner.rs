@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
@@ -14,6 +13,7 @@ use std::collections::HashMap;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -23,15 +23,14 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
 use libsigner::{
-    BlockProposalSigners, BlockResponse, RejectCode, SignerMessage, SignerSession,
-    StackerDBSession, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
+    BlockProposalSigners, MessageSlotID, SignerMessage, SignerSession, StackerDBSession,
 };
-use stacks::burnchains::{Burnchain, BurnchainParameters};
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
@@ -40,15 +39,18 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use stacks::net::stackerdb::StackerDBs;
-use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 
 use super::relayer::RelayerThread;
+use super::sign_coordinator::SignCoordinator;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::burnchain_params_from_config;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
@@ -57,9 +59,6 @@ use crate::{neon_node, ChainTip};
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
-/// If the signers have not responded to a block proposal, how long should
-///  the miner thread sleep before trying again?
-const WAIT_FOR_SIGNERS_MS: u64 = 200;
 
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
@@ -150,13 +149,10 @@ impl BlockMinerThread {
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
-        let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
+        let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
-        let Some(miner_privkey) = self.config.miner.mining_key else {
-            warn!("No mining key configured, cannot mine");
-            return;
-        };
+
+        let mut attempts = 0;
         // now, actually run this tenure
         loop {
             let new_block = loop {
@@ -182,67 +178,28 @@ impl BlockMinerThread {
                 }
             };
 
-            let sort_db = SortitionDB::open(
-                &self.config.get_burn_db_file_path(),
-                true,
-                self.burnchain.pox_constants.clone(),
-            )
-            .expect("FATAL: could not open sortition DB");
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-                .expect("FATAL: could not retrieve chain tip");
-            let reward_cycle = self
-                .burnchain
-                .pox_constants
-                .block_height_to_reward_cycle(
-                    self.burnchain.first_block_height,
-                    self.burn_block.block_height,
-                )
-                .expect("FATAL: building on a burn block that is before the first burn block");
-            if let Some(new_block) = new_block {
-                let proposal_msg = BlockProposalSigners {
-                    block: new_block.clone(),
-                    burn_height: self.burn_block.block_height,
-                    reward_cycle,
-                };
-                let proposal = match NakamotoBlockBuilder::make_stackerdb_block_proposal(
-                    &sort_db,
-                    &tip,
-                    &stackerdbs,
-                    &proposal_msg,
-                    &miner_privkey,
-                    &miners_contract_id,
-                ) {
-                    Ok(Some(chunk)) => chunk,
-                    Ok(None) => {
-                        warn!("Failed to propose block to stackerdb: no slot available");
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!("Failed to propose block to stackerdb: {e:?}");
-                        continue;
-                    }
-                };
-
-                // Propose the block to the observing signers through the .miners stackerdb instance
-                let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-                let mut miners_stackerdb =
-                    StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-                match miners_stackerdb.put_chunk(&proposal) {
-                    Ok(ack) => {
-                        info!("Proposed block to stackerdb: {ack:?}");
-                    }
-                    Err(e) => {
-                        warn!("Failed to propose block to stackerdb {e:?}");
-                        return;
-                    }
+            if let Some(mut new_block) = new_block {
+                if let Err(e) = self.propose_block(&new_block, &stackerdbs) {
+                    error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
+                    return;
                 }
 
-                self.globals.counters.bump_naka_proposed_blocks();
+                let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
+                    &new_block,
+                    &mut stackerdbs,
+                    &mut attempts,
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
+                        return;
+                    }
+                };
 
-                if let Err(e) =
-                    self.wait_for_signer_signature_and_broadcast(&stackerdbs, new_block.clone())
-                {
-                    warn!("Error broadcasting block: {e:?}");
+                new_block.header.signer_signature = signers_signature;
+                if let Err(e) = self.broadcast(new_block.clone(), &aggregate_public_key) {
+                    warn!("Error accepting own block: {e:?}. Will try mining again.");
+                    continue;
                 } else {
                     info!(
                         "Miner: Block signed by signer set and broadcasted";
@@ -263,6 +220,12 @@ impl BlockMinerThread {
                 self.mined_blocks.push(new_block);
             }
 
+            let sort_db = SortitionDB::open(
+                &self.config.get_burn_db_file_path(),
+                true,
+                self.burnchain.pox_constants.clone(),
+            )
+            .expect("FATAL: could not open sortition DB");
             let wait_start = Instant::now();
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
@@ -273,24 +236,208 @@ impl BlockMinerThread {
         }
     }
 
+    fn coordinate_signature(
+        &mut self,
+        new_block: &NakamotoBlock,
+        stackerdbs: &mut StackerDBs,
+        attempts: &mut u64,
+    ) -> Result<(Point, ThresholdSignature), NakamotoNodeError> {
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
+        let tip = SortitionDB::get_block_snapshot_consensus(
+            sort_db.conn(),
+            &new_block.header.consensus_hash,
+        )
+        .expect("FATAL: could not retrieve chain tip")
+        .expect("FATAL: could not retrieve chain tip");
+        let reward_cycle = self
+            .burnchain
+            .pox_constants
+            .block_height_to_reward_cycle(
+                self.burnchain.first_block_height,
+                self.burn_block.block_height,
+            )
+            .expect("FATAL: building on a burn block that is before the first burn block");
+
+        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set found. Cannot initialize miner coordinator.".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
+
+        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+            .expect("FATAL: could not open chainstate DB");
+        let sortition_handle = sort_db.index_handle_at_tip();
+        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
+            &mut chain_state,
+            &sort_db,
+            &sortition_handle,
+            &new_block,
+        ) else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Failed to obtain the active aggregate public key. Cannot mine!".into(),
+            ));
+        };
+
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if let Some(signature) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
+                return Ok((aggregate_public_key, signature));
+            }
+        }
+
+        let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
+        let mut coordinator = SignCoordinator::new(
+            &reward_set,
+            reward_cycle,
+            miner_privkey_as_scalar,
+            aggregate_public_key,
+            &stackerdbs,
+            &self.config,
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        *attempts += 1;
+        let signature = coordinator.begin_sign(
+            new_block,
+            *attempts,
+            &tip,
+            &self.burnchain,
+            &sort_db,
+            &stackerdbs,
+        )?;
+
+        Ok((aggregate_public_key, signature))
+    }
+
+    fn propose_block(
+        &mut self,
+        new_block: &NakamotoBlock,
+        stackerdbs: &StackerDBs,
+    ) -> Result<(), NakamotoNodeError> {
+        let rpc_socket = self.config.node.get_rpc_loopback().ok_or_else(|| {
+            NakamotoNodeError::MinerConfigurationFailed("Could not parse RPC bind")
+        })?;
+        let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_session =
+            StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id.clone());
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
+        let tip = SortitionDB::get_block_snapshot_consensus(
+            sort_db.conn(),
+            &new_block.header.consensus_hash,
+        )
+        .expect("FATAL: could not retrieve chain tip")
+        .expect("FATAL: could not retrieve chain tip");
+        let reward_cycle = self
+            .burnchain
+            .pox_constants
+            .block_height_to_reward_cycle(
+                self.burnchain.first_block_height,
+                self.burn_block.block_height,
+            )
+            .expect("FATAL: building on a burn block that is before the first burn block");
+
+        let proposal_msg = BlockProposalSigners {
+            block: new_block.clone(),
+            burn_height: self.burn_block.block_height,
+            reward_cycle,
+        };
+        let proposal = match NakamotoBlockBuilder::make_stackerdb_block_proposal(
+            &sort_db,
+            &tip,
+            &stackerdbs,
+            &proposal_msg,
+            &miner_privkey,
+            &miners_contract_id,
+        ) {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => {
+                warn!("Failed to propose block to stackerdb: no slot available");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("Failed to propose block to stackerdb: {e:?}");
+                return Ok(());
+            }
+        };
+
+        // Propose the block to the observing signers through the .miners stackerdb instance
+        match miners_session.put_chunk(&proposal) {
+            Ok(ack) => {
+                info!(
+                    "Proposed block to stackerdb";
+                    "signer_sighash" => %new_block.header.signer_signature_hash(),
+                    "ack_msg" => ?ack,
+                );
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to propose block to stackerdb {e:?}"
+                )));
+            }
+        }
+
+        self.globals.counters.bump_naka_proposed_blocks();
+        Ok(())
+    }
+
     fn get_stackerdb_contract_and_slots(
         &self,
         stackerdbs: &StackerDBs,
-        msg_id: u32,
+        msg_id: &MessageSlotID,
         reward_cycle: u64,
     ) -> Result<(QualifiedContractIdentifier, HashMap<u32, StacksAddress>), NakamotoNodeError> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
 
-        let signers_contract_id = NakamotoSigners::make_signers_db_contract_id(
-            reward_cycle,
-            msg_id,
-            self.config.is_mainnet(),
-        );
+        let signers_contract_id =
+            msg_id.stacker_db_contract(self.config.is_mainnet(), reward_cycle);
         if !stackerdb_contracts.contains(&signers_contract_id) {
             return Err(NakamotoNodeError::SignerSignatureError(
-                "No signers contract found, cannot wait for signers",
+                "No signers contract found, cannot wait for signers".into(),
             ));
         };
         // Get the slots for every signer
@@ -325,7 +472,7 @@ impl BlockMinerThread {
             .wrapping_add(1);
         let (signers_contract_id, slot_ids_addresses) = self.get_stackerdb_contract_and_slots(
             stackerdbs,
-            TRANSACTIONS_MSG_ID,
+            &MessageSlotID::Transactions,
             next_reward_cycle,
         )?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
@@ -389,135 +536,10 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
-    fn wait_for_signer_signature(
+    fn broadcast(
         &self,
-        sortdb: &SortitionDB,
-        stackerdbs: &StackerDBs,
+        block: NakamotoBlock,
         aggregate_public_key: &Point,
-        signer_signature_hash: &Sha512Trunc256Sum,
-        signer_weights: HashMap<StacksAddress, u64>,
-        reward_cycle: u64,
-    ) -> Result<ThresholdSignature, NakamotoNodeError> {
-        let (signers_contract_id, slot_ids_addresses) =
-            self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID, reward_cycle)?;
-        let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
-        // If more than a threshold percentage of the signers reject the block, we should not wait any further
-        let weights: u64 = signer_weights.values().sum();
-        let rejection_threshold: u64 = (weights as f64 * 7_f64 / 10_f64).ceil() as u64;
-        let mut rejections = HashSet::new();
-        let mut rejections_weight: u64 = 0;
-        let now = Instant::now();
-        debug!("Miner: waiting for block response from reward cycle {reward_cycle } signers...");
-        while now.elapsed() < self.config.miner.wait_on_signers {
-            if self.check_burn_tip_changed(&sortdb).is_err() {
-                info!("Miner: burnchain tip changed while waiting for signer signature.");
-                return Err(NakamotoNodeError::BurnchainTipChanged);
-            }
-            // Get the block responses from the signers for the block we just proposed
-            debug!("Miner: retreiving latest signer messsages";
-                "signers_contract_id" => %signers_contract_id,
-                "slot_ids" => ?slot_ids,
-            );
-            let signer_chunks = stackerdbs
-                .get_latest_chunks(&signers_contract_id, &slot_ids)
-                .expect("FATAL: could not get latest chunks from stacker DB");
-            let signer_messages: Vec<(u32, SignerMessage)> = slot_ids
-                .iter()
-                .zip(signer_chunks.into_iter())
-                .filter_map(|(slot_id, chunk)| {
-                    chunk.and_then(|chunk| {
-                        read_next::<SignerMessage, _>(&mut &chunk[..])
-                            .ok()
-                            .map(|msg| (*slot_id, msg))
-                    })
-                })
-                .collect();
-            debug!("Miner: retrieved {} signer messages", signer_messages.len());
-            for (signer_id, signer_message) in signer_messages {
-                match signer_message {
-                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
-                        // First check that this signature is for the block we proposed and that it is valid
-                        if hash == *signer_signature_hash
-                            && signature
-                                .0
-                                .verify(aggregate_public_key, &signer_signature_hash.0)
-                        {
-                            // The signature is valid across the signer signature hash of the original proposed block
-                            // Immediately return and update the block with this new signature before appending it to the chain
-                            info!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
-                            return Ok(signature);
-                        }
-                        // We received an accepted block for some unknown block hash...Useless! Ignore it.
-                        // Keep waiting for a threshold number of signers to either reject the proposed block
-                        // or return valid signature to show up across the proposed block
-                        debug!("Miner: received a signature for an unknown block hash: {hash:?}. Ignoring it.");
-                    }
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) => {
-                        // First check that this block rejection is for the block we proposed
-                        if block_rejection.signer_signature_hash != *signer_signature_hash {
-                            // This rejection is not for the block we proposed, so we can ignore it
-                            continue;
-                        }
-                        if let RejectCode::SignedRejection(signature) = block_rejection.reason_code
-                        {
-                            let block_vote = NakamotoBlockVote {
-                                signer_signature_hash: *signer_signature_hash,
-                                rejected: true,
-                            };
-                            let message = block_vote.serialize_to_vec();
-                            if signature.0.verify(aggregate_public_key, &message) {
-                                // A threshold number of signers signed a denial of the proposed block
-                                // Miner will NEVER get a signed block from the signers for this particular block
-                                // Immediately return and attempt to mine a new block
-                                return Err(NakamotoNodeError::SignerSignatureError(
-                                    "Signers signed a rejection of the proposed block",
-                                ));
-                            }
-                        } else {
-                            if rejections.contains(&signer_id) {
-                                // We have already received a rejection from this signer
-                                continue;
-                            }
-
-                            // We received a rejection that is not signed. We will keep waiting for a threshold number of rejections.
-                            // Ensure that we do not double count a rejection from the same signer.
-                            rejections.insert(signer_id);
-                            rejections_weight = rejections_weight.saturating_add(
-                                *signer_weights
-                                    .get(
-                                        &slot_ids_addresses
-                                            .get(&signer_id)
-                                            .expect("FATAL: signer not found in slot ids"),
-                                    )
-                                    .expect("FATAL: signer not found in signer weights"),
-                            );
-                            if rejections_weight > rejection_threshold {
-                                // A threshold number of signers rejected the proposed block.
-                                // Miner will likely never get a signed block from the signers for this particular block
-                                // Return and attempt to mine a new block
-                                return Err(NakamotoNodeError::SignerSignatureError(
-                                    "Threshold number of signers rejected the proposed block",
-                                ));
-                            }
-                        }
-                    }
-                    _ => {} // Any other message is ignored
-                }
-            }
-            // We have not received a signed block or enough information to reject the proposed block. Wait a bit and try again.
-            thread::sleep(Duration::from_millis(WAIT_FOR_SIGNERS_MS));
-        }
-        // We have waited for the signers for too long: stop waiting so we can propose a new block
-        debug!("Miner: exceeded signer signature timeout. Will propose a new block");
-        Err(NakamotoNodeError::SignerSignatureError(
-            "Timed out waiting for signers",
-        ))
-    }
-
-    fn wait_for_signer_signature_and_broadcast(
-        &self,
-        stackerdbs: &StackerDBs,
-        mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
@@ -528,37 +550,8 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
-        let mut sortition_handle = sort_db.index_handle_at_tip();
-        let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
-            &mut chain_state,
-            &sort_db,
-            &sortition_handle,
-            &block,
-        )?;
 
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("FATAL: no reward cycle for burn block");
-        let signer_weights = NakamotoSigners::get_signers_weights(
-            &mut chain_state,
-            &sort_db,
-            &self.parent_tenure_id,
-            reward_cycle,
-        )?;
-        let signature = self
-            .wait_for_signer_signature(
-                &sort_db,
-                &stackerdbs,
-                &aggregate_public_key,
-                &block.header.signer_signature_hash(),
-                signer_weights,
-                reward_cycle,
-            )
-            .map_err(|e| {
-                ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
-            })?;
-        block.header.signer_signature = signature;
+        let mut sortition_handle = sort_db.index_handle_at_tip();
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
@@ -672,10 +665,7 @@ impl BlockMinerThread {
                 .expect("FATAL: could not query chain tip")
         else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = self.config.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&self.config.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
+            let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
                 &burnchain_params.first_block_hash,
@@ -820,7 +810,7 @@ impl BlockMinerThread {
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
         // build the block itself
-        let (mut block, _, _) = NakamotoBlockBuilder::build_nakamoto_block(
+        let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
             &burn_db.index_conn(),
             &mut mem_pool,
@@ -833,6 +823,8 @@ impl BlockMinerThread {
                 false,
                 self.globals.get_miner_status(),
             ),
+            // we'll invoke the event dispatcher ourselves so that it calculates the
+            //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
         )
@@ -864,6 +856,14 @@ impl BlockMinerThread {
             block.header.block_hash(),
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
+        );
+
+        self.event_dispatcher.process_mined_nakamoto_block_event(
+            self.burn_block.block_height,
+            &block,
+            size,
+            &consumed,
+            tx_events,
         );
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long

@@ -96,33 +96,26 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let rpc_test = TestRPC::setup(function_name!());
-    let stacks_block_id = StacksBlockHeader::make_index_block_hash(
-        &rpc_test.next_block.0,
-        &rpc_test.next_block.1.block_hash(),
-    );
+    let next_block = rpc_test.next_block.clone().unwrap();
+    let stacks_block_id =
+        StacksBlockHeader::make_index_block_hash(&next_block.0, &next_block.1.block_hash());
     let mut requests = vec![];
 
     // post the block
-    let request = StacksHttpRequest::new_post_block(
-        addr.into(),
-        rpc_test.next_block.0.clone(),
-        rpc_test.next_block.1.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_post_block(addr.into(), next_block.0.clone(), next_block.1.clone());
     requests.push(request);
 
     // idempotent
-    let request = StacksHttpRequest::new_post_block(
-        addr.into(),
-        rpc_test.next_block.0.clone(),
-        rpc_test.next_block.1.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_post_block(addr.into(), next_block.0.clone(), next_block.1.clone());
     requests.push(request);
 
     // fails if the consensus hash is not recognized
     let request = StacksHttpRequest::new_post_block(
         addr.into(),
         ConsensusHash([0x11; 20]),
-        rpc_test.next_block.1.clone(),
+        next_block.1.clone(),
     );
     requests.push(request);
 

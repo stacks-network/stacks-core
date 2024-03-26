@@ -78,6 +78,7 @@ use crate::util_lib::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
 };
+use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use crate::util_lib::strings::StacksString;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -4192,23 +4193,37 @@ impl StacksChainState {
                 burn_header_hash,
                 ..
             } = &stack_stx_op;
+
+            let mut args = vec![
+                Value::UInt(*stacked_ustx),
+                // this .expect() should be unreachable since we coerce the hash mode when
+                // we parse the StackStxOp from a burnchain transaction
+                reward_addr
+                    .as_clarity_tuple()
+                    .expect("FATAL: stack-stx operation has no hash mode")
+                    .into(),
+                Value::UInt(u128::from(*block_height)),
+                Value::UInt(u128::from(*num_cycles)),
+            ];
+            // Appending additional signer related arguments for pox-4
+            if active_pox_contract == PoxVersions::Pox4.get_name() {
+                match StacksChainState::collect_pox_4_stacking_args(&stack_stx_op) {
+                    Ok(pox_4_args) => {
+                        args.extend(pox_4_args);
+                    }
+                    Err(e) => {
+                        warn!("Skipping StackStx operation for txid: {}, burn_block: {} because of failure in collecting pox-4 stacking args: {}", txid, burn_header_hash, e);
+                        continue;
+                    }
+                }
+            }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
-                    &[
-                        Value::UInt(*stacked_ustx),
-                        // this .expect() should be unreachable since we coerce the hash mode when
-                        // we parse the StackStxOp from a burnchain transaction
-                        reward_addr
-                            .as_clarity_tuple()
-                            .expect("FATAL: stack-stx operation has no hash mode")
-                            .into(),
-                        Value::UInt(u128::from(*block_height)),
-                        Value::UInt(u128::from(*num_cycles)),
-                    ],
+                    &args,
                     |_, _| false,
                 )
             });
@@ -4260,6 +4275,35 @@ impl StacksChainState {
         }
 
         all_receipts
+    }
+
+    pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
+        let signer_key = match op.signer_key {
+            Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
+                Ok(signer_key) => signer_key,
+                Err(_) => {
+                    return Err("Invalid signer_key".into());
+                }
+            },
+            _ => return Err("Invalid signer key".into()),
+        };
+
+        let max_amount_value = match op.max_amount {
+            Some(max_amount) => Value::UInt(max_amount),
+            None => return Err("Missing max_amount".into()),
+        };
+
+        let auth_id_value = match op.auth_id {
+            Some(auth_id) => Value::UInt(u128::from(auth_id)),
+            None => return Err("Missing auth_id".into()),
+        };
+
+        Ok(vec![
+            Value::none(),
+            signer_key,
+            max_amount_value,
+            auth_id_value,
+        ])
     }
 
     /// Process any STX transfer bitcoin operations
@@ -6076,6 +6120,40 @@ impl StacksChainState {
                     );
                 }
             };
+
+        let microblocks_disabled_by_epoch_25 =
+            SortitionDB::are_microblocks_disabled(sort_tx.tx(), u64::from(burn_header_height))?;
+
+        // microblocks are not allowed after Epoch 2.5 starts
+        if microblocks_disabled_by_epoch_25 {
+            if next_staging_block.parent_microblock_seq != 0
+                || next_staging_block.parent_microblock_hash != BlockHeaderHash([0; 32])
+            {
+                let msg = format!(
+                    "Invalid stacks block {}/{} ({}). Confirms microblocks after Epoch 2.5 start.",
+                    &next_staging_block.consensus_hash,
+                    &next_staging_block.anchored_block_hash,
+                    &StacksBlockId::new(
+                        &next_staging_block.consensus_hash,
+                        &next_staging_block.anchored_block_hash
+                    ),
+                );
+                warn!("{msg}");
+
+                // clear out
+                StacksChainState::set_block_processed(
+                    chainstate_tx.deref_mut(),
+                    None,
+                    &blocks_path,
+                    &next_staging_block.consensus_hash,
+                    &next_staging_block.anchored_block_hash,
+                    false,
+                )?;
+                chainstate_tx.commit().map_err(Error::DBError)?;
+
+                return Err(Error::InvalidStacksBlock(msg));
+            }
+        }
 
         debug!(
             "Process staging block {}/{} in burn block {}, parent microblock {}",
@@ -10266,6 +10344,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &peer_config.burnchain,
                     )
                     .unwrap();
 
@@ -10447,6 +10526,7 @@ pub mod test {
     #[test]
     fn test_get_parent_block_header() {
         let peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
+        let burnchain = peer_config.burnchain.clone();
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
@@ -10516,6 +10596,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &burnchain,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -10993,6 +11074,7 @@ pub mod test {
         epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11070,6 +11152,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &burnchain,
                         )
                         .unwrap();
 
@@ -11317,6 +11400,7 @@ pub mod test {
         epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11391,6 +11475,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
+                            &burnchain,
                         )
                         .unwrap();
 

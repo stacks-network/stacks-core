@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use hashbrown::{HashMap, HashSet};
+use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -28,9 +28,7 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
-use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::PublicKeys;
 
 use crate::signer::SignerSlotID;
 
@@ -56,7 +54,7 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 /// The Stacks network to use.
 pub enum Network {
@@ -80,7 +78,7 @@ impl std::fmt::Display for Network {
 
 impl Network {
     /// Converts a Network enum variant to a corresponding chain id
-    pub fn to_chain_id(&self) -> u32 {
+    pub const fn to_chain_id(&self) -> u32 {
         match self {
             Self::Mainnet => CHAIN_ID_MAINNET,
             Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
@@ -88,7 +86,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a corresponding address version
-    pub fn to_address_version(&self) -> u8 {
+    pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -96,7 +94,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a Transaction Version
-    pub fn to_transaction_version(&self) -> TransactionVersion {
+    pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
             Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
@@ -104,28 +102,12 @@ impl Network {
     }
 
     /// Check if the network is Mainnet or not
-    pub fn is_mainnet(&self) -> bool {
+    pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
             Self::Testnet | Self::Mocknet => false,
         }
     }
-}
-
-/// Parsed Reward Set
-#[derive(Debug, Clone)]
-pub struct ParsedSignerEntries {
-    /// The signer addresses mapped to signer id
-    pub signer_ids: HashMap<StacksAddress, u32>,
-    /// The signer ids mapped to public key and key ids mapped to public keys
-    pub public_keys: PublicKeys,
-    /// The signer ids mapped to key ids
-    pub signer_key_ids: HashMap<u32, Vec<u32>>,
-    /// The signer ids mapped to wsts public keys
-    pub signer_public_keys: HashMap<u32, Point>,
-    /// The signer ids mapped to a hash set of key ids
-    /// The wsts coordinator uses a hash set for each signer since it needs to do lots of lookups
-    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
 }
 
 /// The Configuration info needed for an individual signer per reward cycle
@@ -140,7 +122,7 @@ pub struct SignerConfig {
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
-    pub signer_entries: ParsedSignerEntries,
+    pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication
@@ -237,7 +219,7 @@ struct RawConfigFile {
 impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
-        let config: RawConfigFile =
+        let config: Self =
             toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
         Ok(config)
     }
@@ -252,7 +234,7 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     type Error = ConfigError;
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
+        Self::load_from_str(&fs::read_to_string(path).map_err(|e| {
             ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
         })?)
     }
@@ -273,10 +255,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .to_socket_addrs()
             .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
-            .ok_or(ConfigError::BadField(
-                "endpoint".to_string(),
-                raw_data.endpoint.clone(),
-            ))?;
+            .ok_or_else(|| {
+                ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
+            })?;
 
         let stacks_private_key =
             StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
@@ -361,7 +342,13 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     let mut port = 30000;
-    for stacks_private_key in stacks_private_keys {
+    let run_stamp = rand::random::<u16>();
+    let db_dir = format!(
+        "/tmp/stacks-node-tests/integrations-signers/{:#X}",
+        run_stamp,
+    );
+    fs::create_dir_all(&db_dir).unwrap();
+    for (ix, stacks_private_key) in stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
         port += 1;
         let stacks_private_key = stacks_private_key.to_hex();
@@ -372,7 +359,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
-db_path = ":memory:"
+db_path = "{db_dir}/{ix}.sqlite"
 "#
         );
 

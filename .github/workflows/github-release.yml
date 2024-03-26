@@ -25,11 +25,9 @@ jobs:
   ##
   ## Runs when the following is true:
   ##  - tag is provided
-  ##  - workflow is building default branch (master)
   build-binaries:
     if: |
-      inputs.tag != '' && 
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      inputs.tag != ''
     name: Build Binaries
     uses: ./.github/workflows/create-source-binary.yml
     with:
@@ -41,8 +39,7 @@ jobs:
   ##  - workflow is building default branch (master)
   create-release:
     if: |
-      inputs.tag != '' && 
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      inputs.tag != ''
     name: Create Release
     runs-on: ubuntu-latest
     needs:
@@ -59,12 +56,7 @@ jobs:
       ## Generate a checksums file to be added to the release page
       - name: Generate Checksums
         id: generate_checksum
-        uses: jmgilman/actions-generate-checksum@24a35957fba81c6cbaefeb1e3d59ee56e3db5077 # v1.0.0
-        with:
-          method: sha512
-          output: CHECKSUMS.txt
-          patterns: |
-            release/*.zip
+        uses: stacks-network/actions/generate-checksum@main
 
       ## Upload the release archives with the checksums file
       - name: Upload Release
@@ -89,8 +81,7 @@ jobs:
   ##  - workflow is building default branch (master)
   docker-image:
     if: |
-      inputs.tag != '' && 
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      inputs.tag != ''
     name: Docker Image (Binary)
     uses: ./.github/workflows/image-build-binary.yml
     needs:

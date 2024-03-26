@@ -31,6 +31,7 @@ use stacks_common::util::pipe::Pipe;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
@@ -43,7 +44,8 @@ use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
-use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{
     Attachment, AttachmentInstance, RPCHandlerArgs, StackerDBConfig, StacksNodeState, UrlString,
 };
@@ -53,6 +55,7 @@ mod getaccount;
 mod getattachment;
 mod getattachmentsinv;
 mod getblock;
+mod getblock_v3;
 mod getconstantval;
 mod getcontractabi;
 mod getcontractsrc;
@@ -69,6 +72,8 @@ mod getpoxinfo;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
+mod gettenure;
+mod gettenureinfo;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
@@ -194,11 +199,13 @@ pub struct TestRPC<'a> {
     /// list of microblock transactions
     pub microblock_txids: Vec<Txid>,
     /// next block to post, and its consensus hash
-    pub next_block: (ConsensusHash, StacksBlock),
+    pub next_block: Option<(ConsensusHash, StacksBlock)>,
     /// next microblock to post (may already be posted)
-    pub next_microblock: StacksMicroblock,
+    pub next_microblock: Option<StacksMicroblock>,
     /// transactions that can be posted to the mempool
     pub sendable_txs: Vec<StacksTransaction>,
+    /// whether or not to maintain unconfirmed microblocks (e.g. this is false for nakamoto)
+    pub unconfirmed_state: bool,
 }
 
 impl<'a> TestRPC<'a> {
@@ -286,6 +293,8 @@ impl<'a> TestRPC<'a> {
 
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+        let burnchain = peer_1_config.burnchain.clone();
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -434,6 +443,7 @@ impl<'a> TestRPC<'a> {
                 };
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
@@ -711,6 +721,7 @@ impl<'a> TestRPC<'a> {
                 };
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
@@ -803,9 +814,96 @@ impl<'a> TestRPC<'a> {
             microblock_tip_hash: microblock.block_hash(),
             mempool_txids,
             microblock_txids,
-            next_block: (next_consensus_hash, next_stacks_block),
-            next_microblock: microblock,
+            next_block: Some((next_consensus_hash, next_stacks_block)),
+            next_microblock: Some(microblock),
             sendable_txs,
+            unconfirmed_state: true,
+        }
+    }
+
+    /// Set up the peers as Nakamoto nodes
+    pub fn setup_nakamoto(test_name: &str, observer: &'a TestEventObserver) -> TestRPC<'a> {
+        let bitvecs = vec![vec![
+            true, true, true, true, true, true, true, true, true, true,
+        ]];
+
+        let (mut peer, mut other_peers) =
+            make_nakamoto_peers_from_invs(function_name!(), observer, 10, 3, bitvecs.clone(), 1);
+        let mut other_peer = other_peers.pop().unwrap();
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);
+        let peer_2_indexer =
+            BitcoinIndexer::new_unit_test(&other_peer.config.burnchain.working_dir);
+
+        let convo_1 = ConversationHttp::new(
+            format!("127.0.0.1:{}", peer.config.http_port)
+                .parse::<SocketAddr>()
+                .unwrap(),
+            Some(UrlString::try_from(format!("http://peer1.com")).unwrap()),
+            peer.to_peer_host(),
+            &peer.config.connection_opts,
+            0,
+            32,
+        );
+
+        let convo_2 = ConversationHttp::new(
+            format!("127.0.0.1:{}", other_peer.config.http_port)
+                .parse::<SocketAddr>()
+                .unwrap(),
+            Some(UrlString::try_from(format!("http://peer2.com")).unwrap()),
+            other_peer.to_peer_host(),
+            &other_peer.config.connection_opts,
+            1,
+            32,
+        );
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+        let nakamoto_tip = {
+            let sortdb = peer.sortdb.take().unwrap();
+            let tip =
+                NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                    .unwrap()
+                    .unwrap();
+            peer.sortdb = Some(sortdb);
+            tip
+        };
+
+        // sanity check
+        let other_tip =
+            SortitionDB::get_canonical_burn_chain_tip(other_peer.sortdb().conn()).unwrap();
+        let other_nakamoto_tip = {
+            let sortdb = other_peer.sortdb.take().unwrap();
+            let tip = NakamotoChainState::get_canonical_block_header(
+                other_peer.chainstate().db(),
+                &sortdb,
+            )
+            .unwrap()
+            .unwrap();
+            other_peer.sortdb = Some(sortdb);
+            tip
+        };
+
+        assert_eq!(tip, other_tip);
+        assert_eq!(nakamoto_tip, other_nakamoto_tip);
+
+        TestRPC {
+            privk1: peer.config.private_key.clone(),
+            privk2: other_peer.config.private_key.clone(),
+            peer_1: peer,
+            peer_2: other_peer,
+            peer_1_indexer,
+            peer_2_indexer,
+            convo_1,
+            convo_2,
+            canonical_tip: nakamoto_tip.index_block_hash(),
+            consensus_hash: nakamoto_tip.consensus_hash.clone(),
+            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
+            mempool_txids: vec![],
+            microblock_txids: vec![],
+            next_block: None,
+            next_microblock: None,
+            sendable_txs: vec![],
+            unconfirmed_state: false,
         }
     }
 
@@ -818,9 +916,13 @@ impl<'a> TestRPC<'a> {
         let peer_2_indexer = self.peer_2_indexer;
         let mut convo_1 = self.convo_1;
         let mut convo_2 = self.convo_2;
+        let unconfirmed_state = self.unconfirmed_state;
 
         let mut responses = vec![];
         for request in requests.into_iter() {
+            peer_1.refresh_burnchain_view();
+            peer_2.refresh_burnchain_view();
+
             convo_1.send_request(request.clone()).unwrap();
             let mut peer_1_mempool = peer_1.mempool.take().unwrap();
             let peer_2_mempool = peer_2.mempool.take().unwrap();
@@ -832,8 +934,13 @@ impl<'a> TestRPC<'a> {
             let peer_1_sortdb = peer_1.sortdb.take().unwrap();
             let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
 
-            Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
+            if unconfirmed_state {
+                Relayer::setup_unconfirmed_state(
+                    &mut peer_1_stacks_node.chainstate,
+                    &peer_1_sortdb,
+                )
                 .unwrap();
+            }
 
             {
                 let rpc_args = RPCHandlerArgs::default();
@@ -869,8 +976,13 @@ impl<'a> TestRPC<'a> {
                 )
                 .unwrap();
 
-            Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
+            if unconfirmed_state {
+                Relayer::setup_unconfirmed_state(
+                    &mut peer_2_stacks_node.chainstate,
+                    &peer_2_sortdb,
+                )
                 .unwrap();
+            }
 
             {
                 let rpc_args = RPCHandlerArgs::default();
@@ -910,8 +1022,13 @@ impl<'a> TestRPC<'a> {
                 )
                 .unwrap();
 
-            Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
+            if unconfirmed_state {
+                Relayer::setup_unconfirmed_state(
+                    &mut peer_1_stacks_node.chainstate,
+                    &peer_1_sortdb,
+                )
                 .unwrap();
+            }
 
             {
                 let rpc_args = RPCHandlerArgs::default();

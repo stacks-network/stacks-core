@@ -98,9 +98,9 @@ fn advance_to_2_1(
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
-        u32::max_value(),
+        u64::MAX - 2,
+        u64::MAX - 1,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -607,7 +607,7 @@ fn transition_fixes_bitcoin_rigidity() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
-        u32::max_value(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1050,8 +1050,8 @@ fn transition_adds_get_pox_addr_recipients() {
         4 * prepare_phase_len / 5,
         1,
         1,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height,
         u32::MAX,
         u32::MAX,
@@ -1824,8 +1824,8 @@ fn transition_empty_blocks() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         (epoch_2_1 + 1) as u32,
         u32::MAX,
         u32::MAX,
@@ -4781,7 +4781,7 @@ fn trait_invocation_cross_epoch() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
-        u32::max_value(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5003,8 +5003,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -5029,8 +5029,8 @@ fn test_v1_unlock_height_with_current_stackers() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         u32::MAX,
         u32::MAX,
@@ -5268,8 +5268,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
 
@@ -5294,8 +5294,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         u32::MAX,
         u32::MAX,
