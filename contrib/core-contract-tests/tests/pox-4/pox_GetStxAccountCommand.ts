@@ -1,4 +1,4 @@
-import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
+import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
 import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
@@ -35,17 +35,7 @@ export class GetStxAccountCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    console.info(
-      `✓ ${this.wallet.label.padStart(8, " ")} ${
-        "stx-account".padStart(34, " ")
-      } ${"lock-amount".padStart(12, " ")} ${
-        actual.amountLocked.toString().padStart(15, " ")
-      } ${"unlocked-amount".padStart(12, " ")} ${
-        actual.amountUnlocked.toString().padStart(15, " ")
-      } ${"unlocked-height".padStart(12, " ")} ${
-        actual.unlockHeight.toString().padStart(7, " ")
-      }`,
-    );
+    logCommand(`✓ ${this.wallet.label}`, "stx-account", "lock-amount", actual.amountLocked.toString(), "unlocked-amount", actual.amountUnlocked.toString(), "unlocked-height", actual.unlockHeight.toString());
   }
 
   toString() {

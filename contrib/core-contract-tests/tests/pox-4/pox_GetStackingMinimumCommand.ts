@@ -1,4 +1,4 @@
-import { PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel.ts";
+import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
 import { assert } from "vitest";
 import { ClarityType, isClarityType } from "@stacks/transactions";
 
@@ -42,13 +42,7 @@ export class GetStackingMinimumCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    console.info(
-      `✓ ${this.wallet.label.padStart(8, " ")} ${
-        "get-stacking-minimum".padStart(34, " ")
-      } ${"pox-4".padStart(12, " ")} ${
-        stackingMinimum.value.toString().padStart(15, " ")
-      }`,
-    );
+    logCommand(`✓ ${this.wallet.label}`, "get-stacking-minimum", "pox-4", stackingMinimum.value.toString());
   }
 
   toString() {
