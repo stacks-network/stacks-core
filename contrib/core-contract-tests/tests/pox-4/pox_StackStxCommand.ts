@@ -26,6 +26,7 @@ export class StackStxCommand implements PoxCommand {
   readonly authId: number;
   readonly period: number;
   readonly margin: number;
+  readonly currentCycle: number;
 
   /**
    * Constructs a `StackStxCommand` to lock uSTX for stacking.
@@ -41,11 +42,13 @@ export class StackStxCommand implements PoxCommand {
     authId: number,
     period: number,
     margin: number,
+    currentCycle: number,
   ) {
     this.wallet = wallet;
     this.authId = authId;
     this.period = period;
     this.margin = margin;
+    this.currentCycle = currentCycle;
   }
 
   check(model: Readonly<Stub>): boolean {
@@ -75,7 +78,7 @@ export class StackStxCommand implements PoxCommand {
       // For `stack-stx` and `stack-extend`, this refers to the reward cycle
       // where the transaction is confirmed. For `stack-aggregation-commit`,
       // this refers to the reward cycle argument in that function.
-      rewardCycle: 0,
+      rewardCycle: this.currentCycle,
       // For `stack-stx`, this refers to `lock-period`. For `stack-extend`,
       // this refers to `extend-count`. For `stack-aggregation-commit`, this is
       // `u1`.
@@ -173,6 +176,6 @@ export class StackStxCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.label} stack-stx auth-id ${this.authId} and period ${this.period}`;
+    return `${this.wallet.label} stack-stx auth-id ${this.authId} and period ${this.period} during reward cycle ${this.currentCycle}`;
   }
 }
