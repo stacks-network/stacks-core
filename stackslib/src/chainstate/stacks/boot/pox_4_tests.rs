@@ -6526,11 +6526,6 @@ fn test_scenario_five() {
         assert_eq!(pox_address, eve.pox_address);
     }
 
-    debug!("Current info";
-        "reward_cycle" => peer.get_reward_cycle(),
-        "burn_block_height" => peer.get_burn_block_height()
-    );
-
     debug!("Checking signer set for reward cycle {cycle_id}");
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
@@ -6587,19 +6582,119 @@ fn test_scenario_five() {
         .expect("No approved key found");
     assert_eq!(approved_key, test_signers.aggregate_public_key);
 
-    // let mut latest_block = None;
-    // let target_height = peer
-    //     .config
-    //     .burnchain
-    //     .reward_cycle_to_block_height(next_reward_cycle as u64);
-    // while peer.get_burn_block_height() < u64::from(target_height) {
-    //     latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+    let reward_cycle = peer.get_reward_cycle() as u128;
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    let mut latest_block = None;
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64).wrapping_sub(1);
+    info!("Advancing to boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let carl_signature_for_carl = make_signer_key_signature(
+        &carl.pox_address,
+        &carl.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::StackExtend,
+        carl_lock_period,
+        u128::MAX,
+        2,
+    );
+    let carl_extend_tx = make_pox_4_extend(
+        &carl.private_key,
+        carl.nonce,
+        carl.pox_address.clone(),
+        3,
+        carl.public_key,
+        Some(carl_signature_for_carl),
+        u128::MAX,
+        2,
+    );
+    carl.nonce += 1;
+    let alice_authorization_for_david = make_signer_key_signature(
+        &david.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        2,
+    );
+
+    let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &david.private_key,
+        david.nonce,
+        &david.pox_address,
+        next_reward_cycle,
+        Some(alice_authorization_for_david),
+        &alice.public_key,
+        u128::MAX,
+        2,
+    );
+    david.nonce += 1;
+
+    let bob_authorization_for_eve = make_signer_key_signature(
+        &eve.pox_address,
+        &bob.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        2,
+    );
+
+    let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &eve.private_key,
+        eve.nonce,
+        &eve.pox_address,
+        next_reward_cycle,
+        Some(bob_authorization_for_eve),
+        &bob.public_key,
+        u128::MAX,
+        2,
+    );
+    eve.nonce += 1;
+
+    debug!("Mining first nakamoto tenure");
+    // let (burn_ops, mut tenure_change, miner_key) =
+    // peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+
+    // let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+
+    // let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+    // tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    // tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    // let tenure_change_tx = peer
+    //     .miner
+    //     .make_nakamoto_tenure_change(tenure_change.clone());
+    // let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+    // let blocks_and_sizes = peer.make_nakamoto_tenure(
+    //     tenure_change_tx,
+    //     coinbase_tx,
+    //     &mut test_signers,
+    //     |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+    // );
+    // let latest_block_id = blocks_and_sizes.last().unwrap().0.block_id();
+
+    // let mut observed_txs = HashSet::new();
+    // info!("Verifying stacking extend and aggregation commit txs");
+    // for tx_receipt in &observer.get_blocks().last().cloned().unwrap().receipts {
+    //     if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+    //         observed_txs.insert(tx.txid());
+    //     }
     // }
 
-    // info!("Block height: {}", peer.get_burn_block_height());
-    // info!("Reward cycle: {}", peer.get_reward_cycle());
-
-    // TODO: Mine 1 reward cycle (note that epoch 3.0 starts in the middle of one)
+    // for tx in &txs {
+    //     let txid = tx.txid();
+    //     if !observed_txs.contains(&txid) {
+    //         panic!("Failed to find transaction ({txid}) in observed transactions")
+    //     }
+    // }
 
     // TODO: GET CONFIRMED STACKING SET get-stacker-info
     // Confirm that the stacking set contains all stackers (minus Alice and Bob essentially)
