@@ -19,7 +19,7 @@ use std::path::Path;
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
-use rusqlite::{Connection, Error as SqliteError, OpenFlags, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -103,18 +103,8 @@ impl SignerDb {
         let serialized_state = serde_json::to_string(signer_state)?;
         self.db.execute(
             "INSERT OR REPLACE INTO signer_states (reward_cycle, state) VALUES (?1, ?2)",
-            &[&u64_to_sql(reward_cycle)? as &dyn ToSql, &serialized_state],
+            params![&u64_to_sql(reward_cycle)?, &serialized_state],
         )?;
-        Ok(())
-    }
-
-    /// Delete the signer state for the provided reward cycle and signer ID
-    pub fn delete_signer_state(&self, reward_cycle: u64) -> Result<(), DBError> {
-        self.db.execute(
-            "DELETE FROM signer_states WHERE reward_cycle = ?",
-            &[u64_to_sql(reward_cycle)?],
-        )?;
-
         Ok(())
     }
 
@@ -128,10 +118,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[
-                &u64_to_sql(reward_cycle)? as &dyn ToSql,
-                &format!("{}", hash),
-            ],
+            params![&u64_to_sql(reward_cycle)?, hash.to_string()],
         )?;
 
         try_deserialize(result)
@@ -162,27 +149,8 @@ impl SignerDb {
         self.db
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
-                &[&u64_to_sql(reward_cycle)? as &dyn ToSql, &format!("{}", hash), &block_json],
+                params![&u64_to_sql(reward_cycle)?, hash.to_string(), &block_json],
             )?;
-
-        Ok(())
-    }
-
-    /// Remove a block
-    pub fn remove_block(
-        &mut self,
-        reward_cycle: u64,
-        hash: &Sha512Trunc256Sum,
-    ) -> Result<(), DBError> {
-        debug!("Deleting block_info: sighash = {hash}");
-
-        self.db.execute(
-            "DELETE FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[
-                &u64_to_sql(reward_cycle)? as &dyn ToSql,
-                &format!("{}", hash),
-            ],
-        )?;
 
         Ok(())
     }
@@ -417,12 +385,6 @@ mod tests {
 
         db.insert_signer_state(11, &state_1)
             .expect("Failed to insert signer state");
-
-        db.delete_signer_state(11)
-            .expect("Failed to delete signer state");
-
-        db.delete_signer_state(12)
-            .expect("Failed to delete signer state");
 
         assert_eq!(
             db.get_signer_state(10)
