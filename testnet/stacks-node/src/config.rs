@@ -1192,6 +1192,9 @@ impl Config {
         self.events_observers.len() > 0
     }
 
+    ///TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
+    /// Default::default()
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,

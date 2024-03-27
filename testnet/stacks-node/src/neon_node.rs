@@ -2185,7 +2185,8 @@ impl BlockMinerThread {
         debug!("block miner thread ID is {:?}", thread::current().id());
         fault_injection_long_tenure();
 
-        let burn_db_path = self.config.get_burn_db_file_path();
+        let burn_db_path = self.config.get_burn_db_file_pa
+        th();
         let stacks_chainstate_path = self.config.get_chainstate_path_str();
 
         let cost_estimator = self
@@ -3056,7 +3057,7 @@ impl RelayerThread {
     /// Update the miner tip if we won the highest tenure (or clear it if we didn't).
     /// If we won any sortitions, send the block and microblock data to the p2p thread.
     /// Return true if we can still continue to run; false if not.
-    /// TODO: #4587 add test for the `true` and `false` return cases
+    /// TODO: #4587 add tests for `true` and `false` returning cases
     #[cfg_attr(test, mutants::skip)]
     pub fn process_new_tenures(
         &mut self,
@@ -3509,7 +3510,7 @@ impl RelayerThread {
 
     /// See if we should run a microblock tenure now.
     /// Return true if so; false if not
-    /// TODO: #4587 add test for the `true` and `false` return cases
+    /// TODO: #4587 add tests for `true` and `false` returning cases
     #[cfg_attr(test, mutants::skip)]
     fn can_run_microblock_tenure(&mut self) -> bool {
         if !self.config.node.mine_microblocks {
