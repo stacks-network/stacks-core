@@ -459,7 +459,6 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         let mut block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -531,29 +530,6 @@ impl Signer {
                 sig: vec![],
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
-        } else if block_info.valid.unwrap_or(false)
-            && !block_info.signed_over
-            && coordinator_id == Some(self.signer_id)
-        {
-            // We are the coordinator. Trigger a signing round for this block
-            debug!(
-                "{self}: attempt to trigger a signing round for block";
-                "signer_sighash" => %block_info.block.header.signer_signature_hash(),
-                "block_hash" => %block_info.block.header.block_hash(),
-            );
-            self.commands.push_back(Command::Sign {
-                block: block_info.block.clone(),
-                is_taproot: false,
-                merkle_root: None,
-            });
-        } else {
-            debug!(
-                "{self}: ignoring block.";
-                "block_hash" => block_info.block.header.block_hash(),
-                "valid" => block_info.valid,
-                "signed_over" => block_info.signed_over,
-                "coordinator_id" => coordinator_id,
-            );
         }
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
@@ -1070,7 +1046,7 @@ impl Signer {
                 let estimated_fee = stacks_client
                     .get_medium_estimated_fee_ustx(&unsigned_tx)
                     .map_err(|e| {
-                        debug!("{self}: unable to estimate fee for DKG vote transaction: {e:?}");
+                        warn!("{self}: unable to estimate fee for DKG vote transaction: {e:?}.");
                         e
                     })
                     .unwrap_or(self.tx_fee_ustx);
