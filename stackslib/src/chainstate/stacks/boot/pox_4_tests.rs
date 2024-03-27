@@ -7649,26 +7649,26 @@ fn test_scenario_five() {
     info!("Advancing to reward set calculaton of cycle {next_reward_cycle} burn block height {target_height}");
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
-    // Verify the stacker txs were included in the block
-    // verify_stacker_txs(&tx_block, &txs, &[]);
-    // verify_stackers(&mut peer, &tx_block, &[(&david, &davids_stackers), (&eve, &eves_stackers), [&carl, &[]]]);
-    for (stacker, _) in davids_stackers {
-        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    for (stacker, stacker_lock_period) in davids_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, next_reward_cycle);
         assert_eq!(pox_address, david.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
     }
 
-    for (stacker, _) in eves_stackers {
-        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    for (stacker, stacker_lock_period) in eves_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, next_reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
     }
-    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
         get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, carl.pox_address);
+    assert_eq!(lock_period, carl_lock_period);
 
     // Verify stacker transactions
     info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
@@ -7759,13 +7759,13 @@ fn test_scenario_five() {
     // Stack for following reward cycle again and then advance to epoch 3.0 activation boundary
     let reward_cycle = peer.get_reward_cycle() as u128;
     let next_reward_cycle = reward_cycle.wrapping_add(1);
-    let carl_lock_period = 3;
+    let carl_lock_period = carl_lock_period.wrapping_add(3); // Carl's total lock period is now 5
     let carl_signature_for_carl = make_signer_key_signature(
         &carl.pox_address,
         &carl.private_key,
         reward_cycle,
         &Pox4SignatureTopic::StackExtend,
-        carl_lock_period,
+        3,
         u128::MAX,
         2,
     );
@@ -7773,7 +7773,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         carl.pox_address.clone(),
-        carl_lock_period,
+        3,
         carl.public_key,
         Some(carl_signature_for_carl),
         u128::MAX,
@@ -7841,23 +7841,27 @@ fn test_scenario_five() {
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
-    for (stacker, _) in davids_stackers {
-        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    for (stacker, stacker_lock_period) in davids_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, david.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
     }
 
-    for (stacker, _) in eves_stackers {
-        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    for (stacker, stacker_lock_period) in eves_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
     }
-    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
         get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
     assert_eq!(first_reward_cycle, reward_cycle);
     assert_eq!(pox_address, carl.pox_address);
+    assert_eq!(lock_period, carl_lock_period);
+
     // Verify stacker transactions
     info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
     let mut observed_txs = HashSet::new();
