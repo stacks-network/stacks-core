@@ -33,12 +33,14 @@ export function PoxCommands(
       authId: fc.nat(),
       period: fc.integer({ min: 1, max: 12 }),
       margin: fc.integer({ min: 1, max: 9 }),
+      currentCycle: fc.constant(currentCycle(network)),
     }).map((
       r: {
         wallet: Wallet;
         authId: number;
         period: number;
         margin: number;
+        currentCycle: number;
       },
     ) =>
       new StackStxCommand(
@@ -46,6 +48,7 @@ export function PoxCommands(
         r.authId,
         r.period,
         r.margin,
+        r.currentCycle,
       )
     ),
     // DelegateStxCommand
