@@ -22,28 +22,31 @@ Stacks is a layer-2 blockchain that uses Bitcoin as a base layer for security an
 _For building on Windows, follow the rustup installer instructions at https://rustup.rs/._
 
 ```bash
-$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-$ source $HOME/.cargo/env
-$ rustup component add rustfmt
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
 ```
 
 - When building the [`master`](https://github.com/stacks-network/stacks-blockchain/tree/master) branch, ensure you are using the latest stable release:
 
 ```bash
-$ rustup update
+rustup update
 ```
 
 ### 2. Clone the source repository:
 
 ```bash
-$ git clone --depth=1 https://github.com/stacks-network/stacks-blockchain.git
-$ cd stacks-blockchain
+git clone --depth=1 https://github.com/stacks-network/stacks-blockchain.git
+cd stacks-blockchain
 ```
 
 ### 3. Build the project
 
 ```bash
-$ cargo build
+# Fully optimized release build
+cargo build --release
+# Faster but less optimized build. Necessary if < 16 GB RAM
+cargo build --profile release-lite
 ```
 
 ## Testing
@@ -51,14 +54,15 @@ $ cargo build
 **Run the tests:**
 
 ```bash
-$ cargo test testnet  -- --test-threads=1
+cargo test testnet  -- --test-threads=1
 ```
 
 **Run all unit tests in parallel using [nextest](https://nexte.st/):**
 
 _Warning, this typically takes a few minutes_
+
 ```bash
-$ cargo nextest run
+cargo nextest run
 ```
 
 ## Run the testnet
@@ -66,8 +70,8 @@ $ cargo nextest run
 You can observe the state machine in action locally by running:
 
 ```bash
-$ cd testnet/stacks-node
-$ cargo run --bin stacks-node -- start --config ./conf/testnet-follower-conf.toml
+cd testnet/stacks-node
+cargo run --bin stacks-node -- start --config ./conf/testnet-follower-conf.toml
 ```
 
 _On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
