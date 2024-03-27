@@ -427,6 +427,9 @@ impl StacksChainState {
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
     /// This should only be called for PoX v2 cycles.
+    /// TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
+    /// Ok(vec![Default::default()])
+    #[cfg_attr(test, mutants::skip)]
     pub fn handle_pox_cycle_start_pox_2(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
@@ -439,6 +442,9 @@ impl StacksChainState {
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
     /// This should only be called for PoX v3 cycles.
+    /// TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
+    /// Ok(vec![Default::default()])
+    #[cfg_attr(test, mutants::skip)]
     pub fn handle_pox_cycle_start_pox_3(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
@@ -451,6 +457,9 @@ impl StacksChainState {
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
     /// This should only be called for PoX v4 cycles.
+    /// TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
+    /// Ok(vec![Default::default()])
+    #[cfg_attr(test, mutants::skip)]
     pub fn handle_pox_cycle_start_pox_4(
         _clarity: &mut ClarityTransactionConnection,
         _cycle_number: u64,
@@ -463,6 +472,9 @@ impl StacksChainState {
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
+    /// TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
+    /// Ok(vec![Default::default()])
+    #[cfg_attr(test, mutants::skip)]
     fn handle_pox_cycle_missed_unlocks(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
@@ -757,6 +769,9 @@ impl StacksChainState {
     ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
+    /// TODO: #4587 create default for RewardSet , then check if mutation tests are caught for these cases:
+    /// Default::default()
+    #[cfg_attr(test,mutants::skip)]
     pub fn make_reward_set(
         threshold: u128,
         mut addresses: Vec<RawRewardSetEntry>,
