@@ -57,7 +57,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
             operatorWallet.stxAddress || "",
           ),
           "pox-addr": Cl.some(
-            poxAddressToTuple(operatorWallet.btcAddress || ""),
+            poxAddressToTuple(this.wallet.delegatedPoxAddress || ""),
           ),
           "until-burn-ht": Cl.some(Cl.uint(this.wallet.delegatedUntilBurnHt)),
         }),
@@ -75,11 +75,11 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     wallet.delegatedMaxAmount = 0;
 
     // Remove the Stacker from the Pool Operator's pool members list
-    let walletIndexInDelegatorsList = operatorWallet.hasPoolMembers.indexOf(
+    let walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(
       wallet.stxAddress,
     );
     expect(walletIndexInDelegatorsList).toBeGreaterThan(-1);
-    operatorWallet.hasPoolMembers.splice(walletIndexInDelegatorsList, 1);
+    operatorWallet.poolMembers.splice(walletIndexInDelegatorsList, 1);
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.

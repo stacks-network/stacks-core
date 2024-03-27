@@ -6,6 +6,7 @@ import { StacksPrivateKey } from "@stacks/transactions";
 import { StackingClient } from "@stacks/stacking";
 
 export type StxAddress = string;
+export type BtcAddress = string;
 
 export type Stub = {
   stackingMinimum: number;
@@ -26,10 +27,11 @@ export type Wallet = {
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;
-  hasPoolMembers: StxAddress[];
+  poolMembers: StxAddress[];
   delegatedTo: StxAddress;
   delegatedMaxAmount: number;
   delegatedUntilBurnHt: number;
+  delegatedPoxAddress: BtcAddress;
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;
