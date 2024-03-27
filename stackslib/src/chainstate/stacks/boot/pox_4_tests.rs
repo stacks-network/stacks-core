@@ -81,7 +81,7 @@ use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -6076,6 +6076,29 @@ impl StackerSignerInfo {
     }
 }
 
+/// Helper function to advance to a specific block height with the passed txs as the first in the block
+/// Returns a tuple of the tip and the observed block that should contain the provided txs
+fn advance_to_block_height(
+    peer: &mut TestPeer,
+    observer: &TestEventObserver,
+    txs: &[StacksTransaction],
+    peer_nonce: &mut usize,
+    target_height: u64,
+) -> (StacksBlockId, TestEventObserverBlock) {
+    let mut tx_block = None;
+    let mut latest_block = None;
+    let mut passed_txs = txs;
+    while peer.get_burn_block_height() < target_height {
+        latest_block = Some(peer.tenure_with_txs(&passed_txs, peer_nonce));
+        passed_txs = &[];
+        if tx_block.is_none() {
+            tx_block = Some(observer.get_blocks().last().unwrap().clone());
+        }
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let tx_block = tx_block.expect("Failed to get tx block");
+    (latest_block, tx_block)
+}
 // In this scenario, two service signers (Alice, Bob), one stacker-signer (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank, Grace, Heidi, Ivan, Judy, Mallory).
 
 // First Nakamoto Reward Cycle
@@ -6452,40 +6475,29 @@ fn test_scenario_five() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
-    let mut tx_block = None;
-    let mut latest_block = None;
-    let mut passed_txs = txs.clone();
-    // Submit stacking transactions
-    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
-    info!("Advancing to reward set calculation of reward cycle {next_reward_cycle} at burn block height {target_height}");
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, &mut peer_nonce));
-        passed_txs = vec![];
-        if tx_block.is_none() {
-            tx_block = Some(observer.get_blocks().last().unwrap().clone());
-            for (stacker, _) in davids_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, next_reward_cycle);
-                assert_eq!(pox_address, david.pox_address);
-            }
-
-            for (stacker, _) in eves_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, next_reward_cycle);
-                assert_eq!(pox_address, eve.pox_address);
-            }
-            let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
-            assert_eq!(first_reward_cycle, next_reward_cycle);
-            assert_eq!(pox_address, carl.pox_address);
-        }
+    info!("Advancing to reward set calculaton of cycle {next_reward_cycle} burn block height {target_height}");
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    // Verify the stacker txs were included in the block
+    // verify_stacker_txs(&tx_block, &txs, &[]);
+    // verify_stackers(&mut peer, &tx_block, &[(&david, &davids_stackers), (&eve, &eves_stackers), [&carl, &[]]]);
+    for (stacker, _) in davids_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, next_reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
     }
-    let latest_block = latest_block.expect("Failed to get tip");
-    let tx_block = tx_block.expect("Failed to get tx block");
+
+    for (stacker, _) in eves_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, next_reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+    }
+    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
 
     // Verify stacker transactions
     info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
@@ -6543,22 +6555,17 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    let mut passed_txs = vote_txs.clone();
     info!("Submitting vote txs for reward cycle {next_reward_cycle}");
     info!(
         "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
     );
-    let mut latest_block = None;
-    let mut tx_block = None;
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, &mut peer_nonce));
-        if tx_block.is_none() {
-            tx_block = Some(observer.get_blocks().last().unwrap().clone());
-        }
-        passed_txs = vec![];
-    }
-    let tx_block = tx_block.expect("Failed to get tx block");
-    let latest_block = latest_block.expect("Failed to get tip");
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &vote_txs,
+        &mut peer_nonce,
+        target_height,
+    );
 
     info!("Verifying signer vote txs");
     let mut observed_txs = HashSet::new();
@@ -6652,48 +6659,34 @@ fn test_scenario_five() {
         eves_aggregate_commit_index_tx,
     ];
 
-    let mut passed_txs = txs.clone();
-    let mut latest_block = None;
-    let mut tx_block = None;
     let target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
-    // This assertion just makes testing logic a bit easier
     info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
     info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, &mut peer_nonce));
-        passed_txs = vec![];
-        if tx_block.is_none() {
-            tx_block = Some(observer.get_blocks().last().unwrap().clone());
-            for (stacker, _) in davids_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, reward_cycle);
-                assert_eq!(pox_address, david.pox_address);
-            }
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
-            for (stacker, _) in eves_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, reward_cycle);
-                assert_eq!(pox_address, eve.pox_address);
-            }
-
-            let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
-            assert_eq!(first_reward_cycle, reward_cycle);
-            assert_eq!(pox_address, carl.pox_address);
-        }
+    for (stacker, _) in davids_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
     }
-    let latest_block = latest_block.expect("Failed to get tip");
-    let tx_block = tx_block.expect("Failed to get tx block");
 
+    for (stacker, _) in eves_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+    }
+    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
     // Verify stacker transactions
     info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
     let mut observed_txs = HashSet::new();
@@ -6709,30 +6702,6 @@ fn test_scenario_five() {
             panic!("Failed to find stacking transaction ({txid}) in observed transactions")
         }
     }
-    // debug!("Mining first nakamoto tenure at block height {} for reward cycle {}", peer.get_burn_block_height(), peer.get_reward_cycle());
-    // let (burn_ops, mut tenure_change, miner_key) =
-    //     peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-
-    // let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
-
-    // let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
-
-    // tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    // tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    // let tenure_change_tx = peer
-    //     .miner
-    //     .make_nakamoto_tenure_change(tenure_change.clone());
-    // let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
-
-    // test_signers.cycle = reward_cycle as u64;
-    // let blocks_and_sizes = peer.make_nakamoto_tenure(
-    //     tenure_change_tx,
-    //     coinbase_tx,
-    //     &mut test_signers.clone(),
-    //     |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
-    // );
-    // let latest_block = blocks_and_sizes.last().unwrap().0.block_id();
-    // debug!("Successfully mined first nakamoto block");
 
     let cycle_id = next_reward_cycle;
     debug!("Checking signer set for reward cycle {cycle_id}");
@@ -6775,22 +6744,17 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    let mut passed_txs = vote_txs.clone();
     info!("Submitting vote txs for reward cycle {next_reward_cycle}");
     info!(
         "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
     );
-    let mut latest_block = None;
-    let mut tx_block = None;
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, &mut peer_nonce));
-        if tx_block.is_none() {
-            tx_block = Some(observer.get_blocks().last().unwrap().clone());
-        }
-        passed_txs = vec![];
-    }
-    let tx_block = tx_block.expect("Failed to get tx block");
-    let latest_block = latest_block.expect("Failed to get tip");
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &vote_txs,
+        &mut peer_nonce,
+        target_height,
+    );
 
     info!("Verifying signer vote txs");
     let mut observed_txs = HashSet::new();
@@ -6887,9 +6851,6 @@ fn test_scenario_five() {
         eves_aggregate_commit_index_tx,
     ];
 
-    let mut passed_txs = txs.clone();
-    let mut latest_block = None;
-    let mut tx_block = None;
     let target_height = peer
         .config
         .burnchain
@@ -6903,37 +6864,30 @@ fn test_scenario_five() {
         (grace.clone(), grace_lock_period),
         (heidi.clone(), heidi_lock_period),
     ];
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, &mut peer_nonce));
-        passed_txs = vec![];
-        if tx_block.is_none() {
-            tx_block = Some(observer.get_blocks().last().unwrap().clone());
-            for (stacker, _) in davids_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, reward_cycle);
-                assert_eq!(pox_address, david.pox_address);
-            }
-            // Frank should no longer be considered a stacker as his lock period has expired
-            assert!(get_stacker_info_pox_4(&mut peer, &frank.principal).is_none());
 
-            for (stacker, _) in eves_stackers {
-                let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                    get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                        .expect("Failed to find stacker");
-                assert_eq!(first_reward_cycle, reward_cycle);
-                assert_eq!(pox_address, eve.pox_address);
-            }
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
-            let (pox_address, first_reward_cycle, _lock_period, _indices) =
-                get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
-            assert_eq!(first_reward_cycle, reward_cycle);
-            assert_eq!(pox_address, carl.pox_address);
-        }
+    for (stacker, _) in davids_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
     }
-    let latest_block = latest_block.expect("Failed to get tip");
-    let tx_block = tx_block.expect("Failed to get tx block");
+    // Frank should no longer be considered a stacker as his lock period has expired
+    assert!(get_stacker_info_pox_4(&mut peer, &frank.principal).is_none());
+
+    for (stacker, _) in eves_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+    }
+
+    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
 
     // Verify stacker transactions
     info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
