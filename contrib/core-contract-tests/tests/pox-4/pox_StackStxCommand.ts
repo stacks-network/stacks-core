@@ -1,4 +1,10 @@
-import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
+import {
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel.ts";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
@@ -155,7 +161,12 @@ export class StackStxCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    logCommand(`✓ ${this.wallet.label}`, "stack-stx", "lock-amount", amountUstx.toString());
+    logCommand(
+      `✓ ${this.wallet.label}`,
+      "stack-stx",
+      "lock-amount",
+      amountUstx.toString(),
+    );
   }
 
   toString() {

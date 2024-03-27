@@ -1,6 +1,18 @@
-import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
+import {
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel.ts";
 import { expect } from "vitest";
-import { boolCV, Cl, ClarityType, OptionalCV, UIntCV } from "@stacks/transactions";
+import {
+  boolCV,
+  Cl,
+  ClarityType,
+  OptionalCV,
+  UIntCV,
+} from "@stacks/transactions";
 
 /**
  * The `AllowContractCallerComand` gives a `contract-caller` authorization to call stacking methods.
@@ -23,7 +35,6 @@ export class AllowContractCallerCommand implements PoxCommand {
    * @param allowanceTo - Represents the authorized `contract-caller` (i.e. a stacking pool)
    * @param alllowUntilBurnHt - The burn block height until the authorization is valid.
    */
-
   constructor(
     wallet: Wallet,
     allowanceTo: Wallet,
@@ -59,14 +70,20 @@ export class AllowContractCallerCommand implements PoxCommand {
     // Get the wallets involved from the model and update it with the new state.
     const wallet = model.wallets.get(this.wallet.stxAddress)!;
     const callerToAllow = model.wallets.get(this.allowanceTo.stxAddress)!;
-    // Update model so that we know this wallet has authorized a contract-caller. 
+    // Update model so that we know this wallet has authorized a contract-caller.
 
     wallet.allowedContractCaller = this.allowanceTo.stxAddress;
     callerToAllow.callerAllowedBy.push(wallet.stxAddress);
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    logCommand(`✓ ${this.wallet.label}`, "allow-contract-caller", this.allowanceTo.label, "until", optionalCVToString(this.allowUntilBurnHt));
+    logCommand(
+      `✓ ${this.wallet.label}`,
+      "allow-contract-caller",
+      this.allowanceTo.label,
+      "until",
+      optionalCVToString(this.allowUntilBurnHt),
+    );
   }
 
   toString() {
