@@ -170,7 +170,7 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
-    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it 
+    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
@@ -182,7 +182,7 @@ impl BlockBuilderSettings {
         }
     }
 
-    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it 
+    /// TODO: #4587 create default for `BlockBuilderSettings` and then tests the cases returning it
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
@@ -1806,7 +1806,7 @@ impl StacksBlockBuilder {
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
-    /// TODO: #4587 create default for `MinerEpochInfo` and then tests the cases returning it 
+    /// TODO: #4587 create default for `MinerEpochInfo` and then tests the cases returning it
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn pre_epoch_begin<'a>(
@@ -2057,7 +2057,7 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for mining
-    /// TODO: #4587 create default for `BlockBuilderSettings` 
+    /// TODO: #4587 create default for `BlockBuilderSettings`
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder(

@@ -2178,7 +2178,7 @@ impl BlockMinerThread {
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
     /// TODO: #4587 add tests for the cases returning `None`
-    /// TODO: #4587 create default for `MinerThreadResult` to be used for mutation testing, then tests the cases returning it 
+    /// TODO: #4587 create default for `MinerThreadResult` to be used for mutation testing, then tests the cases returning it
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {
