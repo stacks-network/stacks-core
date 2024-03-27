@@ -185,10 +185,12 @@ impl std::fmt::Display for Signer {
 }
 
 impl Signer {
-    /// Return the current coordinator. If in the active reward cycle, this is the miner,
-    ///  so the first element of the tuple will be None (because the miner does not have a signer index).
-    fn get_coordinator(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
-        if self.reward_cycle == current_reward_cycle {
+    /// Return the current coordinator.
+    /// If the current reward cycle is the active reward cycle, this is the miner,
+    /// so the first element of the tuple will be None (because the miner does not have a signer index).
+    /// Otherwise, the coordinator is the signer with the index returned by the coordinator selector.
+    fn get_coordinator(&self, current_reward_cycle: Option<u64>) -> (Option<u32>, PublicKey) {
+        if Some(self.reward_cycle) == current_reward_cycle {
             let Some(ref cur_miner) = self.miner_key else {
                 error!(
                     "Signer #{}: Could not lookup current miner while in active reward cycle",
@@ -415,7 +417,7 @@ impl Signer {
         stacks_client: &StacksClient,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
+        let coordinator_id = self.get_coordinator(Some(current_reward_cycle)).0;
         match &self.state {
             State::Idle => {
                 if coordinator_id != Some(self.signer_id) {
@@ -445,7 +447,7 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
+        let coordinator_id = self.get_coordinator(Some(current_reward_cycle)).0;
         let mut block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -556,7 +558,7 @@ impl Signer {
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
-        let coordinator_pubkey = self.get_coordinator(current_reward_cycle).1;
+        let coordinator_pubkey = self.get_coordinator(Some(current_reward_cycle)).1;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -1207,11 +1209,7 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
+    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
@@ -1230,7 +1228,7 @@ impl Signer {
             }
             return Ok(());
         };
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
+        let coordinator_id = self.get_coordinator(None).0;
         if Some(self.signer_id) == coordinator_id && self.state == State::Idle {
             debug!("{self}: Checking if old vote transaction exists in StackerDB...");
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
