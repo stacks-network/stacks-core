@@ -90,6 +90,7 @@ export class DelegateStxCommand implements PoxCommand {
     wallet.delegatedTo = this.delegateTo.stxAddress;
     wallet.delegatedMaxAmount = amountUstx;
     wallet.delegatedUntilBurnHt = this.untilBurnHt;
+    wallet.delegatedPoxAddress = this.delegateTo.btcAddress;
 
     delegatedWallet.hasPoolMembers.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the

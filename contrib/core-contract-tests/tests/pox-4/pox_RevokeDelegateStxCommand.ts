@@ -57,7 +57,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
             operatorWallet.stxAddress || "",
           ),
           "pox-addr": Cl.some(
-            poxAddressToTuple(operatorWallet.btcAddress || ""),
+            poxAddressToTuple(this.wallet.delegatedPoxAddress || ""),
           ),
           "until-burn-ht": Cl.some(Cl.uint(this.wallet.delegatedUntilBurnHt)),
         }),
