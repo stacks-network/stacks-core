@@ -95,6 +95,7 @@ describe("PoX-4 invariant tests", () => {
         delegatedTo: "",
         delegatedMaxAmount: 0,
         delegatedUntilBurnHt: 0,
+        delegatedPoxAddress: "",
         amountLocked: 0,
         amountUnlocked: initialUstxBalance,
         unlockHeight: 0,
