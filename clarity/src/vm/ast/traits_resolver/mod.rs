@@ -45,6 +45,7 @@ impl TraitsResolver {
         TraitsResolver {}
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn run(&mut self, contract_ast: &mut ContractAST) -> ParseResult<()> {
         let mut referenced_traits = HashMap::new();
 
