@@ -6168,9 +6168,13 @@ fn test_scenario_five() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
 
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
+
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
     // Advance into pox4
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
@@ -6182,6 +6186,7 @@ fn test_scenario_five() {
     }
     let latest_block = latest_block.expect("Failed to get tip");
     let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
     let burn_block_height = peer.get_burn_block_height();
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
@@ -6203,42 +6208,42 @@ fn test_scenario_five() {
     let carl_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(carl_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(carl_lock_period) as u64)
         as u128;
     let frank_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(frank_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(frank_lock_period) as u64)
         as u128;
     let grace_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(grace_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(grace_lock_period) as u64)
         as u128;
     let heidi_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(heidi_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(heidi_lock_period) as u64)
         as u128;
     let ivan_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(ivan_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(ivan_lock_period) as u64)
         as u128;
     let jude_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(jude_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(jude_lock_period) as u64)
         as u128;
     let mallory_end_burn_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(reward_cycle.wrapping_add(mallory_lock_period) as u64)
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(mallory_lock_period) as u64)
         as u128;
 
-    // The pool operators should lock up for as long as their shortest stacker
-    let david_lock_period = frank_lock_period;
-    let eve_lock_period = 1;
+    // The pool operators should delegate their signing power for as long as their longest stacker
+    let david_lock_period = heidi_lock_period;
+    let eve_lock_period = mallory_lock_period;
 
     let carl_signature_for_carl = make_signer_key_signature(
         &carl.pox_address,
@@ -6269,7 +6274,7 @@ fn test_scenario_five() {
         frank.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         david.principal.clone(),
-        None,
+        Some(frank_end_burn_height),
         Some(david.pox_address.clone()),
     );
     frank.nonce += 1;
@@ -6280,7 +6285,7 @@ fn test_scenario_five() {
         grace.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         david.principal.clone(),
-        None,
+        Some(grace_end_burn_height),
         Some(david.pox_address.clone()),
     );
     grace.nonce += 1;
@@ -6291,7 +6296,7 @@ fn test_scenario_five() {
         heidi.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         david.principal.clone(),
-        None,
+        Some(heidi_end_burn_height),
         Some(david.pox_address.clone()),
     );
     heidi.nonce += 1;
@@ -6302,7 +6307,7 @@ fn test_scenario_five() {
         ivan.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         eve.principal.clone(),
-        None,
+        Some(ivan_end_burn_height),
         Some(eve.pox_address.clone()),
     );
     ivan.nonce += 1;
@@ -6313,7 +6318,7 @@ fn test_scenario_five() {
         jude.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         eve.principal.clone(),
-        None,
+        Some(jude_end_burn_height),
         Some(eve.pox_address.clone()),
     );
     jude.nonce += 1;
@@ -6324,16 +6329,24 @@ fn test_scenario_five() {
         mallory.nonce,
         default_initial_balances.saturating_sub(1) as u128,
         eve.principal.clone(),
-        None,
+        Some(mallory_end_burn_height),
         Some(eve.pox_address.clone()),
     );
     mallory.nonce += 1;
 
-    let davids_stackers = &[frank.clone(), grace.clone(), heidi.clone()];
-    let eves_stackers = &[ivan.clone(), jude.clone(), mallory.clone()];
+    let davids_stackers = &[
+        (frank.clone(), frank_lock_period),
+        (grace.clone(), grace_lock_period),
+        (heidi.clone(), heidi_lock_period),
+    ];
+    let eves_stackers = &[
+        (ivan.clone(), ivan_lock_period),
+        (jude.clone(), jude_lock_period),
+        (mallory.clone(), mallory_lock_period),
+    ];
     let davids_delegate_stack_stx_txs: Vec<_> = davids_stackers
         .iter()
-        .map(|stacker| {
+        .map(|(stacker, lock_period)| {
             let tx = make_pox_4_delegate_stack_stx(
                 &david.private_key,
                 david.nonce,
@@ -6341,7 +6354,7 @@ fn test_scenario_five() {
                 default_initial_balances.saturating_sub(1) as u128,
                 david.pox_address.clone(),
                 burn_block_height as u128,
-                1, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
+                *lock_period,
             );
             david.nonce += 1;
             tx
@@ -6350,7 +6363,7 @@ fn test_scenario_five() {
 
     let eves_delegate_stack_stx_txs: Vec<_> = eves_stackers
         .iter()
-        .map(|stacker| {
+        .map(|(stacker, lock_period)| {
             let tx = make_pox_4_delegate_stack_stx(
                 &eve.private_key,
                 eve.nonce,
@@ -6358,20 +6371,19 @@ fn test_scenario_five() {
                 default_initial_balances.saturating_sub(1) as u128,
                 eve.pox_address.clone(),
                 burn_block_height as u128,
-                1, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
+                *lock_period, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
             );
             eve.nonce += 1;
             tx
         })
         .collect();
 
-    let next_reward_cycle = reward_cycle.wrapping_add(1);
     let alice_authorization_for_david = make_signer_key_signature(
         &david.pox_address,
         &alice.private_key,
         next_reward_cycle,
         &Pox4SignatureTopic::AggregationCommit,
-        david_lock_period,
+        1,
         u128::MAX,
         1,
     );
@@ -6393,7 +6405,7 @@ fn test_scenario_five() {
         &bob.private_key,
         next_reward_cycle,
         &Pox4SignatureTopic::AggregationCommit,
-        eve_lock_period,
+        1,
         u128::MAX,
         1,
     );
@@ -6427,8 +6439,6 @@ fn test_scenario_five() {
     ]);
 
     // Make all the stackers stack
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
     let epochs = peer.config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
     let epoch_3_start_height = epoch_3.start_height;
@@ -6460,7 +6470,7 @@ fn test_scenario_five() {
         passed_txs = vec![];
         if tx_block.is_none() {
             tx_block = Some(observer.get_blocks().last().unwrap().clone());
-            for stacker in davids_stackers {
+            for (stacker, _) in davids_stackers {
                 let (pox_address, first_reward_cycle, _lock_period, _indices) =
                     get_stacker_info_pox_4(&mut peer, &stacker.principal)
                         .expect("Failed to find stacker");
@@ -6468,7 +6478,7 @@ fn test_scenario_five() {
                 assert_eq!(pox_address, david.pox_address);
             }
 
-            for stacker in eves_stackers {
+            for (stacker, _) in eves_stackers {
                 let (pox_address, first_reward_cycle, _lock_period, _indices) =
                     get_stacker_info_pox_4(&mut peer, &stacker.principal)
                         .expect("Failed to find stacker");
@@ -6502,14 +6512,14 @@ fn test_scenario_five() {
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, carl.pox_address);
 
-    for stacker in davids_stackers {
+    for (stacker, _) in davids_stackers {
         let (pox_address, first_reward_cycle, _lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, next_reward_cycle);
         assert_eq!(pox_address, david.pox_address);
     }
 
-    for stacker in eves_stackers {
+    for (stacker, _) in eves_stackers {
         let (pox_address, first_reward_cycle, _lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
         assert_eq!(first_reward_cycle, next_reward_cycle);
