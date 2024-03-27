@@ -20,6 +20,7 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::types::StacksEpochId;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -29,7 +30,7 @@ use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
+use crate::signer::{Command as SignerCommand, Signer, SignerError, SignerSlotID};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -372,6 +373,26 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             return None;
         }
         for signer in self.stacks_signers.values_mut() {
+            if signer.approved_aggregate_public_key.is_none() {
+                if let Err(e) = signer.update_dkg(&self.stacks_client, current_reward_cycle) {
+                    error!("{signer}: failed to update DKG: {e}");
+                    if matches!(e, SignerError::DkgNotSet) {
+                        let epoch = retry_with_exponential_backoff(|| {
+                            self.stacks_client
+                                .get_node_epoch()
+                                .map_err(backoff::Error::transient)
+                        })
+                        .unwrap_or(StacksEpochId::Epoch24);
+                        if epoch >= StacksEpochId::Epoch30 {
+                            panic!(
+                                "{signer}: DKG is not set in an active post Nakamoto reward cycle. Cannot recover. Exiting."
+                            );
+                        }
+                        // We should wait for the following epoch 2.5 reward cycle to potentially recover.
+                        return None;
+                    }
+                }
+            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -387,16 +408,6 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             let other_signer_parity = (signer.reward_cycle + 1) % 2;
             if event_parity == Some(other_signer_parity) {
                 continue;
-            }
-
-            if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client, current_reward_cycle)
-                        .map_err(backoff::Error::transient)
-                }) {
-                    error!("{signer}: failed to update DKG: {e}");
-                }
             }
             signer.refresh_coordinator();
             if let Err(e) = signer.process_event(
