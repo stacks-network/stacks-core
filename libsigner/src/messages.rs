@@ -1315,7 +1315,7 @@ mod test {
     use blockstack_lib::util_lib::strings::StacksString;
     use rand::Rng;
     use rand_core::OsRng;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use stacks_common::types::chainstate::StacksPrivateKey;
     use wsts::common::Signature;
 

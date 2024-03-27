@@ -449,7 +449,6 @@ impl OrderIndependentMultisigSpendingCondition {
         cond_code: &TransactionAuthFlags,
     ) -> Result<Txid, net_error> {
         let mut pubkeys = vec![];
-        let cur_sighash = initial_sighash.clone();
         let mut num_sigs: u16 = 0;
         let mut have_uncompressed = false;
         for field in self.fields.iter() {
@@ -466,7 +465,7 @@ impl OrderIndependentMultisigSpendingCondition {
                     }
 
                     let (pubkey, _next_sighash) = TransactionSpendingCondition::next_verification(
-                        &cur_sighash,
+                        &initial_sighash,
                         cond_code,
                         self.tx_fee,
                         self.nonce,
@@ -515,7 +514,7 @@ impl OrderIndependentMultisigSpendingCondition {
             )));
         }
 
-        Ok(cur_sighash)
+        Ok(initial_sighash.clone())
     }
 }
 
@@ -1209,26 +1208,20 @@ impl TransactionAuth {
         privks: &[StacksPrivateKey],
         num_sigs: u16,
     ) -> Option<TransactionAuth> {
-        let mut pubks = vec![];
-        for privk in privks.iter() {
-            pubks.push(StacksPublicKey::from_private(privk));
-        }
+        let pubks = privks.iter().map(StacksPublicKey::from_private).collect();
 
         TransactionSpendingCondition::new_multisig_order_independent_p2sh(num_sigs, pubks)
-            .map(|auth| TransactionAuth::Standard(auth))
+            .map(TransactionAuth::Standard)
     }
 
     pub fn from_order_independent_p2wsh(
         privks: &[StacksPrivateKey],
         num_sigs: u16,
     ) -> Option<TransactionAuth> {
-        let mut pubks = vec![];
-        for privk in privks.iter() {
-            pubks.push(StacksPublicKey::from_private(privk));
-        }
+        let pubks = privks.iter().map(StacksPublicKey::from_private).collect();
 
         TransactionSpendingCondition::new_multisig_order_independent_p2wsh(num_sigs, pubks)
-            .map(|auth| TransactionAuth::Standard(auth))
+            .map(TransactionAuth::Standard)
     }
 
     pub fn from_p2wpkh(privk: &StacksPrivateKey) -> Option<TransactionAuth> {

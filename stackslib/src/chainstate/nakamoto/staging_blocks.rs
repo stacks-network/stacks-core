@@ -218,7 +218,10 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let Some(block_bytes) = data else {
             return Ok(None);
         };
-        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
+        let block = NakamotoBlock::consensus_deserialize_with_epoch(
+            &mut block_bytes.as_slice(),
+            StacksEpochId::latest(),
+        )?;
         if &block.header.consensus_hash != consensus_hash {
             error!(
                 "Staging DB corruption: expected {}, got {}",
