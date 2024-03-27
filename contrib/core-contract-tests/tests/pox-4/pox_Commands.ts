@@ -88,32 +88,53 @@ export function PoxCommands(
     // DelegateStackStxCommand
     fc.record({
       operator: fc.constantFrom(...wallets.values()),
-      stacker: fc.constantFrom(...wallets.values()),
       startBurnHt: fc.integer({
         min: currentCycleFirstBlock(network),
         max: nextCycleFirstBlock(network),
       }),
       period: fc.integer({ min: 1, max: 12 }),
-      amount: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
-    }).chain((r) =>
-      fc.record({
-        unlockBurnHt: fc.constant(
-          currentCycleFirstBlock(network) + 1050 * (r.period + 1),
-        ),
-      }).map((unlockBurnHtRecord) => ({
+    }).chain((r) => {
+      // Determine available stackers based on the operator
+      const availableStackers = r.operator.poolMembers.length > 0
+        ? r.operator.poolMembers
+        : [r.operator.stxAddress];
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackers),
+      }).map((stacker) => ({
         ...r,
-        ...unlockBurnHtRecord,
-      }))
-    ).map((r) =>
-      new DelegateStackStxCommand(
-        r.operator,
-        r.stacker,
-        r.startBurnHt,
-        r.period,
-        r.amount,
-        r.unlockBurnHt,
-      )
-    ),
+        stacker: wallets.get(stacker.stacker)!,
+      })).chain((resultWithStacker) => {
+        return fc.record({
+          unlockBurnHt: fc.constant(
+            currentCycleFirstBlock(network) +
+              1050 * (resultWithStacker.period + 1),
+          ),
+        }).map((additionalProps) => ({
+          ...resultWithStacker,
+          ...additionalProps,
+        }));
+      }).chain((resultWithUnlockHeight) => {
+        return fc.record({
+          amount: fc.bigInt({
+            min: 0n,
+            max: BigInt(resultWithUnlockHeight.stacker.delegatedMaxAmount),
+          }),
+        }).map((amountProps) => ({
+          ...resultWithUnlockHeight,
+          ...amountProps,
+        }));
+      });
+    }).map((finalResult) => {
+      return new DelegateStackStxCommand(
+        finalResult.operator,
+        finalResult.stacker,
+        finalResult.startBurnHt,
+        finalResult.period,
+        finalResult.amount,
+        finalResult.unlockBurnHt,
+      );
+    }),
     // AllowContractCallerCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
