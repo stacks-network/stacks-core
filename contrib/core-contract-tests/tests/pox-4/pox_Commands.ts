@@ -9,6 +9,7 @@ import { Simnet } from "@hirosystems/clarinet-sdk";
 import { Cl, cvToValue, OptionalCV, UIntCV } from "@stacks/transactions";
 import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 import { AllowContractCallerCommand } from "./pox_AllowContractCallerCommand";
+import { CheckBalanceCommand } from "./pox_CheckBalanceCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -143,6 +144,18 @@ export function PoxCommands(
       },
     ) =>
       new GetStxAccountCommand(
+        r.wallet,
+      )
+    ),
+    // CheckBalanceCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+    }).map((
+      r: {
+        wallet: Wallet;
+      },
+    ) =>
+      new CheckBalanceCommand(
         r.wallet,
       )
     ),
