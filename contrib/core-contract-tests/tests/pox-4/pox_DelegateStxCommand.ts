@@ -1,11 +1,17 @@
-import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
+import {
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { boolCV, Cl } from "@stacks/transactions";
 
 /**
- * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This operation 
- * allows the `tx-sender` (the `wallet` in this case) to delegate stacking participation 
+ * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This operation
+ * allows the `tx-sender` (the `wallet` in this case) to delegate stacking participation
  * to a `delegatee`.
  *
  * Constraints for running this command include:
@@ -50,7 +56,7 @@ export class DelegateStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     // The amount of uSTX delegated by the Stacker to the Delegatee.
-    // Even if there are no constraints about the delegated amount, 
+    // Even if there are no constraints about the delegated amount,
     // it will be checked in the future, when calling delegate-stack-stx.
     const amountUstx = Number(this.amount);
 
@@ -83,12 +89,19 @@ export class DelegateStxCommand implements PoxCommand {
     wallet.hasDelegated = true;
     wallet.delegatedTo = this.delegateTo.stxAddress;
     wallet.delegatedMaxAmount = amountUstx;
-    wallet.delegatedUntilBurnHt = this.untilBurnHt
+    wallet.delegatedUntilBurnHt = this.untilBurnHt;
 
     delegatedWallet.hasPoolMembers.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    logCommand(`✓ ${this.wallet.label}`, "delegate-stx", "amount", amountUstx.toString(), "delegated to", this.delegateTo.label);
+    logCommand(
+      `✓ ${this.wallet.label}`,
+      "delegate-stx",
+      "amount",
+      amountUstx.toString(),
+      "delegated to",
+      this.delegateTo.label,
+    );
   }
 
   toString() {

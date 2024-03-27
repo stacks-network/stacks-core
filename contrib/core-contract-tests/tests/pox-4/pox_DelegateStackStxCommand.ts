@@ -1,4 +1,10 @@
-import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
+import {
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
@@ -104,7 +110,7 @@ export class DelegateStackStxCommand implements PoxCommand {
         // (start-burn-ht uint)
         Cl.uint(this.startBurnHt),
         // (lock-period uint)
-        Cl.uint(this.period)
+        Cl.uint(this.period),
       ],
       this.operator.stxAddress,
     );
@@ -146,7 +152,14 @@ export class DelegateStackStxCommand implements PoxCommand {
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
-    logCommand(`✓ ${this.operator.label} Ӿ ${this.stacker.label}`, "delegate-stack-stx", "lock-amount", this.amountUstx.toString(), "until", this.stacker.unlockHeight.toString());
+    logCommand(
+      `✓ ${this.operator.label} Ӿ ${this.stacker.label}`,
+      "delegate-stack-stx",
+      "lock-amount",
+      this.amountUstx.toString(),
+      "until",
+      this.stacker.unlockHeight.toString(),
+    );
   }
 
   toString() {

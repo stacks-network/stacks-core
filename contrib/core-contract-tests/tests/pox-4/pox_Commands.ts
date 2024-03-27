@@ -11,7 +11,8 @@ import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 import { AllowContractCallerCommand } from "./pox_AllowContractCallerCommand";
 
 export function PoxCommands(
-  wallets: Map<StxAddress, Wallet>, network: Simnet,
+  wallets: Map<StxAddress, Wallet>,
+  network: Simnet,
 ): fc.Arbitrary<Iterable<fc.Command<Stub, Real>>> {
   const cmds = [
     // GetStackingMinimumCommand
@@ -52,7 +53,7 @@ export function PoxCommands(
       wallet: fc.constantFrom(...wallets.values()),
       delegateTo: fc.constantFrom(...wallets.values()),
       untilBurnHt: fc.integer({ min: 1 }),
-      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
+      amount: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
     }).map((
       r: {
         wallet: Wallet;
@@ -77,7 +78,7 @@ export function PoxCommands(
       },
     ) =>
       new RevokeDelegateStxCommand(
-        r.wallet
+        r.wallet,
       )
     ),
     // DelegateStackStxCommand
@@ -89,7 +90,7 @@ export function PoxCommands(
         max: nextCycleFirstBlock(network),
       }),
       period: fc.integer({ min: 1, max: 12 }),
-      amount: fc.bigInt({ min:0n, max: 100_000_000_000_000n }),
+      amount: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
     }).chain((r) =>
       fc.record({
         unlockBurnHt: fc.constant(
