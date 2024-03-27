@@ -43,11 +43,12 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
-    StacksMessageCodec,
+    read_next, read_next_at_most, read_next_at_most_with_epoch, read_next_exact, write_next,
+    Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -362,7 +363,11 @@ impl StacksMessageCodec for SignerMessage {
                 SignerMessage::BlockResponse(block_response)
             }
             SignerMessageTypePrefix::Transactions => {
-                let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
+                // I don't think these messages are stored on the blockchain, so `StacksEpochId::latest()` should be fine
+                let transactions: Vec<StacksTransaction> = {
+                    let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+                    read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::latest())
+                }?;
                 SignerMessage::Transactions(transactions)
             }
             SignerMessageTypePrefix::DkgResults => {
@@ -1216,7 +1221,12 @@ impl StacksMessageCodec for RejectCode {
                 RejectCode::InsufficientSigners(read_next::<Vec<u32>, _>(fd)?)
             }
             RejectCodeTypePrefix::MissingTransactions => {
-                RejectCode::MissingTransactions(read_next::<Vec<StacksTransaction>, _>(fd)?)
+                // I don't think these messages are stored on the blockchain, so `StacksEpochId::latest()` should be fine
+                let transactions: Vec<StacksTransaction> = {
+                    let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+                    read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::latest())
+                }?;
+                RejectCode::MissingTransactions(transactions)
             }
             RejectCodeTypePrefix::NonceTimeout => {
                 RejectCode::NonceTimeout(read_next::<Vec<u32>, _>(fd)?)
@@ -1305,7 +1315,7 @@ mod test {
     use blockstack_lib::util_lib::strings::StacksString;
     use rand::Rng;
     use rand_core::OsRng;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use stacks_common::types::chainstate::StacksPrivateKey;
     use wsts::common::Signature;
 

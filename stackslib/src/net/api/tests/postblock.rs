@@ -20,7 +20,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddre
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 
 use super::TestRPC;
 use crate::chainstate::stacks::test::make_codec_test_block;
@@ -38,7 +38,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let block = make_codec_test_block(3);
+    let block = make_codec_test_block(3, StacksEpochId::Epoch25);
     let request =
         StacksHttpRequest::new_post_block(addr.into(), ConsensusHash([0x11; 20]), block.clone());
     let bytes = request.try_serialize().unwrap();

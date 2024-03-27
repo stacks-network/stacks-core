@@ -32,8 +32,8 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAM
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
-    MAX_PAYLOAD_LEN,
+    read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch, Error as CodecError,
+    StacksMessageCodec, MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -152,7 +152,7 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
+                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
                      -- height of the burnchain block header that generated this consensus hash
@@ -188,7 +188,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -1176,7 +1176,7 @@ impl NakamotoBlock {
             warn!("Not a well-formed tenure-extend block");
             return false;
         }
-        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, true) {
             return false;
         }
         return true;
@@ -3351,12 +3351,22 @@ impl StacksMessageCodec for NakamotoBlock {
     }
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let (header, txs) = {
+        panic!("NakamotoBlock should be deserialized with consensus_deserialize_with_epoch instead")
+    }
+}
+
+impl DeserializeWithEpoch for NakamotoBlock {
+    fn consensus_deserialize_with_epoch<R: std::io::Read>(
+        fd: &mut R,
+        epoch_id: StacksEpochId,
+    ) -> Result<NakamotoBlock, CodecError> {
+        let header: NakamotoBlockHeader = read_next(fd)?;
+
+        let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
-            let header: NakamotoBlockHeader = read_next(&mut bound_read)?;
-            let txs: Vec<_> = read_next(&mut bound_read)?;
-            (header, txs)
-        };
+            // The latest epoch where StacksMicroblock exist is Epoch25
+            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
+        }?;
 
         // all transactions are unique
         if !StacksBlock::validate_transactions_unique(&txs) {
