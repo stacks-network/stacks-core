@@ -91,7 +91,7 @@ describe("PoX-4 invariant tests", () => {
         ustxBalance: initialUstxBalance,
         isStacking: false,
         hasDelegated: false,
-        hasPoolMembers: [],
+        poolMembers: [],
         delegatedTo: "",
         delegatedMaxAmount: 0,
         delegatedUntilBurnHt: 0,

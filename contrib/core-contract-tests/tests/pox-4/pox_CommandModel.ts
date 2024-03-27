@@ -27,7 +27,7 @@ export type Wallet = {
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;
-  hasPoolMembers: StxAddress[];
+  poolMembers: StxAddress[];
   delegatedTo: StxAddress;
   delegatedMaxAmount: number;
   delegatedUntilBurnHt: number;

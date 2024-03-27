@@ -92,7 +92,7 @@ export class DelegateStxCommand implements PoxCommand {
     wallet.delegatedUntilBurnHt = this.untilBurnHt;
     wallet.delegatedPoxAddress = this.delegateTo.btcAddress;
 
-    delegatedWallet.hasPoolMembers.push(wallet.stxAddress);
+    delegatedWallet.poolMembers.push(wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
@@ -102,6 +102,8 @@ export class DelegateStxCommand implements PoxCommand {
       amountUstx.toString(),
       "delegated to",
       this.delegateTo.label,
+      "until",
+      this.untilBurnHt.toString()
     );
   }
 
