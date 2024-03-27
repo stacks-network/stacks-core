@@ -53,6 +53,17 @@ use crate::config::SignerConfig;
 use crate::coordinator::CoordinatorSelector;
 use crate::signerdb::SignerDb;
 
+#[derive(thiserror::Error, Debug)]
+/// Signer specific error
+pub enum SignerError {
+    /// Error occurred while accessing the client
+    #[error("{0}")]
+    ClientError(#[from] ClientError),
+    /// Signer entered its own reward cycle without a successful DKG round
+    #[error("DKG was not set prior to reward cycle activation.")]
+    DkgNotSet,
+}
+
 /// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub struct SignerSlotID(pub u32);
@@ -1211,11 +1222,14 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), SignerError> {
         let reward_cycle = self.reward_cycle;
         let old_dkg = self.approved_aggregate_public_key;
-        self.approved_aggregate_public_key =
-            stacks_client.get_approved_aggregate_key(reward_cycle)?;
+        self.approved_aggregate_public_key = retry_with_exponential_backoff(|| {
+            stacks_client
+                .get_approved_aggregate_key(reward_cycle)
+                .map_err(backoff::Error::transient)
+        })?;
         if self.approved_aggregate_public_key.is_some() {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
@@ -1230,6 +1244,10 @@ impl Signer {
             }
             return Ok(());
         };
+        if self.reward_cycle == current_reward_cycle {
+            // We have entered into our reward cycle with no approved aggregate key. This is a fatal error.
+            return Err(SignerError::DkgNotSet);
+        }
         let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         if Some(self.signer_id) == coordinator_id && self.state == State::Idle {
             debug!("{self}: Checking if old vote transaction exists in StackerDB...");
@@ -1256,13 +1274,16 @@ impl Signer {
                     return Ok(());
                 }
             }
-            if stacks_client
-                .get_vote_for_aggregate_public_key(
-                    self.coordinator.current_dkg_id,
-                    self.reward_cycle,
-                    *stacks_client.get_signer_address(),
-                )?
-                .is_some()
+            if retry_with_exponential_backoff(|| {
+                stacks_client
+                    .get_vote_for_aggregate_public_key(
+                        self.coordinator.current_dkg_id,
+                        self.reward_cycle,
+                        *stacks_client.get_signer_address(),
+                    )
+                    .map_err(backoff::Error::transient)
+            })?
+            .is_some()
             {
                 // TODO Check if the vote failed and we need to retrigger the DKG round not just if we have already voted...
                 // TODO need logic to trigger another DKG round if a certain amount of time passes and we still have no confirmed DKG vote
