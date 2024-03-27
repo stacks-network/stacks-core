@@ -26,6 +26,7 @@ use clarity::vm::errors::{
 };
 use clarity::vm::eval;
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use clarity::vm::functions::principals;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
@@ -52,15 +53,21 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
     check_pox_print_event, generate_pox_clarity_value, get_partial_stacked, get_reward_cycle_total,
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
     PoxPrintFields, StackingStateCheckData,
 };
+use crate::chainstate::stacks::boot::signers_tests::{
+    get_signer_index, prepare_signers_test, readonly_call,
+};
+use crate::chainstate::stacks::boot::signers_voting_tests::{make_dummy_tx, nakamoto_tenure};
 use crate::chainstate::stacks::boot::{
     PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
-    POX_2_NAME, POX_3_NAME,
+    MINERS_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -74,7 +81,7 @@ use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -5076,6 +5083,357 @@ fn delegate_stack_increase() {
     assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
 }
 
+// In this test two solo stacker-signers Alice & Bob sign & stack
+//  for one tenure. Alice provides a signature, Bob uses
+//  'set-signer-key-authorizations' to authorize
+#[test]
+fn test_solo_stacking() {
+    let lock_period = 1;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let mut coinbase_nonce = coinbase_nonce;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    // Print current reward cycle
+    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+
+    // Alice Setup
+    let mut alice_nonce = 0;
+    let alice_private_key = &keys[0];
+    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
+    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
+    let alice_address = key_to_stacks_addr(alice_private_key);
+    let alice_pox_addr = pox_addr_from(&alice_private_key);
+    let alice_signature = make_signer_key_signature(
+        &alice_pox_addr,
+        &alice_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    let alice_signature_err = make_signer_key_signature(
+        &alice_pox_addr,
+        &alice_private_key,
+        current_reward_cycle - 1,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        100,
+        2,
+    );
+
+    // Bob Setup
+    let bob_nonce_err = 0;
+    let bob_private_key = &keys[1];
+    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
+    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
+    let bob_address = key_to_stacks_addr(bob_private_key);
+    let bob_pox_addr = pox_addr_from(&bob_private_key);
+    let bob_authorization_low = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &bob_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        bob_nonce_err,
+        Some(&bob_private_key),
+        100,
+        2,
+    );
+    let bob_nonce_auth = bob_nonce_err + 1;
+    let bob_authorization = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &bob_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        bob_nonce_auth,
+        Some(&bob_private_key),
+        u128::MAX,
+        3,
+    );
+
+    // Prepare Block (create approval)
+    let latest_block = peer.tenure_with_txs(
+        &[bob_authorization_low, bob_authorization],
+        &mut coinbase_nonce,
+    );
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
+    let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
+
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+
+    // Alice stacks
+    let alice_err_nonce = alice_nonce;
+    let alice_stack_err = make_pox_4_lockup(
+        alice_private_key,
+        alice_err_nonce,
+        min_ustx * 2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key,
+        block_height,
+        Some(alice_signature_err),
+        100,
+        1,
+    );
+
+    let alice_stack_nonce = alice_err_nonce + 1;
+    let alice_stack = make_pox_4_lockup(
+        alice_private_key,
+        alice_stack_nonce,
+        min_ustx * 2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key,
+        block_height,
+        Some(alice_signature),
+        u128::MAX,
+        1,
+    );
+
+    // Bob stacks
+    let bob_nonce_stack_err = bob_nonce_auth + 1;
+    let bob_stack_err = make_pox_4_lockup(
+        bob_private_key,
+        bob_nonce_stack_err,
+        min_ustx * 2,
+        &bob_pox_addr,
+        lock_period,
+        &bob_signing_key,
+        block_height,
+        None,
+        u128::MAX,
+        2,
+    );
+    let bob_nonce_stack = bob_nonce_stack_err + 1;
+    let bob_stack = make_pox_4_lockup(
+        bob_private_key,
+        bob_nonce_stack,
+        min_ustx * 2,
+        &bob_pox_addr,
+        lock_period,
+        &bob_signing_key,
+        block_height,
+        None,
+        u128::MAX,
+        3,
+    );
+
+    // Stacking Block
+    coinbase_nonce += 1;
+    let latest_block = peer.tenure_with_txs(
+        &[alice_stack_err, alice_stack, bob_stack_err, bob_stack],
+        &mut coinbase_nonce,
+    );
+
+    // Get Alice results
+    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    let alice_stack_err_result = alice_tx
+        .get(alice_err_nonce as usize)
+        .unwrap()
+        .result
+        .clone();
+    let alice_stack_result = alice_tx
+        .get(alice_stack_nonce as usize)
+        .unwrap()
+        .result
+        .clone();
+
+    // Alice Error
+    // Err Amount Too High
+    assert_eq!(
+        alice_stack_err_result,
+        Value::error(Value::Int(38)).unwrap()
+    );
+
+    // Alice Success Checks, amount locked & signer key
+    let alice_stack_tuple = alice_stack_result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+
+    // Check amount locked
+    let amount_locked_expected = Value::UInt(min_ustx * 2);
+    let amount_locked_actual = alice_stack_tuple.data_map.get("lock-amount").unwrap();
+    assert_eq!(amount_locked_actual, &amount_locked_expected);
+    // Check signer key
+    let signer_key_expected = Value::buff_from(alice_signing_key.to_bytes_compressed());
+    let signer_key_actual = alice_stack_tuple
+        .data_map
+        .get("signer-key")
+        .unwrap()
+        .clone();
+    assert_eq!(signer_key_actual, signer_key_actual);
+
+    // Get Bob results
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    let bob_stack_result_err = bob_tx.get(0 as usize).unwrap().result.clone();
+    let bob_stack_result = bob_tx.get(1 as usize).unwrap().result.clone();
+
+    // Bob Error
+    // Err Not Allowed
+    assert_eq!(bob_stack_result_err, Value::error(Value::Int(19)).unwrap());
+
+    // Bob Success Checks, amount locked & signer key
+    let bob_stack_tuple = bob_stack_result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+
+    // Check amount locked
+    let amount_locked_expected = Value::UInt(min_ustx * 2);
+    let amount_locked_actual = bob_stack_tuple.data_map.get("lock-amount").unwrap();
+
+    // Check signer key
+    let signer_key_expected = Value::buff_from(bob_signing_key.to_bytes_compressed());
+    let signer_key_actual = bob_stack_tuple.data_map.get("signer-key").unwrap().clone();
+    assert_eq!(signer_key_actual, signer_key_actual);
+
+    // Advance to next reward cycle
+    for i in 0..3 {
+        alice_nonce += 1;
+        let dummy_tx = make_dummy_tx(&mut peer, &alice_private_key, &mut alice_nonce);
+        coinbase_nonce += 1;
+        let dummy_block = peer.tenure_with_txs(&[dummy_tx], &mut coinbase_nonce);
+    }
+
+    let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    println!("Later Reward Cycle: {:?}", next_reward_cycle);
+}
+
+// Test that Alice & Bob can solo stack provided
+//  with a signature from Carl & explicit approval
+//  from David.
+#[test]
+fn test_solo_stacking_delegated_signing() {
+    let lock_period = 1;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let mut coinbase_nonce = coinbase_nonce;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    // Print current reward cycle
+    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+
+    // Alice Setup
+    let mut alice_nonce = 0;
+    let alice_private_key = &keys[0];
+    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
+    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
+    let alice_address = key_to_stacks_addr(alice_private_key);
+    let alice_pox_addr = pox_addr_from(&alice_private_key);
+
+    // Bob Setup
+    let bob_nonce = 0;
+    let bob_private_key = &keys[1];
+    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
+    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
+    let bob_address = key_to_stacks_addr(bob_private_key);
+    let bob_pox_addr = pox_addr_from(&bob_private_key);
+
+    // Carl Setup
+    let carl_nonce = 0;
+    let carl_private_key = &keys[2];
+    let carl_public_key = StacksPublicKey::from_private(carl_private_key);
+    let carl_signing_key = Secp256k1PublicKey::from_private(carl_private_key);
+    let carl_address = key_to_stacks_addr(carl_private_key);
+    let carl_pox_addr = pox_addr_from(&carl_private_key);
+    let carl_signature_for_alice = make_signer_key_signature(
+        &alice_pox_addr,
+        &carl_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+
+    // David Setup
+    let david_nonce = 0;
+    let david_private_key = &keys[3];
+    let david_public_key = StacksPublicKey::from_private(david_private_key);
+    let david_signing_key = Secp256k1PublicKey::from_private(david_private_key);
+    let david_address = key_to_stacks_addr(david_private_key);
+    let david_pox_addr = pox_addr_from(&david_private_key);
+    let david_authorization_for_bob = make_pox_4_set_signer_key_auth(
+        &bob_pox_addr,
+        &david_private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        true,
+        david_nonce,
+        None,
+        u128::MAX,
+        1,
+    );
+
+    // Alice Stack
+    let alice_stack = make_pox_4_lockup(
+        alice_private_key,
+        alice_nonce,
+        min_ustx * 2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &carl_signing_key,
+        block_height,
+        Some(carl_signature_for_alice),
+        u128::MAX,
+        1,
+    );
+
+    // Bob Stack
+    let bob_stack = make_pox_4_lockup(
+        bob_private_key,
+        bob_nonce,
+        min_ustx * 2,
+        &bob_pox_addr.clone(),
+        lock_period,
+        &david_signing_key,
+        block_height,
+        None,
+        u128::MAX,
+        1,
+    );
+
+    // Prepare Block (create approval)
+    let latest_block = peer.tenure_with_txs(
+        &[david_authorization_for_bob, alice_stack, bob_stack],
+        &mut coinbase_nonce,
+    );
+    let david_tx = get_last_block_sender_transactions(&observer, david_address);
+    // print davic_tx length
+    println!("David TX Length: {:?}", david_tx.len());
+    let david_tx_result = david_tx.get(david_nonce as usize).unwrap().result.clone();
+    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    let alice_tx_result = alice_tx.get(alice_nonce as usize).unwrap().result.clone();
+    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    let bob_tx_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
+
+    // Print all three tx results
+    println!("David TX Result: {:?}", david_tx_result);
+    println!("Alice TX Result: {:?}", alice_tx_result);
+    println!("Bob TX Result: {:?}", bob_tx_result);
+
+    // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
+    // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
+
+    // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+}
+
 pub fn get_stacking_state_pox_4(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -5685,4 +6043,898 @@ fn no_lockups_2_5() {
             eprintln!("{:?}", b.reward_set_data)
         }
     }
+}
+
+// Helper struct to hold information about stackers and signers
+#[derive(Debug, Clone)]
+struct StackerSignerInfo {
+    private_key: StacksPrivateKey,
+    public_key: StacksPublicKey,
+    principal: PrincipalData,
+    address: StacksAddress,
+    pox_address: PoxAddress,
+    nonce: u64,
+}
+
+impl StackerSignerInfo {
+    fn new() -> Self {
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let address = key_to_stacks_addr(&private_key);
+        let pox_address =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes.clone());
+        let principal = PrincipalData::from(address.clone());
+        let nonce = 0;
+        Self {
+            private_key,
+            public_key,
+            address,
+            principal,
+            pox_address,
+            nonce,
+        }
+    }
+}
+
+/// Helper function to advance to a specific block height with the passed txs as the first in the block
+/// Returns a tuple of the tip and the observed block that should contain the provided txs
+fn advance_to_block_height(
+    peer: &mut TestPeer,
+    observer: &TestEventObserver,
+    txs: &[StacksTransaction],
+    peer_nonce: &mut usize,
+    target_height: u64,
+) -> (StacksBlockId, TestEventObserverBlock) {
+    let mut tx_block = None;
+    let mut latest_block = None;
+    let mut passed_txs = txs;
+    while peer.get_burn_block_height() < target_height {
+        latest_block = Some(peer.tenure_with_txs(&passed_txs, peer_nonce));
+        passed_txs = &[];
+        if tx_block.is_none() {
+            tx_block = Some(observer.get_blocks().last().unwrap().clone());
+        }
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let tx_block = tx_block.expect("Failed to get tx block");
+    (latest_block, tx_block)
+}
+// In this scenario, two service signers (Alice, Bob), one stacker-signer (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank, Grace, Heidi, Ivan, Judy, Mallory).
+
+// First Nakamoto Reward Cycle
+// First Nakamoto Tenure
+
+// 1. Franks stacks for 1 reward cycle, Grace stacks for 2 reward cycles & so on…Mallory stacks for 6 reward cycles: (so 6 wallets stacking n, n+1, n+2… cycles)
+// 2. Dave asks Alice for 3 signatures
+// 3. Eve asks Bob for 3 set-authorizations
+// 4. Ivan - Mallory ask Bob to set-approval-authorization
+// 5. Carl stx-stacks & self-signs for 2 reward cycle
+// 6. In Carl's second reward cycle, he calls stx-extend for 2 more reward cycles
+// 7. In Carl's third reward cycle, he calls stx-increase and should fail as he is straddling 2 keys
+#[test]
+fn test_scenario_five() {
+    // Alice service signer setup
+    let mut alice = StackerSignerInfo::new();
+    // Bob service signer setup
+    let mut bob = StackerSignerInfo::new();
+    // Carl solo stacker and signer setup
+    let mut carl = StackerSignerInfo::new();
+    // David stacking pool operator (delegating signing to Alice) Setup
+    let mut david = StackerSignerInfo::new();
+    // Eve stacking pool operator (delegating signing to Bob) Setup
+    let mut eve = StackerSignerInfo::new();
+    // Frank pool stacker delegating STX to David
+    let mut frank = StackerSignerInfo::new();
+    // Grace pool stacker delegating STX to David
+    let mut grace = StackerSignerInfo::new();
+    // Heidi pool stacker delegating STX to David
+    let mut heidi = StackerSignerInfo::new();
+    // Ivan pool stacker delegating STX to Eve
+    let mut ivan = StackerSignerInfo::new();
+    // Jude pool stacker delegating STX to Eve
+    let mut jude = StackerSignerInfo::new();
+    // Mallory pool stacker delegating STX to Eve
+    let mut mallory = StackerSignerInfo::new();
+    debug!("alice info: {alice:?}");
+    debug!("bob info: {bob:?}");
+    debug!("carl info: {carl:?}");
+    debug!("david info: {david:?}");
+    debug!("eve info: {eve:?}");
+    debug!("frank info: {frank:?}");
+    debug!("grace info: {grace:?}");
+    debug!("heidi info: {heidi:?}");
+    debug!("ivan info: {ivan:?}");
+    debug!("jude info: {jude:?}");
+
+    let default_initial_balances = 1_000_000_000_000_000_000;
+    let observer = TestEventObserver::new();
+    let mut test_signers = TestSigners::default();
+    let mut initial_balances = vec![
+        (alice.principal.clone(), default_initial_balances),
+        (bob.principal.clone(), default_initial_balances),
+        (carl.principal.clone(), default_initial_balances),
+        (david.principal.clone(), default_initial_balances),
+        (eve.principal.clone(), default_initial_balances),
+        (frank.principal.clone(), default_initial_balances),
+        (grace.principal.clone(), default_initial_balances),
+        (heidi.principal.clone(), default_initial_balances),
+        (ivan.principal.clone(), default_initial_balances),
+        (jude.principal.clone(), default_initial_balances),
+        (mallory.principal.clone(), default_initial_balances),
+    ];
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let epochs = peer_config.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    debug!(
+        "Epoch 3.0 start burn block height: {}",
+        epoch_3.start_height
+    );
+
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer_nonce = 0;
+
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
+    // Advance into pox4
+    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut latest_block = None;
+    // produce blocks until the first reward phase that everyone should be in
+    debug!("Advancing to pox 4 activation height: {target_height}");
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+        observer.get_blocks();
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    let burn_block_height = peer.get_burn_block_height();
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    debug!("Test info:";
+        "reward_cycle" => reward_cycle,
+        "burn_block_height" => burn_block_height,
+        "min_ustx" => min_ustx,
+    );
+
+    // Lock periods for each stacker
+    let carl_lock_period = 2;
+    let frank_lock_period = 1;
+    let grace_lock_period = 2;
+    let heidi_lock_period = 3;
+    let ivan_lock_period = 4;
+    let jude_lock_period = 5;
+    let mallory_lock_period = 6;
+
+    let carl_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(carl_lock_period) as u64)
+        as u128;
+    let frank_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(frank_lock_period) as u64)
+        as u128;
+    let grace_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(grace_lock_period) as u64)
+        as u128;
+    let heidi_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(heidi_lock_period) as u64)
+        as u128;
+    let ivan_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(ivan_lock_period) as u64)
+        as u128;
+    let jude_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(jude_lock_period) as u64)
+        as u128;
+    let mallory_end_burn_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(mallory_lock_period) as u64)
+        as u128;
+
+    // The pool operators should delegate their signing power for as long as their longest stacker
+    let david_lock_period = heidi_lock_period;
+    let eve_lock_period = mallory_lock_period;
+
+    let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
+    let carl_signature_for_carl = make_signer_key_signature(
+        &carl.pox_address,
+        &carl.private_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        carl_lock_period,
+        u128::MAX,
+        1,
+    );
+    let carl_stack_tx = make_pox_4_lockup(
+        &carl.private_key,
+        carl.nonce,
+        amount,
+        &carl.pox_address,
+        carl_lock_period,
+        &carl.public_key,
+        burn_block_height,
+        Some(carl_signature_for_carl),
+        u128::MAX,
+        1,
+    );
+    carl.nonce += 1;
+
+    // Frank pool stacker delegating STX to David
+    let frank_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &frank.private_key,
+        frank.nonce,
+        amount,
+        david.principal.clone(),
+        Some(frank_end_burn_height),
+        Some(david.pox_address.clone()),
+    );
+    frank.nonce += 1;
+
+    // Grace pool stacker delegating STX to David
+    let grace_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &grace.private_key,
+        grace.nonce,
+        amount,
+        david.principal.clone(),
+        Some(grace_end_burn_height),
+        Some(david.pox_address.clone()),
+    );
+    grace.nonce += 1;
+
+    // Heidi pool stacker delegating STX to David
+    let heidi_delegate_stx_to_david_tx = make_pox_4_delegate_stx(
+        &heidi.private_key,
+        heidi.nonce,
+        amount,
+        david.principal.clone(),
+        Some(heidi_end_burn_height),
+        Some(david.pox_address.clone()),
+    );
+    heidi.nonce += 1;
+
+    // Ivan pool stacker delegating STX to Eve
+    let ivan_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &ivan.private_key,
+        ivan.nonce,
+        amount,
+        eve.principal.clone(),
+        Some(ivan_end_burn_height),
+        Some(eve.pox_address.clone()),
+    );
+    ivan.nonce += 1;
+
+    // Jude pool stacker delegating STX to Eve
+    let jude_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &jude.private_key,
+        jude.nonce,
+        amount,
+        eve.principal.clone(),
+        Some(jude_end_burn_height),
+        Some(eve.pox_address.clone()),
+    );
+    jude.nonce += 1;
+
+    // Mallory pool stacker delegating STX to Eve
+    let mallory_delegate_stx_to_eve_tx = make_pox_4_delegate_stx(
+        &mallory.private_key,
+        mallory.nonce,
+        amount,
+        eve.principal.clone(),
+        Some(mallory_end_burn_height),
+        Some(eve.pox_address.clone()),
+    );
+    mallory.nonce += 1;
+
+    let davids_stackers = &[
+        (frank.clone(), frank_lock_period),
+        (grace.clone(), grace_lock_period),
+        (heidi.clone(), heidi_lock_period),
+    ];
+    let eves_stackers = &[
+        (ivan.clone(), ivan_lock_period),
+        (jude.clone(), jude_lock_period),
+        (mallory.clone(), mallory_lock_period),
+    ];
+    let davids_delegate_stack_stx_txs: Vec<_> = davids_stackers
+        .iter()
+        .map(|(stacker, lock_period)| {
+            let tx = make_pox_4_delegate_stack_stx(
+                &david.private_key,
+                david.nonce,
+                stacker.principal.clone(),
+                amount,
+                david.pox_address.clone(),
+                burn_block_height as u128,
+                *lock_period,
+            );
+            david.nonce += 1;
+            tx
+        })
+        .collect();
+
+    let eves_delegate_stack_stx_txs: Vec<_> = eves_stackers
+        .iter()
+        .map(|(stacker, lock_period)| {
+            let tx = make_pox_4_delegate_stack_stx(
+                &eve.private_key,
+                eve.nonce,
+                stacker.principal.clone(),
+                amount,
+                eve.pox_address.clone(),
+                burn_block_height as u128,
+                *lock_period, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
+            );
+            eve.nonce += 1;
+            tx
+        })
+        .collect();
+
+    let alice_authorization_for_david = make_signer_key_signature(
+        &david.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        1,
+    );
+
+    let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &david.private_key,
+        david.nonce,
+        &david.pox_address,
+        next_reward_cycle,
+        Some(alice_authorization_for_david),
+        &alice.public_key,
+        u128::MAX,
+        1,
+    );
+    david.nonce += 1;
+
+    let bob_authorization_for_eve = make_signer_key_signature(
+        &eve.pox_address,
+        &bob.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        1,
+    );
+
+    let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &eve.private_key,
+        eve.nonce,
+        &eve.pox_address,
+        next_reward_cycle,
+        Some(bob_authorization_for_eve),
+        &bob.public_key,
+        u128::MAX,
+        1,
+    );
+    eve.nonce += 1;
+
+    let mut txs = vec![
+        frank_delegate_stx_to_david_tx,
+        grace_delegate_stx_to_david_tx,
+        heidi_delegate_stx_to_david_tx,
+        ivan_delegate_stx_to_eve_tx,
+        jude_delegate_stx_to_eve_tx,
+        mallory_delegate_stx_to_eve_tx,
+        carl_stack_tx,
+    ];
+    txs.extend(davids_delegate_stack_stx_txs);
+    txs.extend(eves_delegate_stack_stx_txs);
+    txs.extend(vec![
+        davids_aggregate_commit_index_tx,
+        eves_aggregate_commit_index_tx,
+    ]);
+
+    // Advance to reward set calculation of the next reward cycle
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    info!("Advancing to reward set calculaton of cycle {next_reward_cycle} burn block height {target_height}");
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    for (stacker, stacker_lock_period) in davids_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, next_reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
+    }
+
+    for (stacker, stacker_lock_period) in eves_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, next_reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
+    }
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
+    assert_eq!(lock_period, carl_lock_period);
+
+    // Verify stacker transactions
+    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in tx_block.receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
+    }
+
+    for tx in &txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find stacking transaction ({txid}) in observed transactions")
+        }
+    }
+
+    let cycle_id = next_reward_cycle;
+    debug!("Checking signer set for reward cycle {cycle_id}");
+    // create vote txs
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
+    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+
+    let alice_vote = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let bob_vote = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let carl_vote = make_signers_vote_for_aggregate_public_key(
+        &carl.private_key,
+        carl.nonce,
+        carl_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let vote_txs = vec![alice_vote, bob_vote, carl_vote];
+    alice.nonce += 1;
+    bob.nonce += 1;
+    carl.nonce += 1;
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64);
+    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
+    info!(
+        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
+    );
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &vote_txs,
+        &mut peer_nonce,
+        target_height,
+    );
+
+    info!("Verifying signer vote txs");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in tx_block.receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
+    }
+
+    for tx in &vote_txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find vote transaction ({txid}) in observed transactions")
+        }
+    }
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+    assert_eq!(approved_key, test_signers.aggregate_public_key);
+
+    // Stack for following reward cycle again and then advance to epoch 3.0 activation boundary
+    let reward_cycle = peer.get_reward_cycle() as u128;
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    let carl_lock_period = carl_lock_period.wrapping_add(3); // Carl's total lock period is now 5
+    let carl_signature_for_carl = make_signer_key_signature(
+        &carl.pox_address,
+        &carl.private_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackExtend,
+        3,
+        u128::MAX,
+        2,
+    );
+    let carl_extend_tx = make_pox_4_extend(
+        &carl.private_key,
+        carl.nonce,
+        carl.pox_address.clone(),
+        3,
+        carl.public_key,
+        Some(carl_signature_for_carl),
+        u128::MAX,
+        2,
+    );
+    carl.nonce += 1;
+    let alice_authorization_for_david = make_signer_key_signature(
+        &david.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        2,
+    );
+
+    let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &david.private_key,
+        david.nonce,
+        &david.pox_address,
+        next_reward_cycle,
+        Some(alice_authorization_for_david),
+        &alice.public_key,
+        u128::MAX,
+        2,
+    );
+    david.nonce += 1;
+
+    let bob_authorization_for_eve = make_signer_key_signature(
+        &eve.pox_address,
+        &bob.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        2,
+    );
+
+    let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &eve.private_key,
+        eve.nonce,
+        &eve.pox_address,
+        next_reward_cycle,
+        Some(bob_authorization_for_eve),
+        &bob.public_key,
+        u128::MAX,
+        2,
+    );
+    eve.nonce += 1;
+
+    let txs = vec![
+        carl_extend_tx,
+        davids_aggregate_commit_index_tx,
+        eves_aggregate_commit_index_tx,
+    ];
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
+    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    for (stacker, stacker_lock_period) in davids_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
+    }
+
+    for (stacker, stacker_lock_period) in eves_stackers {
+        let (pox_address, first_reward_cycle, lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+        assert_eq!(lock_period, *stacker_lock_period);
+    }
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
+    assert_eq!(lock_period, carl_lock_period);
+
+    // Verify stacker transactions
+    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in tx_block.receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
+    }
+
+    for tx in &txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find stacking transaction ({txid}) in observed transactions")
+        }
+    }
+
+    let cycle_id = next_reward_cycle;
+    debug!("Checking signer set for reward cycle {cycle_id}");
+    // create vote txs
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
+    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+
+    test_signers.generate_aggregate_key(cycle_id as u64);
+    let alice_vote = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let bob_vote = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let carl_vote = make_signers_vote_for_aggregate_public_key(
+        &carl.private_key,
+        carl.nonce,
+        carl_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let vote_txs = vec![alice_vote, bob_vote, carl_vote];
+    alice.nonce += 1;
+    bob.nonce += 1;
+    carl.nonce += 1;
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64);
+    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
+    info!(
+        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
+    );
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &vote_txs,
+        &mut peer_nonce,
+        target_height,
+    );
+
+    info!("Verifying signer vote txs");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in tx_block.receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
+    }
+
+    for tx in &vote_txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find vote transaction ({txid}) in observed transactions")
+        }
+    }
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+    assert_eq!(approved_key, test_signers.aggregate_public_key);
+
+    // Let us start stacking for the following reward cycle
+    let current_reward_cycle = peer.get_reward_cycle() as u128;
+    let next_reward_cycle = current_reward_cycle.wrapping_add(1);
+
+    let alice_authorization_for_david = make_signer_key_signature(
+        &david.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        3,
+    );
+
+    let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &david.private_key,
+        david.nonce,
+        &david.pox_address,
+        next_reward_cycle,
+        Some(alice_authorization_for_david),
+        &alice.public_key,
+        u128::MAX,
+        3,
+    );
+    david.nonce += 1;
+
+    let bob_authorization_for_eve = make_signer_key_signature(
+        &eve.pox_address,
+        &bob.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        1,
+        u128::MAX,
+        3,
+    );
+
+    let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &eve.private_key,
+        eve.nonce,
+        &eve.pox_address,
+        next_reward_cycle,
+        Some(bob_authorization_for_eve),
+        &bob.public_key,
+        u128::MAX,
+        3,
+    );
+    eve.nonce += 1;
+
+    // Carl attempts a stx-increase using Alice's key instead of his own
+    // Should fail as he already has delegated his signing power to himself
+    let alice_signature_for_carl = make_signer_key_signature(
+        &alice.pox_address,
+        &alice.private_key,
+        current_reward_cycle,
+        &Pox4SignatureTopic::StackIncrease,
+        carl_lock_period.wrapping_sub(1),
+        u128::MAX,
+        4,
+    );
+
+    let carl_increase_tx = make_pox_4_stack_increase(
+        &carl.private_key,
+        carl.nonce,
+        amount,
+        &carl.public_key,
+        Some(alice_signature_for_carl),
+        u128::MAX,
+        4,
+    );
+    carl.nonce += 1;
+
+    let txs = vec![
+        carl_increase_tx,
+        davids_aggregate_commit_index_tx,
+        eves_aggregate_commit_index_tx,
+    ];
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    // This assertion just makes testing logic a bit easier
+    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
+    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
+    let davids_stackers = &[
+        (grace.clone(), grace_lock_period),
+        (heidi.clone(), heidi_lock_period),
+    ];
+
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    for (stacker, _) in davids_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, david.pox_address);
+    }
+    // Frank should no longer be considered a stacker as his lock period has expired
+    assert!(get_stacker_info_pox_4(&mut peer, &frank.principal).is_none());
+
+    for (stacker, _) in eves_stackers {
+        let (pox_address, first_reward_cycle, _lock_period, _indices) =
+            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+        assert_eq!(first_reward_cycle, reward_cycle);
+        assert_eq!(pox_address, eve.pox_address);
+    }
+
+    let (pox_address, first_reward_cycle, _lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, reward_cycle);
+    assert_eq!(pox_address, carl.pox_address);
+
+    // Verify stacker transactions
+    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
+    let mut observed_txs = HashSet::new();
+    for tx_receipt in tx_block.receipts {
+        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+            observed_txs.insert(tx.txid());
+        }
+    }
+
+    for tx in &txs {
+        let txid = tx.txid();
+        if !observed_txs.contains(&txid) {
+            panic!("Failed to find stacking transaction ({txid}) in observed transactions")
+        }
+    }
+
+    // TOOD: VERIFY THAT THE STACK INCREASE FAILED!
+
+    // TODO: Mine another reward cycle
+
+    // TODO: GET CONFIRMED STACKING SET get-stacker-info
+    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Frank, Grace, Heidi, AND David)
+    // Confirm that his stacked amount has not increased
+    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob)
+    // Will have to add up delegated weight from each pool for Alice and for bob.
+
+    // TODO: Mine another reward cycle
+
+    // TODO: GET CONFIRMED STACKING SET get-stacker-info
+    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Carl, Frank, Grace, Heidi, David, AND Ivan)
+    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob but no longer Carl each with the appropriate weight)
+    // Will have to add up delegated weight from each pool for Alice and for bob.
+
+    // TODO: Mine another reward cycle
+
+    // TODO: GET CONFIRMED STACKING SET get-stacker-info
+    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Carl, Frank, Grace, Heidi, David, Ivan, Jude)
+    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob but no longer Carl each with the appropriate weight)
+    // Will have to add up delegated weight from each pool for Alice and for bob.
+
+    // TODO: Mine another reward cycle
+
+    // TODO: GET CONFIRMED STACKING SET get-stacker-info should be empty
+    // TODO: GET REGISTERED SIGNER SET get-signers should be empty
 }

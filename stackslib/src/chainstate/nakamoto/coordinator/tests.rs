@@ -42,6 +42,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
 use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,

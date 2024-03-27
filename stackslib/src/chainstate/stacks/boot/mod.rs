@@ -780,6 +780,11 @@ impl StacksChainState {
             ..
         }) = addresses.pop()
         {
+            debug!(
+                "Processing reward set entry";
+                "reward_address" => %address,
+                "stacked_amt" => stacked_amt,
+            );
             let mut contributed_stackers = vec![];
             if let Some(stacker) = stacker.as_ref() {
                 contributed_stackers.push((stacker.clone(), stacked_amt));
@@ -792,6 +797,15 @@ impl StacksChainState {
             //  vector are sorted by address, we know that any entry
             //  with the same `reward_address` as `address` will be at the end of
             //  the list (and therefore found by this loop)
+            println!(
+                "SOME ADDRESS {:?}",
+                addresses.last().map(|x| {
+                    match &x.reward_address {
+                        PoxAddress::Standard(address, _) => address.to_string(),
+                        _ => panic!("Not making sense"),
+                    }
+                })
+            );
             while addresses.last().map(|x| &x.reward_address) == Some(&address) {
                 let next_contrib = addresses
                     .pop()
@@ -805,6 +819,7 @@ impl StacksChainState {
                 stacked_amt = stacked_amt
                     .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
+                debug!("New Stacked Amount: {stacked_amt}");
             }
             let slots_taken = u32::try_from(stacked_amt / threshold)
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
@@ -1371,6 +1386,7 @@ pub mod test {
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_common::util::*;
 
+    use self::signers_tests::readonly_call;
     use super::*;
     use crate::burnchains::{Address, PublicKey};
     use crate::chainstate::burn::db::sortdb::*;
@@ -1728,6 +1744,63 @@ pub mod test {
         }
     }
 
+    pub fn get_stacker_info_pox_4(
+        peer: &mut TestPeer,
+        addr: &PrincipalData,
+    ) -> Option<(PoxAddress, u128, u128, Vec<u128>)> {
+        let value_opt = eval_at_tip(
+            peer,
+            "pox-4",
+            &format!("(get-stacker-info '{})", addr.to_string()),
+        );
+        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
+            d
+        } else {
+            return None;
+        };
+        // { pox-addr: pox-addr,
+        //   first-reward-cycle: first-reward-cycle,
+        //   reward-set-indexes: (list),
+        //   lock-period: lock-period,
+        //   delegated-to: (some tx-sender) }
+
+        let data = data.expect_tuple().unwrap();
+        let pox_addr = tuple_to_pox_addr(
+            data.get("pox-addr")
+                .unwrap()
+                .to_owned()
+                .expect_tuple()
+                .unwrap(),
+        );
+        let first_reward_cycle = data
+            .get("first-reward-cycle")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let lock_period = data
+            .get("lock-period")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let reward_set_indices = data
+            .get("reward-set-indexes")
+            .unwrap()
+            .to_owned()
+            .expect_list()
+            .unwrap()
+            .iter()
+            .map(|v| v.to_owned().expect_u128().unwrap())
+            .collect();
+        Some((
+            pox_addr,
+            first_reward_cycle,
+            lock_period,
+            reward_set_indices,
+        ))
+    }
+
     pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
@@ -1985,6 +2058,27 @@ pub mod test {
         .unwrap();
         // TODO set tx_fee back to 0 once these txs are free
         make_tx(key, nonce, 1, payload)
+    }
+
+    pub fn get_approved_aggregate_key(
+        peer: &mut TestPeer<'_>,
+        latest_block_id: StacksBlockId,
+        reward_cycle: u128,
+    ) -> Option<Point> {
+        let key_opt = readonly_call(
+            peer,
+            &latest_block_id,
+            SIGNERS_VOTING_NAME.into(),
+            "get-approved-aggregate-key".into(),
+            vec![Value::UInt(reward_cycle)],
+        )
+        .expect_optional()
+        .unwrap();
+        key_opt.map(|key_value| {
+            let data = key_value.expect_buff(33).unwrap();
+            let compressed_data = Compressed::try_from(data.as_slice()).unwrap();
+            Point::try_from(&compressed_data).unwrap()
+        })
     }
 
     pub fn make_pox_2_increase(
