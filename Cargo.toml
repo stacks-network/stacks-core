@@ -13,8 +13,8 @@ members = [
     "testnet/stacks-node"]
 
 # Dependencies we want to keep the same between workspace members
-[workspace.dependencies]  
-ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] } 
+[workspace.dependencies]
+ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] }
 hashbrown = "0.14.3"
 rand_core = "0.6"
 rand = "0.8"
@@ -38,3 +38,9 @@ opt-level = 3
 debug = true
 codegen-units = 1
 lto = "fat"
+
+# Release build with less LTO
+# Useful for faster builds or low-RAM environments
+[profile.release-lite]
+inherits = "release"
+lto = "thin"
