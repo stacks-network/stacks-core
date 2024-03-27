@@ -1,4 +1,10 @@
-import { PoxCommand, Real, Stub, Wallet, logCommand } from "./pox_CommandModel.ts";
+import {
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl, someCV, tupleCV } from "@stacks/transactions";
