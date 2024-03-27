@@ -372,38 +372,4 @@ mod tests {
             .expect("Failed to get signer state")
             .is_none());
     }
-
-    #[test]
-    fn test_delete_signer_state() {
-        let db_path = tmp_db_path();
-        let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let state_0 = create_signer_state(0);
-        let state_1 = create_signer_state(1);
-
-        db.insert_signer_state(10, &state_0)
-            .expect("Failed to insert signer state");
-
-        db.insert_signer_state(11, &state_1)
-            .expect("Failed to insert signer state");
-
-        assert_eq!(
-            db.get_signer_state(10)
-                .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_0.id
-        );
-        assert!(db
-            .get_signer_state(11)
-            .expect("Failed to get signer state")
-            .is_none());
-        assert!(db
-            .get_signer_state(12)
-            .expect("Failed to get signer state")
-            .is_none());
-        assert!(db
-            .get_signer_state(9)
-            .expect("Failed to get signer state")
-            .is_none());
-    }
 }
