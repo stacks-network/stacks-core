@@ -2412,6 +2412,9 @@ impl<
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
     /// unavailability of a PoX anchor block that *must now* exist, then return the hash of this
     /// anchor block.
+    /// TODO: #4587,create default for BlockHeaderHash, then check if mutation tests are caught for these cases:
+    /// Ok(Some(Default::default))
+    #[cfg_attr(test,mutants::skip)]
     pub fn handle_new_epoch2_burnchain_block(
         &mut self,
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
