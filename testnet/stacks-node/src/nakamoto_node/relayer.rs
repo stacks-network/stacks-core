@@ -210,7 +210,7 @@ impl RelayerThread {
 
             miner_thread: None,
             is_miner,
-            next_initiative: Instant::now() + Duration::from_secs(10),
+            next_initiative: Instant::now() + Duration::from_secs(4),
             last_committed: None,
         }
     }
@@ -804,10 +804,10 @@ impl RelayerThread {
     pub fn main(mut self, relay_rcv: Receiver<RelayerDirective>) {
         debug!("relayer thread ID is {:?}", std::thread::current().id());
 
-        self.next_initiative = Instant::now() + Duration::from_secs(10);
+        self.next_initiative = Instant::now() + Duration::from_secs(4);
         while self.globals.keep_running() {
             let directive = if Instant::now() >= self.next_initiative {
-                self.next_initiative = Instant::now() + Duration::from_secs(10);
+                self.next_initiative = Instant::now() + Duration::from_secs(4);
                 self.initiative()
             } else {
                 None
