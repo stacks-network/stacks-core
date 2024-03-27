@@ -4,8 +4,6 @@ ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 
-RUN apt update && apt-get install -y libclang-dev
-
 WORKDIR /src
 
 COPY . .
