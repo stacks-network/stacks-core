@@ -44,8 +44,9 @@ use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{
     Config as CoordinatorConfig, Coordinator, State as CoordinatorState,
 };
-use wsts::state_machine::signer::Signer as WSTSSigner;
+use wsts::state_machine::signer::Signer as SignerStateMachine;
 use wsts::state_machine::{OperationResult, SignError};
+use wsts::traits::Signer as _;
 use wsts::v2;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
@@ -137,7 +138,7 @@ pub struct Signer {
     /// The coordinator for inbound messages for a specific reward cycle
     pub coordinator: FireCoordinator<v2::Aggregator>,
     /// The signing round used to sign messages for a specific reward cycle
-    pub signing_round: WSTSSigner<v2::Signer>,
+    pub state_machine: SignerStateMachine<v2::Signer>,
     /// the state of the signer
     pub state: State,
     /// Received Commands that need to be processed
@@ -243,17 +244,8 @@ impl From<SignerConfig> for Signer {
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
-        let signing_round = WSTSSigner::new(
-            threshold,
-            num_signers,
-            num_keys,
-            signer_config.signer_id,
-            signer_config.key_ids,
-            signer_config.ecdsa_private_key,
-            signer_config.signer_entries.public_keys.clone(),
-        );
         let coordinator_selector =
-            CoordinatorSelector::from(signer_config.signer_entries.public_keys);
+            CoordinatorSelector::from(signer_config.signer_entries.public_keys.clone());
 
         debug!(
             "Reward cycle #{} Signer #{}: initial coordinator is signer {}",
@@ -263,9 +255,31 @@ impl From<SignerConfig> for Signer {
         );
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
+
+        let mut state_machine = SignerStateMachine::new(
+            threshold,
+            num_signers,
+            num_keys,
+            signer_config.signer_id,
+            signer_config.key_ids,
+            signer_config.ecdsa_private_key,
+            signer_config.signer_entries.public_keys,
+        );
+
+        if let Some(state) = signer_db
+            .get_signer_state(signer_config.reward_cycle)
+            .expect("Failed to load signer state")
+        {
+            debug!(
+                "Reward cycle #{} Signer #{}: Loading signer",
+                signer_config.reward_cycle, signer_config.signer_id
+            );
+            state_machine.signer = v2::Signer::load(&state);
+        }
+
         Self {
             coordinator,
-            signing_round,
+            state_machine,
             state: State::Idle,
             commands: VecDeque::new(),
             stackerdb,
@@ -639,7 +653,7 @@ impl Signer {
         current_reward_cycle: u64,
     ) {
         let signer_outbound_messages = self
-            .signing_round
+            .state_machine
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
                 error!("{self}: Failed to process inbound messages as a signer: {e:?}",);
@@ -670,6 +684,9 @@ impl Signer {
             // We have received a message and are in the middle of an operation. Update our state accordingly
             self.update_operation();
         }
+
+        debug!("{self}: Saving signer state");
+        self.save_signer_state();
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
     }
@@ -907,7 +924,7 @@ impl Signer {
         coordinator_public_key: &PublicKey,
     ) -> Option<Packet> {
         // We only care about verified wsts packets. Ignore anything else.
-        if packet.verify(&self.signing_round.public_keys, coordinator_public_key) {
+        if packet.verify(&self.state_machine.public_keys, coordinator_public_key) {
             match &mut packet.msg {
                 Message::SignatureShareRequest(request) => {
                     if !self.validate_signature_share_request(request) {
@@ -1171,6 +1188,18 @@ impl Signer {
         {
             warn!("{self}: Failed to send block rejection submission to stacker-db: {e:?}");
         }
+    }
+
+    /// Persist state needed to ensure the signer can continue to perform
+    /// DKG and participate in signing rounds accross crashes
+    ///
+    /// # Panics
+    /// Panics if the insertion fails
+    fn save_signer_state(&self) {
+        let state = self.state_machine.signer.save();
+        self.signer_db
+            .insert_signer_state(self.reward_cycle, &state)
+            .expect("Failed to persist signer state");
     }
 
     /// Send any operation results across the provided channel
