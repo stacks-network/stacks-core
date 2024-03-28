@@ -1662,6 +1662,7 @@ pub mod test {
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
+    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2312,6 +2313,7 @@ pub mod test {
                 0,
                 &epochs,
                 config.burnchain.pox_constants.clone(),
+                None,
                 true,
             )
             .unwrap();
@@ -3837,6 +3839,159 @@ pub mod test {
                     "Failed to get reward cycle for block height {}",
                     block_height
                 ))
+        }
+
+        /// Verify that the sortition DB migration into Nakamoto worked correctly.
+        /// For now, it's sufficient to check that the `get_last_processed_reward_cycle()` calculation
+        /// works the same across both the original and migration-compatible implementations.
+        pub fn check_nakamoto_migration(&mut self) {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let chainstate = &mut node.chainstate;
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            for height in 0..=tip.block_height {
+                let sns =
+                    SortitionDB::get_all_snapshots_by_burn_height(sortdb.conn(), height).unwrap();
+                for sn in sns {
+                    let ih = sortdb.index_handle(&sn.sortition_id);
+                    let highest_processed_rc = ih.get_last_processed_reward_cycle().unwrap();
+                    let expected_highest_processed_rc =
+                        ih.legacy_get_last_processed_reward_cycle().unwrap();
+                    assert_eq!(
+                        highest_processed_rc, expected_highest_processed_rc,
+                        "BUG: at burn height {} the highest-processed reward cycles diverge",
+                        height
+                    );
+                }
+            }
+            let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+            let epoch_3_idx =
+                StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
+            let epoch_3 = epochs[epoch_3_idx].clone();
+
+            // see that we can reconstruct the canonical chain tips for epoch 2.5 and earlier
+            // NOTE: the migration logic DOES NOT WORK and IS NOT MEANT TO WORK with Nakamoto blocks,
+            // so test this only with epoch 2 blocks before the epoch2-3 transition.
+            let epoch2_sns: Vec<_> = sortdb
+                .get_all_snapshots()
+                .unwrap()
+                .into_iter()
+                .filter(|sn| sn.block_height + 1 < epoch_3.start_height)
+                .collect();
+
+            let epoch2_chs: HashSet<_> = epoch2_sns
+                .iter()
+                .map(|sn| sn.consensus_hash.clone())
+                .collect();
+
+            let expected_epoch2_chain_tips: Vec<_> = sortdb
+                .get_all_stacks_chain_tips()
+                .unwrap()
+                .into_iter()
+                .filter(|tip| epoch2_chs.contains(&tip.1))
+                .collect();
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute(
+                "CREATE TABLE stacks_chain_tips_backup AS SELECT * FROM stacks_chain_tips;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.execute("DELETE FROM stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
+            tx.commit().unwrap();
+
+            // NOTE: this considers each and every snapshot, but we only care about epoch2.x
+            sortdb.apply_schema_8_stacks_chain_tips(&tip).unwrap();
+            let migrated_epoch2_chain_tips: Vec<_> = sortdb
+                .get_all_stacks_chain_tips()
+                .unwrap()
+                .into_iter()
+                .filter(|tip| epoch2_chs.contains(&tip.1))
+                .collect();
+
+            // what matters is that the last tip is the same, and that each sortition has a chain tip.
+            // depending on block arrival order, different sortitions might have witnessed different
+            // stacks blocks as their chain tips, however.
+            assert_eq!(
+                migrated_epoch2_chain_tips.last().unwrap(),
+                expected_epoch2_chain_tips.last().unwrap()
+            );
+            assert_eq!(
+                migrated_epoch2_chain_tips.len(),
+                expected_epoch2_chain_tips.len()
+            );
+
+            // restore
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("DROP TABLE stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
+            tx.execute(
+                "ALTER TABLE stacks_chain_tips_backup RENAME TO stacks_chain_tips;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            // see that we calculate all the prior reward set infos
+            let mut expected_epoch2_reward_sets: Vec<_> =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn())
+                    .unwrap()
+                    .into_iter()
+                    .filter(|(sort_id, rc_info)| {
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                            .unwrap()
+                            .unwrap();
+                        sn.block_height < epoch_3.start_height
+                    })
+                    .collect();
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", NO_PARAMS).unwrap();
+            tx.execute("DELETE FROM preprocessed_reward_sets;", NO_PARAMS)
+                .unwrap();
+            tx.commit().unwrap();
+
+            let migrator = SortitionDBMigrator::new(
+                self.config.burnchain.clone(),
+                &self.chainstate_path,
+                None,
+            )
+            .unwrap();
+            sortdb
+                .apply_schema_8_preprocessed_reward_sets(&tip, migrator)
+                .unwrap();
+
+            let mut migrated_epoch2_reward_sets: Vec<_> =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn())
+                    .unwrap()
+                    .into_iter()
+                    .filter(|(sort_id, rc_info)| {
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                            .unwrap()
+                            .unwrap();
+                        sn.block_height < epoch_3.start_height
+                    })
+                    .collect();
+
+            expected_epoch2_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+            migrated_epoch2_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+
+            assert_eq!(expected_epoch2_reward_sets, migrated_epoch2_reward_sets);
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("DROP TABLE preprocessed_reward_sets;", NO_PARAMS)
+                .unwrap();
+            tx.execute(
+                "ALTER TABLE preprocessed_reward_sets_backup RENAME TO preprocessed_reward_sets;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
         }
     }
 
