@@ -258,11 +258,11 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Point>, ClientError> {
         let function_name = ClarityName::from("get-approved-aggregate-key");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
+        let voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
+            &voting_contract_id.issuer.into(),
+            &voting_contract_id.name,
             &function_name,
             function_args,
         )?;

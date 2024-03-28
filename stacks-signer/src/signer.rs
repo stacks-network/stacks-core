@@ -1268,7 +1268,7 @@ impl Signer {
             let Some(round_weight) = stacks_client
                 .get_round_vote_weight(self.reward_cycle, self.coordinator.current_dkg_id)?
             else {
-                // This only will happen if soemhow we registered as a signer and were granted no weight which should not really ever happen.
+                // This only will happen if somehow we registered as a signer and were granted no weight which should not really ever happen.
                 error!("{self}: already voted for DKG, but no round vote weight found. We either have no voting power or the contract is corrupted.";
                     "voting_round" => self.coordinator.current_dkg_id,
                     "aggregate_key" => %aggregate_key
