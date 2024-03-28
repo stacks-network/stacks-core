@@ -323,11 +323,10 @@ fn parse_network(network: &str) -> Result<Network, String> {
 
 #[cfg(test)]
 mod tests {
-    use blockstack_lib::{
-        chainstate::stacks::address::{PoxAddressType20, PoxAddressType32},
-        util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash,
-    };
-    use clarity::{consts::CHAIN_ID_TESTNET, util::hash::Sha256Sum};
+    use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
+    use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash;
+    use clarity::consts::CHAIN_ID_TESTNET;
+    use clarity::util::hash::Sha256Sum;
 
     use super::*;
 
