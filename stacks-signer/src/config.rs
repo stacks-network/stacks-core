@@ -339,6 +339,7 @@ impl GlobalConfig {
 }
 
 /// Helper function for building a signer config for each provided signer private key
+#[allow(clippy::too_many_arguments)]
 pub fn build_signer_config_tomls(
     stacks_private_keys: &[StacksPrivateKey],
     node_host: &str,
@@ -348,6 +349,7 @@ pub fn build_signer_config_tomls(
     run_stamp: u16,
     mut port_start: usize,
     max_tx_fee_ustx: Option<u64>,
+    tx_fee_ustx: Option<u64>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -393,6 +395,15 @@ max_tx_fee_ustx = {max_tx_fee_ustx}
             )
         }
 
+        if let Some(tx_fee_ustx) = tx_fee_ustx {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+tx_fee_ustx = {tx_fee_ustx}
+"#
+            )
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
 
@@ -423,11 +434,118 @@ mod tests {
             rand::random(),
             3000,
             None,
+            None,
         );
 
         let config =
             RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
 
         assert_eq!(config.auth_password, "melon");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert!(config.tx_fee_ustx.is_none());
+    }
+
+    #[test]
+    fn fee_options_should_deserialize_correctly() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let node_host = "localhost";
+        let network = Network::Testnet;
+        let password = "melon";
+
+        // Test both max_tx_fee_ustx and tx_fee_ustx are unspecified
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            None,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert!(config.tx_fee_ustx.is_none());
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
+
+        // Test both max_tx_fee_ustx and tx_fee_ustx are specified
+        let max_tx_fee_ustx = Some(1000);
+        let tx_fee_ustx = Some(2000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            max_tx_fee_ustx,
+            tx_fee_ustx,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
+
+        // Test only max_tx_fee_ustx is specified
+        let max_tx_fee_ustx = Some(1000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            max_tx_fee_ustx,
+            None,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert!(config.tx_fee_ustx.is_none());
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
+
+        // Test only tx_fee_ustx is specified
+        let tx_fee_ustx = Some(1000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            tx_fee_ustx,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(Some(config.tx_fee_ustx), tx_fee_ustx);
     }
 }

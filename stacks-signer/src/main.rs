@@ -84,7 +84,6 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 // Spawn a running signer and return its handle, command sender, and result receiver
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
-    let config_str = format!("{:?}", config);
     let endpoint = config.endpoint;
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
@@ -93,7 +92,6 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
         Signer::new(runloop, ev, cmd_recv, res_send);
     let running_signer = signer.spawn(endpoint).unwrap();
-    println!("Signer successfully configured: {config_str}");
     SpawnedSigner {
         running_signer,
         cmd_send,
@@ -296,6 +294,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.password,
         rand::random(),
         3000,
+        None,
         None,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());

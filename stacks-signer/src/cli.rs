@@ -345,7 +345,7 @@ mod tests {
     }
 
     fn clarity_tuple_version(pox_addr: &PoxAddress) -> u8 {
-        pox_addr
+        *pox_addr
             .as_clarity_tuple()
             .expect("Failed to generate clarity tuple for pox address")
             .get("version")
@@ -353,9 +353,8 @@ mod tests {
             .clone()
             .expect_buff(1)
             .expect("Expected version to be a u128")
-            .get(0)
+            .first()
             .expect("Expected version to be a uint")
-            .clone()
     }
 
     #[test]

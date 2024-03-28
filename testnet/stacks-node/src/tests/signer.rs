@@ -121,6 +121,7 @@ impl SignerTest {
             run_stamp,
             3000,
             Some(100_000),
+            None,
         );
 
         let mut running_signers = Vec::new();

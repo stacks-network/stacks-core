@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
-const CREATE_SIGNER_STATE_TABLE: &'static str = "
+const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
     state TEXT NOT NULL
@@ -88,7 +88,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT state FROM signer_states WHERE reward_cycle = ?",
-            &[u64_to_sql(reward_cycle)?],
+            [u64_to_sql(reward_cycle)?],
         )?;
 
         try_deserialize(result)
