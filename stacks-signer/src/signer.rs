@@ -189,8 +189,8 @@ impl Signer {
     /// If the current reward cycle is the active reward cycle, this is the miner,
     /// so the first element of the tuple will be None (because the miner does not have a signer index).
     /// Otherwise, the coordinator is the signer with the index returned by the coordinator selector.
-    fn get_coordinator(&self, current_reward_cycle: Option<u64>) -> (Option<u32>, PublicKey) {
-        if Some(self.reward_cycle) == current_reward_cycle {
+    fn get_coordinator_sign(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
+        if self.reward_cycle == current_reward_cycle {
             let Some(ref cur_miner) = self.miner_key else {
                 error!(
                     "Signer #{}: Could not lookup current miner while in active reward cycle",
@@ -205,6 +205,12 @@ impl Signer {
             let selected = self.coordinator_selector.get_coordinator();
             return (Some(selected.0), selected.1);
         }
+    }
+
+    /// Get the current coordinator for executing DKG
+    /// This will always use the coordinator selector to determine the coordinator
+    fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
+        self.coordinator_selector.get_coordinator()
     }
 }
 
@@ -417,24 +423,34 @@ impl Signer {
         stacks_client: &StacksClient,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(Some(current_reward_cycle)).0;
         match &self.state {
             State::Idle => {
+                let Some(command) = self.commands.pop_front() else {
+                    debug!("{self}: Nothing to process. Waiting for command...");
+                    return;
+                };
+                let coordinator_id = if matches!(command, Command::Dkg) {
+                    // We cannot execute a DKG command if we are not the coordinator
+                    Some(self.get_coordinator_dkg().0)
+                } else {
+                    self.get_coordinator_sign(current_reward_cycle).0
+                };
                 if coordinator_id != Some(self.signer_id) {
                     debug!(
                         "{self}: Coordinator is {coordinator_id:?}. Will not process any commands...",
                     );
+                    // Put the command back in the queue for later processing.
+                    self.commands.push_front(command);
                     return;
                 }
-                if let Some(command) = self.commands.pop_front() {
-                    self.execute_command(stacks_client, &command);
-                } else {
-                    debug!("{self}: Nothing to process. Waiting for command...",);
-                }
+                self.execute_command(stacks_client, &command);
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
+                debug!(
+                    "{self}: Waiting for operation to finish. Coordinator state = {:?}",
+                    self.coordinator.state
+                );
             }
         }
     }
@@ -447,7 +463,6 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(Some(current_reward_cycle)).0;
         let mut block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -519,32 +534,13 @@ impl Signer {
                 sig: vec![],
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
-        } else {
-            if block_info.valid.unwrap_or(false)
-                && !block_info.signed_over
-                && coordinator_id == Some(self.signer_id)
-            {
-                // We are the coordinator. Trigger a signing round for this block
-                debug!(
-                    "{self}: attempt to trigger a signing round for block";
-                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
-                    "block_hash" => %block_info.block.header.block_hash(),
-                );
-                self.commands.push_back(Command::Sign {
-                    block: block_info.block.clone(),
-                    is_taproot: false,
-                    merkle_root: None,
-                });
-            } else {
-                debug!(
-                    "{self}: ignoring block.";
-                    "block_hash" => block_info.block.header.block_hash(),
-                    "valid" => block_info.valid,
-                    "signed_over" => block_info.signed_over,
-                    "coordinator_id" => coordinator_id,
-                );
-            }
         }
+        debug!(
+            "{self}: Received a block validate response";
+            "block_hash" => block_info.block.header.block_hash(),
+            "valid" => block_info.valid,
+            "signed_over" => block_info.signed_over,
+        );
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
@@ -558,7 +554,6 @@ impl Signer {
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
-        let coordinator_pubkey = self.get_coordinator(Some(current_reward_cycle)).1;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -567,6 +562,11 @@ impl Signer {
                 | SignerMessage::Transactions(_) => None,
                 // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {
+                    let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                        self.get_coordinator_dkg().1
+                    } else {
+                        self.get_coordinator_sign(current_reward_cycle).1
+                    };
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
             })
@@ -629,6 +629,19 @@ impl Signer {
                 }
             }
         }
+    }
+
+    /// Helper function for determining if the provided message is a DKG specific message
+    fn is_dkg_message(msg: &Message) -> bool {
+        matches!(
+            msg,
+            Message::DkgBegin(_)
+                | Message::DkgEnd(_)
+                | Message::DkgEndBegin(_)
+                | Message::DkgPrivateBegin(_)
+                | Message::DkgPrivateShares(_)
+                | Message::DkgPublicShares(_)
+        )
     }
 
     /// Process inbound packets as both a signer and a coordinator
@@ -1228,8 +1241,8 @@ impl Signer {
             }
             return Ok(());
         };
-        let coordinator_id = self.get_coordinator(None).0;
-        if Some(self.signer_id) == coordinator_id && self.state == State::Idle {
+        let coordinator_id = self.get_coordinator_dkg().0;
+        if self.signer_id == coordinator_id && self.state == State::Idle {
             debug!("{self}: Checking if old vote transaction exists in StackerDB...");
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
