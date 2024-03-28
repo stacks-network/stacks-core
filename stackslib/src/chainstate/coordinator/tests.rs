@@ -603,6 +603,7 @@ pub fn get_chainstate(path: &str) -> StacksChainState {
 }
 
 fn make_genesis_block(
+    burnchain: &Burnchain,
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
     parent_block: &BlockHeaderHash,
@@ -612,6 +613,7 @@ fn make_genesis_block(
     key_index: u32,
 ) -> (BlockstackOperationType, StacksBlock) {
     make_genesis_block_with_recipients(
+        burnchain,
         sort_db,
         state,
         parent_block,
@@ -626,6 +628,7 @@ fn make_genesis_block(
 /// build a stacks block with just the coinbase off of
 ///  parent_block, in the canonical sortition fork.
 fn make_genesis_block_with_recipients(
+    burnchain: &Burnchain,
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
     parent_block: &BlockHeaderHash,
@@ -656,6 +659,7 @@ fn make_genesis_block_with_recipients(
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+        burnchain,
         &parent_stacks_header,
         proof.clone(),
         0,
@@ -921,6 +925,7 @@ fn make_stacks_block_with_input(
     let iconn = sort_db.index_conn();
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+        burnchain,
         &parent_stacks_header,
         proof.clone(),
         total_burn,
@@ -1133,6 +1138,7 @@ fn missed_block_commits_2_05() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -1461,6 +1467,7 @@ fn missed_block_commits_2_1() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -1803,6 +1810,7 @@ fn late_block_commits_2_1() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2066,6 +2074,7 @@ fn test_simple_setup() {
 
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2333,6 +2342,7 @@ fn test_sortition_with_reward_set() {
         let b = get_burnchain(path, None);
         let (good_op, mut block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2602,6 +2612,7 @@ fn test_sortition_with_burner_reward_set() {
         let b = get_burnchain(path, None);
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2845,6 +2856,7 @@ fn test_pox_btc_ops() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -3131,6 +3143,7 @@ fn test_stx_transfer_btc_ops() {
         let b = get_burnchain(path, pox_consts.clone());
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -3548,6 +3561,7 @@ fn test_delegate_stx_btc_ops() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -3882,6 +3896,7 @@ fn test_initial_coinbase_reward_distributions() {
             let b = get_burnchain(path, pox_consts.clone());
             let (good_op, block) = if ix == 0 {
                 make_genesis_block_with_recipients(
+                    &b,
                     &sort_db,
                     &mut chainstate,
                     &parent,
@@ -4077,6 +4092,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4280,6 +4296,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4485,6 +4502,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4773,6 +4791,7 @@ fn atlas_stop_start() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5026,6 +5045,7 @@ fn test_epoch_verify_active_pox_contract() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5398,6 +5418,7 @@ fn test_sortition_with_sunset() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5736,6 +5757,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5966,6 +5988,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),
@@ -6251,6 +6274,7 @@ fn test_pox_no_anchor_selected() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),
@@ -6465,6 +6489,7 @@ fn test_pox_fork_out_of_order() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),

@@ -117,7 +117,7 @@ impl StacksClient {
     }
 
     /// Get our signer address
-    pub fn get_signer_address(&self) -> &StacksAddress {
+    pub const fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
     }
 
@@ -145,7 +145,7 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
         debug!("Parsing signer slots...");
-        let value = value.clone().expect_result_ok()?;
+        let value = value.expect_result_ok()?;
         let values = value.expect_list()?;
         let mut signer_slots = Vec::with_capacity(values.len());
         for value in values {
@@ -267,11 +267,10 @@ impl StacksClient {
             function_args,
         )?;
         let inner_data = value.expect_optional()?;
-        if let Some(key_value) = inner_data {
-            self.parse_aggregate_public_key(key_value)
-        } else {
-            Ok(None)
-        }
+        inner_data.map_or_else(
+            || Ok(None),
+            |key_value| self.parse_aggregate_public_key(key_value),
+        )
     }
 
     /// Retrieve the current account nonce for the provided address
@@ -512,9 +511,9 @@ impl StacksClient {
         let path = self.read_only_path(contract_addr, contract_name, function_name);
         let response = self
             .stacks_node_client
-            .post(path.clone())
+            .post(path)
             .header("Content-Type", "application/json")
-            .body(body.clone())
+            .body(body)
             .send()?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
@@ -525,7 +524,7 @@ impl StacksClient {
                 "{function_name}: {}",
                 call_read_only_response
                     .cause
-                    .unwrap_or("unknown".to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
             )));
         }
         let hex = call_read_only_response.result.unwrap_or_default();

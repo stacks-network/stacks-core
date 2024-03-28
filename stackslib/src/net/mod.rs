@@ -3466,6 +3466,7 @@ pub mod test {
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
+            let burnchain = self.config.burnchain.clone();
             let (burn_ops, stacks_block, microblocks) = self.make_tenure(
                 |ref mut miner,
                  ref mut sortdb,
@@ -3480,6 +3481,7 @@ pub mod test {
                     block_txs.extend_from_slice(txs);
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,

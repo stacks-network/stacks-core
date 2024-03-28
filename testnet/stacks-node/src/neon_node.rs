@@ -152,7 +152,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
-use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, PoxConstants, Txid};
+use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
@@ -204,7 +204,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
-    addr2str, BitcoinRegtestController, OngoingBlockCommit,
+    addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
 use crate::chain_data::MinerStats;
@@ -1503,10 +1503,7 @@ impl BlockMinerThread {
             (parent_info, canonical)
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = self.config.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&self.config.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
+            let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
                 &burnchain_params.first_block_hash,
@@ -2315,6 +2312,7 @@ impl BlockMinerThread {
             &coinbase_tx,
             builder_settings,
             Some(&self.event_dispatcher),
+            &self.burnchain,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
@@ -2344,6 +2342,7 @@ impl BlockMinerThread {
                     &coinbase_tx,
                     builder_settings,
                     Some(&self.event_dispatcher),
+                    &self.burnchain,
                 ) {
                     Ok(block) => block,
                     Err(e) => {
