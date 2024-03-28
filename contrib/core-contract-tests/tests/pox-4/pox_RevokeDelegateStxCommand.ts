@@ -75,7 +75,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     wallet.delegatedMaxAmount = 0;
 
     // Remove the Stacker from the Pool Operator's pool members list
-    let walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(
+    const walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(
       wallet.stxAddress,
     );
     expect(walletIndexInDelegatorsList).toBeGreaterThan(-1);
