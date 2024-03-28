@@ -2185,8 +2185,7 @@ impl BlockMinerThread {
         debug!("block miner thread ID is {:?}", thread::current().id());
         fault_injection_long_tenure();
 
-        let burn_db_path = self.config.get_burn_db_file_pa
-        th();
+        let burn_db_path = self.config.get_burn_db_file_path();
         let stacks_chainstate_path = self.config.get_chainstate_path_str();
 
         let cost_estimator = self
