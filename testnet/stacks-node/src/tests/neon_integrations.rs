@@ -12197,6 +12197,8 @@ fn bitcoin_reorg_flap() {
     // stop bitcoind and copy its DB to simulate a chain flap
     btcd_controller.stop_bitcoind().unwrap();
     thread::sleep(Duration::from_secs(5));
+    // kill bitcoind to make sure it's really stopped
+    btcd_controller.kill_bitcoind();
 
     let btcd_dir = conf.get_burnchain_path_str();
     let mut new_conf = conf.clone();
@@ -12223,6 +12225,9 @@ fn bitcoin_reorg_flap() {
     }
 
     btcd_controller.stop_bitcoind().unwrap();
+    thread::sleep(Duration::from_secs(5));
+    // kill bitcoind to make sure it's really stopped
+    btcd_controller.kill_bitcoind();
 
     info!("\n\nBegin reorg flap from A to B\n\n");
 
@@ -12240,6 +12245,9 @@ fn bitcoin_reorg_flap() {
     }
 
     btcd_controller.stop_bitcoind().unwrap();
+    thread::sleep(Duration::from_secs(5));
+    // kill bitcoind to make sure it's really stopped
+    btcd_controller.kill_bitcoind();
 
     info!("\n\nBegin reorg flap from B to A\n\n");
 
