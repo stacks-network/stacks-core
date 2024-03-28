@@ -1,5 +1,4 @@
 import fc from "fast-check";
-import ololog from "ololog";
 
 import { Simnet } from "@hirosystems/clarinet-sdk";
 import { StacksPrivateKey } from "@stacks/transactions";
@@ -49,6 +48,7 @@ export const logCommand = (...items: (string | undefined)[]) => {
   const prettyPrint = renderItems.map((content) =>
     content ? content.padEnd(columnWidth) : "".padEnd(columnWidth)
   );
+  prettyPrint.push("\n");
 
-  ololog.configure({ locate: false })(prettyPrint.join(""));
+  process.stdout.write(prettyPrint.join(""));
 };
