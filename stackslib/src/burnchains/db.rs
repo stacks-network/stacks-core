@@ -944,7 +944,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
     /// TODO: #4587 add tests for `Ok(())` returning case
     /// Or keep the skip and remove the comment
-    #[cfg_attr(test,mutants::skip)]
+    #[cfg_attr(test, mutants::skip)]
     pub fn set_override_affirmation_map(
         &self,
         reward_cycle: u64,

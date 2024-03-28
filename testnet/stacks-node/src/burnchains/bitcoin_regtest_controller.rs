@@ -125,6 +125,10 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
 }
 
+/// TODO: #4587 create default for `BurnchainParameters`, then check if mutation tests are caught for these case:
+/// Default::default()
+/// Or keep the skip and remove the comment
+#[cfg_attr(test, mutants::skip)]
 pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
     let (network, _) = config.get_bitcoin_network();
     let mut params = BurnchainParameters::from_params(&config.chain, &network)
@@ -136,6 +140,10 @@ pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParame
 }
 
 /// Helper method to create a BitcoinIndexer
+/// TODO: #4587 create default for `BitcoinIndexer`, then check if mutation tests are caught for these case:
+/// Default::default()
+/// Or keep the skip and remove the comment
+#[cfg_attr(test, mutants::skip)]
 pub fn make_bitcoin_indexer(
     config: &Config,
     should_keep_running: Option<Arc<AtomicBool>>,
@@ -272,6 +280,10 @@ impl BitcoinRegtestController {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
     }
 
+    /// TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
+    /// Default::default()
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn with_burnchain(
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
@@ -343,6 +355,10 @@ impl BitcoinRegtestController {
 
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
+    /// TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
+    /// Default::default()
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn new_dummy(config: Config) -> Self {
         let burnchain_params = burnchain_params_from_config(&config.burnchain);
 

@@ -778,6 +778,10 @@ impl Config {
         }
     }
 
+    /// TODO: #4587 create default for `StacksEpoch`, then check if mutation tests are caught for these case:
+    /// Ok(vec![Default::default()])
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,

@@ -1461,6 +1461,11 @@ impl BlockMinerThread {
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
+    /// TODO: #4587 create default for `ParentStacksBlockInfo`, then check if mutation tests are caught for these cases:
+    /// (Some(Default::default()), true)
+    /// (Some(Default::default()), false)
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
@@ -2177,8 +2182,8 @@ impl BlockMinerThread {
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
-    /// TODO: #4587 add tests for the cases returning `None`
-    /// TODO: #4587 create default for `MinerThreadResult` to be used for mutation testing, then tests the cases returning it
+    /// TODO: #4587 create default for `MinerThreadResult`, then check if mutation tests are caught for these case:
+    /// Some(Default::default())
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {

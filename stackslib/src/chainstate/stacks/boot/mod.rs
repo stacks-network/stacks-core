@@ -771,7 +771,7 @@ impl StacksChainState {
     ///   are summed.
     /// TODO: #4587 create default for RewardSet , then check if mutation tests are caught for these cases:
     /// Default::default()
-    #[cfg_attr(test,mutants::skip)]
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_reward_set(
         threshold: u128,
         mut addresses: Vec<RawRewardSetEntry>,

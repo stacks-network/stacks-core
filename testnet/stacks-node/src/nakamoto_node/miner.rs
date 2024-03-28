@@ -655,6 +655,10 @@ impl BlockMinerThread {
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
+    /// TODO: #4587 create default for `NakamotoNodeError` and `ParentStacksBlockInfo`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,

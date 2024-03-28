@@ -87,6 +87,7 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
 
+#[cfg_attr(test, mutants::skip)]
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -1322,6 +1323,7 @@ simulating a miner.
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 fn tip_mine() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {

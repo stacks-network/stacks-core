@@ -2414,7 +2414,7 @@ impl<
     /// anchor block.
     /// TODO: #4587,create default for BlockHeaderHash, then check if mutation tests are caught for these cases:
     /// Ok(Some(Default::default))
-    #[cfg_attr(test,mutants::skip)]
+    #[cfg_attr(test, mutants::skip)]
     pub fn handle_new_epoch2_burnchain_block(
         &mut self,
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,

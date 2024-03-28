@@ -2060,7 +2060,8 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for mining
-    /// TODO: #4587 create default for `BlockBuilderSettings`
+    /// TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder(
@@ -2117,6 +2118,10 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for regtest mining
+    /// TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
         stacks_parent_header: &StacksHeaderInfo,
@@ -2398,7 +2403,7 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-    /// TODO: #4587 create default for StacksBlock and ExecutionCost, then check if mutation tests are caught for these cases:
+    /// TODO: #4587 create default for `StacksBlock` and `ExecutionCost`, then check if mutation tests are caught for these cases:
     /// Ok((Default::default(), Default::default(), 1))
     /// Ok((Default::default(), Default::default(), 0))
     /// Or keep the skip and remove the comment
