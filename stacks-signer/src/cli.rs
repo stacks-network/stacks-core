@@ -192,14 +192,14 @@ pub struct StackingSignatureMethod(Pox4SignatureTopic);
 
 impl StackingSignatureMethod {
     /// Get the inner `Pox4SignatureTopic`
-    pub fn topic(&self) -> &Pox4SignatureTopic {
+    pub const fn topic(&self) -> &Pox4SignatureTopic {
         &self.0
     }
 }
 
 impl From<Pox4SignatureTopic> for StackingSignatureMethod {
     fn from(topic: Pox4SignatureTopic) -> Self {
-        StackingSignatureMethod(topic)
+        Self(topic)
     }
 }
 
@@ -210,9 +210,9 @@ impl ValueEnum for StackingSignatureMethod {
 
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            StackingSignatureMethod(Pox4SignatureTopic::StackStx),
-            StackingSignatureMethod(Pox4SignatureTopic::StackExtend),
-            StackingSignatureMethod(Pox4SignatureTopic::AggregationCommit),
+            Self(Pox4SignatureTopic::StackStx),
+            Self(Pox4SignatureTopic::StackExtend),
+            Self(Pox4SignatureTopic::AggregationCommit),
         ]
     }
 
@@ -266,11 +266,10 @@ fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String>
 
 /// Parse a BTC address argument and return a `PoxAddress`
 pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
-    if let Some(pox_address) = PoxAddress::from_b58(pox_address_literal) {
-        Ok(pox_address)
-    } else {
-        Err(format!("Invalid pox address: {}", pox_address_literal))
-    }
+    PoxAddress::from_b58(pox_address_literal).map_or_else(
+        || Err(format!("Invalid pox address: {pox_address_literal}")),
+        |pox_address| Ok(pox_address),
+    )
 }
 
 /// Parse the hexadecimal Stacks private key

@@ -41,7 +41,7 @@ pub struct RunLoopCommand {
 }
 
 /// The runloop state
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum State {
     /// The runloop is uninitialized
     Uninitialized,
@@ -52,7 +52,7 @@ pub enum State {
 }
 
 /// The current reward cycle info
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct RewardCycleInfo {
     /// The current reward cycle
     pub reward_cycle: u64,
@@ -68,7 +68,7 @@ pub struct RewardCycleInfo {
 
 impl RewardCycleInfo {
     /// Check if the provided burnchain block height is part of the reward cycle
-    pub fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
+    pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
         let reward_cycle_length = self
             .reward_phase_block_length
@@ -109,7 +109,7 @@ impl From<GlobalConfig> for RunLoop {
     /// Creates new runloop from a config
     fn from(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
-        RunLoop {
+        Self {
             config,
             stacks_client,
             stacks_signers: HashMap::with_capacity(2),
