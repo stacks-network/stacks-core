@@ -39,6 +39,8 @@ export class GetStxAccountCommand implements PoxCommand {
         "unlock-height": Cl.uint(actual.unlockHeight),
       });
 
+    expect(actual.amountLocked + actual.amountUnlocked).toBe(actual.ustxBalance);
+    
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
