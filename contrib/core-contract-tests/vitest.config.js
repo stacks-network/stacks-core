@@ -29,6 +29,7 @@ export default defineConfig({
       threads: { singleThread: true },
       forks: { singleFork: true },
     },
+    reporters: ["./noopReporter.ts"],
     setupFiles: [
       vitestSetupFilePath,
       // custom setup files can be added here
