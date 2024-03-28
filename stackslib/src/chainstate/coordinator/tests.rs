@@ -308,6 +308,7 @@ pub fn setup_states_with_epochs(
             burnchain.first_block_timestamp.into(),
             &epochs,
             burnchain.pox_constants.clone(),
+            None,
             true,
         )
         .unwrap();
