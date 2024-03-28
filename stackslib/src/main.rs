@@ -1573,6 +1573,7 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
         STACKS_EPOCHS_MAINNET.as_ref(),
         PoxConstants::mainnet_default(),
+        None,
         true,
     )
     .unwrap();
