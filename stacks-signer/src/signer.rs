@@ -200,10 +200,10 @@ impl Signer {
                 return (Some(selected.0), selected.1);
             };
             // coordinator is the current miner.
-            (None, cur_miner.clone())
+            (None, *cur_miner)
         } else {
             let selected = self.coordinator_selector.get_coordinator();
-            return (Some(selected.0), selected.1);
+            (Some(selected.0), selected.1)
         }
     }
 
@@ -938,7 +938,7 @@ impl Signer {
                     };
                     self.signer_db
                         .insert_block(self.reward_cycle, &updated_block_info)
-                        .expect(&format!("{self}: Failed to insert block in DB"));
+                        .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
                         debug!("Failed to validate nonce request");
@@ -1001,14 +1001,12 @@ impl Signer {
         ) {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);
-        } else {
-            if let Err(e) = self
-                .stackerdb
-                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-            {
-                error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
+        } else if let Err(e) = self
+            .stackerdb
+            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+        {
+            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
                        "error" => %e);
-            }
         }
 
         let epoch = retry_with_exponential_backoff(|| {

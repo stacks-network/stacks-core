@@ -398,6 +398,7 @@ pub mod tests {
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
 
+    #[allow(clippy::too_many_arguments)]
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,
         reward_cycle: u128,

@@ -32,7 +32,7 @@ pub struct SignerDb {
     db: Connection,
 }
 
-const CREATE_BLOCKS_TABLE: &'static str = "
+const CREATE_BLOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
@@ -80,11 +80,11 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[&reward_cycle.to_string(), &format!("{}", hash)],
+            [&reward_cycle.to_string(), &format!("{}", hash)],
         )?;
         if let Some(block_info) = result {
             let block_info: BlockInfo =
-                serde_json::from_str(&block_info).map_err(|e| DBError::SerializationError(e))?;
+                serde_json::from_str(&block_info).map_err(DBError::SerializationError)?;
             Ok(Some(block_info))
         } else {
             Ok(None)
@@ -116,13 +116,13 @@ impl SignerDb {
         self.db
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
-                &[reward_cycle.to_string(), format!("{}", hash), block_json],
+                [reward_cycle.to_string(), format!("{}", hash), block_json],
             )
             .map_err(|e| {
-                return DBError::Other(format!(
+                DBError::Other(format!(
                     "Unable to insert block into db: {:?}",
                     e.to_string()
-                ));
+                ))
             })?;
         Ok(())
     }
@@ -136,7 +136,7 @@ impl SignerDb {
         debug!("Deleting block_info: sighash = {hash}");
         self.db.execute(
             "DELETE FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            &[reward_cycle.to_string(), format!("{}", hash)],
+            [reward_cycle.to_string(), format!("{}", hash)],
         )?;
 
         Ok(())
@@ -147,8 +147,8 @@ impl SignerDb {
 pub fn test_signer_db(db_path: &str) -> SignerDb {
     use std::fs;
 
-    if fs::metadata(&db_path).is_ok() {
-        fs::remove_file(&db_path).unwrap();
+    if fs::metadata(db_path).is_ok() {
+        fs::remove_file(db_path).unwrap();
     }
     SignerDb::new(db_path).expect("Failed to create signer db")
 }
