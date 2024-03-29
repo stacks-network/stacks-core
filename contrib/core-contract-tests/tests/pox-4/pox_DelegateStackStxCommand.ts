@@ -97,6 +97,7 @@ export class DelegateStackStxCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     // Act
     const delegateStackStx = real.network.callPublicFn(
       "ST000000000000000000002AMW42H.pox-4",

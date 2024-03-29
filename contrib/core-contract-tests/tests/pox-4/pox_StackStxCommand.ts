@@ -65,6 +65,7 @@ export class StackStxCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     // The maximum amount of uSTX that can be used (per tx) with this signer
     // key. For our tests, we will use the minimum amount of uSTX to be stacked
     // in the given reward cycle multiplied by the margin, which is a randomly
