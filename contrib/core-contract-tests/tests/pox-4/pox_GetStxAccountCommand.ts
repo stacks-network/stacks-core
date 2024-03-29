@@ -31,6 +31,7 @@ export class GetStxAccountCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     const actual = model.wallets.get(this.wallet.stxAddress)!;
     expect(real.network.runSnippet(`(stx-account '${actual.stxAddress})`))
       .toBeTuple({
