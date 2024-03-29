@@ -3872,6 +3872,10 @@ pub mod test {
                 StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
             let epoch_3 = epochs[epoch_3_idx].clone();
 
+            let mut all_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
+            let mut all_preprocessed_reward_sets =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn()).unwrap();
+
             // see that we can reconstruct the canonical chain tips for epoch 2.5 and earlier
             // NOTE: the migration logic DOES NOT WORK and IS NOT MEANT TO WORK with Nakamoto blocks,
             // so test this only with epoch 2 blocks before the epoch2-3 transition.
@@ -3887,9 +3891,8 @@ pub mod test {
                 .map(|sn| sn.consensus_hash.clone())
                 .collect();
 
-            let expected_epoch2_chain_tips: Vec<_> = sortdb
-                .get_all_stacks_chain_tips()
-                .unwrap()
+            let expected_epoch2_chain_tips: Vec<_> = all_chain_tips
+                .clone()
                 .into_iter()
                 .filter(|tip| epoch2_chs.contains(&tip.1))
                 .collect();
@@ -3991,6 +3994,20 @@ pub mod test {
             )
             .unwrap();
             tx.commit().unwrap();
+
+            // sanity check -- restored tables are the same
+            let mut restored_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
+            let mut restored_reward_sets =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn()).unwrap();
+
+            all_chain_tips.sort_by(|a, b| a.0.cmp(&b.0));
+            restored_chain_tips.sort_by(|a, b| a.0.cmp(&b.0));
+
+            all_preprocessed_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+            restored_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+
+            assert_eq!(restored_chain_tips, all_chain_tips);
+            assert_eq!(restored_reward_sets, all_preprocessed_reward_sets);
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
