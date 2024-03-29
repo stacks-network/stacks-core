@@ -1514,8 +1514,8 @@ impl<'a> SortitionHandleTx<'a> {
         if cfg!(test) {
             let (ch, bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
             debug!(
-                "Memoized canonical Stacks chain tip is now {}/{}",
-                &ch, &bhh
+                "Memoized canonical Stacks chain tip is now {}/{}, written to {}",
+                &ch, &bhh, &self.context.chain_tip
             );
         }
 
@@ -4440,7 +4440,7 @@ impl SortitionDB {
         let mut cursor = tip.clone();
         loop {
             let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
-                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
                 &[&cursor.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             ).optional()?;
@@ -5107,7 +5107,7 @@ impl<'a> SortitionHandleTx<'a> {
             // nakamoto behavior
             // look at stacks_chain_tips table
             let res: Result<_, db_error> = self.deref().query_row_and_then(
-                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
                 &[&parent_snapshot.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             );
