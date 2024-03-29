@@ -32,6 +32,7 @@ export class GetStackingMinimumCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     // Act
     const { result: stackingMinimum } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",

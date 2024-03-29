@@ -55,6 +55,7 @@ export class DelegateStxCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     // The amount of uSTX delegated by the Stacker to the Delegatee.
     // Even if there are no constraints about the delegated amount,
     // it will be checked in the future, when calling delegate-stack-stx.

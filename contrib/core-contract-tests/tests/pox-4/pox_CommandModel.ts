@@ -6,11 +6,34 @@ import { StackingClient } from "@stacks/stacking";
 
 export type StxAddress = string;
 export type BtcAddress = string;
+export type CommandTag = string;
 
-export type Stub = {
+export class Stub {
+  readonly wallets: Map<StxAddress, Wallet>;
+  readonly statistics: Map<string, number>;
   stackingMinimum: number;
-  wallets: Map<StxAddress, Wallet>;
-};
+
+  constructor(
+    wallets: Map<StxAddress, Wallet>,
+    statistics: Map<CommandTag, number>,
+  ) {
+    this.wallets = wallets;
+    this.statistics = statistics;
+    this.stackingMinimum = 0;
+  }
+
+  trackCommandRun(commandName: string) {
+    const count = this.statistics.get(commandName) || 0;
+    this.statistics.set(commandName, count + 1);
+  }
+
+  reportCommandRuns() {
+    process.stdout.write("Command run method execution counts:");
+    this.statistics.forEach((count, commandName) => {
+      process.stdout.write(`\n${commandName}: ${count}`);
+    });
+  }
+}
 
 export type Real = {
   network: Simnet;

@@ -37,6 +37,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   }
 
   run(model: Stub, real: Real): void {
+    model.trackCommandRun(this.constructor.name);
     // Get the Operator's wallet
     const operatorWallet = model.wallets.get(this.wallet.delegatedTo)!;
 
