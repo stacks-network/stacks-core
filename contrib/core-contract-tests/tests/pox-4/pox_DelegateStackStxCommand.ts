@@ -142,6 +142,7 @@ export class DelegateStackStxCommand implements PoxCommand {
 
     // Get the Stacker's wallet from the model and update it with the new state.
     const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     // Update model so that we know this wallet is stacking. This is important
     // in order to prevent the test from stacking multiple times with the same
     // address.
@@ -150,6 +151,10 @@ export class DelegateStackStxCommand implements PoxCommand {
     stackerWallet.amountLocked = Number(this.amountUstx);
     stackerWallet.unlockHeight = Number(unlockBurnHeight.value);
     stackerWallet.amountUnlocked -= Number(this.amountUstx);
+    // Add stacker to the operators lock list. This will help knowing that
+    // the stacker's funds are locked when calling delegate-stack-extend,
+    // delegate-stack-increase
+    operatorWallet.hasLocked.push(stackerWallet.stxAddress);
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
