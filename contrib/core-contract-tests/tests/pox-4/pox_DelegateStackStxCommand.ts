@@ -54,7 +54,7 @@ export class DelegateStackStxCommand implements PoxCommand {
     startBurnHt: number,
     period: number,
     amountUstx: bigint,
-    unlockBurnHt: number,
+    unlockBurnHt: number
   ) {
     this.operator = operator;
     this.stacker = stacker;
@@ -90,7 +90,6 @@ export class DelegateStackStxCommand implements PoxCommand {
       stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
       Number(this.amountUstx) <= stackerWallet.ustxBalance &&
       Number(this.amountUstx) >= model.stackingMinimum &&
-      operatorWallet.poolMembers.length > 0 &&
       operatorWallet.poolMembers.includes(stackerWallet.stxAddress) &&
       this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
     );
@@ -114,13 +113,13 @@ export class DelegateStackStxCommand implements PoxCommand {
         // (lock-period uint)
         Cl.uint(this.period),
       ],
-      this.operator.stxAddress,
+      this.operator.stxAddress
     );
     const { result: rewardCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
       [Cl.uint(real.network.blockHeight)],
-      this.operator.stxAddress,
+      this.operator.stxAddress
     );
     assert(isClarityType(rewardCycle, ClarityType.UInt));
 
@@ -128,7 +127,7 @@ export class DelegateStackStxCommand implements PoxCommand {
       "ST000000000000000000002AMW42H.pox-4",
       "reward-cycle-to-burn-height",
       [Cl.uint(Number(rewardCycle.value) + this.period + 1)],
-      this.operator.stxAddress,
+      this.operator.stxAddress
     );
     assert(isClarityType(unlockBurnHeight, ClarityType.UInt));
 
@@ -138,7 +137,7 @@ export class DelegateStackStxCommand implements PoxCommand {
         stacker: Cl.principal(this.stacker.stxAddress),
         "lock-amount": Cl.uint(this.amountUstx),
         "unlock-burn-height": Cl.uint(Number(unlockBurnHeight.value)),
-      }),
+      })
     );
 
     // Get the Stacker's wallet from the model and update it with the new state.
@@ -160,7 +159,7 @@ export class DelegateStackStxCommand implements PoxCommand {
       "lock-amount",
       this.amountUstx.toString(),
       "until",
-      this.stacker.unlockHeight.toString(),
+      this.stacker.unlockHeight.toString()
     );
   }
 
