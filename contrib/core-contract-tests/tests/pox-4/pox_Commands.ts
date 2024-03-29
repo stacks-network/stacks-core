@@ -9,6 +9,7 @@ import { Simnet } from "@hirosystems/clarinet-sdk";
 import { Cl, cvToValue, OptionalCV, UIntCV } from "@stacks/transactions";
 import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 import { AllowContractCallerCommand } from "./pox_AllowContractCallerCommand";
+import { DelegateStackIncreaseCommand } from "./pox_DelegateStackIncreaseCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -132,6 +133,29 @@ export function PoxCommands(
         finalResult.period,
         finalResult.amount,
         finalResult.unlockBurnHt,
+      );
+    }),
+    // DelegateStackIncreaseCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      stacker: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
+    }).chain((r) => {
+      const availableStackers = r.operator.poolMembers.length > 0
+        ? r.operator.poolMembers
+        : [r.operator.stxAddress];
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackers),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      }));
+    }).map((final) => {
+      return new DelegateStackIncreaseCommand(
+        final.operator,
+        final.stacker,
+        final.increaseBy,
       );
     }),
     // AllowContractCallerCommand
