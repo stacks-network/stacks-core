@@ -1,6 +1,6 @@
 import { it } from "vitest";
 import { initSimnet } from "@hirosystems/clarinet-sdk";
-import { Real, Stub, StxAddress, Wallet } from "./pox_CommandModel.ts";
+import { Real, Stub } from "./pox_CommandModel.ts";
 
 import {
   getPublicKeyFromPrivate,
@@ -17,16 +17,13 @@ import { StackingClient } from "@stacks/stacking";
 import fc from "fast-check";
 import { PoxCommands } from "./pox_Commands.ts";
 
+import fs from "fs";
+import path from "path";
+
 it("statefully interacts with PoX-4", async () => {
   // SUT stands for "System Under Test".
   const sut: Real = {
     network: await initSimnet(),
-  };
-
-  // This is the initial state of the model.
-  const model: Stub = {
-    stackingMinimum: 0,
-    wallets: new Map<StxAddress, Wallet>(),
   };
 
   const wallets = [
@@ -103,10 +100,18 @@ it("statefully interacts with PoX-4", async () => {
     };
   });
 
-  // Add the wallets to the model.
-  wallets.forEach((wallet) => {
-    model.wallets.set(wallet.stxAddress, wallet);
-  });
+  // Track the number of times each command is run, so we can see if all the
+  // commands are run at least once.
+  const statistics = fs.readdirSync(path.join(__dirname)).filter((file) =>
+    file.startsWith("pox_") && file.endsWith(".ts") &&
+    file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts"
+  ).map((file) => file.slice(4, -3)); // Remove "pox_" prefix and ".ts" suffix.
+
+  // This is the initial state of the model.
+  const model = new Stub(
+    new Map(wallets.map((wallet) => [wallet.stxAddress, wallet])),
+    new Map(statistics.map((commandName) => [commandName, 0])),
+  );
 
   simnet.setEpoch("3.0");
 
@@ -128,4 +133,6 @@ it("statefully interacts with PoX-4", async () => {
       verbose: 2,
     },
   );
+
+  model.reportCommandRuns();
 });
