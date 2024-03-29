@@ -5087,7 +5087,87 @@ fn delegate_stack_increase() {
 //  for one tenure. Alice provides a signature, Bob uses
 //  'set-signer-key-authorizations' to authorize
 #[test]
-fn test_solo_stacking() {
+fn test_scenario_one() {
+
+    // Alice solo stacker-signer setup
+    let mut alice = StackerSignerInfo::new();
+    // Bob solo stacker-signer setup
+    let mut bob = StackerSignerInfo::new();
+    debug!("alice info: {alice:?}");
+    debug!("bob info: {bob:?}");
+
+    let default_initial_balances = 1_000_000_000_000_000_000;
+    let observer = TestEventObserver::new();
+    let mut test_signers = TestSigners::default();
+    let mut initial_balances = vec![
+        (alice.principal.clone(), default_initial_balances),
+        (bob.principal.clone(), default_initial_balances),
+    ];
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let epochs = peer_config.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    debug!(
+        "Epoch 3.0 start burn block height: {}",
+        epoch_3.start_height
+    );
+
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer_nonce = 0;
+
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
+    // Advance into pox4
+    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut latest_block = None;
+    // produce blocks until the first reward phase that everyone should be in
+    debug!("Advancing to pox 4 activation height: {target_height}");
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+        observer.get_blocks();
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    let burn_block_height = peer.get_burn_block_height();
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    debug!("Test info:";
+        "reward_cycle" => reward_cycle,
+        "burn_block_height" => burn_block_height,
+        "min_ustx" => min_ustx,
+    );
+
+
+
     let lock_period = 1;
     let observer = TestEventObserver::new();
     let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
@@ -5096,9 +5176,8 @@ fn test_solo_stacking() {
     let mut coinbase_nonce = coinbase_nonce;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    // Print current reward cycle
-    println!("Current Reward Cycle: {:?}", current_reward_cycle);
-
+    println!("Current reward cycle: {:?}", current_reward_cycle);
+    
     // Alice Setup
     let mut alice_nonce = 0;
     let alice_private_key = &keys[0];
@@ -5107,7 +5186,7 @@ fn test_solo_stacking() {
     let alice_address = key_to_stacks_addr(alice_private_key);
     let alice_pox_addr = pox_addr_from(&alice_private_key);
     let alice_signature = make_signer_key_signature(
-        &alice_pox_addr,
+        &alice.pox_address,
         &alice_private_key,
         current_reward_cycle,
         &Pox4SignatureTopic::StackStx,
@@ -5193,7 +5272,7 @@ fn test_solo_stacking() {
         lock_period,
         &alice_signing_key,
         block_height,
-        Some(alice_signature),
+        Some(alice_signature.clone()),
         u128::MAX,
         1,
     );
@@ -5304,19 +5383,73 @@ fn test_solo_stacking() {
     for i in 0..3 {
         alice_nonce += 1;
         let dummy_tx = make_dummy_tx(&mut peer, &alice_private_key, &mut alice_nonce);
+        println!("Alice in-loop nonce: {:?}", alice_nonce);
         coinbase_nonce += 1;
         let dummy_block = peer.tenure_with_txs(&[dummy_tx], &mut coinbase_nonce);
     }
 
     let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+
+    let alice_replay_nonce = alice_nonce + 1;
+    let alice_stack_replay = make_pox_4_lockup(
+        alice_private_key,
+        alice_replay_nonce,
+        min_ustx * 2,
+        &alice_pox_addr.clone(),
+        lock_period,
+        &alice_signing_key,
+        block_height,
+        Some(alice_signature),
+        u128::MAX,
+        1,
+    );
+
+    let bob_nonce_stack_replay = bob_nonce_stack + 1;
+    let bob_stack_replay = make_pox_4_lockup(
+        bob_private_key,
+        bob_nonce_stack_replay,
+        min_ustx * 2,
+        &bob_pox_addr,
+        lock_period,
+        &bob_signing_key,
+        block_height,
+        None,
+        u128::MAX,
+        3,
+    );
     println!("Later Reward Cycle: {:?}", next_reward_cycle);
+
+    // Replay Block
+    // coinbase_nonce += 1;
+    // let latest_block = peer.tenure_with_txs(
+    //     &[alice_stack_replay, bob_stack_replay],
+    //     &mut coinbase_nonce,
+    // );
+
+    // // Get Alice results
+    // let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
+    // let alice_stack_replay_result = alice_tx
+    //     .get(alice_replay_nonce as usize)
+    //     .unwrap()
+    //     .result
+    //     .clone();
+    // println!("Alice Replay Result: {:?}", alice_stack_replay_result);
+
+    // // Get Bob results
+    // let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
+    // let bob_stack_replay_result = bob_tx
+    //     .get(bob_nonce_stack_replay as usize)
+    //     .unwrap()
+    //     .result
+    //     .clone();
+    // println!("Bob Replay Result: {:?}", bob_stack_replay_result);
 }
 
 // Test that Alice & Bob can solo stack provided
 //  with a signature from Carl & explicit approval
 //  from David.
 #[test]
-fn test_solo_stacking_delegated_signing() {
+fn test_scenario_two() {
     let lock_period = 1;
     let observer = TestEventObserver::new();
     let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
