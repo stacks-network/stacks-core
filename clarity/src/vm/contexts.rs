@@ -86,7 +86,7 @@ pub enum AssetMapEntry {
 }
 
 /**
-The AssetMap is used to track which assets have been transfered from whom
+The AssetMap is used to track which assets have been transferred from whom
 during the execution of a transaction.
 */
 #[derive(Debug, Clone)]

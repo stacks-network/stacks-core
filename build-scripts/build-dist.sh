@@ -31,7 +31,7 @@ case $DIST_TARGET_FILTER in
     esac
     ;;
   (*)
-    echo "Building distrubtions for all targets."
+    echo "Building distributions for all targets."
     build_platform linux-glibc-x64
     build_platform linux-glibc-arm64
     build_platform linux-glibc-armv7
