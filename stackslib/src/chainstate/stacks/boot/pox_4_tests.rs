@@ -5450,7 +5450,7 @@ fn test_scenario_one() {
         .expect("No approved key found");
 
     let reward_cycle = peer.get_reward_cycle() as u128;
-    let next_reward_cycle = reward_cycle.wrapping_add(2);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
     let next_two_reward_cycle = reward_cycle.wrapping_add(2);
 
     let target_height = peer
@@ -5508,7 +5508,7 @@ fn test_scenario_one() {
 
     let mut loop_txs = vec![];
     // Loop through alice_stack_replay & bob_stack_replay by increasing the burn height by 1 each time for 80 times
-    for i in 0..2101 {
+    for i in 0..210 {
         let alice_stack_replay = make_pox_4_lockup(
             &alice.private_key,
             alice.nonce,
@@ -5516,7 +5516,7 @@ fn test_scenario_one() {
             &alice.pox_address,
             lock_period,
             &alice.public_key,
-            80 + i,
+            60 + i,
             Some(alice_signature.clone()),
             u128::MAX,
             1,
@@ -5541,14 +5541,14 @@ fn test_scenario_one() {
         //loop_txs.push(bob_stack_replay);
     }
 
-    println!("loop_txs: {:?}", loop_txs);
+    //println!("loop_txs: {:?}", loop_txs);
 
     let txs = vec![alice_stack_replay, bob_stack_replay];
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &loop_txs, &mut peer_nonce, target_height);
 
     // Print each receipt by using receipt.get(i).unwrap().result
-    for i in 0..2101 {
+    for i in 0..210 {
         let alice_tx_result = tx_block.receipts.get(i).unwrap().result.clone();
         println!("alice_tx_result: {:?}", alice_tx_result);
     }
