@@ -36,6 +36,8 @@
 (define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH 38)
 (define-constant ERR_SIGNER_AUTH_USED 39)
 (define-constant ERR_INVALID_INCREASE 40)
+(define-constant ERR_TOO_LOW_TEST 41)
+(define-constant ERR_TOO_HIGH_TEST 42)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -582,6 +584,8 @@
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
       ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
       ;;  to "post-date" their `stack-stx` transaction
+      (asserts! (not (> specified-reward-cycle first-reward-cycle)) (err ERR_TOO_HIGH_TEST))
+      (asserts! (not (< specified-reward-cycle first-reward-cycle)) (err ERR_TOO_LOW_TEST))
       (asserts! (is-eq first-reward-cycle specified-reward-cycle)
                 (err ERR_INVALID_START_BURN_HEIGHT))
 

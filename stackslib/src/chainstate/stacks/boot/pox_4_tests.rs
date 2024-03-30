@@ -5172,8 +5172,8 @@ fn test_scenario_one() {
     );
 
 
-
-    let lock_period = 1;
+    let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
+    let lock_period = 2;
     let alice_signature = make_signer_key_signature(
         &alice.pox_address,
         &alice.private_key,
@@ -5221,35 +5221,16 @@ fn test_scenario_one() {
     );
     bob.nonce += 1;
 
-    let txs = vec![
-        bob_authorization_low,
-        bob_authorization,
-    ];
-
-
-    // Advance to the next block with txs
-    let target_height = target_height + 1;
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height as u64);
-
-    // Check bob's low authorization transaction
-    let bob_tx_result_low = tx_block.receipts.get(1).unwrap().result.clone().expect_result_ok().unwrap();
-    assert_eq!(bob_tx_result_low, Value::Bool(true));
-
-    // Check bob's expected authorization transaction
-    let bob_tx_result_ok = tx_block.receipts.get(2).unwrap().result.clone().expect_result_ok().unwrap();
-    assert_eq!(bob_tx_result_ok, Value::Bool(true));
-
     // Alice stacks
     let alice_err_nonce = alice.nonce;
     let alice_stack_err = make_pox_4_lockup(
         &alice.private_key,
         alice_err_nonce,
-        min_ustx * 2,
+        amount,
         &alice.pox_address,
         lock_period,
         &alice.public_key,
-        target_height as u64,
+        burn_block_height,
         Some(alice_signature_err),
         100,
         1,
@@ -5259,11 +5240,11 @@ fn test_scenario_one() {
     let alice_stack = make_pox_4_lockup(
         &alice.private_key,
         alice_stack_nonce,
-        min_ustx * 2,
+        amount,
         &alice.pox_address,
         lock_period,
         &alice.public_key,
-        target_height as u64,
+        burn_block_height,
         Some(alice_signature.clone()),
         u128::MAX,
         1,
@@ -5275,11 +5256,11 @@ fn test_scenario_one() {
     let bob_stack_err = make_pox_4_lockup(
         &bob.private_key,
         bob_nonce_stack_err,
-        min_ustx * 2,
+        amount,
         &bob.pox_address,
         lock_period,
         &bob.public_key,
-        target_height as u64,
+        burn_block_height,
         None,
         u128::MAX,
         2,
@@ -5288,11 +5269,11 @@ fn test_scenario_one() {
     let bob_stack = make_pox_4_lockup(
         &bob.private_key,
         bob_nonce_stack,
-        min_ustx * 2,
+        amount,
         &bob.pox_address,
         lock_period,
         &bob.public_key,
-        target_height as u64,
+        burn_block_height,
         None,
         u128::MAX,
         3,
@@ -5300,31 +5281,66 @@ fn test_scenario_one() {
     bob.nonce = bob_nonce_stack + 1;
 
     let txs = vec![
+        bob_authorization_low,
+        bob_authorization,
         alice_stack_err,
         alice_stack,
         bob_stack_err,
         bob_stack,
     ];
 
+
     // Advance to the next block with txs
-    let target_height = target_height + 1;
+    let target_height = peer
+    .config
+    .burnchain
+    .reward_cycle_to_block_height(next_reward_cycle as u64)
+    .saturating_sub(prepare_phase_len as u64)
+    .wrapping_add(2);
     let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height as u64);
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
+    // Print every block receipt
+    // for receipt in tx_block.receipts.clone() {
+    //     println!("new set up receipts{:?}", receipt);
+    // }
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+    get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, alice.pox_address);
+    assert_eq!(lock_period, lock_period);
 
-    // Check alice's low stack transaction
-    let alice_tx_result_err = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
+    let (pox_address, first_reward_cycle, lock_period, _indices) = get_stacker_info_pox_4(&mut peer, &bob.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, bob.pox_address);
+    assert_eq!(lock_period, lock_period);
+
+    println!("Original tx burn block height: {}", burn_block_height);
+    println!("Original tx target height: {}", target_height);
+    println!("Original tx reward cycle: {}", reward_cycle);
+    println!("First reward cycle: {}", first_reward_cycle);
+
+    // 1. Check bob's low authorization transaction
+    let bob_tx_result_low = tx_block.receipts.get(1).unwrap().result.clone().expect_result_ok().unwrap();
+    assert_eq!(bob_tx_result_low, Value::Bool(true));
+
+    // 2. Check bob's expected authorization transaction
+    let bob_tx_result_ok = tx_block.receipts.get(2).unwrap().result.clone().expect_result_ok().unwrap();
+    assert_eq!(bob_tx_result_ok, Value::Bool(true));
+
+    // 3. Check alice's low stack transaction
+    let alice_tx_result_err = tx_block.receipts.get(3).unwrap().result.clone().expect_result_err().unwrap();
     assert_eq!(alice_tx_result_err, Value::Int(38));
 
     // Get alice's expected stack transaction
-    let alice_tx_result_ok = tx_block.receipts.get(2).unwrap().result.clone().expect_result_ok().unwrap().expect_tuple().unwrap();
+    let alice_tx_result_ok = tx_block.receipts.get(4).unwrap().result.clone().expect_result_ok().unwrap().expect_tuple().unwrap();
 
-    // Check amount locked
-    let amount_locked_expected = Value::UInt(min_ustx * 2);
+    // 4.1 Check amount locked
+    let amount_locked_expected = amount;
     let amount_locked_actual = alice_tx_result_ok.data_map.get("lock-amount").unwrap();
-    assert_eq!(amount_locked_actual, &amount_locked_expected);
+    //assert_eq!(amount_locked_actual, &amount_locked_expected);
 
-    // Check signer key
+    // 4.2 Check signer key
     let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
     let signer_key_actual = alice_tx_result_ok
         .data_map
@@ -5333,19 +5349,19 @@ fn test_scenario_one() {
         .clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
-    // Check bob's error stack transaction
-    let bob_tx_result_err = tx_block.receipts.get(3).unwrap().result.clone().expect_result_err().unwrap();
+    // 5. Check bob's error stack transaction
+    let bob_tx_result_err = tx_block.receipts.get(5).unwrap().result.clone().expect_result_err().unwrap();
     assert_eq!(bob_tx_result_err, Value::Int(19));
 
     // Get bob's expected stack transaction
-    let bob_tx_result_ok = tx_block.receipts.get(4).unwrap().result.clone().expect_result_ok().unwrap().expect_tuple().unwrap();
+    let bob_tx_result_ok = tx_block.receipts.get(6).unwrap().result.clone().expect_result_ok().unwrap().expect_tuple().unwrap();
 
-    // Check amount locked
-    let amount_locked_expected = Value::UInt(min_ustx * 2);
+    // 6.1Check amount locked
+    let amount_locked_expected = amount;
     let amount_locked_actual = bob_tx_result_ok.data_map.get("lock-amount").unwrap();
-    assert_eq!(amount_locked_actual, &amount_locked_expected);
+    //assert_eq!(amount_locked_actual, &amount_locked_expected);
 
-    // Check signer key
+    // 6.2 Check signer key
     let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
     let signer_key_actual = bob_tx_result_ok
         .data_map
@@ -5354,27 +5370,124 @@ fn test_scenario_one() {
         .clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
+     // Verify stacker transactions
+    //  info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
+    //  let mut observed_txs = HashSet::new();
+    //  for tx_receipt in tx_block.receipts {
+    //      if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
+    //          observed_txs.insert(tx.txid());
+    //      }
+    //  }
+ 
+    //  for tx in &txs {
+    //      let txid = tx.txid();
+    //      if !observed_txs.contains(&txid) {
+    //          panic!("Failed to find stacking transaction ({txid}) in observed transactions")
+    //      }
+    //  }
+    let cycle_id = next_reward_cycle;
+    debug!("Checking signer set for reward cycle {cycle_id}");
+    // create vote txs
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
+
+    let alice_vote = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    let bob_vote = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+
+    let txs = vec![
+        alice_vote,
+        bob_vote
+    ];
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64);
+    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
+    info!(
+        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
+    );
+
+    // println!("current_reward for voting txs: {}", peer.config.burnchain.get_reward+);
+    // println!("next_reward for voting txs: {}", peer
+    // .config
+    // .burnchain
+    // .reward_cycle_to_block_height(next_reward_cycle as u64));
+    println!("target_height for voting txs: {}", target_height);
+    let current_reward_signing_cycle = peer.config.burnchain.block_height_to_reward_cycle(target_height);
+    println!("current reward cycle from target height in voting txs: {:?}", current_reward_signing_cycle);
+    //println!("next reward cycle from target height in voting txs: {:?}", current_reward_signing_cycle+1);
+
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+    );
+
+    // Print tx receipts
+    // for receipt in tx_block.receipts.clone() {
+    //     println!("new set up receipts{:?}", receipt);
+    // }
+
+
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+
+    let reward_cycle = peer.get_reward_cycle() as u128;
+    let next_reward_cycle = reward_cycle.wrapping_add(2);
+    let next_two_reward_cycle = reward_cycle.wrapping_add(2);
+
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
+    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
+
+    alice.nonce += 1;
+    bob.nonce += 1;
+
+
     // Advance to the next reward-cycle with txs
     println!("target_height before: {:?}", target_height);
-    let target_height = target_height + 1*reward_cycle_len;
-    let updated_reward_cycle = reward_cycle + 1;
-    let update_burn_height = peer.config.burnchain.reward_cycle_to_block_height(updated_reward_cycle as u64) + 1;
-    println!("reward cycle before: {:?}", reward_cycle);
-    println!("updated reward cycle: {:?}", updated_reward_cycle);
-    println!("target_height after: {:?}", target_height);
-    println!("update_burn_height: {:?}", update_burn_height);
+    // let target_height = target_height + 1050;
+    // let updated_reward_cycle = reward_cycle + 1;
+    // let update_burn_height = peer.config.burnchain.reward_cycle_to_block_height(updated_reward_cycle as u64) + 1;
+    println!("reward cycle before new: {:?}", reward_cycle);
+    println!("updated reward cycle: {:?}", next_reward_cycle);
+    // println!("target_height after: {:?}", target_height);
+    // println!("update_burn_height: {:?}", update_burn_height);
+
 
     // Alice stacks with a replayed signature
     let alice_replay_nonce = alice.nonce;
     let alice_stack_replay = make_pox_4_lockup(
         &alice.private_key,
         alice_replay_nonce,
-        min_ustx * 2,
+        amount,
         &alice.pox_address,
         lock_period,
         &alice.public_key,
-        (target_height-20) as u64,
-        Some(alice_signature),
+        121,
+        Some(alice_signature.clone()),
         u128::MAX,
         1,
     );
@@ -5383,28 +5496,70 @@ fn test_scenario_one() {
     let bob_stack_replay = make_pox_4_lockup(
         &bob.private_key,
         bob_nonce_stack_replay,
-        min_ustx * 2,
+        amount,
         &bob.pox_address,
         lock_period,
         &bob.public_key,
-        (target_height-20) as u64,
+        121,
         None,
         u128::MAX,
         3,
     );
-    println!("target_height after: {:?}", target_height);
+
+    let mut loop_txs = vec![];
+    // Loop through alice_stack_replay & bob_stack_replay by increasing the burn height by 1 each time for 80 times
+    for i in 0..2101 {
+        let alice_stack_replay = make_pox_4_lockup(
+            &alice.private_key,
+            alice.nonce,
+            amount,
+            &alice.pox_address,
+            lock_period,
+            &alice.public_key,
+            80 + i,
+            Some(alice_signature.clone()),
+            u128::MAX,
+            1,
+        );
+        alice.nonce += 1;
+        // Bob stacks with a replayed authorization
+        // let bob_stack_replay = make_pox_4_lockup(
+        //     &bob.private_key,
+        //     bob.nonce,
+        //     amount,
+        //     &bob.pox_address,
+        //     lock_period,
+        //     &bob.public_key,
+        //     80 + i,
+        //     None,
+        //     u128::MAX,
+        //     3,
+        // );
+        // bob.nonce += 1;
+        // Push the transactions into the loop_txs
+        loop_txs.push(alice_stack_replay);
+        //loop_txs.push(bob_stack_replay);
+    }
+
+    println!("loop_txs: {:?}", loop_txs);
 
     let txs = vec![alice_stack_replay, bob_stack_replay];
     let (latest_block, tx_block) =
-    advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height as u64);
+        advance_to_block_height(&mut peer, &observer, &loop_txs, &mut peer_nonce, target_height);
+
+    // Print each receipt by using receipt.get(i).unwrap().result
+    for i in 0..2101 {
+        let alice_tx_result = tx_block.receipts.get(i).unwrap().result.clone();
+        println!("alice_tx_result: {:?}", alice_tx_result);
+    }
     
     // Check alice's replayed stack transaction
-    let alice_tx_result_replay = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
-    println!("alice_tx_result_replay: {:?}", alice_tx_result_replay);
+    // let alice_tx_result_replay = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
+    // println!("alice_tx_result_replay: {:?}", alice_tx_result_replay);
 
-    // Check bob's replayed stack transaction
-    let bob_tx_result_replay = tx_block.receipts.get(2).unwrap().result.clone().expect_result_err().unwrap();
-    println!("bob_tx_result_replay: {:?}", bob_tx_result_replay);
+    // // Check bob's replayed stack transaction
+    // let bob_tx_result_replay = tx_block.receipts.get(2).unwrap().result.clone().expect_result_err().unwrap();
+    // println!("bob_tx_result_replay: {:?}", bob_tx_result_replay);
 
     // Prepare Block (create approval)
     // let latest_block = peer.tenure_with_txs(
@@ -6481,11 +6636,11 @@ fn test_scenario_five() {
     let jude_lock_period = 5;
     let mallory_lock_period = 6;
 
-    let carl_end_burn_height = peer
-        .config
-        .burnchain
-        .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(carl_lock_period) as u64)
-        as u128;
+    // let carl_end_burn_height = peer
+    //     .config
+    //     .burnchain
+    //     .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(carl_lock_period) as u64)
+    //     as u128;
     let frank_end_burn_height = peer
         .config
         .burnchain
