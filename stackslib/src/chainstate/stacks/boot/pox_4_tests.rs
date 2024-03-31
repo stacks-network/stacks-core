@@ -5084,8 +5084,9 @@ fn delegate_stack_increase() {
 }
 
 // In this test two solo stacker-signers Alice & Bob sign & stack
-//  for one tenure. Alice provides a signature, Bob uses
-//  'set-signer-key-authorizations' to authorize
+//  for one reward cycle. Alice provides a signature, Bob uses
+//  'set-signer-key-authorizations' to authorize. Two cycles later, 
+//  when no longer stacked, they both try replaying their auths.
 #[test]
 fn test_scenario_one() {
 
@@ -5141,28 +5142,28 @@ fn test_scenario_one() {
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
-
+    // Set constants
     let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
     let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
 
     // Advance into pox4
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
-    // produce blocks until the first reward phase that everyone should be in
+    // Produce blocks until the first reward phase that everyone should be in
     debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
     }
     let latest_block = latest_block.expect("Failed to get tip");
+    // Current reward cycle: 5 (starts at burn block 101)
     let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    println!("reward_cycle: {reward_cycle}");
+    // Next reward cycle: 6
     let next_reward_cycle = reward_cycle.wrapping_add(1);
-    println!("next_reward_cycle: {next_reward_cycle}");
+    // Current burn block height: 105 
     let burn_block_height = peer.get_burn_block_height();
-    println!("burn_block_height: {burn_block_height}");
-    let burn_block_height_from_reward_cycle = peer.config.burnchain.reward_cycle_to_block_height(reward_cycle as u64);
-    println!("Reward cycle calculcated from burn block height: {:?}", burn_block_height_from_reward_cycle);
+    // Current stack block height: 25
+    let current_block_height = peer.config.current_block;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
     debug!("Test info:";
@@ -5171,7 +5172,7 @@ fn test_scenario_one() {
         "min_ustx" => min_ustx,
     );
 
-
+    // Alice Signatures
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
     let lock_period = 1;
     let alice_signature = make_signer_key_signature(
@@ -5290,7 +5291,7 @@ fn test_scenario_one() {
     ];
 
 
-    // Advance to the next block with txs
+    // Advance to the very end of reward cycle 5 (burnchain block 118) & commit txs
     let target_height = peer
     .config
     .burnchain
@@ -5300,27 +5301,23 @@ fn test_scenario_one() {
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
+    // print every receipt in tx_block
+    for i in 0..7 {
+        let alice_tx_result = tx_block.receipts.get(i).unwrap().result.clone();
+        println!("stacking_tx_result: {:?}", alice_tx_result);
+        //println!("i value: {:?}", i);
+    }
 
+    // Verify Alice stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
     get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
-    // print all three return values from get_stacker_info_pox_4
-    println!("first pox_address: {:?}", pox_address);
-    println!("second first_reward_cycle: {:?}", first_reward_cycle);
-    println!("third lock_period: {:?}", lock_period);
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, alice.pox_address);
-    assert_eq!(lock_period, lock_period);
 
+    // Verify Bob stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) = get_stacker_info_pox_4(&mut peer, &bob.principal).expect("Failed to find stacker");
-    // print all 
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, bob.pox_address);
-    assert_eq!(lock_period, lock_period);
-
-    println!("Original tx burn block height: {}", burn_block_height);
-    println!("Original tx target height: {}", target_height);
-    println!("Original tx reward cycle: {}", reward_cycle);
-    println!("First reward cycle: {}", first_reward_cycle);
 
     // 1. Check bob's low authorization transaction
     let bob_tx_result_low = tx_block.receipts.get(1).unwrap().result.clone().expect_result_ok().unwrap();
@@ -5351,6 +5348,11 @@ fn test_scenario_one() {
         .clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
+    // 4.3 Check unlock height
+    let unlock_height_expected = Value::UInt(peer.config.burnchain.reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64).wrapping_sub(1) as u128);
+    let unlock_height_actual = alice_tx_result_ok.data_map.get("unlock-burn-height").unwrap().clone();
+    assert_eq!(unlock_height_expected, unlock_height_actual);
+
     // 5. Check bob's error stack transaction
     let bob_tx_result_err = tx_block.receipts.get(5).unwrap().result.clone().expect_result_err().unwrap();
     assert_eq!(bob_tx_result_err, Value::Int(19));
@@ -5372,27 +5374,17 @@ fn test_scenario_one() {
         .clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
-     // Verify stacker transactions
-    //  info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
-    //  let mut observed_txs = HashSet::new();
-    //  for tx_receipt in tx_block.receipts {
-    //      if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
-    //          observed_txs.insert(tx.txid());
-    //      }
-    //  }
- 
-    //  for tx in &txs {
-    //      let txid = tx.txid();
-    //      if !observed_txs.contains(&txid) {
-    //          panic!("Failed to find stacking transaction ({txid}) in observed transactions")
-    //      }
-    //  }
-    let cycle_id = next_reward_cycle;
-    debug!("Checking signer set for reward cycle {cycle_id}");
-    // create vote txs
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
+    // 6.3 Check unlock height (end of cycle 7 - block 140)
+    let unlock_height_expected = Value::UInt(peer.config.burnchain.reward_cycle_to_block_height((next_reward_cycle + lock_period) as u64).wrapping_sub(1) as u128);
+    let unlock_height_actual = bob_tx_result_ok.data_map.get("unlock-burn-height").unwrap().clone();
+    assert_eq!(unlock_height_expected, unlock_height_actual);
 
+
+    // Now starting create vote txs
+    // Fetch signer indices in reward cycle 6
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), next_reward_cycle);
+    // Alice vote
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -5401,6 +5393,8 @@ fn test_scenario_one() {
         1,
         next_reward_cycle,
     );
+    alice.nonce += 1;
+    // Bob vote
     let bob_vote = make_signers_vote_for_aggregate_public_key(
         &bob.private_key,
         bob.nonce,
@@ -5409,31 +5403,18 @@ fn test_scenario_one() {
         1,
         next_reward_cycle,
     );
-
+    bob.nonce += 1;
     let txs = vec![
         alice_vote,
         bob_vote
     ];
 
+    // Set target height to block 121 (first block in reward cycle 6) &
+    //   mine both voting txs
     let target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
-    info!(
-        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
-    );
-
-    // println!("current_reward for voting txs: {}", peer.config.burnchain.get_reward+);
-    // println!("next_reward for voting txs: {}", peer
-    // .config
-    // .burnchain
-    // .reward_cycle_to_block_height(next_reward_cycle as u64));
-    println!("target_height for voting txs: {}", target_height);
-    let current_reward_signing_cycle = peer.config.burnchain.block_height_to_reward_cycle(target_height);
-    println!("current reward cycle from target height in voting txs: {:?}", current_reward_signing_cycle);
-    //println!("next reward cycle from target height in voting txs: {:?}", current_reward_signing_cycle+1);
-
     let (latest_block, tx_block) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -5442,66 +5423,55 @@ fn test_scenario_one() {
         target_height,
     );
 
-    // Print tx receipts
-
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
 
     let reward_cycle = peer.get_reward_cycle() as u128;
     let next_reward_cycle = reward_cycle.wrapping_add(1);
-    let next_two_reward_cycle = reward_cycle.wrapping_add(2);
 
+    // Set target height to block 161 (first block in reward cycle 8) &
+    //   mine both voting txs
     let target_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(8 as u64);
-        // .saturating_sub(prepare_phase_len as u64)
-        // .wrapping_add(2);
-    println!("reward cycle from target height for replay tx setup: {:?}", peer.config.burnchain.block_height_to_reward_cycle(target_height));
-    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
-    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
+        .reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64);
 
-    alice.nonce += 1;
-    bob.nonce += 1;
-
-
-    // Advance to the next reward-cycle with txs
-    println!("target_height before: {:?}", target_height);
-    println!("current reward cycle: {:?}", reward_cycle);
-    println!("next reward cycle: {:?}", next_reward_cycle);
-
+    // Start replay transactions
+    // *currently commented out for debugging purposes*
     // Alice stacks with a replayed signature
-    let alice_replay_nonce = alice.nonce;
-    let alice_stack_replay = make_pox_4_lockup(
-        &alice.private_key,
-        alice_replay_nonce,
-        amount,
-        &alice.pox_address,
-        lock_period,
-        &alice.public_key,
-        121,
-        Some(alice_signature.clone()),
-        u128::MAX,
-        1,
-    );
-    // Bob stacks with a replayed authorization
-    let bob_nonce_stack_replay = bob.nonce;
-    let bob_stack_replay = make_pox_4_lockup(
-        &bob.private_key,
-        bob_nonce_stack_replay,
-        amount,
-        &bob.pox_address,
-        lock_period,
-        &bob.public_key,
-        121,
-        None,
-        u128::MAX,
-        3,
-    );
+    // let alice_replay_nonce = alice.nonce;
+    // let alice_stack_replay = make_pox_4_lockup(
+    //     &alice.private_key,
+    //     alice_replay_nonce,
+    //     amount,
+    //     &alice.pox_address,
+    //     lock_period,
+    //     &alice.public_key,
+    //     121,
+    //     Some(alice_signature.clone()),
+    //     u128::MAX,
+    //     1,
+    // );
+    // // Bob stacks with a replayed authorization
+    // let bob_nonce_stack_replay = bob.nonce;
+    // let bob_stack_replay = make_pox_4_lockup(
+    //     &bob.private_key,
+    //     bob_nonce_stack_replay,
+    //     amount,
+    //     &bob.pox_address,
+    //     lock_period,
+    //     &bob.public_key,
+    //     121,
+    //     None,
+    //     u128::MAX,
+    //     3,
+    // );
 
+    // Testing which configuration/value for 'start-burn-height' works
+    //  Debug, loop through alice_stack_replay & bob_stack_replay by 
+    //  increasing the burn height by 1 each time for 8 reward cycles
     let mut loop_txs = vec![];
-    // Loop through alice_stack_replay & bob_stack_replay by increasing the burn height by 1 each time for 80 times
-    for i in 0..160 {
+    for i in 0..reward_cycle_len*8 {
         let alice_stack_replay = make_pox_4_lockup(
             &alice.private_key,
             alice.nonce,
@@ -5509,7 +5479,7 @@ fn test_scenario_one() {
             &alice.pox_address,
             lock_period,
             &alice.public_key,
-            80 + i,
+            burn_block_height + i as u64,
             Some(alice_signature.clone()),
             u128::MAX,
             1,
@@ -5534,195 +5504,30 @@ fn test_scenario_one() {
         //loop_txs.push(bob_stack_replay);
     }
 
-    //println!("loop_txs: {:?}", loop_txs);
-
-    let txs = vec![alice_stack_replay, bob_stack_replay];
+    // let txs = vec![alice_stack_replay, bob_stack_replay];
+    // Debug, submit looped txs with increasing start_burn_height in block 161
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &loop_txs, &mut peer_nonce, target_height);
 
+    // Check Alice unlock amount in cycle, the print result here suggests Alice/stacker has been unlocked
     let alice_bal = get_stx_account_at(
         &mut peer,
         &latest_block,
         &alice.principal,
     );
     println!("alice_bal: {:?}", alice_bal);
-    // The below fetches the stacker info for Alice, which, since we're now in rewardy cycle 8, errors out
-    // let (pox_address, first_reward_cycle, lock_period, _indices) = get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
-    // print all three return values from get_stacker_info_pox_4
-    // println!("second pox_address: {:?}", pox_address);
-    // println!("second first_reward_cycle: {:?}", first_reward_cycle);
-    // println!("second lock_period: {:?}", lock_period);
-    // assert_eq!(first_reward_cycle, next_reward_cycle);
-    // assert_eq!(pox_address, bob.pox_address);
-    // assert_eq!(lock_period, lock_period);
+
+    // Verify Alice stacked (this is commented out because it *does* fail suggesting again that Alice has been unlocked)
+    // let (pox_address, first_reward_cycle, lock_period, _indices) =
+    // get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
 
     // Below we loop through all of the test transactions to see the results
-    // You should see that the majority fail with (err 24) & a batch with (err 3) which suggests that the stacker isn't unlocked?
-    for i in 0..160 {
-        let alice_tx_result = tx_block.receipts.get(i).unwrap().result.clone();
+    // You should see that the majority fail with (err 24) & a batch with (err 3) which suggests that the stacker/Alice actually isn't unlocked?
+    let loop_max = reward_cycle_len*8;
+    for i in 0..loop_max {
+        let alice_tx_result = tx_block.receipts.get(i as usize).unwrap().result.clone();
         println!("alice_tx_result: {:?}", alice_tx_result);
-        //println!("i value: {:?}", i);
     }
-    
-    // Check alice's replayed stack transaction
-    // let alice_tx_result_replay = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
-    // println!("alice_tx_result_replay: {:?}", alice_tx_result_replay);
-
-    // // Check bob's replayed stack transaction
-    // let bob_tx_result_replay = tx_block.receipts.get(2).unwrap().result.clone().expect_result_err().unwrap();
-    // println!("bob_tx_result_replay: {:?}", bob_tx_result_replay);
-
-    // Prepare Block (create approval)
-    // let latest_block = peer.tenure_with_txs(
-    //     &[bob_authorization_low, bob_authorization],
-    //     &mut coinbase_nonce,
-    // );
-    // let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
-    // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
-
-    // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-
-
-
-    // // Stacking Block
-    // coinbase_nonce += 1;
-    // let latest_block = peer.tenure_with_txs(
-    //     &[alice_stack_err, alice_stack, bob_stack_err, bob_stack],
-    //     &mut coinbase_nonce,
-    // );
-
-    // // Get Alice results
-    // let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
-    // let alice_stack_err_result = alice_tx
-    //     .get(alice_err_nonce as usize)
-    //     .unwrap()
-    //     .result
-    //     .clone();
-    // let alice_stack_result = alice_tx
-    //     .get(alice_stack_nonce as usize)
-    //     .unwrap()
-    //     .result
-    //     .clone();
-
-    // // Alice Error
-    // // Err Amount Too High
-    // assert_eq!(
-    //     alice_stack_err_result,
-    //     Value::error(Value::Int(38)).unwrap()
-    // );
-
-    // // Alice Success Checks, amount locked & signer key
-    // let alice_stack_tuple = alice_stack_result
-    //     .clone()
-    //     .expect_result_ok()
-    //     .unwrap()
-    //     .expect_tuple()
-    //     .unwrap();
-
-    // // Check amount locked
-    // let amount_locked_expected = Value::UInt(min_ustx * 2);
-    // let amount_locked_actual = alice_stack_tuple.data_map.get("lock-amount").unwrap();
-    // assert_eq!(amount_locked_actual, &amount_locked_expected);
-    // // Check signer key
-    // let signer_key_expected = Value::buff_from(alice_signing_key.to_bytes_compressed());
-    // let signer_key_actual = alice_stack_tuple
-    //     .data_map
-    //     .get("signer-key")
-    //     .unwrap()
-    //     .clone();
-    // assert_eq!(signer_key_actual, signer_key_actual);
-
-    // // Get Bob results
-    // let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    // let bob_stack_result_err = bob_tx.get(0 as usize).unwrap().result.clone();
-    // let bob_stack_result = bob_tx.get(1 as usize).unwrap().result.clone();
-
-    // // Bob Error
-    // // Err Not Allowed
-    // assert_eq!(bob_stack_result_err, Value::error(Value::Int(19)).unwrap());
-
-    // // Bob Success Checks, amount locked & signer key
-    // let bob_stack_tuple = bob_stack_result
-    //     .clone()
-    //     .expect_result_ok()
-    //     .unwrap()
-    //     .expect_tuple()
-    //     .unwrap();
-
-    // // Check amount locked
-    // let amount_locked_expected = Value::UInt(min_ustx * 2);
-    // let amount_locked_actual = bob_stack_tuple.data_map.get("lock-amount").unwrap();
-
-    // // Check signer key
-    // let signer_key_expected = Value::buff_from(bob_signing_key.to_bytes_compressed());
-    // let signer_key_actual = bob_stack_tuple.data_map.get("signer-key").unwrap().clone();
-    // assert_eq!(signer_key_actual, signer_key_actual);
-
-    // // Advance to next reward cycle
-    // for i in 0..3 {
-    //     alice_nonce += 1;
-    //     let dummy_tx = make_dummy_tx(&mut peer, &alice_private_key, &mut alice_nonce);
-    //     println!("Alice in-loop nonce: {:?}", alice_nonce);
-    //     coinbase_nonce += 1;
-    //     let dummy_block = peer.tenure_with_txs(&[dummy_tx], &mut coinbase_nonce);
-    // }
-
-    // let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-
-    // let alice_replay_nonce = alice_nonce + 1;
-    // let alice_stack_replay = make_pox_4_lockup(
-    //     alice_private_key,
-    //     alice_replay_nonce,
-    //     min_ustx * 2,
-    //     &alice_pox_addr.clone(),
-    //     lock_period,
-    //     &alice_signing_key,
-    //     block_height,
-    //     Some(alice_signature),
-    //     u128::MAX,
-    //     1,
-    // );
-
-    // let bob_nonce_stack_replay = bob_nonce_stack + 1;
-    // let bob_stack_replay = make_pox_4_lockup(
-    //     bob_private_key,
-    //     bob_nonce_stack_replay,
-    //     min_ustx * 2,
-    //     &bob_pox_addr,
-    //     lock_period,
-    //     &bob_signing_key,
-    //     block_height,
-    //     None,
-    //     u128::MAX,
-    //     3,
-    // );
-    // println!("Later Reward Cycle: {:?}", next_reward_cycle);
-
-    // Replay Block
-    // coinbase_nonce += 1;
-    // let latest_block = peer.tenure_with_txs(
-    //     &[alice_stack_replay, bob_stack_replay],
-    //     &mut coinbase_nonce,
-    // );
-
-    // // Get Alice results
-    // let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
-    // let alice_stack_replay_result = alice_tx
-    //     .get(alice_replay_nonce as usize)
-    //     .unwrap()
-    //     .result
-    //     .clone();
-    // println!("Alice Replay Result: {:?}", alice_stack_replay_result);
-
-    // // Get Bob results
-    // let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    // let bob_stack_replay_result = bob_tx
-    //     .get(bob_nonce_stack_replay as usize)
-    //     .unwrap()
-    //     .result
-    //     .clone();
-    // println!("Bob Replay Result: {:?}", bob_stack_replay_result);
 }
 
 // Test that Alice & Bob can solo stack provided

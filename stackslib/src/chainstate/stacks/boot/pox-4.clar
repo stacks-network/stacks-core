@@ -582,8 +582,8 @@
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
-      ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
-      ;;  to "post-date" their `stack-stx` transaction
+      ;; the start-burn-ht must be for the current cycle so that the specified-reward-cycle result in the next reward cycle,
+      ;;   do not allow stackers to "post-date" their `stack-stx` transaction
       (asserts! (is-eq first-reward-cycle specified-reward-cycle)
                 (err ERR_INVALID_START_BURN_HEIGHT))
 
