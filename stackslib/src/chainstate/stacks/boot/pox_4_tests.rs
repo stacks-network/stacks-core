@@ -5262,7 +5262,7 @@ fn test_scenario_one() {
         &bob.public_key,
         burn_block_height,
         None,
-        u128::MAX,
+        100,
         2,
     );
     let bob_nonce_stack = bob_nonce_stack_err + 1;
@@ -5298,13 +5298,6 @@ fn test_scenario_one() {
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
-
-    // print every receipt in tx_block
-    for i in 0..7 {
-        let alice_tx_result = tx_block.receipts.get(i).unwrap().result.clone();
-        println!("stacking_tx_result: {:?}", alice_tx_result);
-        //println!("i value: {:?}", i);
-    }
 
     // Verify Alice stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
@@ -5400,7 +5393,7 @@ fn test_scenario_one() {
         .clone()
         .expect_result_err()
         .unwrap();
-    assert_eq!(bob_tx_result_err, Value::Int(19));
+    assert_eq!(bob_tx_result_err, Value::Int(38));
 
     // Get bob's expected stack transaction
     let bob_tx_result_ok = tx_block
@@ -5476,10 +5469,7 @@ fn test_scenario_one() {
 
     // Set target height to block 121 (first block in reward cycle 6) &
     //   mine both voting txs
-    let target_height = peer
-        .config
-        .burnchain
-        .reward_cycle_to_block_height(next_reward_cycle as u64);
+    let target_height = peer.config.burnchain.reward_cycle_to_block_height(8 as u64);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
@@ -5491,104 +5481,52 @@ fn test_scenario_one() {
 
     // Set target height to block 161 (first block in reward cycle 8) &
     //   mine both voting txs
-    let target_height = peer
-        .config
-        .burnchain
-        .reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64);
+    let target_height = peer.config.burnchain.reward_cycle_to_block_height(8 as u64) + 1;
 
     // Start replay transactions
-    // *currently commented out for debugging purposes*
     // Alice stacks with a replayed signature
-    // let alice_replay_nonce = alice.nonce;
-    // let alice_stack_replay = make_pox_4_lockup(
-    //     &alice.private_key,
-    //     alice_replay_nonce,
-    //     amount,
-    //     &alice.pox_address,
-    //     lock_period,
-    //     &alice.public_key,
-    //     121,
-    //     Some(alice_signature.clone()),
-    //     u128::MAX,
-    //     1,
-    // );
-    // // Bob stacks with a replayed authorization
-    // let bob_nonce_stack_replay = bob.nonce;
-    // let bob_stack_replay = make_pox_4_lockup(
-    //     &bob.private_key,
-    //     bob_nonce_stack_replay,
-    //     amount,
-    //     &bob.pox_address,
-    //     lock_period,
-    //     &bob.public_key,
-    //     121,
-    //     None,
-    //     u128::MAX,
-    //     3,
-    // );
-
-    // Testing which configuration/value for 'start-burn-height' works
-    //  Debug, loop through alice_stack_replay & bob_stack_replay by
-    //  increasing the burn height by 1 each time for 8 reward cycles
-    let mut loop_txs = vec![];
-    for i in 0..reward_cycle_len * 8 {
-        let alice_stack_replay = make_pox_4_lockup(
-            &alice.private_key,
-            alice.nonce,
-            amount,
-            &alice.pox_address,
-            lock_period,
-            &alice.public_key,
-            burn_block_height + i as u64,
-            Some(alice_signature.clone()),
-            u128::MAX,
-            1,
-        );
-        alice.nonce += 1;
-        // Bob stacks with a replayed authorization
-        // let bob_stack_replay = make_pox_4_lockup(
-        //     &bob.private_key,
-        //     bob.nonce,
-        //     amount,
-        //     &bob.pox_address,
-        //     lock_period,
-        //     &bob.public_key,
-        //     80 + i,
-        //     None,
-        //     u128::MAX,
-        //     3,
-        // );
-        // bob.nonce += 1;
-        // Push the transactions into the loop_txs
-        loop_txs.push(alice_stack_replay);
-        //loop_txs.push(bob_stack_replay);
-    }
-
-    // let txs = vec![alice_stack_replay, bob_stack_replay];
-    // Debug, submit looped txs with increasing start_burn_height in block 161
-    let (latest_block, tx_block) = advance_to_block_height(
-        &mut peer,
-        &observer,
-        &loop_txs,
-        &mut peer_nonce,
-        target_height,
+    let alice_replay_nonce = alice.nonce;
+    let alice_stack_replay = make_pox_4_lockup(
+        &alice.private_key,
+        alice_replay_nonce,
+        amount,
+        &alice.pox_address,
+        lock_period,
+        &alice.public_key,
+        161,
+        Some(alice_signature.clone()),
+        u128::MAX,
+        1,
     );
+    // Bob stacks with a replayed authorization
+    let bob_nonce_stack_replay = bob.nonce;
+    let bob_stack_replay = make_pox_4_lockup(
+        &bob.private_key,
+        bob_nonce_stack_replay,
+        amount,
+        &bob.pox_address,
+        lock_period,
+        &bob.public_key,
+        161,
+        None,
+        u128::MAX,
+        3,
+    );
+    let txs = vec![alice_stack_replay, bob_stack_replay];
+
+    // Debug, submit looped txs with increasing start_burn_height in block 161
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
     // Check Alice unlock amount in cycle, the print result here suggests Alice/stacker has been unlocked
     let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice.principal);
     println!("alice_bal: {:?}", alice_bal);
 
-    // Verify Alice stacked (this is commented out because it *does* fail suggesting again that Alice has been unlocked)
-    // let (pox_address, first_reward_cycle, lock_period, _indices) =
-    // get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
+    let alice_tx_result = tx_block.receipts.get(1).unwrap().result.clone();
+    println!("alice_tx_result: {:?}", alice_tx_result);
 
-    // Below we loop through all of the test transactions to see the results
-    // You should see that the majority fail with (err 24) & a batch with (err 3) which suggests that the stacker/Alice actually isn't unlocked?
-    let loop_max = reward_cycle_len * 8;
-    for i in 0..loop_max {
-        let alice_tx_result = tx_block.receipts.get(i as usize).unwrap().result.clone();
-        println!("alice_tx_result: {:?}", alice_tx_result);
-    }
+    let bob_tx_result = tx_block.receipts.get(2).unwrap().result.clone();
+    println!("bob_tx_result: {:?}", bob_tx_result);
 }
 
 // Test that Alice & Bob can solo stack provided
