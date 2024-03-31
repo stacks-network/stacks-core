@@ -7489,8 +7489,8 @@ fn no_lockups_2_5() {
 // 2. Dave asks Alice for 3 signatures
 // 3. Eve asks Bob for 3 set-authorizations
 // 4. Ivan - Mallory ask Bob to set-approval-authorization
-// 5. Carl stx-stacks & self-signs for 2 reward cycle
-// 6. In Carl's second reward cycle, he calls stx-extend for 2 more reward cycles
+// 5. Carl stx-stacks & self-signs for 3 reward cycle
+// 6. In Carl's second reward cycle, he calls stx-extend for 3 more reward cycles
 // 7. In Carl's third reward cycle, he calls stx-increase and should fail as he is straddling 2 keys
 #[test]
 fn test_scenario_five() {
@@ -7607,7 +7607,7 @@ fn test_scenario_five() {
     );
 
     // Lock periods for each stacker
-    let carl_lock_period = 2;
+    let carl_lock_period = 3;
     let frank_lock_period = 1;
     let grace_lock_period = 2;
     let heidi_lock_period = 3;
@@ -8210,11 +8210,11 @@ fn test_scenario_five() {
     // Carl attempts a stx-increase using Alice's key instead of his own
     // Should fail as he already has delegated his signing power to himself
     let alice_signature_for_carl = make_signer_key_signature(
-        &alice.pox_address,
+        &carl.pox_address,
         &alice.private_key,
         current_reward_cycle,
         &Pox4SignatureTopic::StackIncrease,
-        carl_lock_period.wrapping_sub(1),
+        carl_lock_period,
         u128::MAX,
         4,
     );
@@ -8223,7 +8223,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         amount,
-        &carl.public_key,
+        &alice.public_key,
         Some(alice_signature_for_carl),
         u128::MAX,
         4,
@@ -8274,48 +8274,7 @@ fn test_scenario_five() {
     assert_eq!(first_reward_cycle, reward_cycle);
     assert_eq!(pox_address, carl.pox_address);
 
-    // Verify stacker transactions
-    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
-    let mut observed_txs = HashSet::new();
-    for tx_receipt in tx_block.receipts {
-        if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
-            observed_txs.insert(tx.txid());
-        }
-    }
-
-    for tx in &txs {
-        let txid = tx.txid();
-        if !observed_txs.contains(&txid) {
-            panic!("Failed to find stacking transaction ({txid}) in observed transactions")
-        }
-    }
-
-    // TOOD: VERIFY THAT THE STACK INCREASE FAILED!
-
-    // TODO: Mine another reward cycle
-
-    // TODO: GET CONFIRMED STACKING SET get-stacker-info
-    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Frank, Grace, Heidi, AND David)
-    // Confirm that his stacked amount has not increased
-    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob)
-    // Will have to add up delegated weight from each pool for Alice and for bob.
-
-    // TODO: Mine another reward cycle
-
-    // TODO: GET CONFIRMED STACKING SET get-stacker-info
-    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Carl, Frank, Grace, Heidi, David, AND Ivan)
-    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob but no longer Carl each with the appropriate weight)
-    // Will have to add up delegated weight from each pool for Alice and for bob.
-
-    // TODO: Mine another reward cycle
-
-    // TODO: GET CONFIRMED STACKING SET get-stacker-info
-    // Confirm that the stacking set contains all stackers (minus Alice, Bob, Carl, Frank, Grace, Heidi, David, Ivan, Jude)
-    // TODO: GET REGISTERED SIGNER SET get-signers (should contain Alice and Bob but no longer Carl each with the appropriate weight)
-    // Will have to add up delegated weight from each pool for Alice and for bob.
-
-    // TODO: Mine another reward cycle
-
-    // TODO: GET CONFIRMED STACKING SET get-stacker-info should be empty
-    // TODO: GET REGISTERED SIGNER SET get-signers should be empty
+    // Assert that carl's error is err(40)
+    let carl_increase_err = tx_block.receipts[1].clone().result;
+    assert_eq!(carl_increase_err, Value::error(Value::Int(40)).unwrap());
 }
