@@ -6309,101 +6309,153 @@ fn delegate_stack_increase() {
 }
 
 // In this test two solo stacker-signers Alice & Bob sign & stack
-//  for one tenure. Alice provides a signature, Bob uses
-//  'set-signer-key-authorizations' to authorize
+//  for two reward cycles. Alice provides a signature, Bob uses
+//  'set-signer-key-authorizations' to authorize. Two cycles later,
+//  when no longer stacked, they both try replaying their auths.
 #[test]
-fn test_solo_stacking() {
-    let lock_period = 1;
-    let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-    let mut coinbase_nonce = coinbase_nonce;
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    // Print current reward cycle
-    println!("Current Reward Cycle: {:?}", current_reward_cycle);
+fn test_scenario_one() {
+    // Alice solo stacker-signer setup
+    let mut alice = StackerSignerInfo::new();
+    // Bob solo stacker-signer setup
+    let mut bob = StackerSignerInfo::new();
+    debug!("alice info: {alice:?}");
+    debug!("bob info: {bob:?}");
 
-    // Alice Setup
-    let mut alice_nonce = 0;
-    let alice_private_key = &keys[0];
-    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
-    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
-    let alice_address = key_to_stacks_addr(alice_private_key);
-    let alice_pox_addr = pox_addr_from(&alice_private_key);
+    let default_initial_balances = 1_000_000_000_000_000_000;
+    let observer = TestEventObserver::new();
+    let mut test_signers = TestSigners::default();
+    let mut initial_balances = vec![
+        (alice.principal.clone(), default_initial_balances),
+        (bob.principal.clone(), default_initial_balances),
+    ];
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let epochs = peer_config.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    debug!(
+        "Epoch 3.0 start burn block height: {}",
+        epoch_3.start_height
+    );
+
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer_nonce = 0;
+    // Set constants
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
+    // Advance into pox4
+    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut latest_block = None;
+    // Produce blocks until the first reward phase that everyone should be in
+    debug!("Advancing to pox 4 activation height: {target_height}");
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+        observer.get_blocks();
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    // Current reward cycle: 5 (starts at burn block 101)
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    // Next reward cycle: 6
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    // Current burn block height: 105
+    let burn_block_height = peer.get_burn_block_height();
+    // Current stack block height: 25
+    let current_block_height = peer.config.current_block;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    debug!("Test info:";
+        "reward_cycle" => reward_cycle,
+        "burn_block_height" => burn_block_height,
+        "min_ustx" => min_ustx,
+    );
+
+    // Alice Signatures
+    let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
+    let lock_period = 1;
     let alice_signature = make_signer_key_signature(
-        &alice_pox_addr,
-        &alice_private_key,
-        current_reward_cycle,
+        &alice.pox_address,
+        &alice.private_key,
+        reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         u128::MAX,
         1,
     );
     let alice_signature_err = make_signer_key_signature(
-        &alice_pox_addr,
-        &alice_private_key,
-        current_reward_cycle - 1,
+        &alice.pox_address,
+        &alice.private_key,
+        reward_cycle - 1,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         100,
         2,
     );
 
-    // Bob Setup
-    let bob_nonce_err = 0;
-    let bob_private_key = &keys[1];
-    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
-    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
-    let bob_address = key_to_stacks_addr(bob_private_key);
-    let bob_pox_addr = pox_addr_from(&bob_private_key);
+    // Bob Authorizations
     let bob_authorization_low = make_pox_4_set_signer_key_auth(
-        &bob_pox_addr,
-        &bob_private_key,
-        current_reward_cycle,
+        &bob.pox_address,
+        &bob.private_key,
+        reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         true,
-        bob_nonce_err,
-        Some(&bob_private_key),
+        bob.nonce,
+        Some(&bob.private_key),
         100,
         2,
     );
-    let bob_nonce_auth = bob_nonce_err + 1;
+    bob.nonce += 1;
     let bob_authorization = make_pox_4_set_signer_key_auth(
-        &bob_pox_addr,
-        &bob_private_key,
-        current_reward_cycle,
+        &bob.pox_address,
+        &bob.private_key,
+        reward_cycle,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         true,
-        bob_nonce_auth,
-        Some(&bob_private_key),
+        bob.nonce,
+        Some(&bob.private_key),
         u128::MAX,
         3,
     );
-
-    // Prepare Block (create approval)
-    let latest_block = peer.tenure_with_txs(
-        &[bob_authorization_low, bob_authorization],
-        &mut coinbase_nonce,
-    );
-    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
-    let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
-
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    bob.nonce += 1;
 
     // Alice stacks
-    let alice_err_nonce = alice_nonce;
+    let alice_err_nonce = alice.nonce;
     let alice_stack_err = make_pox_4_lockup(
-        alice_private_key,
+        &alice.private_key,
         alice_err_nonce,
-        min_ustx * 2,
-        &alice_pox_addr.clone(),
+        amount,
+        &alice.pox_address,
         lock_period,
-        &alice_signing_key,
-        block_height,
+        &alice.public_key,
+        burn_block_height,
         Some(alice_signature_err),
         100,
         1,
@@ -6411,130 +6463,288 @@ fn test_solo_stacking() {
 
     let alice_stack_nonce = alice_err_nonce + 1;
     let alice_stack = make_pox_4_lockup(
-        alice_private_key,
+        &alice.private_key,
         alice_stack_nonce,
-        min_ustx * 2,
-        &alice_pox_addr.clone(),
+        amount,
+        &alice.pox_address,
         lock_period,
-        &alice_signing_key,
-        block_height,
-        Some(alice_signature),
+        &alice.public_key,
+        burn_block_height,
+        Some(alice_signature.clone()),
         u128::MAX,
         1,
     );
+    alice.nonce = alice_stack_nonce + 1;
 
     // Bob stacks
-    let bob_nonce_stack_err = bob_nonce_auth + 1;
+    let bob_nonce_stack_err = bob.nonce;
     let bob_stack_err = make_pox_4_lockup(
-        bob_private_key,
+        &bob.private_key,
         bob_nonce_stack_err,
-        min_ustx * 2,
-        &bob_pox_addr,
+        amount,
+        &bob.pox_address,
         lock_period,
-        &bob_signing_key,
-        block_height,
+        &bob.public_key,
+        burn_block_height,
         None,
-        u128::MAX,
+        100,
         2,
     );
     let bob_nonce_stack = bob_nonce_stack_err + 1;
     let bob_stack = make_pox_4_lockup(
-        bob_private_key,
+        &bob.private_key,
         bob_nonce_stack,
-        min_ustx * 2,
-        &bob_pox_addr,
+        amount,
+        &bob.pox_address,
         lock_period,
-        &bob_signing_key,
-        block_height,
+        &bob.public_key,
+        burn_block_height,
         None,
         u128::MAX,
         3,
     );
+    bob.nonce = bob_nonce_stack + 1;
 
-    // Stacking Block
-    coinbase_nonce += 1;
-    let latest_block = peer.tenure_with_txs(
-        &[alice_stack_err, alice_stack, bob_stack_err, bob_stack],
-        &mut coinbase_nonce,
-    );
+    let txs = vec![
+        bob_authorization_low,
+        bob_authorization,
+        alice_stack_err,
+        alice_stack,
+        bob_stack_err,
+        bob_stack,
+    ];
 
-    // Get Alice results
-    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
-    let alice_stack_err_result = alice_tx
-        .get(alice_err_nonce as usize)
+    // Commit tx & advance to the very end of reward cycle 5 (burnchain block 118)
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Verify Alice stacked
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, alice.pox_address);
+
+    // Verify Bob stacked
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &bob.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, bob.pox_address);
+
+    // 1. Check bob's low authorization transaction
+    let bob_tx_result_low = tx_block
+        .receipts
+        .get(1)
         .unwrap()
         .result
-        .clone();
-    let alice_stack_result = alice_tx
-        .get(alice_stack_nonce as usize)
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(bob_tx_result_low, Value::Bool(true));
+
+    // 2. Check bob's expected authorization transaction
+    let bob_tx_result_ok = tx_block
+        .receipts
+        .get(2)
         .unwrap()
         .result
-        .clone();
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(bob_tx_result_ok, Value::Bool(true));
 
-    // Alice Error
-    // Err Amount Too High
-    assert_eq!(
-        alice_stack_err_result,
-        Value::error(Value::Int(38)).unwrap()
-    );
+    // 3. Check alice's low stack transaction
+    let alice_tx_result_err = tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_tx_result_err, Value::Int(38));
 
-    // Alice Success Checks, amount locked & signer key
-    let alice_stack_tuple = alice_stack_result
+    // Get alice's expected stack transaction
+    let alice_tx_result_ok = tx_block
+        .receipts
+        .get(4)
+        .unwrap()
+        .result
         .clone()
         .expect_result_ok()
         .unwrap()
         .expect_tuple()
         .unwrap();
 
-    // Check amount locked
-    let amount_locked_expected = Value::UInt(min_ustx * 2);
-    let amount_locked_actual = alice_stack_tuple.data_map.get("lock-amount").unwrap();
-    assert_eq!(amount_locked_actual, &amount_locked_expected);
-    // Check signer key
-    let signer_key_expected = Value::buff_from(alice_signing_key.to_bytes_compressed());
-    let signer_key_actual = alice_stack_tuple
+    // 4.1 Check amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = alice_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
+
+    // 4.2 Check signer key
+    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
+    let signer_key_actual = alice_tx_result_ok
         .data_map
         .get("signer-key")
         .unwrap()
         .clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
-    // Get Bob results
-    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    let bob_stack_result_err = bob_tx.get(0 as usize).unwrap().result.clone();
-    let bob_stack_result = bob_tx.get(1 as usize).unwrap().result.clone();
+    // 4.3 Check unlock height
+    let unlock_height_expected = Value::UInt(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64)
+            .wrapping_sub(1) as u128,
+    );
+    let unlock_height_actual = alice_tx_result_ok
+        .data_map
+        .get("unlock-burn-height")
+        .unwrap()
+        .clone();
+    assert_eq!(unlock_height_expected, unlock_height_actual);
 
-    // Bob Error
-    // Err Not Allowed
-    assert_eq!(bob_stack_result_err, Value::error(Value::Int(19)).unwrap());
+    // 5. Check bob's error stack transaction
+    let bob_tx_result_err = tx_block
+        .receipts
+        .get(5)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(bob_tx_result_err, Value::Int(38));
 
-    // Bob Success Checks, amount locked & signer key
-    let bob_stack_tuple = bob_stack_result
+    // Get bob's expected stack transaction
+    let bob_tx_result_ok = tx_block
+        .receipts
+        .get(6)
+        .unwrap()
+        .result
         .clone()
         .expect_result_ok()
         .unwrap()
         .expect_tuple()
         .unwrap();
 
-    // Check amount locked
-    let amount_locked_expected = Value::UInt(min_ustx * 2);
-    let amount_locked_actual = bob_stack_tuple.data_map.get("lock-amount").unwrap();
+    // 6.1 Check amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = bob_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
 
-    // Check signer key
-    let signer_key_expected = Value::buff_from(bob_signing_key.to_bytes_compressed());
-    let signer_key_actual = bob_stack_tuple.data_map.get("signer-key").unwrap().clone();
+    // 6.2 Check signer key
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_actual = bob_tx_result_ok.data_map.get("signer-key").unwrap().clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
-    // Advance to next reward cycle
-    for i in 0..3 {
-        alice_nonce += 1;
-        let dummy_tx = make_dummy_tx(&mut peer, &alice_private_key, &mut alice_nonce);
-        coinbase_nonce += 1;
-        let dummy_block = peer.tenure_with_txs(&[dummy_tx], &mut coinbase_nonce);
-    }
+    // 6.3 Check unlock height (end of cycle 7 - block 140)
+    let unlock_height_expected = Value::UInt(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height((next_reward_cycle + lock_period) as u64)
+            .wrapping_sub(1) as u128,
+    );
+    let unlock_height_actual = bob_tx_result_ok
+        .data_map
+        .get("unlock-burn-height")
+        .unwrap()
+        .clone();
+    assert_eq!(unlock_height_expected, unlock_height_actual);
 
-    let next_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    println!("Later Reward Cycle: {:?}", next_reward_cycle);
+    // Now starting create vote txs
+    // Fetch signer indices in reward cycle 6
+    let alice_index = get_signer_index(
+        &mut peer,
+        latest_block,
+        alice.address.clone(),
+        next_reward_cycle,
+    );
+    let bob_index = get_signer_index(
+        &mut peer,
+        latest_block,
+        bob.address.clone(),
+        next_reward_cycle,
+    );
+    // Alice vote
+    let alice_vote = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    alice.nonce += 1;
+    // Bob vote
+    let bob_vote = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    bob.nonce += 1;
+    let txs = vec![alice_vote, bob_vote];
+
+    let target_reward_cycle = 8;
+    // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
+    let mut target_height = peer.config.burnchain.reward_cycle_to_block_height(target_reward_cycle as u64);
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+
+
+    // Start replay transactions
+    // Alice stacks with a replayed signature
+    let alice_replay_nonce = alice.nonce;
+    let alice_stack_replay = make_pox_4_lockup(
+        &alice.private_key,
+        alice_replay_nonce,
+        amount,
+        &alice.pox_address,
+        lock_period,
+        &alice.public_key,
+        161,
+        Some(alice_signature.clone()),
+        u128::MAX,
+        1,
+    );
+    // Bob stacks with a replayed authorization
+    let bob_nonce_stack_replay = bob.nonce;
+    let bob_stack_replay = make_pox_4_lockup(
+        &bob.private_key,
+        bob_nonce_stack_replay,
+        amount,
+        &bob.pox_address,
+        lock_period,
+        &bob.public_key,
+        161,
+        None,
+        u128::MAX,
+        3,
+    );
+    let txs = vec![alice_stack_replay, bob_stack_replay];
+
+    // Commit replay txs & advance to the second burn block of reward cycle 8 (block 162)
+    target_height += 1;
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Check Alice replay, expect (err 35) - ERR_INVALID_SIGNATURE_PUBKEY
+    let alice_replay_result = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
+    assert_eq!(alice_replay_result, Value::Int(35));
+
+    // Check Bob replay, expect (err 39) - ERR_SIGNER_AUTH_USED
+    let bob_tx_result = tx_block.receipts.get(2).unwrap().result.clone().expect_result_err().unwrap();
+    assert_eq!(bob_tx_result, Value::Int(39));
 }
 
 // Test that Alice & Bob can solo stack provided

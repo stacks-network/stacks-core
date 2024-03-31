@@ -758,7 +758,7 @@
       ;; `signer-sig` is not present, verify that an authorization was previously added for this key
       (ok (asserts! (default-to false (map-get? signer-key-authorizations
             { signer-key: signer-key, reward-cycle: reward-cycle, period: period, topic: topic, pox-addr: pox-addr, auth-id: auth-id, max-amount: max-amount }))
-          (err ERR_NOT_ALLOWED)))
+          (err ERR_SIGNER_AUTH_USED)))
     ))
   )
 
