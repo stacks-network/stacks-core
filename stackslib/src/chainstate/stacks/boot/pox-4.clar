@@ -584,8 +584,6 @@
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
       ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
       ;;  to "post-date" their `stack-stx` transaction
-      (asserts! (not (> specified-reward-cycle first-reward-cycle)) (err ERR_TOO_HIGH_TEST))
-      (asserts! (not (< specified-reward-cycle first-reward-cycle)) (err ERR_TOO_LOW_TEST))
       (asserts! (is-eq first-reward-cycle specified-reward-cycle)
                 (err ERR_INVALID_START_BURN_HEIGHT))
 
