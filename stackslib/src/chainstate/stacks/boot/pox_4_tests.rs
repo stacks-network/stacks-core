@@ -5159,7 +5159,7 @@ fn stack_stx_signer_auth() {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(&stacker_key));
 
-    let expected_error = Value::error(Value::Int(19)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
 
     assert_eq!(stacker_txs.len(), (stacker_nonce + 1) as usize);
     let stacker_tx_result =
@@ -5297,7 +5297,7 @@ fn stack_agg_commit_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { delegate_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(19)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
     assert_eq!(tx_result(invalid_agg_nonce), expected_error);
     let successful_agg_result = tx_result(valid_agg_nonce);
     successful_agg_result
@@ -5403,7 +5403,7 @@ fn stack_extend_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { stacker_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(19)).unwrap();
+    let expected_error = Value::error(Value::Int(39)).unwrap();
     assert_eq!(tx_result(invalid_extend_nonce), expected_error);
 
     let valid_extend_tx_result = tx_result(valid_extend_nonce);
