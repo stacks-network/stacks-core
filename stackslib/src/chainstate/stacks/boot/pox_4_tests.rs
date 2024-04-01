@@ -7176,7 +7176,7 @@ fn test_scenario_two() {
     assert_eq!(bob_expected_vote, Value::Bool(true));
 }
 
-// In this scenario, two solo stacker-signers (Alice, Bob), one service signer (Carl), 
+// In this scenario, two solo stacker-signers (Alice, Bob), one service signer (Carl),
 //  one stacking pool operator (Dave), & three pool stackers (Eve, Frank, Grace).
 #[test]
 fn test_scenario_three() {
@@ -7287,7 +7287,7 @@ fn test_scenario_three() {
     let bob_signature_for_bob_err = make_signer_key_signature(
         &bob.pox_address,
         &bob.private_key,
-        reward_cycle-1,
+        reward_cycle - 1,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         u128::MAX,
@@ -7382,7 +7382,12 @@ fn test_scenario_three() {
         eve.nonce,
         amount,
         david.principal.clone(),
-        Some(peer.config.burnchain.reward_cycle_to_block_height(next_reward_cycle as u64).into()),
+        Some(
+            peer.config
+                .burnchain
+                .reward_cycle_to_block_height(next_reward_cycle as u64)
+                .into(),
+        ),
         Some(david.pox_address.clone()),
     );
     eve.nonce += 1;
@@ -7503,16 +7508,195 @@ fn test_scenario_three() {
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
-    
     // Start of test checks
-    // 1. Check that Alice's error 
-    for i in 0..tx_block.receipts.len() {
-        let receipt = tx_block.receipts.get(i).unwrap().result.clone();
-        println!("Tx: {i} receipt: {receipt}");
-    }
+    // 1. Check that Alice can't stack with an lock_period different than signature
+    let alice_stack_tx_err = tx_block
+        .receipts
+        .get(1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_stack_tx_err, Value::Int(35));
 
+    // 2. Check that Alice can solo stack-sign
+    let alice_stack_tx_ok = tx_block
+        .receipts
+        .get(2)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
 
-    // 1. Check that
+    // Check Alice amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = alice_stack_tx_ok
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
+
+    // Check Alice signer key
+    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
+    let signer_key_actual = alice_stack_tx_ok
+        .data_map
+        .get("signer-key")
+        .unwrap()
+        .clone();
+    assert_eq!(signer_key_actual, signer_key_actual);
+
+    // 3. Check that Bob can't stack with a signature that points to a reward cycle in the past
+    let bob_stack_tx_err = tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(bob_stack_tx_err, Value::Int(35));
+
+    // 4. Check that Bob can solo stack-sign
+    let bob_stack_tx_ok = tx_block
+        .receipts
+        .get(4)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+
+    // Check Bob amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = bob_stack_tx_ok.data_map.get("lock-amount").unwrap().clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
+
+    // Check Bob signer key
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_actual = bob_stack_tx_ok.data_map.get("signer-key").unwrap().clone();
+    assert_eq!(signer_key_actual, signer_key_actual);
+
+    // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
+    let eve_delegate_stx_to_david_err = tx_block
+        .receipts
+        .get(9)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(eve_delegate_stx_to_david_err, Value::Int(21));
+
+    // 6. Check that Frank is correctly delegated to David
+    let frank_delegate_stx_to_david_tx = tx_block
+        .receipts
+        .get(10)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+
+    // Check Frank amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = frank_delegate_stx_to_david_tx
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
+
+    // Check Frank stacker address
+    let stacker_expected = Value::Principal(frank.address.clone().into());
+    let stacker_actual = frank_delegate_stx_to_david_tx
+        .data_map
+        .get("stacker")
+        .unwrap()
+        .clone();
+    assert_eq!(stacker_expected, stacker_actual);
+
+    // 7. Check that Grace is correctly delegated to David
+    let grace_delegate_stx_to_david_tx = tx_block
+        .receipts
+        .get(11)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap()
+        .expect_tuple()
+        .unwrap();
+
+    // Check Grace amount locked
+    let amount_locked_expected = Value::UInt(amount);
+    let amount_locked_actual = grace_delegate_stx_to_david_tx
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
+    assert_eq!(amount_locked_actual, amount_locked_expected);
+
+    // Check Grace stacker address
+    let stacker_expected = Value::Principal(grace.address.clone().into());
+    let stacker_actual = grace_delegate_stx_to_david_tx
+        .data_map
+        .get("stacker")
+        .unwrap()
+        .clone();
+    assert_eq!(stacker_expected, stacker_actual);
+
+    // 8. Check that Alice can't delegate-stack if already stacking
+    let alice_delegate_stx_to_david_err = tx_block
+        .receipts
+        .get(12)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_delegate_stx_to_david_err, Value::Int(3));
+
+    // 9. Check that David can't aggregate-commit-indexed if pointing to a reward cycle in the future
+    let david_aggregate_commit_indexed_err = tx_block
+        .receipts
+        .get(13)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
+
+    // 10. Check that David can aggregate-commit-indexed if using the incorrect signature topic
+    let david_aggregate_commit_indexed_err = tx_block
+        .receipts
+        .get(14)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
+
+    // 11. Check that David can aggregate-commit-indexed successfully, checking stacking index = 2
+    let david_aggregate_commit_indexed_ok = tx_block
+        .receipts
+        .get(15)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(2));
 }
 
 pub fn get_stacking_state_pox_4(
