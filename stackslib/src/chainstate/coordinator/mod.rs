@@ -3487,6 +3487,11 @@ impl SortitionDBMigrator {
         })
     }
 
+    /// Get the burnchain reference
+    pub fn get_burnchain(&self) -> &Burnchain {
+        &self.burnchain
+    }
+
     /// Regenerate a reward cycle.  Do this by re-calculating the RewardSetInfo for the given
     /// reward cycle.  This should store the preprocessed reward cycle info to the sortition DB.
     pub fn regenerate_reward_cycle_info(
