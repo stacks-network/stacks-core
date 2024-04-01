@@ -34,8 +34,8 @@ jobs:
         id: docker_setup
         uses: stacks-network/actions/docker@main
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          username: ${{ secrets.DOCKERHUB_USERNAME_LOCAL }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD_LOCAL }}
 
       ## if the repo owner is not `stacks-network`, default to a docker-org of the repo owner (i.e. github user id)
       ## this allows forks to run the docker push workflows without having to hardcode a dockerhub org (but it does require docker hub user to match github username)
