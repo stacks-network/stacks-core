@@ -21,7 +21,11 @@ use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use clap::{ArgAction, Parser, ValueEnum};
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::address::b58;
+use stacks_common::address::{
+    b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use stacks_common::types::chainstate::StacksPrivateKey;
 
 use crate::config::Network;
@@ -264,12 +268,26 @@ fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String>
     QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
 }
 
-/// Parse a BTC address argument and return a `PoxAddress`
+/// Parse a BTC address argument and return a `PoxAddress`.
+/// This function behaves similarly to `PoxAddress::from_b58`, but also handles
+/// addresses where the parsed AddressHashMode is None.
 pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
-    PoxAddress::from_b58(pox_address_literal).map_or_else(
+    let parsed_addr = PoxAddress::from_b58(pox_address_literal).map_or_else(
         || Err(format!("Invalid pox address: {pox_address_literal}")),
-        |pox_address| Ok(pox_address),
-    )
+        Ok,
+    );
+    match parsed_addr {
+        Ok(PoxAddress::Standard(addr, None)) => match addr.version {
+            C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_MULTISIG => Ok(
+                PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2SH)),
+            ),
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => Ok(
+                PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2PKH)),
+            ),
+            _ => Err(format!("Invalid address version: {}", addr.version)),
+        },
+        _ => parsed_addr,
+    }
 }
 
 /// Parse the hexadecimal Stacks private key
@@ -310,13 +328,50 @@ fn parse_network(network: &str) -> Result<Network, String> {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
+    use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash;
+    use clarity::consts::CHAIN_ID_TESTNET;
+    use clarity::util::hash::Sha256Sum;
 
     use super::*;
+
+    /// Helper just to ensure that a the pox address
+    /// can be turned into a clarity tuple
+    fn make_message_hash(pox_addr: &PoxAddress) -> Sha256Sum {
+        make_pox_4_signer_key_message_hash(
+            pox_addr,
+            0,
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            0,
+            0,
+            0,
+        )
+    }
+
+    fn clarity_tuple_version(pox_addr: &PoxAddress) -> u8 {
+        pox_addr
+            .as_clarity_tuple()
+            .expect("Failed to generate clarity tuple for pox address")
+            .get("version")
+            .expect("Expected version in clarity tuple")
+            .clone()
+            .expect_buff(1)
+            .expect("Expected version to be a u128")
+            .get(0)
+            .expect("Expected version to be a uint")
+            .clone()
+    }
 
     #[test]
     fn test_parse_pox_addr() {
         let tr = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
         let pox_addr = parse_pox_addr(tr).expect("Failed to parse segwit address");
+        assert_eq!(tr, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            PoxAddressType32::P2TR.to_u8()
+        );
         match pox_addr {
             PoxAddress::Addr32(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType32::P2TR);
@@ -326,26 +381,60 @@ mod tests {
 
         let legacy = "1N8GMS991YDY1E696e9SB9EsYY5ckSU7hZ";
         let pox_addr = parse_pox_addr(legacy).expect("Failed to parse legacy address");
+        assert_eq!(legacy, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            AddressHashMode::SerializeP2PKH as u8
+        );
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
                 assert_eq!(stacks_addr.version, 22);
-                assert!(hash_mode.is_none());
+                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
             }
             _ => panic!("Invalid parsed address"),
         }
 
         let p2sh = "33JNgVMNMC9Xm6mJG9oTVf5zWbmt5xi1Mv";
         let pox_addr = parse_pox_addr(p2sh).expect("Failed to parse legacy address");
+        assert_eq!(p2sh, pox_addr.clone().to_b58());
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            AddressHashMode::SerializeP2SH as u8
+        );
+        make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
                 assert_eq!(stacks_addr.version, 20);
-                assert!(hash_mode.is_none());
+                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2SH));
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let testnet_p2pkh = "mnr5asd1MLSutHLL514WZXNpUNN3L98zBc";
+        let pox_addr = parse_pox_addr(testnet_p2pkh).expect("Failed to parse testnet address");
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            AddressHashMode::SerializeP2PKH as u8
+        );
+        assert_eq!(testnet_p2pkh, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        match pox_addr {
+            PoxAddress::Standard(stacks_addr, hash_mode) => {
+                assert_eq!(stacks_addr.version, C32_ADDRESS_VERSION_TESTNET_SINGLESIG);
+                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
             }
             _ => panic!("Invalid parsed address"),
         }
 
         let wsh = "bc1qvnpcphdctvmql5gdw6chtwvvsl6ra9gwa2nehc99np7f24juc4vqrx29cs";
         let pox_addr = parse_pox_addr(wsh).expect("Failed to parse segwit address");
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            PoxAddressType32::P2WSH.to_u8()
+        );
+        assert_eq!(wsh, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Addr32(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType32::P2WSH);
@@ -353,8 +442,44 @@ mod tests {
             _ => panic!("Invalid parsed address"),
         }
 
-        let wpkh = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4";
+        let wpkh = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
         let pox_addr = parse_pox_addr(wpkh).expect("Failed to parse segwit address");
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            PoxAddressType20::P2WPKH.to_u8()
+        );
+        assert_eq!(wpkh, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        match pox_addr {
+            PoxAddress::Addr20(_, addr_type, _) => {
+                assert_eq!(addr_type, PoxAddressType20::P2WPKH);
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let testnet_tr = "tb1p46cgptxsfwkqpnnj552rkae3nf6l52wxn4snp4vm6mcrz2585hwq6cdwf2";
+        let pox_addr = parse_pox_addr(testnet_tr).expect("Failed to parse testnet address");
+        assert_eq!(testnet_tr, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            PoxAddressType32::P2TR.to_u8()
+        );
+        match pox_addr {
+            PoxAddress::Addr32(_, addr_type, _) => {
+                assert_eq!(addr_type, PoxAddressType32::P2TR);
+            }
+            _ => panic!("Invalid parsed address"),
+        }
+
+        let testnet_segwit = "tb1q38eleudmqyg4jrm39dnudj23pv6jcjrksa437s";
+        let pox_addr = parse_pox_addr(testnet_segwit).expect("Failed to parse testnet address");
+        assert_eq!(testnet_segwit, pox_addr.clone().to_b58());
+        make_message_hash(&pox_addr);
+        assert_eq!(
+            clarity_tuple_version(&pox_addr),
+            PoxAddressType20::P2WPKH.to_u8()
+        );
         match pox_addr {
             PoxAddress::Addr20(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType20::P2WPKH);
