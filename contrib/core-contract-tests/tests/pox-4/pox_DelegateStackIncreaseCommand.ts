@@ -15,7 +15,7 @@ import { Cl } from "@stacks/transactions";
  * for the increased cycles.
  * 
  * This method increases stacker's current lockup and partially
- * commits the additional STX to pox-addr
+ * commits the additional STX to `pox-addr`.
  *
  * Constraints for running this command include:
  * - The Stacker must have locked uSTX.
