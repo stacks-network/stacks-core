@@ -30,7 +30,7 @@ import { Cl } from "@stacks/transactions";
 export class DelegateStackIncreaseCommand implements PoxCommand {
   readonly operator: Wallet;
   readonly stacker: Wallet;
-  readonly increaseBy: bigint;
+  readonly increaseBy: number;
 
   /**
    * Constructs a DelegateStackIncreaseCommand to increase the uSTX amount
@@ -40,7 +40,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
    * @param stacker - Represents the Stacker's wallet.
    * @param increaseBy - Represents the locked amount to be increased by
    */
-  constructor(operator: Wallet, stacker: Wallet, increaseBy: bigint) {
+  constructor(operator: Wallet, stacker: Wallet, increaseBy: number) {
     this.operator = operator;
     this.stacker = stacker;
     this.increaseBy = increaseBy;
@@ -68,7 +68,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
       operatorWallet.poolMembers.includes(stackerWallet.stxAddress) &&
       stackerWallet.amountUnlocked >= this.increaseBy &&
       stackerWallet.delegatedMaxAmount >=
-        Number(this.increaseBy) + stackerWallet.amountLocked &&
+        this.increaseBy + stackerWallet.amountLocked &&
       operatorWallet.lockedAddresses.indexOf(stackerWallet.stxAddress) > -1
     );
   }
@@ -77,7 +77,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     model.trackCommandRun(this.constructor.name);
 
     const prevLocked = this.stacker.amountLocked;
-    const newTotalLocked = prevLocked + Number(this.increaseBy);
+    const newTotalLocked = prevLocked + this.increaseBy;
     // Act
     const delegateStackIncrease = real.network.callPublicFn(
       "ST000000000000000000002AMW42H.pox-4",
@@ -107,7 +107,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     // Update locked and unlocked fields in the model.
     stackerWallet.amountLocked = newTotalLocked;
     stackerWallet.amountUnlocked = stackerWallet.amountUnlocked -
-      Number(this.increaseBy);
+      this.increaseBy;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
