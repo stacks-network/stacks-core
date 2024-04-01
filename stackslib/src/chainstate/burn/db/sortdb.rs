@@ -86,8 +86,8 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::Error as NetError;
 use crate::util_lib::db::{
     db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
-    query_row_panic, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_row_panic, query_rows, sql_pragma, table_exists, tx_begin_immediate, tx_busy_handler,
+    u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -2659,15 +2659,16 @@ impl SortitionDB {
         );
 
         let marf = SortitionDB::open_index(&index_path)?;
-        let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
+        let (first_block_height, first_burn_header_hash) =
+            SortitionDB::get_first_block_height_and_hash(marf.sqlite_conn())?;
 
         let mut db = SortitionDB {
             path: path.to_string(),
             marf,
             readwrite,
             pox_constants,
-            first_block_height: first_snapshot.block_height,
-            first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
+            first_block_height,
+            first_burn_header_hash,
         };
 
         db.check_schema_version_or_error()?;
@@ -3168,6 +3169,11 @@ impl SortitionDB {
 
     /// Apply just the table creation/alterations for schema 8.  Don't attempt migration yet.
     fn apply_schema_8_tables(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        if table_exists(tx, "stacks_chain_tips")? {
+            info!("Schema 8 tables appear to have been created already; skipping this step");
+            return Ok(());
+        }
+
         for sql_exec in SORTITION_DB_SCHEMA_8 {
             tx.execute_batch(sql_exec)?;
         }
@@ -3182,9 +3188,26 @@ impl SortitionDB {
         &mut self,
         canonical_tip: &BlockSnapshot,
     ) -> Result<(), db_error> {
+        let first_block_height = self.first_block_height;
         let tx = self.tx_begin()?;
-        for height in 0..=canonical_tip.block_height {
+
+        // skip if this step was done
+        if table_exists(&tx, "stacks_chain_tips")? {
+            let sql = "SELECT 1 FROM stacks_chain_tips WHERE sortition_id = ?1";
+            let args = rusqlite::params![&canonical_tip.sortition_id];
+            if let Ok(Some(_)) = query_row::<i64, _>(&tx, sql, args) {
+                info!("`stacks_chain_tips` appears to have been populated already; skipping this step");
+                return Ok(());
+            }
+        }
+
+        for height in first_block_height..=canonical_tip.block_height {
             let snapshots = SortitionDB::get_all_snapshots_by_burn_height(&tx, height)?;
+            debug!(
+                "Populate stacks_chain_tips for {} sortition(s) at height {}",
+                snapshots.len(),
+                height
+            );
             for snapshot in snapshots.into_iter() {
                 let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
                 let args: &[&dyn ToSql] = &[
@@ -3209,6 +3232,14 @@ impl SortitionDB {
         let pox_constants = self.pox_constants.clone();
         for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
             info!("Regenerating reward set for cycle {}", &rc);
+            let Some(next_rc) = rc.checked_add(1) else {
+                break;
+            };
+            if pox_constants.reward_cycle_to_block_height(self.first_block_height, next_rc)
+                > canonical_tip.block_height
+            {
+                break;
+            }
             migrator.regenerate_reward_cycle_info(self, rc)?;
         }
 
@@ -3341,13 +3372,13 @@ impl SortitionDB {
                 path: path.to_string(),
                 marf,
                 readwrite: true,
-                // not used by migration logic
-                first_block_height: 0,
-                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-                pox_constants: PoxConstants::mainnet_default(),
+                first_block_height: migrator.get_burnchain().first_block_height,
+                first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
+                pox_constants: migrator.get_burnchain().pox_constants.clone(),
             };
             db.check_schema_version_and_update(epochs, Some(migrator))
         } else {
+            debug!("SortitionDB is at the latest schema");
             Ok(())
         }
     }
@@ -4614,6 +4645,27 @@ impl SortitionDB {
             }
             Some(snapshot) => Ok(snapshot),
         }
+    }
+
+    /// Get the first-ever block height and hash
+    pub(crate) fn get_first_block_height_and_hash(
+        conn: &Connection,
+    ) -> Result<(u64, BurnchainHeaderHash), db_error> {
+        let sql = "SELECT block_height, burn_header_hash FROM snapshots WHERE consensus_hash = ?1";
+        let args = rusqlite::params!(&ConsensusHash::empty());
+        let mut stmt = conn.prepare(sql)?;
+        let mut rows = stmt.query(args)?;
+        while let Some(row) = rows.next()? {
+            let height_i64: i64 = row.get("block_height")?;
+            let hash: BurnchainHeaderHash = row.get("burn_header_hash")?;
+            let height = u64::try_from(height_i64).map_err(|_| {
+                warn!("Height does not fit into a u64");
+                db_error::ParseError
+            })?;
+            return Ok((height, hash));
+        }
+        // NOTE: shouldn't be reachable because we instantiate with a first snapshot
+        return Err(db_error::NotFoundError);
     }
 
     pub fn is_pox_active(
