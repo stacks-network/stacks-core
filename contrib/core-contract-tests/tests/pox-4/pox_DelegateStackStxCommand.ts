@@ -8,6 +8,7 @@ import {
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
+import { currentCycle } from "./pox_Commands.ts";
 
 /**
  * The `DelegateStackStxCommand` locks STX for stacking within PoX-4 on behalf of a delegator.
@@ -151,6 +152,7 @@ export class DelegateStackStxCommand implements PoxCommand {
     stackerWallet.amountLocked = Number(this.amountUstx);
     stackerWallet.unlockHeight = Number(unlockBurnHeight.value);
     stackerWallet.amountUnlocked -= Number(this.amountUstx);
+    stackerWallet.firstLockedRewardCycle = currentCycle(real.network) + 1;
     // Add stacker to the operators lock list. This will help knowing that
     // the stacker's funds are locked when calling delegate-stack-extend,
     // delegate-stack-increase
