@@ -5159,7 +5159,7 @@ fn stack_stx_signer_auth() {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(&stacker_key));
 
-    let expected_error = Value::error(Value::Int(39)).unwrap();
+    let expected_error = Value::error(Value::Int(41)).unwrap();
 
     assert_eq!(stacker_txs.len(), (stacker_nonce + 1) as usize);
     let stacker_tx_result =
@@ -5297,7 +5297,7 @@ fn stack_agg_commit_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { delegate_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(39)).unwrap();
+    let expected_error = Value::error(Value::Int(41)).unwrap();
     assert_eq!(tx_result(invalid_agg_nonce), expected_error);
     let successful_agg_result = tx_result(valid_agg_nonce);
     successful_agg_result
@@ -5403,7 +5403,7 @@ fn stack_extend_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { stacker_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(39)).unwrap();
+    let expected_error = Value::error(Value::Int(41)).unwrap();
     assert_eq!(tx_result(invalid_extend_nonce), expected_error);
 
     let valid_extend_tx_result = tx_result(valid_extend_nonce);
@@ -6583,7 +6583,11 @@ fn test_scenario_one() {
 
     // 4.1 Check amount locked
     let amount_locked_expected = Value::UInt(amount);
-    let amount_locked_actual = alice_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    let amount_locked_actual = alice_tx_result_ok
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // 4.2 Check signer key
@@ -6634,7 +6638,11 @@ fn test_scenario_one() {
 
     // 6.1 Check amount locked
     let amount_locked_expected = Value::UInt(amount);
-    let amount_locked_actual = bob_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    let amount_locked_actual = bob_tx_result_ok
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // 6.2 Check signer key
@@ -6694,13 +6702,15 @@ fn test_scenario_one() {
 
     let target_reward_cycle = 8;
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
-    let mut target_height = peer.config.burnchain.reward_cycle_to_block_height(target_reward_cycle as u64);
+    let mut target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(target_reward_cycle as u64);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-
 
     // Start replay transactions
     // Alice stacks with a replayed signature
@@ -6739,17 +6749,31 @@ fn test_scenario_one() {
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
     // Check Alice replay, expect (err 35) - ERR_INVALID_SIGNATURE_PUBKEY
-    let alice_replay_result = tx_block.receipts.get(1).unwrap().result.clone().expect_result_err().unwrap();
+    let alice_replay_result = tx_block
+        .receipts
+        .get(1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
     assert_eq!(alice_replay_result, Value::Int(35));
 
-    // Check Bob replay, expect (err 39) - ERR_SIGNER_AUTH_USED
-    let bob_tx_result = tx_block.receipts.get(2).unwrap().result.clone().expect_result_err().unwrap();
-    assert_eq!(bob_tx_result, Value::Int(39));
+    // Check Bob replay, expect (err 41) - ERR_SIGNER_AUTH_USED
+    let bob_tx_result = tx_block
+        .receipts
+        .get(2)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(bob_tx_result, Value::Int(41));
 }
 
 // In this test two solo service signers, Alice & Bob, provide auth
 //  for Carl & Dave, solo stackers. Alice provides a signature for Carl,
-//  Bob uses 'set-signer-key...' for Dave. 
+//  Bob uses 'set-signer-key...' for Dave.
 #[test]
 fn test_scenario_two() {
     // Alice service signer setup
@@ -6768,7 +6792,7 @@ fn test_scenario_two() {
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
-        (dave.principal.clone(), default_initial_balances)
+        (dave.principal.clone(), default_initial_balances),
     ];
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
@@ -6871,7 +6895,7 @@ fn test_scenario_two() {
         carl.nonce,
         amount,
         &carl.pox_address,
-        lock_period+1,
+        lock_period + 1,
         &alice.public_key,
         burn_block_height,
         Some(alice_signature_for_carl.clone()),
@@ -6980,7 +7004,11 @@ fn test_scenario_two() {
 
     // Check Carl amount locked
     let amount_locked_expected = Value::UInt(amount);
-    let amount_locked_actual = carl_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    let amount_locked_actual = carl_tx_result_ok
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Carl signer key
@@ -7017,7 +7045,11 @@ fn test_scenario_two() {
 
     // Check Dave amount locked
     let amount_locked_expected = Value::UInt(amount);
-    let amount_locked_actual = dave_tx_result_ok.data_map.get("lock-amount").unwrap().clone();
+    let amount_locked_actual = dave_tx_result_ok
+        .data_map
+        .get("lock-amount")
+        .unwrap()
+        .clone();
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Dave signer key
@@ -7083,11 +7115,19 @@ fn test_scenario_two() {
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let txs = vec![alice_vote_expected, alice_vote_duplicate, bob_vote_err, bob_vote_expected];
+    let txs = vec![
+        alice_vote_expected,
+        alice_vote_duplicate,
+        bob_vote_err,
+        bob_vote_expected,
+    ];
 
     let target_reward_cycle = 8;
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
-    let target_height = peer.config.burnchain.reward_cycle_to_block_height(target_reward_cycle as u64);
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(target_reward_cycle as u64);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
@@ -7134,129 +7174,6 @@ fn test_scenario_two() {
         .expect_result_ok()
         .unwrap();
     assert_eq!(bob_expected_vote, Value::Bool(true));
-}
-
-
-// Test that Alice & Bob can solo stack provided
-//  with a signature from Carl & explicit approval
-//  from David.
-#[test]
-fn test_solo_stacking_delegated_signing() {
-    let lock_period = 1;
-    let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-    let mut coinbase_nonce = coinbase_nonce;
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-    let current_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
-    // Print current reward cycle
-    println!("Current Reward Cycle: {:?}", current_reward_cycle);
-
-    // Alice Setup
-    let alice_nonce = 0;
-    let alice_private_key = &keys[0];
-    let alice_public_key = StacksPublicKey::from_private(alice_private_key);
-    let alice_signing_key = Secp256k1PublicKey::from_private(alice_private_key);
-    let alice_address = key_to_stacks_addr(alice_private_key);
-    let alice_pox_addr = pox_addr_from(&alice_private_key);
-
-    // Bob Setup
-    let bob_nonce = 0;
-    let bob_private_key = &keys[1];
-    let bob_public_key = StacksPublicKey::from_private(bob_private_key);
-    let bob_signing_key = Secp256k1PublicKey::from_private(bob_private_key);
-    let bob_address = key_to_stacks_addr(bob_private_key);
-    let bob_pox_addr = pox_addr_from(&bob_private_key);
-
-    // Carl Setup
-    let carl_nonce = 0;
-    let carl_private_key = &keys[2];
-    let carl_public_key = StacksPublicKey::from_private(carl_private_key);
-    let carl_signing_key = Secp256k1PublicKey::from_private(carl_private_key);
-    let carl_address = key_to_stacks_addr(carl_private_key);
-    let carl_pox_addr = pox_addr_from(&carl_private_key);
-    let carl_signature_for_alice = make_signer_key_signature(
-        &alice_pox_addr,
-        &carl_private_key,
-        current_reward_cycle,
-        &Pox4SignatureTopic::StackStx,
-        lock_period,
-        u128::MAX,
-        1,
-    );
-
-    // David Setup
-    let david_nonce = 0;
-    let david_private_key = &keys[3];
-    let david_public_key = StacksPublicKey::from_private(david_private_key);
-    let david_signing_key = Secp256k1PublicKey::from_private(david_private_key);
-    let david_address = key_to_stacks_addr(david_private_key);
-    let david_pox_addr = pox_addr_from(&david_private_key);
-    let david_authorization_for_bob = make_pox_4_set_signer_key_auth(
-        &bob_pox_addr,
-        &david_private_key,
-        current_reward_cycle,
-        &Pox4SignatureTopic::StackStx,
-        lock_period,
-        true,
-        david_nonce,
-        None,
-        u128::MAX,
-        1,
-    );
-
-    // Alice Stack
-    let alice_stack = make_pox_4_lockup(
-        alice_private_key,
-        alice_nonce,
-        min_ustx * 2,
-        &alice_pox_addr.clone(),
-        lock_period,
-        &carl_signing_key,
-        block_height,
-        Some(carl_signature_for_alice),
-        u128::MAX,
-        1,
-    );
-
-    // Bob Stack
-    let bob_stack = make_pox_4_lockup(
-        bob_private_key,
-        bob_nonce,
-        min_ustx * 2,
-        &bob_pox_addr.clone(),
-        lock_period,
-        &david_signing_key,
-        block_height,
-        None,
-        u128::MAX,
-        1,
-    );
-
-    // Prepare Block (create approval)
-    let latest_block = peer.tenure_with_txs(
-        &[david_authorization_for_bob, alice_stack, bob_stack],
-        &mut coinbase_nonce,
-    );
-    let david_tx = get_last_block_sender_transactions(&observer, david_address);
-    // print davic_tx length
-    println!("David TX Length: {:?}", david_tx.len());
-    let david_tx_result = david_tx.get(david_nonce as usize).unwrap().result.clone();
-    let alice_tx = get_last_block_sender_transactions(&observer, alice_address);
-    let alice_tx_result = alice_tx.get(alice_nonce as usize).unwrap().result.clone();
-    let bob_tx = get_last_block_sender_transactions(&observer, bob_address);
-    let bob_tx_result = bob_tx.get(bob_nonce as usize).unwrap().result.clone();
-
-    // Print all three tx results
-    println!("David TX Result: {:?}", david_tx_result);
-    println!("Alice TX Result: {:?}", alice_tx_result);
-    println!("Bob TX Result: {:?}", bob_tx_result);
-
-    // let bob_authorization_err = bob_tx.get(bob_nonce_err as usize).unwrap().result.clone();
-    // let bob_authorization_result = bob_tx.get(bob_nonce_auth as usize).unwrap().result.clone();
-
-    // let block_height = get_tip(peer.sortdb.as_ref()).block_height;
 }
 
 pub fn get_stacking_state_pox_4(
