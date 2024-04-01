@@ -138,26 +138,36 @@ export function PoxCommands(
     // DelegateStackIncreaseCommand
     fc.record({
       operator: fc.constantFrom(...wallets.values()),
-      stacker: fc.constantFrom(...wallets.values()),
       increaseBy: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
-    }).chain((r) => {
-      const availableStackers = r.operator.poolMembers.length > 0
-        ? r.operator.poolMembers
-        : [r.operator.stxAddress];
+    })
+      .chain((r) => {
+        const delegatorsList = r.operator.poolMembers;
 
-      return fc.record({
-        stacker: fc.constantFrom(...availableStackers),
-      }).map((stacker) => ({
-        ...r,
-        stacker: wallets.get(stacker.stacker)!,
-      }));
-    }).map((final) => {
-      return new DelegateStackIncreaseCommand(
-        final.operator,
-        final.stacker,
-        final.increaseBy,
-      );
-    }),
+        const availableStackers = delegatorsList.filter((delegator) => {
+          const delegatorWallet = wallets.get(delegator)!;
+          return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+        });
+
+        const availableStackersOrFallback = availableStackers.length === 0
+          ? [r.operator.stxAddress]
+          : availableStackers;
+
+        return fc
+          .record({
+            stacker: fc.constantFrom(...availableStackersOrFallback),
+          })
+          .map((stacker) => ({
+            ...r,
+            stacker: wallets.get(stacker.stacker)!,
+          }));
+      })
+      .map((final) => {
+        return new DelegateStackIncreaseCommand(
+          final.operator,
+          final.stacker,
+          final.increaseBy,
+        );
+      }),
     // AllowContractCallerCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
