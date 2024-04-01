@@ -7699,6 +7699,357 @@ fn test_scenario_three() {
     assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(2));
 }
 
+// In this test scenario two solo stacker-signers (Alice & Bob),
+//  test out the updated stack-extend & stack-increase functions
+//  across multiple cycles.
+#[test]
+fn test_scenario_four() {
+    // Alice service signer setup
+    let mut alice = StackerSignerInfo::new();
+    // Bob service signer setup
+    let mut bob = StackerSignerInfo::new();
+
+    let default_initial_balances = 1_000_000_000_000_000_000;
+    let observer = TestEventObserver::new();
+    let test_signers = TestSigners::default();
+    let mut initial_balances = vec![
+        (alice.principal.clone(), default_initial_balances),
+        (bob.principal.clone(), default_initial_balances),
+    ];
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let epochs = peer_config.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    debug!(
+        "Epoch 3.0 start burn block height: {}",
+        epoch_3.start_height
+    );
+
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer_nonce = 0;
+    // Set constants
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
+    // Advance into pox4
+    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut latest_block = None;
+    // Produce blocks until the first reward phase that everyone should be in
+    debug!("Advancing to pox 4 activation height: {target_height}");
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+        observer.get_blocks();
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    // Current reward cycle: 5 (starts at burn block 101)
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    // Current burn block height: 105
+    let burn_block_height = peer.get_burn_block_height();
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    // Initial Alice Signature
+    let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
+    let lock_period = 2;
+    let alice_signature_initial = make_signer_key_signature(
+        &alice.pox_address,
+        &alice.private_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Extend Alice Signature Err (meant for Bob)
+    let alice_signature_extend_err = make_signer_key_signature(
+        &bob.pox_address,
+        &bob.private_key,
+        next_reward_cycle.wrapping_add(1),
+        &Pox4SignatureTopic::StackExtend,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Extend Alice Signature Expected
+    let alice_signature_extend = make_signer_key_signature(
+        &alice.pox_address,
+        &alice.private_key,
+        next_reward_cycle.wrapping_add(1),
+        &Pox4SignatureTopic::StackExtend,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Initial Bob Signature
+    let bob_signature_initial = make_signer_key_signature(
+        &bob.pox_address,
+        &bob.private_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackStx,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Alice initial stack
+    let alice_stack = make_pox_4_lockup(
+        &alice.private_key,
+        alice.nonce,
+        amount,
+        &alice.pox_address,
+        lock_period,
+        &alice.public_key,
+        burn_block_height,
+        Some(alice_signature_initial.clone()),
+        u128::MAX,
+        1,
+    );
+    alice.nonce += 1;
+    // Bob initial stack
+    let bob_stack = make_pox_4_lockup(
+        &bob.private_key,
+        bob.nonce,
+        amount,
+        &bob.pox_address,
+        lock_period,
+        &bob.public_key,
+        burn_block_height,
+        Some(bob_signature_initial.clone()),
+        u128::MAX,
+        1,
+    );
+    bob.nonce += 1;
+
+    let txs = vec![alice_stack.clone(), bob_stack.clone()];
+
+    // Commit tx & advance to the very end of reward cycle 5 (burnchain block 118)
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(next_reward_cycle as u64)
+        .saturating_sub(prepare_phase_len as u64)
+        .wrapping_add(2);
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Verify Alice Stacked
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, alice.pox_address);
+
+    // Verify Bob Stacked
+    let (pox_address, first_reward_cycle, lock_period, _indices) =
+        get_stacker_info_pox_4(&mut peer, &bob.principal).expect("Failed to find stacker");
+    assert_eq!(first_reward_cycle, next_reward_cycle);
+    assert_eq!(pox_address, bob.pox_address);
+
+    // Now starting create vote txs
+    // Fetch signer indices in reward cycle 6
+    let alice_index = get_signer_index(
+        &mut peer,
+        latest_block,
+        alice.address.clone(),
+        next_reward_cycle,
+    );
+    let bob_index = get_signer_index(
+        &mut peer,
+        latest_block,
+        bob.address.clone(),
+        next_reward_cycle,
+    );
+    // Alice err vote
+    let alice_vote_err = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    alice.nonce += 1;
+    // Alice expected vote
+    let alice_vote_expected = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    alice.nonce += 1;
+    // Bob expected vote
+    let bob_vote_expected = make_signers_vote_for_aggregate_public_key(
+        &bob.private_key,
+        bob.nonce,
+        bob_index,
+        &test_signers.aggregate_public_key,
+        1,
+        next_reward_cycle,
+    );
+    bob.nonce += 1;
+    let txs = vec![
+        alice_vote_err.clone(),
+        alice_vote_expected.clone(),
+        bob_vote_expected.clone(),
+    ];
+
+    // Commit vote txs & move to the prepare phase of reward cycle 7 (block 155)
+    let target_height = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(7 as u64)
+        .wrapping_add(15);
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Check Alice's err vote (err 10 - INVALID_SIGNER_INDEX)
+    let alice_err_vote = tx_block
+        .receipts
+        .get(1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_err_vote, Value::UInt(10));
+
+    // Check Alice's expected vote
+    let alice_expected_vote = tx_block
+        .receipts
+        .get(2)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(alice_expected_vote, Value::Bool(true));
+
+    // Check Bob's expected vote
+    let bob_expected_vote = tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(bob_expected_vote, Value::Bool(true));
+
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+        .expect("No approved key found");
+    assert_eq!(approved_key, test_signers.aggregate_public_key);
+
+    // Alice stack-extend err tx
+    let alice_extend_err = make_pox_4_extend(
+        &alice.private_key,
+        alice.nonce,
+        alice.pox_address.clone(),
+        lock_period,
+        bob.public_key.clone(),
+        Some(alice_signature_extend_err.clone()),
+        u128::MAX,
+        1,
+    );
+    alice.nonce += 1;
+    // Alice stack-extend tx
+    let alice_extend = make_pox_4_extend(
+        &alice.private_key,
+        alice.nonce,
+        alice.pox_address.clone(),
+        lock_period,
+        alice.public_key.clone(),
+        Some(alice_signature_extend.clone()),
+        u128::MAX,
+        1,
+    );
+    alice.nonce += 1;
+    // Now starting second round of vote txs
+    // Fetch signer indices in reward cycle 7
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), 7);
+    // Alice err vote
+    let alice_vote_expected_err = make_signers_vote_for_aggregate_public_key(
+        &alice.private_key,
+        alice.nonce,
+        alice_index,
+        &test_signers.aggregate_public_key,
+        1,
+        7,
+    );
+    alice.nonce += 1;
+
+    let txs = vec![
+        alice_extend_err.clone(),
+        alice_extend.clone(),
+        alice_vote_expected_err.clone(),
+    ];
+    let target_height = target_height.wrapping_add(1);
+    let (latest_block, tx_block) =
+        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Check Alice's err stack-extend tx (err 35 - INVALID_SIGNATURE_PUBKEY)
+    let alice_err_extend = tx_block
+        .receipts
+        .get(1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_err_extend, Value::Int(35));
+
+    // Check Alice's stack-extend tx
+    let alice_extend_receipt = tx_block
+        .receipts
+        .get(2)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+
+    // Check Alice's expected err vote (err 14 - DUPLICATE_AGGREGATE_PUBLIC_KEY)
+    let alice_expected_vote_err = tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    assert_eq!(alice_expected_vote_err, Value::UInt(14));
+
+    // Get approved key & assert that it wasn't sent (None)
+    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, 7);
+    assert_eq!(approved_key, None);
+}
+
 pub fn get_stacking_state_pox_4(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
