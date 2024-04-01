@@ -58,6 +58,7 @@ export type Wallet = {
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;
+  firstLockedRewardCycle: number;
   allowedContractCaller: StxAddress;
   callerAllowedBy: StxAddress[];
 };

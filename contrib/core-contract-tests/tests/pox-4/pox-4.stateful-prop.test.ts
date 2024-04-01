@@ -96,6 +96,7 @@ it("statefully interacts with PoX-4", async () => {
       amountLocked: 0,
       amountUnlocked: initialUstxBalance,
       unlockHeight: 0,
+      firstLockedRewardCycle: 0,
       allowedContractCaller: "",
       callerAllowedBy: [],
     };

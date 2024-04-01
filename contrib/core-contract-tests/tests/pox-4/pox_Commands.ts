@@ -10,6 +10,7 @@ import { Cl, cvToValue, OptionalCV, UIntCV } from "@stacks/transactions";
 import { RevokeDelegateStxCommand } from "./pox_RevokeDelegateStxCommand";
 import { AllowContractCallerCommand } from "./pox_AllowContractCallerCommand";
 import { DelegateStackIncreaseCommand } from "./pox_DelegateStackIncreaseCommand";
+import { DelegateStackExtendCommand } from "./pox_DelegateStackExtendCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -168,6 +169,38 @@ export function PoxCommands(
           final.increaseBy,
         );
       }),
+    // DelegateStackExtendCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      extendCount: fc.integer({ min: 1, max: 11 }),
+    }).chain((r) => {
+      const delegatorsList = r.operator.poolMembers;
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = wallets.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+        currentCycle: fc.constant(currentCycle(network)),
+      })
+        .map((additionalProps) => ({
+          ...r,
+          stacker: wallets.get(additionalProps.stacker)!,
+          currentCycle: additionalProps.currentCycle,
+        }));
+    }).map((final) =>
+      new DelegateStackExtendCommand(
+        final.operator,
+        final.stacker,
+        final.extendCount,
+        final.currentCycle,
+      )
+    ),
     // AllowContractCallerCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
@@ -208,7 +241,11 @@ export function PoxCommands(
   return fc.commands(cmds, { size: "large" });
 }
 
-const currentCycle = (network: Simnet) =>
+export const REWARD_CYCLE_LENGTH = 1050;
+
+export const FIRST_BURNCHAIN_BLOCK_HEIGHT = 0;
+
+export const currentCycle = (network: Simnet) =>
   Number(cvToValue(
     network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
