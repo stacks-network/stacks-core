@@ -69,7 +69,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
       stackerWallet.amountUnlocked >= this.increaseBy &&
       stackerWallet.delegatedMaxAmount >=
         Number(this.increaseBy) + stackerWallet.amountLocked &&
-      operatorWallet.hasLocked.indexOf(stackerWallet.stxAddress) > -1
+      operatorWallet.lockedAddresses.indexOf(stackerWallet.stxAddress) > -1
     );
   }
 

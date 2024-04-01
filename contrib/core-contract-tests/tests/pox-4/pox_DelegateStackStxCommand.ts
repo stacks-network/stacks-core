@@ -154,7 +154,7 @@ export class DelegateStackStxCommand implements PoxCommand {
     // Add stacker to the operators lock list. This will help knowing that
     // the stacker's funds are locked when calling delegate-stack-extend,
     // delegate-stack-increase
-    operatorWallet.hasLocked.push(stackerWallet.stxAddress);
+    operatorWallet.lockedAddresses.push(stackerWallet.stxAddress);
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
