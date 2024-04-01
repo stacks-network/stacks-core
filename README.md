@@ -11,8 +11,8 @@ Reference implementation of the [Stacks blockchain](https://github.com/stacks-ne
 Stacks is a layer-2 blockchain that uses Bitcoin as a base layer for security and enables decentralized apps and predictable smart contracts using the [Clarity language](https://clarity-lang.org/). Stacks implements [Proof of Transfer (PoX)](https://community.stacks.org/pox) mining that anchors to Bitcoin security. Leader election happens at the Bitcoin blockchain and Stacks (STX) miners write new blocks on the separate Stacks blockchain. With PoX there is no need to modify Bitcoin to enable smart contracts and decentralized apps.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0)
-[![Release](https://img.shields.io/github/v/release/stacks-network/stacks-blockchain?style=flat)](https://github.com/stacks-network/stacks-blockchain/releases/latest)
-[![Build Status](https://github.com/stacks-network/stacks-blockchain/actions/workflows/ci.yml/badge.svg?branch=master&event=workflow_dispatch&style=flat)](https://github.com/stacks-network/stacks-blockchain/actions/workflows/ci.yml?query=event%3Aworkflow_dispatch+branch%3Amaster)
+[![Release](https://img.shields.io/github/v/release/stacks-network/stacks-core?style=flat)](https://github.com/stacks-network/stacks-core/releases/latest)
+[![Build Status](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml/badge.svg?branch=master&event=workflow_dispatch&style=flat)](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml?query=event%3Aworkflow_dispatch+branch%3Amaster)
 [![Discord Chat](https://img.shields.io/discord/621759717756370964.svg)](https://stacks.chat)
 
 ## Building
@@ -27,7 +27,7 @@ source $HOME/.cargo/env
 rustup component add rustfmt
 ```
 
-- When building the [`master`](https://github.com/stacks-network/stacks-blockchain/tree/master) branch, ensure you are using the latest stable release:
+- When building the [`master`](https://github.com/stacks-network/stacks-core/tree/master) branch, ensure you are using the latest stable release:
 
 ```bash
 rustup update
@@ -36,8 +36,8 @@ rustup update
 ### 2. Clone the source repository:
 
 ```bash
-git clone --depth=1 https://github.com/stacks-network/stacks-blockchain.git
-cd stacks-blockchain
+git clone --depth=1 https://github.com/stacks-network/stacks-core.git
+cd stacks-core
 ```
 
 ### 3. Build the project
