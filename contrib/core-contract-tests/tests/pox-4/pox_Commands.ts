@@ -138,7 +138,7 @@ export function PoxCommands(
     // DelegateStackIncreaseCommand
     fc.record({
       operator: fc.constantFrom(...wallets.values()),
-      increaseBy: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
+      increaseBy: fc.nat(),
     })
       .chain((r) => {
         const delegatorsList = r.operator.poolMembers;
