@@ -36,6 +36,7 @@
 (define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH 38)
 (define-constant ERR_SIGNER_AUTH_USED 39)
 (define-constant ERR_INVALID_INCREASE 40)
+(define-constant ERR_INVALID_SIGNER_AUTH 41)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -758,7 +759,7 @@
       ;; `signer-sig` is not present, verify that an authorization was previously added for this key
       (ok (asserts! (default-to false (map-get? signer-key-authorizations
             { signer-key: signer-key, reward-cycle: reward-cycle, period: period, topic: topic, pox-addr: pox-addr, auth-id: auth-id, max-amount: max-amount }))
-          (err ERR_SIGNER_AUTH_USED)))
+          (err ERR_INVALID_SIGNER_AUTH)))
     ))
   )
 
