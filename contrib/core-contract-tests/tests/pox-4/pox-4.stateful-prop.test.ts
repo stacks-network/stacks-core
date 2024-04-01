@@ -87,7 +87,7 @@ it("statefully interacts with PoX-4", async () => {
       ustxBalance: initialUstxBalance,
       isStacking: false,
       hasDelegated: false,
-      hasLocked: [],
+      lockedAddresses: [],
       poolMembers: [],
       delegatedTo: "",
       delegatedMaxAmount: 0,
