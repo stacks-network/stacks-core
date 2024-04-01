@@ -321,7 +321,7 @@ fn handle_generate_stacking_signature(
     .expect("Failed to generate signature");
 
     let output_str = if args.json {
-        serde_json::to_string_pretty(&serde_json::json!({
+        serde_json::to_string(&serde_json::json!({
             "signerKey": to_hex(&public_key.to_bytes_compressed()),
             "signerSignature": to_hex(signature.to_rsv().as_slice()),
             "authId": format!("{}", args.auth_id),
