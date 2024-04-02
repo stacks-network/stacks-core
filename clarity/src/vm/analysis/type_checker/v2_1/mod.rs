@@ -769,6 +769,21 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 )?;
             }
         }
+        (
+            TypeSignature::CallableType(CallableSubtype::Principal(_)),
+            TypeSignature::ListUnionType(types),
+        ) => {
+            // If all types in the union are callable principals, then the principal
+            // is compatible with the union (the actual type is just principal).
+            for subtype in types {
+                if let CallableSubtype::Principal(_) = subtype {
+                    continue;
+                }
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+        }
         (TypeSignature::NoType, _) => (),
         (_, _) => {
             if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
