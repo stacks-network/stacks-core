@@ -726,6 +726,8 @@ impl SignerTest {
             "12345", // It worked sir, we have the combination! -Great, what's the combination?
             self.run_stamp,
             3000 + signer_idx,
+            Some(100_000),
+            None,
         )
         .pop()
         .unwrap();
