@@ -5159,7 +5159,7 @@ fn stack_stx_signer_auth() {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(&stacker_key));
 
-    let expected_error = Value::error(Value::Int(41)).unwrap();
+    let expected_error = Value::error(Value::Int(19)).unwrap();
 
     assert_eq!(stacker_txs.len(), (stacker_nonce + 1) as usize);
     let stacker_tx_result =
@@ -5297,7 +5297,7 @@ fn stack_agg_commit_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { delegate_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(41)).unwrap();
+    let expected_error = Value::error(Value::Int(19)).unwrap();
     assert_eq!(tx_result(invalid_agg_nonce), expected_error);
     let successful_agg_result = tx_result(valid_agg_nonce);
     successful_agg_result
@@ -5403,7 +5403,7 @@ fn stack_extend_signer_auth() {
     let tx_result =
         |nonce: u64| -> Value { stacker_txs.get(nonce as usize).unwrap().result.clone() };
 
-    let expected_error = Value::error(Value::Int(41)).unwrap();
+    let expected_error = Value::error(Value::Int(19)).unwrap();
     assert_eq!(tx_result(invalid_extend_nonce), expected_error);
 
     let valid_extend_tx_result = tx_result(valid_extend_nonce);
@@ -6746,7 +6746,7 @@ fn test_scenario_one() {
         .unwrap();
     assert_eq!(alice_replay_result, Value::Int(35));
 
-    // Check Bob replay, expect (err 41) - ERR_SIGNER_AUTH_USED
+    // Check Bob replay, expect (err 19) - ERR_SIGNER_AUTH_USED
     let bob_tx_result = tx_block
         .receipts
         .get(2)
@@ -6755,7 +6755,7 @@ fn test_scenario_one() {
         .clone()
         .expect_result_err()
         .unwrap();
-    assert_eq!(bob_tx_result, Value::Int(41));
+    assert_eq!(bob_tx_result, Value::Int(19));
 }
 
 // In this test two solo service signers, Alice & Bob, provide auth
@@ -6996,7 +6996,7 @@ fn test_scenario_two() {
         .clone();
     assert_eq!(signer_key_expected, signer_key_actual);
 
-    // Check Dave's malformed pox stack transaction (err 41 - INVALID_SIGNER_AUTH)
+    // Check Dave's malformed pox stack transaction (err 19 - INVALID_SIGNER_AUTH)
     let dave_tx_result_err = tx_block
         .receipts
         .get(4)
@@ -7005,7 +7005,7 @@ fn test_scenario_two() {
         .clone()
         .expect_result_err()
         .unwrap();
-    assert_eq!(dave_tx_result_err, Value::Int(41));
+    assert_eq!(dave_tx_result_err, Value::Int(19));
 
     // Check Dave's expected stack transaction
     let dave_tx_result_ok = tx_block
