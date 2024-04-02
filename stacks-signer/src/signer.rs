@@ -439,7 +439,7 @@ impl Signer {
     ) {
         match &self.state {
             State::Idle => {
-                let Some(command) = self.commands.pop_front() else {
+                let Some(command) = self.commands.front() else {
                     debug!("{self}: Nothing to process. Waiting for command...");
                     return;
                 };
@@ -453,10 +453,12 @@ impl Signer {
                     debug!(
                         "{self}: Coordinator is {coordinator_id:?}. Will not process any commands...",
                     );
-                    // Put the command back in the queue for later processing.
-                    self.commands.push_front(command);
                     return;
                 }
+                let command = self
+                    .commands
+                    .pop_front()
+                    .expect("BUG: Already asserted that the command queue was not empty");
                 self.execute_command(stacks_client, &command);
             }
             State::OperationInProgress => {
