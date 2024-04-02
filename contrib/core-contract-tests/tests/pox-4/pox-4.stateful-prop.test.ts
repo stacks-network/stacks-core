@@ -88,6 +88,7 @@ it("statefully interacts with PoX-4", async () => {
       isStacking: false,
       hasDelegated: false,
       lockedAddresses: [],
+      amountToCommit: 0,
       poolMembers: [],
       delegatedTo: "",
       delegatedMaxAmount: 0,
