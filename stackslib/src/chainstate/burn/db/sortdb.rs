@@ -3231,15 +3231,12 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         let pox_constants = self.pox_constants.clone();
         for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
-            info!("Regenerating reward set for cycle {}", &rc);
-            let Some(next_rc) = rc.checked_add(1) else {
-                break;
-            };
-            if pox_constants.reward_cycle_to_block_height(self.first_block_height, next_rc)
+            if pox_constants.reward_cycle_to_block_height(self.first_block_height, rc)
                 > canonical_tip.block_height
             {
                 break;
             }
+            info!("Regenerating reward set for cycle {}", &rc);
             migrator.regenerate_reward_cycle_info(self, rc)?;
         }
 

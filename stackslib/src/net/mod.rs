@@ -3948,7 +3948,17 @@ pub mod test {
                         let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
                             .unwrap()
                             .unwrap();
-                        sn.block_height < epoch_3.start_height
+                        let rc_sn = sortdb
+                            .pox_constants
+                            .block_height_to_reward_cycle(
+                                sortdb.first_block_height,
+                                sn.block_height,
+                            )
+                            .unwrap();
+                        let rc_height = sortdb
+                            .pox_constants
+                            .reward_cycle_to_block_height(sortdb.first_block_height, rc_sn + 1);
+                        sn.block_height <= epoch_3.start_height && sn.block_height < rc_height
                     })
                     .collect();
 
