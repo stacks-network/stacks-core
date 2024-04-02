@@ -291,11 +291,11 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Point>, ClientError> {
         let function_name = ClarityName::from("get-approved-aggregate-key");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
+        let voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
+            &voting_contract_id.issuer.into(),
+            &voting_contract_id.name,
             &function_name,
             function_args,
         )?;
@@ -304,6 +304,47 @@ impl StacksClient {
             || Ok(None),
             |key_value| self.parse_aggregate_public_key(key_value),
         )
+    }
+
+    /// Retrieve the current consumed weight for the given reward cycle and DKG round
+    pub fn get_round_vote_weight(
+        &self,
+        reward_cycle: u64,
+        round_id: u64,
+    ) -> Result<Option<u128>, ClientError> {
+        let function_name = ClarityName::from("get-round-info");
+        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
+        let function_args = &[
+            ClarityValue::UInt(reward_cycle as u128),
+            ClarityValue::UInt(round_id as u128),
+        ];
+        let value = self.read_only_contract_call(
+            &pox_contract_id.issuer.into(),
+            &pox_contract_id.name,
+            &function_name,
+            function_args,
+        )?;
+        let inner_data = value.expect_optional()?;
+        let Some(inner_data) = inner_data else {
+            return Ok(None);
+        };
+        let round_info = inner_data.expect_tuple()?;
+        let votes_weight = round_info.get("votes-weight")?.to_owned().expect_u128()?;
+        Ok(Some(votes_weight))
+    }
+
+    /// Retrieve the weight threshold required to approve a DKG vote
+    pub fn get_vote_threshold_weight(&self, reward_cycle: u64) -> Result<u128, ClientError> {
+        let function_name = ClarityName::from("get-threshold-weight");
+        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
+        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
+        let value = self.read_only_contract_call(
+            &pox_contract_id.issuer.into(),
+            &pox_contract_id.name,
+            &function_name,
+            function_args,
+        )?;
+        Ok(value.expect_u128()?)
     }
 
     /// Retrieve the current account nonce for the provided address
@@ -677,9 +718,9 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response,
-        build_get_vote_for_aggregate_key_response, build_read_only_response, write_response,
-        MockServerClient,
+        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
+        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
+        build_read_only_response, write_response, MockServerClient,
     };
 
     #[test]
@@ -1223,6 +1264,33 @@ mod tests {
         });
         write_response(mock.server, key_response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), None);
+    }
+
+    #[test]
+    fn get_round_vote_weight_should_succeed() {
+        let mock = MockServerClient::new();
+        let vote_count = rand::thread_rng().next_u64();
+        let weight = rand::thread_rng().next_u64();
+        let round_response = build_get_round_info_response(Some((vote_count, weight)));
+        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
+        write_response(mock.server, round_response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), Some(weight as u128));
+
+        let mock = MockServerClient::new();
+        let round_response = build_get_round_info_response(None);
+        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
+        write_response(mock.server, round_response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), None);
+    }
+
+    #[test]
+    fn get_vote_threshold_weight_should_succeed() {
+        let mock = MockServerClient::new();
+        let weight = rand::thread_rng().next_u64();
+        let round_response = build_get_weight_threshold_response(weight);
+        let h = spawn(move || mock.client.get_vote_threshold_weight(0));
+        write_response(mock.server, round_response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), weight as u128);
     }
 
     #[test]

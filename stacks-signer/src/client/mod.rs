@@ -558,4 +558,28 @@ pub(crate) mod tests {
             db_path: config.db_path.clone(),
         }
     }
+
+    pub fn build_get_round_info_response(info: Option<(u64, u64)>) -> String {
+        let clarity_value = if let Some((vote_count, vote_weight)) = info {
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    ("votes-count".into(), ClarityValue::UInt(vote_count as u128)),
+                    (
+                        "votes-weight".into(),
+                        ClarityValue::UInt(vote_weight as u128),
+                    ),
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
+    pub fn build_get_weight_threshold_response(threshold: u64) -> String {
+        let clarity_value = ClarityValue::UInt(threshold as u128);
+        build_read_only_response(&clarity_value)
+    }
 }
