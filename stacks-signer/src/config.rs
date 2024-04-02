@@ -338,19 +338,22 @@ pub fn build_signer_config_tomls(
     timeout: Option<Duration>,
     network: &Network,
     password: &str,
+    run_stamp: u16,
+    mut port_start: usize,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
-    let mut port = 30000;
-    let run_stamp = rand::random::<u16>();
-    let db_dir = format!(
-        "/tmp/stacks-node-tests/integrations-signers/{:#X}",
-        run_stamp,
-    );
-    fs::create_dir_all(&db_dir).unwrap();
-    for (ix, stacks_private_key) in stacks_private_keys.iter().enumerate() {
-        let endpoint = format!("localhost:{}", port);
-        port += 1;
+    for stacks_private_key in stacks_private_keys {
+        let endpoint = format!("localhost:{}", port_start);
+        port_start += 1;
+
+        let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
+        let db_dir = format!(
+            "/tmp/stacks-node-tests/integrations-signers/{run_stamp}/signer_{stacks_public_key}"
+        );
+        let db_path = format!("{db_dir}/signerdb.sqlite");
+        fs::create_dir_all(&db_dir).unwrap();
+
         let stacks_private_key = stacks_private_key.to_hex();
         let mut signer_config_toml = format!(
             r#"
@@ -359,7 +362,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
-db_path = "{db_dir}/{ix}.sqlite"
+db_path = "{db_path}"
 "#
         );
 
@@ -394,7 +397,15 @@ mod tests {
         let network = Network::Testnet;
         let password = "melon";
 
-        let config_tomls = build_signer_config_tomls(&[pk], node_host, None, &network, password);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+        );
 
         let config =
             RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");

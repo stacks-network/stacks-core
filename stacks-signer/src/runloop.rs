@@ -417,7 +417,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     info!(
                         "{signer}: Queuing an external runloop command ({:?}): {command:?}",
                         signer
-                            .signing_round
+                            .state_machine
                             .public_keys
                             .signers
                             .get(&signer.signer_id)
