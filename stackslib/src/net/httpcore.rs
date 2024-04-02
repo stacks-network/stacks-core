@@ -51,7 +51,9 @@ use crate::net::http::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString};
+use crate::net::{
+    api, Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString,
+};
 
 const CHUNK_BUF_LEN: usize = 32768;
 
@@ -501,6 +503,40 @@ impl StacksHttpRequest {
     /// Get a reference to the fully-qualified request path
     pub fn request_path(&self) -> &str {
         &self.preamble.path_and_query_str
+    }
+
+    /// Rewrite `request_path()` to limit the possible values it can return
+    /// This makes it safer to use for Prometheus metrics
+    /// For details see https://github.com/stacks-network/stacks-core/issues/4574
+    pub fn get_metrics_identifier(&self) -> &str {
+        let path = self.request_path();
+
+        match self.preamble.verb.as_str() {
+            "GET" => {
+                if api::getblock::RPCBlocksRequestHandler::path_regex().is_match(path) {
+                    "/v2/blocks/:hash"
+                } else if api::getheaders::RPCHeadersRequestHandler::path_regex().is_match(path) {
+                    "/v2/headers/:height"
+                } else if api::getattachment::RPCGetAttachmentRequestHandler::path_regex()
+                    .is_match(path)
+                {
+                    "/v2/attachments/:hash"
+                } else if api::getaccount::RPCGetAccountRequestHandler::path_regex().is_match(path)
+                {
+                    "/v2/accounts/:principal"
+                } else {
+                    path
+                }
+            }
+            "POST" => {
+                if api::postblock::RPCPostBlockRequestHandler::path_regex().is_match(path) {
+                    "/v2/blocks/upload/:block"
+                } else {
+                    path
+                }
+            }
+            _ => path,
+        }
     }
 
     /// Get the HTTP verb for this request

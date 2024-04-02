@@ -47,6 +47,10 @@ impl RPCGetAttachmentRequestHandler {
             attachment_hash: None,
         }
     }
+
+    pub fn path_regex() -> Regex {
+        Regex::new(r#"^/v2/attachments/(?P<attachment_hash>[0-9a-f]{40})$"#).unwrap()
+    }
 }
 
 /// Decode the HTTP request
@@ -56,7 +60,7 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/attachments/(?P<attachment_hash>[0-9a-f]{40})$"#).unwrap()
+        Self::path_regex()
     }
 
     /// Try to decode this request.

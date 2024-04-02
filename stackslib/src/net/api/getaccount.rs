@@ -68,6 +68,14 @@ impl RPCGetAccountRequestHandler {
     pub fn new() -> Self {
         Self { account: None }
     }
+
+    pub fn path_regex() -> Regex {
+        Regex::new(&format!(
+            "^/v2/accounts/(?P<principal>{})$",
+            *PRINCIPAL_DATA_REGEX_STRING
+        ))
+        .unwrap()
+    }
 }
 
 /// Decode the HTTP request
@@ -77,11 +85,7 @@ impl HttpRequest for RPCGetAccountRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            "^/v2/accounts/(?P<principal>{})$",
-            *PRINCIPAL_DATA_REGEX_STRING
-        ))
-        .unwrap()
+        Self::path_regex()
     }
 
     /// Try to decode this request.

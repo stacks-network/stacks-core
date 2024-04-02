@@ -49,6 +49,10 @@ impl RPCBlocksRequestHandler {
     pub fn new() -> Self {
         Self { block_id: None }
     }
+
+    pub fn path_regex() -> Regex {
+        Regex::new(r#"^/v2/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -87,7 +91,7 @@ impl HttpRequest for RPCBlocksRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+        Self::path_regex()
     }
 
     /// Try to decode this request.

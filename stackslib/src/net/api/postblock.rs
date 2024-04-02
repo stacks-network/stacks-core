@@ -83,6 +83,10 @@ impl RPCPostBlockRequestHandler {
         })?;
         Ok(block)
     }
+
+    pub fn path_regex() -> Regex {
+        Regex::new(r#"^/v2/blocks/upload/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
+    }
 }
 
 /// Decode the HTTP request
@@ -92,7 +96,7 @@ impl HttpRequest for RPCPostBlockRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/blocks/upload/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
+        Self::path_regex()
     }
 
     /// Try to decode this request.

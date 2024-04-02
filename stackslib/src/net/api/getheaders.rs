@@ -46,6 +46,10 @@ impl RPCHeadersRequestHandler {
     pub fn new() -> Self {
         Self { quantity: None }
     }
+
+    pub fn path_regex() -> Regex {
+        Regex::new(r#"^/v2/headers/(?P<quantity>[0-9]+)$"#).unwrap()
+    }
 }
 
 #[derive(Debug)]
@@ -106,7 +110,7 @@ impl HttpRequest for RPCHeadersRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/headers/(?P<quantity>[0-9]+)$"#).unwrap()
+        Self::path_regex()
     }
 
     /// Try to decode this request.
