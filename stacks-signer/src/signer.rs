@@ -305,6 +305,35 @@ impl From<SignerConfig> for Signer {
 }
 
 impl Signer {
+    /// Refresh the stackerdb transaction slot to filter out oudated transactions
+    pub fn refresh_stackerdb_transactions(
+        &mut self,
+        stacks_client: &StacksClient,
+    ) -> Result<(), ClientError> {
+        let signer_address = stacks_client.get_signer_address();
+        let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
+        let unfiltered_transactions: Vec<_> =
+            self.stackerdb.get_current_transactions_with_retry()?;
+        let unfiltered_transactions_len = unfiltered_transactions.len();
+        let filtered_transactions: Vec<_> = unfiltered_transactions
+            .into_iter()
+            .filter_map(|tx| {
+                if !NakamotoSigners::valid_vote_transaction(&account_nonces, &tx, self.mainnet) {
+                    return None;
+                }
+                Some(tx)
+            })
+            .collect();
+        let filtered_transactions_len = filtered_transactions.len();
+        if filtered_transactions_len == unfiltered_transactions_len {
+            return Ok(());
+        }
+        let signer_message = SignerMessage::Transactions(filtered_transactions);
+        self.stackerdb.send_message_with_retry(signer_message)?;
+        info!("{self}: Updated transaction slot from {unfiltered_transactions_len} to {filtered_transactions_len} transactions");
+        Ok(())
+    }
+
     /// Refresh the coordinator selector
     pub fn refresh_coordinator(&mut self) {
         // TODO: do not use an empty consensus hash
@@ -851,7 +880,7 @@ impl Signer {
     }
 
     /// Get transactions from stackerdb for the given addresses and account nonces, filtering out any malformed transactions
-    fn get_signer_transactions(
+    fn get_filtered_signer_transactions(
         &mut self,
         nonces: &std::collections::HashMap<StacksAddress, u64>,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
@@ -1031,7 +1060,7 @@ impl Signer {
         let account_nonces = self.get_account_nonces(stacks_client, &self.signer_addresses);
         let account_nonce = account_nonces.get(signer_address).unwrap_or(&0);
         let signer_transactions = retry_with_exponential_backoff(|| {
-            self.get_signer_transactions(&account_nonces)
+            self.get_filtered_signer_transactions(&account_nonces)
                 .map_err(backoff::Error::transient)
         })
         .map_err(|e| {
@@ -1270,7 +1299,7 @@ impl Signer {
         // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
         let signer_address = stacks_client.get_signer_address();
         let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
-        let old_transactions = self.get_signer_transactions(&account_nonces).map_err(|e| {
+        let old_transactions = self.get_filtered_signer_transactions(&account_nonces).map_err(|e| {
                 warn!("{self}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily");
             }).unwrap_or_default();
         // Check if we have an existing vote transaction for the same round and reward cycle

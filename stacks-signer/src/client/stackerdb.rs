@@ -272,7 +272,7 @@ mod tests {
     use crate::config::GlobalConfig;
 
     #[test]
-    fn get_signer_transactions_with_retry_should_succeed() {
+    fn get_filtered_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);

@@ -459,7 +459,7 @@ impl BlockMinerThread {
         Ok((signers_contract_id, slot_ids_addresses))
     }
 
-    fn get_signer_transactions(
+    fn get_filtered_signer_transactions(
         &self,
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -807,7 +807,7 @@ impl BlockMinerThread {
             .saturating_add(1);
 
         let signer_transactions =
-            self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
+            self.get_filtered_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(

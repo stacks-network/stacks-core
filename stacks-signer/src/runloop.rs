@@ -398,6 +398,9 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     error!("{signer}: failed to update DKG: {e}");
                 }
             }
+            if let Err(e) = signer.refresh_stackerdb_transactions(&self.stacks_client) {
+                error!("{signer}: failed to refresh stackerdb transactions: {e}");
+            }
             signer.refresh_coordinator();
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
