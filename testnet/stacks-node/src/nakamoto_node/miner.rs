@@ -739,6 +739,10 @@ impl BlockMinerThread {
 
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
+    /// TODO: #4587 create default for `NakamotoBlock` and `NakamotoNodeError`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn mine_block(&mut self, stackerdbs: &StackerDBs) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
 
@@ -899,6 +903,10 @@ impl ParentStacksBlockInfo {
     /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
     /// conception of the sortition history tip may have become stale by the time they call this
     /// method, in which case, mining should *not* happen (since the block will be invalid).
+    /// TODO: #4587 craete default for `NakamotoBlock` and `NakamotoNodeError`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn lookup(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
