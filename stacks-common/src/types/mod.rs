@@ -80,6 +80,21 @@ impl StacksEpochId {
     }
 
     /// Returns whether or not this Epoch should perform
+    ///  memory checks during analysis
+    pub fn analysis_memory(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => false,
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+        }
+    }
+
+    /// Returns whether or not this Epoch should perform
     ///  Clarity value sanitization
     pub fn value_sanitizing(&self) -> bool {
         match self {
