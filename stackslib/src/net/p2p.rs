@@ -5388,7 +5388,7 @@ impl PeerNetwork {
             .last_key_value()
             .map(|(rc, _)| rc.saturating_add(1))
             .unwrap_or(0);
-        let new_agg_pubkeys = (next_agg_pubkey_rc..=sort_tip_rc)
+        let mut new_agg_pubkeys: Vec<_> = (next_agg_pubkey_rc..=sort_tip_rc)
             .filter_map(|key_rc| {
                 let ih = sortdb.index_handle(&tip_sn.sortition_id);
                 let agg_pubkey_opt = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
@@ -5404,6 +5404,7 @@ impl PeerNetwork {
                         chainstate,
                         self.burnchain.reward_cycle_to_block_height(key_rc),
                         &stacks_tip_block_id,
+                        false,
                     )
                     .ok()
                 };
@@ -5414,6 +5415,10 @@ impl PeerNetwork {
             })
             .collect();
 
+        if new_agg_pubkeys.len() == 0 && self.aggregate_public_keys.len() == 0 {
+            // special case -- we're before epoch 3.0, so don't waste time doing this again
+            new_agg_pubkeys.push((sort_tip_rc, None));
+        }
         Ok(new_agg_pubkeys)
     }
 
