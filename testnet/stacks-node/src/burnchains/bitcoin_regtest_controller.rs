@@ -1634,7 +1634,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    ///TODO: #4587 create default for `Transaction` and `UTXOSet`, then check if mutation tests are caught for these case:
+    /// TODO: #4587 create default for `Transaction` and `UTXOSet`, then check if mutation tests are caught for these case:
     /// Some((Default::default(), Default::default()))
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]

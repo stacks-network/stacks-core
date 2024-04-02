@@ -955,6 +955,10 @@ fn parse_cost(
     }
 }
 
+/// TODO: #4587 create default for `ExecutionCost`, then check if mutation tests are caught for these case:
+/// Ok(Default::default())
+/// Or keep the skip and remove the comment
+#[cfg_attr(test, mutants::skip)]
 fn compute_cost(
     cost_tracker: &mut TrackerData,
     cost_function_reference: ClarityCostFunctionReference,

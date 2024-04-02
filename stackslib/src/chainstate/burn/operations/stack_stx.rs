@@ -181,7 +181,7 @@ impl StackStxOp {
         }
     }
 
-    ///TODO: #4587 create default for `ParsedData`, then check if mutation tests are caught for these case:
+    /// TODO: #4587 create default for `ParsedData`, then check if mutation tests are caught for these case:
     /// Some(Default::default())
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
@@ -403,7 +403,7 @@ impl StacksMessageCodec for StackStxOp {
 }
 
 impl StackStxOp {
-    ///TODO: #4587 add tests for `Ok(())` returning case.
+    /// TODO: #4587 add tests for `Ok(())` returning case.
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn check(&self) -> Result<(), op_error> {

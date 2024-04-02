@@ -170,7 +170,7 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
-    ///TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
+    /// TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
     /// Default::default()
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
@@ -183,7 +183,7 @@ impl BlockBuilderSettings {
         }
     }
 
-    ///TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
+    /// TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
     /// Default::default()    
     /// Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
