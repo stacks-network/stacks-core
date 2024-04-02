@@ -6318,8 +6318,6 @@ fn test_scenario_one() {
     let mut alice = StackerSignerInfo::new();
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
-    debug!("alice info: {alice:?}");
-    debug!("bob info: {bob:?}");
 
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
@@ -6359,10 +6357,6 @@ fn test_scenario_one() {
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    debug!(
-        "Epoch 3.0 start burn block height: {}",
-        epoch_3.start_height
-    );
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -6374,7 +6368,6 @@ fn test_scenario_one() {
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
     // Produce blocks until the first reward phase that everyone should be in
-    debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
@@ -6389,12 +6382,6 @@ fn test_scenario_one() {
     // Current stack block height: 25
     let current_block_height = peer.config.current_block;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-
-    debug!("Test info:";
-        "reward_cycle" => reward_cycle,
-        "burn_block_height" => burn_block_height,
-        "min_ustx" => min_ustx,
-    );
 
     // Alice Signatures
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -6825,10 +6812,6 @@ fn test_scenario_two() {
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    debug!(
-        "Epoch 3.0 start burn block height: {}",
-        epoch_3.start_height
-    );
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -6840,7 +6823,6 @@ fn test_scenario_two() {
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
     // Produce blocks until the first reward phase that everyone should be in
-    debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
@@ -6855,12 +6837,6 @@ fn test_scenario_two() {
     // Current stack block height: 25
     let current_block_height = peer.config.current_block;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-
-    debug!("Test info:";
-        "reward_cycle" => reward_cycle,
-        "burn_block_height" => burn_block_height,
-        "min_ustx" => min_ustx,
-    );
 
     // Alice Signature For Carl
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7238,10 +7214,6 @@ fn test_scenario_three() {
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    debug!(
-        "Epoch 3.0 start burn block height: {}",
-        epoch_3.start_height
-    );
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -7253,7 +7225,6 @@ fn test_scenario_three() {
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
     // produce blocks until the first reward phase that everyone should be in
-    debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
@@ -7504,7 +7475,6 @@ fn test_scenario_three() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
-    info!("Advancing to reward set calculaton of cycle {next_reward_cycle} burn block height {target_height}");
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
@@ -7747,10 +7717,6 @@ fn test_scenario_four() {
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    debug!(
-        "Epoch 3.0 start burn block height: {}",
-        epoch_3.start_height
-    );
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -7762,7 +7728,6 @@ fn test_scenario_four() {
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
     // Produce blocks until the first reward phase that everyone should be in
-    debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
@@ -8697,16 +8662,6 @@ fn test_scenario_five() {
     let mut jude = StackerSignerInfo::new();
     // Mallory pool stacker delegating STX to Eve
     let mut mallory = StackerSignerInfo::new();
-    debug!("alice info: {alice:?}");
-    debug!("bob info: {bob:?}");
-    debug!("carl info: {carl:?}");
-    debug!("david info: {david:?}");
-    debug!("eve info: {eve:?}");
-    debug!("frank info: {frank:?}");
-    debug!("grace info: {grace:?}");
-    debug!("heidi info: {heidi:?}");
-    debug!("ivan info: {ivan:?}");
-    debug!("jude info: {jude:?}");
 
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
@@ -8755,10 +8710,6 @@ fn test_scenario_five() {
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    debug!(
-        "Epoch 3.0 start burn block height: {}",
-        epoch_3.start_height
-    );
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -8770,7 +8721,6 @@ fn test_scenario_five() {
     let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
     let mut latest_block = None;
     // produce blocks until the first reward phase that everyone should be in
-    debug!("Advancing to pox 4 activation height: {target_height}");
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
         observer.get_blocks();
@@ -8780,12 +8730,6 @@ fn test_scenario_five() {
     let next_reward_cycle = reward_cycle.wrapping_add(1);
     let burn_block_height = peer.get_burn_block_height();
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-
-    debug!("Test info:";
-        "reward_cycle" => reward_cycle,
-        "burn_block_height" => burn_block_height,
-        "min_ustx" => min_ustx,
-    );
 
     // Lock periods for each stacker
     let carl_lock_period = 3;
@@ -9037,7 +8981,6 @@ fn test_scenario_five() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
-    info!("Advancing to reward set calculaton of cycle {next_reward_cycle} burn block height {target_height}");
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
     for (stacker, stacker_lock_period) in davids_stackers {
@@ -9062,7 +9005,6 @@ fn test_scenario_five() {
     assert_eq!(lock_period, carl_lock_period);
 
     // Verify stacker transactions
-    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
     let mut observed_txs = HashSet::new();
     for tx_receipt in tx_block.receipts {
         if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
@@ -9078,7 +9020,6 @@ fn test_scenario_five() {
     }
 
     let cycle_id = next_reward_cycle;
-    debug!("Checking signer set for reward cycle {cycle_id}");
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
@@ -9117,10 +9058,6 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
-    info!(
-        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
-    );
     let (latest_block, tx_block) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -9129,7 +9066,6 @@ fn test_scenario_five() {
         target_height,
     );
 
-    info!("Verifying signer vote txs");
     let mut observed_txs = HashSet::new();
     for tx_receipt in tx_block.receipts {
         if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
@@ -9227,8 +9163,6 @@ fn test_scenario_five() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
-    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
-    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
@@ -9254,7 +9188,6 @@ fn test_scenario_five() {
     assert_eq!(lock_period, carl_lock_period);
 
     // Verify stacker transactions
-    info!("Verifying stacking txs for reward cycle {next_reward_cycle}");
     let mut observed_txs = HashSet::new();
     for tx_receipt in tx_block.receipts {
         if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
@@ -9270,7 +9203,6 @@ fn test_scenario_five() {
     }
 
     let cycle_id = next_reward_cycle;
-    debug!("Checking signer set for reward cycle {cycle_id}");
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
@@ -9310,10 +9242,6 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    info!("Submitting vote txs for reward cycle {next_reward_cycle}");
-    info!(
-        "Advancing to next reward cycle {next_reward_cycle} at burn block height {target_height}"
-    );
     let (latest_block, tx_block) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -9322,7 +9250,6 @@ fn test_scenario_five() {
         target_height,
     );
 
-    info!("Verifying signer vote txs");
     let mut observed_txs = HashSet::new();
     for tx_receipt in tx_block.receipts {
         if let TransactionOrigin::Stacks(ref tx) = tx_receipt.transaction {
@@ -9424,8 +9351,6 @@ fn test_scenario_five() {
         .saturating_sub(prepare_phase_len as u64)
         .wrapping_add(2);
     // This assertion just makes testing logic a bit easier
-    info!("Submitting stacking txs for reward cycle {next_reward_cycle}");
-    info!("Advancing to reward set calculation boundary of reward cycle {next_reward_cycle} at burn block height {target_height}");
     let davids_stackers = &[
         (grace.clone(), grace_lock_period),
         (heidi.clone(), heidi_lock_period),
