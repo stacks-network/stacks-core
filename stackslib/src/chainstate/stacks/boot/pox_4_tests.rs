@@ -6591,13 +6591,13 @@ fn test_scenario_one() {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // 4.2 Check signer key
-    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = alice_tx_result_ok
         .data_map
         .get("signer-key")
         .unwrap()
         .clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_expected, signer_key_actual);
 
     // 4.3 Check unlock height
     let unlock_height_expected = Value::UInt(
@@ -6646,9 +6646,9 @@ fn test_scenario_one() {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // 6.2 Check signer key
-    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = bob_tx_result_ok.data_map.get("signer-key").unwrap().clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_expected, signer_key_actual);
 
     // 6.3 Check unlock height (end of cycle 7 - block 140)
     let unlock_height_expected = Value::UInt(
@@ -7012,13 +7012,13 @@ fn test_scenario_two() {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Carl signer key
-    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = carl_tx_result_ok
         .data_map
         .get("signer-key")
         .unwrap()
         .clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_expected, signer_key_actual);
 
     // Check Dave's malformed pox stack transaction (err 41 - INVALID_SIGNER_AUTH)
     let dave_tx_result_err = tx_block
@@ -7053,13 +7053,13 @@ fn test_scenario_two() {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Dave signer key
-    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = dave_tx_result_ok
         .data_map
         .get("signer-key")
         .unwrap()
         .clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_expected, signer_key_actual);
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
@@ -7542,13 +7542,13 @@ fn test_scenario_three() {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Alice signer key
-    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(alice.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = alice_stack_tx_ok
         .data_map
         .get("signer-key")
         .unwrap()
         .clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_expected, signer_key_actual);
 
     // 3. Check that Bob can't stack with a signature that points to a reward cycle in the past
     let bob_stack_tx_err = tx_block
