@@ -50,6 +50,7 @@ export type Wallet = {
   isStacking: boolean;
   hasDelegated: boolean;
   lockedAddresses: StxAddress[];
+  amountToCommit: number;
   poolMembers: StxAddress[];
   delegatedTo: StxAddress;
   delegatedMaxAmount: number;

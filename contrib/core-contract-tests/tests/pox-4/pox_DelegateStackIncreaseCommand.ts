@@ -103,11 +103,13 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
 
     // Get the Stacker's wallet from the model and update it with the new state.
     const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.wallets.get(this.operator.stxAddress)!
     // Update model so that we know this stacker has increased the stacked amount.
     // Update locked and unlocked fields in the model.
     stackerWallet.amountLocked = newTotalLocked;
     stackerWallet.amountUnlocked = stackerWallet.amountUnlocked -
       this.increaseBy;
+    operatorWallet.amountToCommit += this.increaseBy
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
