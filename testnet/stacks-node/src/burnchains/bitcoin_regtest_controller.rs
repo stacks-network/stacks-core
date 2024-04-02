@@ -1259,6 +1259,7 @@ impl BitcoinRegtestController {
     }
 
     #[cfg(not(test))]
+    #[cfg_attr(test, mutants::skip)]
     fn build_stack_stx_tx(
         &mut self,
         _epoch_id: StacksEpochId,
@@ -1633,6 +1634,10 @@ impl BitcoinRegtestController {
         }
     }
 
+    ///TODO: #4587 create default for `Transaction` and `UTXOSet`, then check if mutation tests are caught for these case:
+    /// Some((Default::default(), Default::default()))
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn prepare_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -2000,6 +2005,10 @@ impl BitcoinRegtestController {
         self.config.miner.segwit = segwit;
     }
 
+    /// TODO: #4587 create default for `SerializedTx`, then check if mutation tests are caught for these case:
+    /// Some(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_operation_tx(
         &mut self,
         epoch_id: StacksEpochId,

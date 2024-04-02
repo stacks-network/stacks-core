@@ -307,6 +307,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 }
 
 impl FromRow<StackStxOp> for StackStxOp {
+    /// TODO: #4587 create default for `StackStxOp`, then check if mutation tests are caught for these case:
+    /// Ok(Default::default())
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
