@@ -10,7 +10,7 @@ import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
 /**
- * The `StackAggregationCommitCommand` allows an operator commits partially
+ * The `StackAggregationCommitAuthCommand` allows an operator commits partially
  * stacked STX and allocate a new PoX reward address slot. This allows a
  * stacker to lock fewer STX than the minimal threshold in multiple transactions,
  * so long as:
@@ -23,13 +23,13 @@ import { Cl } from "@stacks/transactions";
  *   stackers has to be greater than the uSTX threshold.
  * - All of the Stackers must have delegated to the same pox address.
  */
-export class StackAggregationCommitCommand implements PoxCommand {
+export class StackAggregationCommitAuthCommand implements PoxCommand {
   readonly operator: Wallet;
   readonly authId: number;
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackAggregationCommitCommand` to lock uSTX for stacking.
+   * Constructs a `StackAggregationCommitAuthCommand` to lock uSTX for stacking.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.
