@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
+use std::collections::{hash_map, BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
@@ -76,7 +76,7 @@ impl AssetIdentifier {
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    type_map: BTreeMap<ClarityName, TypeSignature>,
+    type_map: HashMap<ClarityName, TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -787,7 +787,7 @@ impl TypeSignature {
                 inner_type.1.canonicalize_v2_1(),
             ))),
             TupleType(ref tuple_sig) => {
-                let mut canonicalized_fields = BTreeMap::new();
+                let mut canonicalized_fields = HashMap::new();
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
@@ -851,9 +851,9 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
-        let mut type_map = BTreeMap::new();
+        let mut type_map = HashMap::new();
         for (name, type_info) in type_data.into_iter() {
-            if let Entry::Vacant(e) = type_map.entry(name.clone()) {
+            if let hash_map::Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {
                 return Err(CheckErrors::NameAlreadyUsed(name.into()));
@@ -866,6 +866,30 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     type Error = CheckErrors;
     fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
+        if type_map.is_empty() {
+            return Err(CheckErrors::EmptyTuplesNotAllowed);
+        }
+        for child_sig in type_map.values() {
+            if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
+                return Err(CheckErrors::TypeSignatureTooDeep);
+            }
+        }
+        let type_map = type_map.into_iter().collect();
+        let result = TupleTypeSignature { type_map };
+        let would_be_size = result
+            .inner_size()?
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if would_be_size > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(result)
+        }
+    }
+}
+
+impl TryFrom<HashMap<ClarityName, TypeSignature>> for TupleTypeSignature {
+    type Error = CheckErrors;
+    fn try_from(type_map: HashMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
         if type_map.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
@@ -901,7 +925,7 @@ impl TupleTypeSignature {
         self.type_map.get(field)
     }
 
-    pub fn get_type_map(&self) -> &BTreeMap<ClarityName, TypeSignature> {
+    pub fn get_type_map(&self) -> &HashMap<ClarityName, TypeSignature> {
         &self.type_map
     }
 
@@ -937,7 +961,7 @@ impl TupleTypeSignature {
     }
 
     pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
-        self.type_map.append(&mut update.type_map);
+        self.type_map.extend(update.type_map.drain());
     }
 }
 
@@ -1945,7 +1969,9 @@ pub fn parse_name_type_pairs<A: CostTracker>(
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(tuple")?;
-        for (field_name, field_type) in self.type_map.iter() {
+        let mut type_strs: Vec<_> = self.type_map.iter().collect();
+        type_strs.sort_unstable_by_key(|x| x.0);
+        for (field_name, field_type) in type_strs {
             write!(f, " ({} {})", &**field_name, field_type)?;
         }
         write!(f, ")")

@@ -2204,9 +2204,9 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
-version = "7.0.0"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a64d160b891178fb9d43d1a58ddcafb6502daeb54d810e5e92a7c3c9bfacc07"
+checksum = "a40a031a559eb38c35a14096f21c366254501a06d41c4b327d2a7515d713a5b7"
 dependencies = [
  "bitvec",
  "bs58 0.4.0",
@@ -3452,6 +3452,8 @@ dependencies = [
  "hashbrown 0.14.3",
  "libsigner",
  "libstackerdb",
+ "num-traits",
+ "polynomial",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
@@ -4596,8 +4598,9 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "8.1.0"
-source = "git+https://github.com/stacks-network/wsts.git?branch=feat/public-sign-ids#99c1ed3d528d98585ba4b50084e8a6c37f8f5793"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c80d57a61294350ed91e91eb20a6c34da084ec8f15d039bab79ce3efabbd1a4"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",
