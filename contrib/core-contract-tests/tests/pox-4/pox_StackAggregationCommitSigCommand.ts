@@ -125,7 +125,6 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
     expect(stackAggregationCommit.result).toBeOk(Cl.bool(true));
 
     const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
-
     operatorWallet.amountToCommit -= committedAmount;
 
     // Log to console for debugging purposes. This is not necessary for the
