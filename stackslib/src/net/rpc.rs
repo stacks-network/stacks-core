@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
@@ -56,7 +55,6 @@ use crate::burnchains::{Burnchain, BurnchainView, *};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
 use crate::chainstate::stacks::db::blocks::{CheckError, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
@@ -513,6 +511,7 @@ impl ConversationHttp {
     }
 
     /// When was this converation conencted?
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_connection_time(&self) -> u64 {
         self.connection_time
     }
@@ -598,6 +597,7 @@ impl ConversationHttp {
     }
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
+    #[cfg_attr(test, mutants::skip)]
     pub fn clear_timeouts(&mut self) -> () {
         self.connection.drain_timeouts();
     }
@@ -626,6 +626,7 @@ impl ConversationHttp {
     }
 
     /// Write data out of our HTTP connection.  Write as much as we can
+    #[cfg_attr(test, mutants::skip)]
     pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {

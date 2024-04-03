@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::vec::Drain;
+
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
@@ -78,10 +79,7 @@ pub struct PreExpressionsDrain {
 
 impl PreExpressionsDrain {
     pub fn new(pre_exprs_drain: Drain<PreSymbolicExpression>, sorting: Option<Vec<usize>>) -> Self {
-        let mut pre_expressions = HashMap::new();
-        for (index, pre_expr) in pre_exprs_drain.enumerate() {
-            pre_expressions.insert(index, pre_expr);
-        }
+        let pre_expressions: HashMap<_, _> = pre_exprs_drain.enumerate().collect();
 
         let sorting = match sorting {
             Some(sorting) if !sorting.is_empty() => Some(sorting),
@@ -93,6 +91,10 @@ impl PreExpressionsDrain {
             sorting,
             index: 0,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 }
 

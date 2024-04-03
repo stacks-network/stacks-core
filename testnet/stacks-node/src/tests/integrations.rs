@@ -11,7 +11,9 @@ use clarity::vm::types::{
     QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
 use clarity::vm::{ClarityVersion, Value};
+use lazy_static::lazy_static;
 use reqwest;
+use serde_json::json;
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::db::blocks::{MemPoolRejection, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -1865,7 +1867,7 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     let mut contract = "(define-constant list-0 (list 0))".to_string();
 
     for i in 0..10 {
-        contract.push_str("\n");
+        contract.push('\n');
         contract.push_str(&format!(
             "(define-constant list-{} (concat list-{} list-{}))",
             i + 1,
@@ -1874,9 +1876,9 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
         ));
     }
 
-    contract.push_str("\n");
+    contract.push('\n');
     contract.push_str(other_decl);
-    contract.push_str("\n");
+    contract.push('\n');
     contract.push_str(inner_loop);
 
     write!(

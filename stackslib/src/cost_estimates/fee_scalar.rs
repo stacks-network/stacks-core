@@ -1,6 +1,4 @@
 use std::cmp;
-use std::convert::TryFrom;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use clarity::vm::costs::ExecutionCost;
@@ -190,7 +188,8 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     }
                     TransactionPayload::PoisonMicroblock(_, _)
                     | TransactionPayload::ContractCall(_)
-                    | TransactionPayload::SmartContract(..) => {
+                    | TransactionPayload::SmartContract(..)
+                    | TransactionPayload::TenureChange(..) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
                         self.metric.from_cost_and_len(

@@ -127,10 +127,12 @@ impl StacksMemPoolStream {
 }
 
 impl HttpChunkGenerator for StacksMemPoolStream {
+    #[cfg_attr(test, mutants::skip)]
     fn hint_chunk_size(&self) -> usize {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.corked {
             test_debug!(
@@ -269,7 +271,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         let page_id = self.page_id.take();
 
         let stream_res = node.with_node_state(|network, sortdb, chainstate, mempool, _rpc_args| {
-            let height = self.get_stacks_chain_tip(&preamble, sortdb, chainstate).map(|blk| blk.height).unwrap_or(0);
+            let height = self.get_stacks_chain_tip(&preamble, sortdb, chainstate).map(|hdr| hdr.anchored_header.height()).unwrap_or(0);
             let max_txs = network.connection_opts.mempool_max_tx_query;
             debug!(
                 "Begin mempool query";

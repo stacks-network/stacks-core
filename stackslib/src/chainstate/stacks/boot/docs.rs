@@ -1,7 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use hashbrown::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 
@@ -43,7 +41,7 @@ This ensures that each entry in the reward set returned to the stacks-node is gr
   but does not require it be all locked up within a single transaction"),
         ("reject-pox", "Reject Stacking for this reward cycle.
 `tx-sender` votes all its uSTX for rejection.
-Note that unlike Stacking, rejecting PoX does not lock the tx-sender's tokens: PoX rejection acts like a coin vote."),
+Note that unlike Stacking, rejecting PoX does not lock the tx-sender's tokens: PoX rejection acts like a coin vote. Removed in pox-4."),
         ("can-stack-stx", "Evaluate if a participant can stack an amount of STX for a given period."),
         ("get-stacking-minimum", "Returns the absolute minimum amount that could be validly Stacked (the threshold to Stack in
 a given reward cycle may be higher than this"),

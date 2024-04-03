@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -30,7 +29,7 @@ use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as ClaritySerializationError;
@@ -42,6 +41,7 @@ use clarity::vm::types::{
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{
@@ -87,8 +87,8 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            events: events,
-            result: result,
+            events,
+            result,
             stx_burned: 0,
             post_condition_aborted: false,
             contract_analysis: None,
@@ -299,6 +299,21 @@ impl StacksTransactionReceipt {
         }
     }
 
+    pub fn from_tenure_change(tx: StacksTransaction) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::zero(),
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: None,
+        }
+    }
+
     pub fn is_coinbase_tx(&self) -> bool {
         if let TransactionOrigin::Stacks(ref transaction) = self.transaction {
             if let TransactionPayload::Coinbase(..) = transaction.payload {
@@ -474,24 +489,27 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht) = clarity_tx
-            .with_clarity_db_readonly::<_, Result<_, InterpreterError>>(|ref mut db| {
-                Ok((
+        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht) = clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
+                let res: Result<_, Error> = Ok((
                     db.get_current_burnchain_block_height()?,
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height()?,
-                ))
+                    db.get_v3_unlock_height()?,
+                ));
+                res
             })?;
 
         let consolidated_balance = payer_account
             .stx_balance
             .get_available_balance_at_burn_block(
-                cur_burn_block_height as u64,
+                u64::from(cur_burn_block_height),
                 v1_unlock_ht,
                 v2_unlock_ht,
+                v3_unlock_ht,
             )?;
 
-        if consolidated_balance < fee as u128 {
+        if consolidated_balance < u128::from(fee) {
             return Err(Error::InvalidFee);
         }
 
@@ -575,7 +593,7 @@ impl StacksChainState {
                         .checked_add(amount_burned)
                         .expect("FATAL: sent waaaaay too much STX");
 
-                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
+                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!(
                             "Post-condition check failure on STX owned by {}: {:?} {:?} {}",
                             account_principal, amount_sent_condition, condition_code, amount_sent
@@ -621,7 +639,7 @@ impl StacksChainState {
                     let amount_sent = asset_map
                         .get_fungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(0);
-                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
+                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         return Ok(false);
                     }
@@ -834,7 +852,9 @@ impl StacksChainState {
             }
             Some(height) => {
                 if height
-                    .checked_add(MINER_REWARD_MATURITY as u32)
+                    .checked_add(
+                        u32::try_from(MINER_REWARD_MATURITY).expect("FATAL: maturity > 2^32"),
+                    )
                     .expect("BUG: too many blocks")
                     < current_height
                 {
@@ -856,11 +876,11 @@ impl StacksChainState {
             .get_microblock_poison_report(mblock_pubk_height)?
         {
             // account for report loaded
-            env.add_memory(
+            env.add_memory(u64::from(
                 TypeSignature::PrincipalType
                     .size()
-                    .map_err(InterpreterError::from)? as u64,
-            )
+                    .map_err(InterpreterError::from)?,
+            ))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
 
             // u128 sequence
@@ -910,7 +930,7 @@ impl StacksChainState {
         let tuple_data = TupleData::from_data(vec![
             (
                 ClarityName::try_from("block_height").expect("BUG: valid string representation"),
-                Value::UInt(mblock_pubk_height as u128),
+                Value::UInt(u128::from(mblock_pubk_height)),
             ),
             (
                 ClarityName::try_from("microblock_pubkey_hash")
@@ -923,7 +943,7 @@ impl StacksChainState {
             ),
             (
                 ClarityName::try_from("sequence").expect("BUG: valid string representation"),
-                Value::UInt(reported_seq as u128),
+                Value::UInt(u128::from(reported_seq)),
             ),
         ])
         .expect("BUG: valid tuple representation");
@@ -966,7 +986,7 @@ impl StacksChainState {
                     .run_stx_transfer(
                         &origin_account.principal,
                         addr,
-                        *amount as u128,
+                        u128::from(*amount),
                         &BuffData {
                             data: Vec::from(memo.0.clone()),
                         },
@@ -1022,6 +1042,9 @@ impl StacksChainState {
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call successfully processed";
+                              "txid" => %tx.txid(),
+                              "origin" => %origin_account.principal,
+                              "origin_nonce" => %origin_account.nonce,
                               "contract_name" => %contract_id,
                               "function_name" => %contract_call.function_name,
                               "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1032,6 +1055,9 @@ impl StacksChainState {
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Contract-call processed with {}", err_type;
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1040,6 +1066,9 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
                             info!("Contract-call aborted by post-condition";
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args));
@@ -1060,6 +1089,9 @@ impl StacksChainState {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
                                 warn!("Contract-call encountered an analysis error at runtime";
+                                      "txid" => %tx.txid(),
+                                      "origin" => %origin_account.principal,
+                                      "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1075,6 +1107,9 @@ impl StacksChainState {
                             } else {
                                 // prior to 2.1, this is not permitted in a block.
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                          "txid" => %tx.txid(),
+                                          "origin" => %origin_account.principal,
+                                          "origin_nonce" => %origin_account.nonce,
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1086,6 +1121,9 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
+                                       "txid" => %tx.txid(),
+                                       "origin" => %origin_account.principal,
+                                       "origin_nonce" => %origin_account.nonce,
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),
@@ -1367,6 +1405,35 @@ impl StacksChainState {
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
+                Ok(receipt)
+            }
+            TransactionPayload::TenureChange(ref payload) => {
+                // post-conditions are not allowed for this variant, since they're non-sensical.
+                // Their presence in this variant makes the transaction invalid.
+                if tx.post_conditions.len() > 0 {
+                    let msg = format!("Invalid Stacks transaction: TenureChange transactions do not support post-conditions");
+                    warn!("{msg}");
+
+                    return Err(Error::InvalidStacksTransaction(msg, false));
+                }
+
+                // what kind of tenure-change?
+                match payload.cause {
+                    TenureChangeCause::BlockFound => {
+                        // a sortition triggered this tenure change.
+                        // this is already processed, so it's a no-op here.
+                    }
+                    TenureChangeCause::Extended => {
+                        // the stackers granted a tenure extension.
+                        // reset the runtime cost
+                        debug!(
+                            "TenureChange extends block tenure (confirms {} blocks)",
+                            &payload.previous_tenure_blocks
+                        );
+                    }
+                }
+
+                let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
                 Ok(receipt)
             }
         }
@@ -8109,7 +8176,7 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_account(&mut conn, &addr.into())
                 .stx_balance
-                .get_available_balance_at_burn_block(0, 0, 0)
+                .get_available_balance_at_burn_block(0, 0, 0, 0)
                 .unwrap(),
             (1000000000 - fee) as u128
         );
@@ -8559,7 +8626,13 @@ pub mod test {
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_v3_unlock_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -8626,6 +8699,8 @@ pub mod test {
                     StacksEpochId::Epoch22 => self.get_stacks_epoch(3),
                     StacksEpochId::Epoch23 => self.get_stacks_epoch(4),
                     StacksEpochId::Epoch24 => self.get_stacks_epoch(5),
+                    StacksEpochId::Epoch25 => self.get_stacks_epoch(6),
+                    StacksEpochId::Epoch30 => self.get_stacks_epoch(7),
                 }
             }
             fn get_pox_payout_addrs(
@@ -8773,7 +8848,13 @@ pub mod test {
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_v3_unlock_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {

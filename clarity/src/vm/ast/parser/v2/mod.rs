@@ -1,6 +1,5 @@
 pub mod lexer;
 
-use std::convert::TryFrom;
 use std::num::ParseIntError;
 
 use stacks_common::util::hash::hex_bytes;
@@ -237,7 +236,7 @@ impl<'a> Parser<'a> {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = std::mem::take(nodes);
-                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
+                            let mut e = PreSymbolicExpression::list(out_nodes);
                             e.copy_span(span);
                             Ok(Some(e))
                         }
@@ -254,7 +253,7 @@ impl<'a> Parser<'a> {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = std::mem::take(nodes);
-                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
+                            let mut e = PreSymbolicExpression::list(out_nodes);
                             e.copy_span(span);
                             Ok(Some(e))
                         }
@@ -262,7 +261,7 @@ impl<'a> Parser<'a> {
                             // Report an error, then skip this token
                             self.add_diagnostic(
                                 ParseErrors::UnexpectedToken(token.token.clone()),
-                                token.span.clone(),
+                                token.span,
                             )?;
                             *whitespace = self.ignore_whitespace();
                             Ok(None)
@@ -302,8 +301,7 @@ impl<'a> Parser<'a> {
                                     open_tuple.span.clone(),
                                 )?;
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e =
-                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                                 open_tuple.span.end_line = span_before_eof.end_line;
                                 open_tuple.span.end_column = span_before_eof.end_column;
@@ -342,7 +340,7 @@ impl<'a> Parser<'a> {
                         placeholder.copy_span(&token.span);
                         open_tuple.nodes.push(placeholder); // Placeholder value
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        let mut e = PreSymbolicExpression::tuple(out_nodes);
                         let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                         open_tuple.span.end_line = span_before_eof.end_line;
                         open_tuple.span.end_column = span_before_eof.end_column;
@@ -376,7 +374,7 @@ impl<'a> Parser<'a> {
                                 // This indicates we have reached the end of the input.
                                 // Create a placeholder value so that parsing can continue,
                                 // then return.
-                                let eof_span = last_token.span.clone();
+                                let eof_span = last_token.span;
 
                                 self.add_diagnostic(
                                     ParseErrors::TupleValueExpected,
@@ -387,8 +385,7 @@ impl<'a> Parser<'a> {
                                 placeholder.copy_span(&eof_span);
                                 open_tuple.nodes.push(placeholder); // Placeholder value
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e =
-                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 open_tuple.span.end_line =
                                     open_tuple.diagnostic_token.span.end_line;
                                 open_tuple.span.end_column =
@@ -423,14 +420,12 @@ impl<'a> Parser<'a> {
                         open_tuple.span.end_column = token.span.end_column;
                         self.next_token();
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        let mut e = PreSymbolicExpression::tuple(out_nodes);
                         e.copy_span(&open_tuple.span);
                         return Ok(Some(e));
                     }
                     Token::Eof => (),
-                    _ => {
-                        self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span.clone())?
-                    }
+                    _ => self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span)?,
                 }
 
                 let mut comments = self.ignore_whitespace_and_comments();
@@ -443,7 +438,7 @@ impl<'a> Parser<'a> {
                     open_tuple.span.end_column = token.span.end_column;
                     self.next_token();
                     let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                    let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                    let mut e = PreSymbolicExpression::tuple(out_nodes);
                     e.copy_span(&open_tuple.span);
                     return Ok(Some(e));
                 }
@@ -463,7 +458,7 @@ impl<'a> Parser<'a> {
     fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
         let mut open_tuple = OpenTuple {
             nodes: vec![],
-            span: lbrace.span.clone(),
+            span: lbrace.span,
             expects: OpenTupleStatus::ParseKey,
             diagnostic_token: self.peek_next_token(),
         };
@@ -474,10 +469,7 @@ impl<'a> Parser<'a> {
         let token = self.peek_next_token();
         match token.token {
             Token::Comma => {
-                self.add_diagnostic(
-                    ParseErrors::UnexpectedToken(token.token),
-                    token.span.clone(),
-                )?;
+                self.add_diagnostic(ParseErrors::UnexpectedToken(token.token), token.span)?;
                 self.next_token();
             }
             Token::Rbrace => {
@@ -485,7 +477,7 @@ impl<'a> Parser<'a> {
                 open_tuple.span.end_column = token.span.end_column;
                 self.next_token();
                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                let mut e = PreSymbolicExpression::tuple(out_nodes);
                 e.copy_span(&open_tuple.span);
                 return Ok(SetupTupleResult::Closed(e));
             }
@@ -502,7 +494,7 @@ impl<'a> Parser<'a> {
             open_tuple.span.end_column = token.span.end_column;
             self.next_token();
             let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-            let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+            let mut e = PreSymbolicExpression::tuple(out_nodes);
             e.copy_span(&open_tuple.span);
             return Ok(SetupTupleResult::Closed(e));
         }
@@ -548,10 +540,7 @@ impl<'a> Parser<'a> {
                 }) => {
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    self.add_diagnostic(
-                        ParseErrors::ExpectedContractIdentifier,
-                        token_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span)?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         "'{}.{}",
                         principal,
@@ -561,7 +550,7 @@ impl<'a> Parser<'a> {
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span.clone())?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.", principal));
                     placeholder.copy_span(&span);
@@ -572,7 +561,7 @@ impl<'a> Parser<'a> {
             if name.len() > MAX_CONTRACT_NAME_LEN {
                 self.add_diagnostic(
                     ParseErrors::ContractNameTooLong(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
@@ -584,7 +573,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(
                         ParseErrors::IllegalContractName(name.clone()),
-                        contract_span.clone(),
+                        contract_span,
                     )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
@@ -639,10 +628,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(
-                        ParseErrors::NameTooLong(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", contract_id, name,));
                     placeholder.copy_span(&span);
@@ -653,7 +639,7 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         self.add_diagnostic(
                             ParseErrors::IllegalTraitName(name.clone()),
-                            trait_span.clone(),
+                            trait_span,
                         )?;
                         let mut placeholder = PreSymbolicExpression::placeholder(format!(
                             "'{}.{}",
@@ -728,7 +714,7 @@ impl<'a> Parser<'a> {
             Err(_) => {
                 self.add_diagnostic(
                     ParseErrors::IllegalContractName(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
                 placeholder.copy_span(&span);
@@ -775,7 +761,7 @@ impl<'a> Parser<'a> {
                 }
             };
             if name.len() > MAX_STRING_LEN {
-                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span.clone())?;
+                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
                 placeholder.copy_span(&span);
@@ -784,10 +770,7 @@ impl<'a> Parser<'a> {
             let trait_name = match ClarityName::try_from(name.clone()) {
                 Ok(id) => id,
                 Err(_) => {
-                    self.add_diagnostic(
-                        ParseErrors::IllegalTraitName(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::IllegalTraitName(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
                     placeholder.copy_span(&span);
@@ -908,12 +891,14 @@ impl<'a> Parser<'a> {
                             Some(expr)
                         }
                         Token::Utf8String(s) => {
-                            let mut data: Vec<Vec<u8>> = Vec::new();
-                            for ch in s.chars() {
-                                let mut bytes = vec![0; ch.len_utf8()];
-                                ch.encode_utf8(&mut bytes);
-                                data.push(bytes);
-                            }
+                            let data: Vec<Vec<u8>> = s
+                                .chars()
+                                .map(|ch| {
+                                    let mut bytes = vec![0; ch.len_utf8()];
+                                    ch.encode_utf8(&mut bytes);
+                                    bytes
+                                })
+                                .collect();
                             let val =
                                 Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
                                     data,

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
@@ -59,14 +58,14 @@ pub type SpecialCaseHandler = &'static dyn Fn(
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()>;
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
-    fn get(&mut self, key: &str) -> Result<Option<String>>;
+    fn get_data(&mut self, key: &str) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
     fn has_entry(&mut self, key: &str) -> Result<bool> {
-        Ok(self.get(key)?.is_some())
+        Ok(self.get_data(key)?.is_some())
     }
 
     /// change the current MARF context to service reads from a different chain_tip
@@ -110,7 +109,7 @@ pub trait ClarityBackingStore {
     ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
         let key = make_contract_hash_key(contract);
         let contract_commitment = self
-            .get(&key)?
+            .get_data(&key)?
             .map(|x| ContractCommitment::deserialize(&x))
             .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
         let ContractCommitment {
@@ -233,11 +232,11 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get(&mut self, _key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -261,7 +260,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
 }
@@ -302,11 +301,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
@@ -338,7 +337,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }

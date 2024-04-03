@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,6 +21,7 @@ use std::sync::Mutex;
 use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
+use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};

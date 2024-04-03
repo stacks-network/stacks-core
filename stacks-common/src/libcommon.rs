@@ -7,30 +7,11 @@
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 #![allow(clippy::assertions_on_constants)]
 
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
-extern crate rand;
-extern crate rusqlite;
-extern crate secp256k1;
-extern crate serde;
-#[macro_use]
-extern crate lazy_static;
-extern crate ripemd;
-extern crate sha2;
-extern crate sha3;
-extern crate time;
-
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
-extern crate chrono;
-#[cfg(feature = "slog_json")]
-extern crate slog_json;
-extern crate slog_term;
 
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
 
 #[cfg(unix)]
 extern crate nix;
@@ -49,6 +30,8 @@ pub mod types;
 pub mod address;
 
 pub mod deps_common;
+
+pub mod bitvec;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
@@ -76,4 +59,8 @@ pub mod consts {
     pub const MINER_REWARD_MATURITY: u64 = 100;
 
     pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
+
+    /// The number of StackerDB slots each signing key needs
+    ///  to use to participate in DKG and block validation signing.
+    pub const SIGNER_SLOTS_PER_USER: u32 = 13;
 }

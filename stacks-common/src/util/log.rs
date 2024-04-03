@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime};
 use std::{env, io, thread};
 
 use chrono::prelude::*;
+use lazy_static::lazy_static;
 use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 
@@ -250,6 +251,8 @@ fn inner_get_loglevel() -> slog::Level {
         || env::var("BLOCKSTACK_DEBUG") == Ok("1".into())
     {
         slog::Level::Debug
+    } else if env::var("STACKS_LOG_CRITONLY") == Ok("1".into()) {
+        slog::Level::Critical
     } else {
         slog::Level::Info
     }
@@ -338,7 +341,6 @@ enum Stream {
 
 #[cfg(unix)]
 fn isatty(stream: Stream) -> bool {
-    extern crate libc;
     let fd = match stream {
         Stream::Stdout => libc::STDOUT_FILENO,
         Stream::Stderr => libc::STDERR_FILENO,

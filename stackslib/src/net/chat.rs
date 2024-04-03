@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::{cmp, mem};
@@ -28,11 +27,12 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
 
 use crate::burnchains::{Burnchain, BurnchainView, PublicKey};
 use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
@@ -344,6 +344,12 @@ pub struct ConversationP2P {
 
     /// where does this peer's data live?  Set to a 0-length string if not known.
     pub data_url: UrlString,
+    /// Resolved IP address of the data URL
+    pub data_ip: Option<SocketAddr>,
+    /// Time to try DNS reesolution again
+    pub dns_deadline: u128,
+    /// Ongoing request to DNS resolver
+    pub dns_request: Option<DNSRequest>,
 
     /// what this peer believes is the height of the burnchain
     pub burnchain_tip_height: u64,
@@ -563,6 +569,9 @@ impl ConversationP2P {
             peer_expire_block_height: 0,
 
             data_url: UrlString::try_from("".to_string()).unwrap(),
+            data_ip: None,
+            dns_deadline: 0,
+            dns_request: None,
 
             burnchain_tip_height: 0,
             burnchain_tip_burn_header_hash: BurnchainHeaderHash::zero(),
@@ -667,6 +676,7 @@ impl ConversationP2P {
 
     /// Does the given services bitfield mempool query interface?  It will if it has both
     /// RELAY and RPC bits set.
+    #[cfg_attr(test, mutants::skip)]
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
@@ -715,10 +725,8 @@ impl ConversationP2P {
 
     /// Get the current epoch
     fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
-            "BUG: block {} is not in a known epoch",
-            cur_burn_height
-        ));
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height));
         let epoch = self.epochs[epoch_index].clone();
         epoch
     }
@@ -1197,6 +1205,7 @@ impl ConversationP2P {
         network: &mut PeerNetwork,
         message: &mut StacksMessage,
         authenticated: bool,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         if !authenticated && self.connection.options.disable_inbound_handshakes {
             debug!("{:?}: blocking inbound unauthenticated handshake", &self);
@@ -1279,11 +1288,17 @@ impl ConversationP2P {
             if ConversationP2P::supports_stackerdb(network.get_local_peer().services)
                 && ConversationP2P::supports_stackerdb(self.peer_services)
             {
+                // participate in stackerdb protocol, but only announce stackerdbs if we're no
+                // longer in the initial block download.
                 StacksMessageType::StackerDBHandshakeAccept(
                     accept_data,
                     StackerDBHandshakeData {
                         rc_consensus_hash: network.get_chain_view().rc_consensus_hash.clone(),
-                        smart_contracts: network.get_local_peer().stacker_dbs.clone(),
+                        smart_contracts: if ibd {
+                            vec![]
+                        } else {
+                            network.get_local_peer().stacker_dbs.clone()
+                        },
                     },
                 )
             } else {
@@ -1454,6 +1469,60 @@ impl ConversationP2P {
         Ok(reply_handle)
     }
 
+    /// Verify that a given consensus hash corresponds to a valid PoX sortition and is aligned to
+    /// the start of a reward cycle boundary.  Used to validate both GetBlocksInv and
+    /// GetNakamotoInv messages.
+    /// Returns Ok(Ok(snapshot-for-consensus-hash)) if valid
+    /// Returns Ok(Err(message)) if invalid, in which case, `message` should be replied
+    /// Returns Err(..) on DB errors
+    fn validate_consensus_hash_reward_cycle_start(
+        _local_peer: &LocalPeer,
+        sortdb: &SortitionDB,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Result<BlockSnapshot, StacksMessageType>, net_error> {
+        // request must correspond to valid PoX fork and must be aligned to reward cycle
+        let Some(base_snapshot) =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
+        else {
+            debug!(
+                "{:?}: No such block snapshot for {}",
+                _local_peer, consensus_hash
+            );
+            return Ok(Err(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::NoSuchBurnchainBlock,
+            ))));
+        };
+
+        // must be on the main PoX fork
+        if !base_snapshot.pox_valid {
+            debug!(
+                "{:?}: Snapshot for {:?} is not on the valid PoX fork",
+                _local_peer, base_snapshot.consensus_hash
+            );
+            return Ok(Err(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            ))));
+        }
+
+        // must be aligned to the start of a reward cycle
+        // (note that the first reward cycle bit doesn't count)
+        if base_snapshot.block_height > sortdb.first_block_height + 1
+            && !sortdb
+                .pox_constants
+                .is_reward_cycle_start(sortdb.first_block_height, base_snapshot.block_height)
+        {
+            warn!(
+                "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
+                _local_peer, base_snapshot.consensus_hash, base_snapshot.block_height
+            );
+            return Ok(Err(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            ))));
+        }
+
+        Ok(Ok(base_snapshot))
+    }
+
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
     /// Only returns up to $reward_cycle_length bits
@@ -1475,49 +1544,17 @@ impl ConversationP2P {
             )));
         }
 
-        // request must correspond to valid PoX fork and must be aligned to reward cycle
-        let base_snapshot = match SortitionDB::get_block_snapshot_consensus(
-            sortdb.conn(),
+        let base_snapshot_or_nack = Self::validate_consensus_hash_reward_cycle_start(
+            &_local_peer,
+            sortdb,
             &get_blocks_inv.consensus_hash,
-        )? {
-            Some(sn) => sn,
-            None => {
-                debug!(
-                    "{:?}: No such block snapshot for {}",
-                    &_local_peer, &get_blocks_inv.consensus_hash
-                );
-                return Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::NoSuchBurnchainBlock,
-                )));
+        )?;
+        let base_snapshot = match base_snapshot_or_nack {
+            Ok(sn) => sn,
+            Err(msg) => {
+                return Ok(msg);
             }
         };
-
-        // must be on the main PoX fork
-        if !base_snapshot.pox_valid {
-            debug!(
-                "{:?}: Snapshot for {:?} is not on the valid PoX fork",
-                _local_peer, base_snapshot.consensus_hash
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
-            )));
-        }
-
-        // must be aligned to the start of a reward cycle
-        // (note that the first reward cycle bit doesn't count)
-        if base_snapshot.block_height > network.get_burnchain().first_block_height + 1
-            && !network
-                .get_burnchain()
-                .is_reward_cycle_start(base_snapshot.block_height)
-        {
-            warn!(
-                "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
-                _local_peer, base_snapshot.consensus_hash, base_snapshot.block_height
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
-            )));
-        }
 
         // find the tail end of this range on the canonical fork.
         let tip_snapshot = {
@@ -1645,6 +1682,97 @@ impl ConversationP2P {
                 for i in 0..blocks_inv_data.microblocks_bitvec.len() {
                     blocks_inv_data.microblocks_bitvec[i] = 0;
                 }
+            }
+        }
+
+        self.sign_and_reply(
+            network.get_local_peer(),
+            network.get_chain_view(),
+            preamble,
+            response,
+        )
+    }
+
+    /// Handle an inbound GetNakamotoInv request.
+    /// Returns a reply handle to the generated message (possibly a nack)
+    /// Only returns up to $reward_cycle_length bits
+    pub fn make_getnakamotoinv_response(
+        network: &mut PeerNetwork,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        get_nakamoto_inv: &GetNakamotoInvData,
+    ) -> Result<StacksMessageType, net_error> {
+        let _local_peer = network.get_local_peer();
+
+        let base_snapshot_or_nack = Self::validate_consensus_hash_reward_cycle_start(
+            &_local_peer,
+            sortdb,
+            &get_nakamoto_inv.consensus_hash,
+        )?;
+        let base_snapshot = match base_snapshot_or_nack {
+            Ok(sn) => sn,
+            Err(msg) => {
+                return Ok(msg);
+            }
+        };
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let reward_cycle = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, base_snapshot.block_height)
+            .ok_or(net_error::InvalidMessage)?;
+
+        let bitvec_bools = network.nakamoto_inv_generator.make_tenure_bitvector(
+            &tip,
+            sortdb,
+            chainstate,
+            reward_cycle,
+        )?;
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
+            warn!(
+                "Failed to create a NakamotoInv response to {:?}: {:?}",
+                get_nakamoto_inv, &e
+            );
+            e
+        })?;
+
+        Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
+    }
+
+    /// Handle an inbound GetNakamotoInv request.
+    /// Returns a reply handle to the generated message (possibly a nack)
+    fn handle_getnakamotoinv(
+        &mut self,
+        network: &mut PeerNetwork,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        preamble: &Preamble,
+        get_nakamoto_inv: &GetNakamotoInvData,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        monitoring::increment_msg_counter("p2p_get_nakamoto_inv".to_string());
+
+        let mut response = ConversationP2P::make_getnakamotoinv_response(
+            network,
+            sortdb,
+            chainstate,
+            get_nakamoto_inv,
+        )?;
+
+        if let StacksMessageType::NakamotoInv(ref mut tenure_inv_data) = &mut response {
+            debug!(
+                "{:?}: Handled GetNakamotoInv. Reply {:?} to request {:?}",
+                &network.get_local_peer(),
+                &tenure_inv_data,
+                get_nakamoto_inv
+            );
+
+            if self.connection.options.disable_inv_chat {
+                // never reply that we have blocks
+                test_debug!(
+                    "{:?}: Disable inv chat -- pretend like we have nothing",
+                    network.get_local_peer()
+                );
+                tenure_inv_data.tenures.clear();
             }
         }
 
@@ -2106,6 +2234,13 @@ impl ConversationP2P {
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => {
                 self.handle_getblocksinv(network, sortdb, chainstate, &msg.preamble, get_blocks_inv)
             }
+            StacksMessageType::GetNakamotoInv(ref get_nakamoto_inv) => self.handle_getnakamotoinv(
+                network,
+                sortdb,
+                chainstate,
+                &msg.preamble,
+                get_nakamoto_inv,
+            ),
             StacksMessageType::Blocks(_) => {
                 monitoring::increment_stx_blocks_received_counter();
 
@@ -2320,6 +2455,7 @@ impl ConversationP2P {
         &mut self,
         network: &mut PeerNetwork,
         msg: &mut StacksMessage,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         let mut consume = false;
 
@@ -2329,7 +2465,7 @@ impl ConversationP2P {
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
-                let (handshake_opt, handled) = self.handle_handshake(network, msg, true)?;
+                let (handshake_opt, handled) = self.handle_handshake(network, msg, true, ibd)?;
                 consume = handled;
                 Ok(handshake_opt)
             }
@@ -2395,6 +2531,7 @@ impl ConversationP2P {
         &mut self,
         network: &mut PeerNetwork,
         msg: &mut StacksMessage,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         // only thing we'll take right now is a handshake, as well as handshake
         // accept/rejects, nacks, and NAT holepunches
@@ -2406,7 +2543,7 @@ impl ConversationP2P {
             StacksMessageType::Handshake(_) => {
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
-                let (reply_opt, handled) = self.handle_handshake(network, msg, false)?;
+                let (reply_opt, handled) = self.handle_handshake(network, msg, false, ibd)?;
                 consume = handled;
                 Ok(reply_opt)
             }
@@ -2562,6 +2699,148 @@ impl ConversationP2P {
         }
     }
 
+    /// Are we trying to resolve DNS?
+    pub fn waiting_for_dns(&self) -> bool {
+        self.dns_deadline < u128::MAX
+    }
+
+    /// Try to get the IPv4 or IPv6 address out of a data URL.
+    fn try_decode_data_url_ipaddr(data_url: &UrlString) -> Option<SocketAddr> {
+        // need to begin resolution
+        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+        let url = data_url.parse_to_block_url().ok()?;
+        let port = url.port_or_known_default()?;
+        let ip_addr_opt = match url.host() {
+            Some(url::Host::Ipv4(addr)) => {
+                // have IPv4 address already
+                Some(SocketAddr::new(IpAddr::V4(addr), port))
+            }
+            Some(url::Host::Ipv6(addr)) => {
+                // have IPv6 address already
+                Some(SocketAddr::new(IpAddr::V6(addr), port))
+            }
+            _ => None,
+        };
+        ip_addr_opt
+    }
+
+    /// Attempt to resolve the hostname of a conversation's data URL to its IP address.
+    fn try_resolve_data_url_host(
+        &mut self,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        dns_timeout: u128,
+    ) {
+        if self.data_ip.is_some() {
+            return;
+        }
+        if self.data_url.is_empty() {
+            return;
+        }
+        if let Some(ipaddr) = Self::try_decode_data_url_ipaddr(&self.data_url) {
+            // don't need to resolve!
+            debug!(
+                "{}: Resolved data URL {} to {}",
+                &self, &self.data_url, &ipaddr
+            );
+            self.data_ip = Some(ipaddr);
+            return;
+        }
+
+        let Some(dns_client) = dns_client_opt else {
+            return;
+        };
+        if get_epoch_time_ms() < self.dns_deadline {
+            return;
+        }
+        if let Some(dns_request) = self.dns_request.take() {
+            // perhaps resolution completed?
+            match dns_client.poll_lookup(&dns_request.host, dns_request.port) {
+                Ok(query_result_opt) => {
+                    // just take one of the addresses, if there are any
+                    self.data_ip = query_result_opt
+                        .map(|query_result| match query_result.result {
+                            Ok(mut ips) => ips.pop(),
+                            Err(e) => {
+                                warn!(
+                                    "{}: Failed to resolve data URL {}: {:?}",
+                                    self, &self.data_url, &e
+                                );
+
+                                // don't try again
+                                self.dns_deadline = u128::MAX;
+                                None
+                            }
+                        })
+                        .flatten();
+                    if let Some(ip) = self.data_ip.as_ref() {
+                        debug!("{}: Resolved data URL {} to {}", &self, &self.data_url, &ip);
+                    } else {
+                        info!(
+                            "{}: Failed to resolve URL {}: no IP addresses found",
+                            &self, &self.data_url
+                        );
+                    }
+                    // don't try again
+                    self.dns_deadline = u128::MAX;
+                }
+                Err(e) => {
+                    warn!("DNS lookup failed on {}: {:?}", &self.data_url, &e);
+
+                    // don't try again
+                    self.dns_deadline = u128::MAX;
+                }
+            }
+        }
+
+        // need to begin resolution
+        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+        let Ok(url) = self.data_url.parse_to_block_url() else {
+            return;
+        };
+        let port = match url.port_or_known_default() {
+            Some(p) => p,
+            None => {
+                warn!("Unsupported URL {:?}: unknown port", &url);
+
+                // don't try again
+                self.dns_deadline = u128::MAX;
+                return;
+            }
+        };
+        let ip_addr_opt = match url.host() {
+            Some(url::Host::Domain(domain)) => {
+                // need to resolve a DNS name
+                let deadline = get_epoch_time_ms().saturating_add(dns_timeout);
+                if let Err(e) = dns_client.queue_lookup(domain, port, deadline) {
+                    debug!("Failed to queue DNS resolution of {}: {:?}", &url, &e);
+                    return;
+                }
+                self.dns_request = Some(DNSRequest::new(domain.to_string(), port, 0));
+                self.dns_deadline = deadline;
+                None
+            }
+            Some(url::Host::Ipv4(addr)) => {
+                // have IPv4 address already
+                Some(SocketAddr::new(IpAddr::V4(addr), port))
+            }
+            Some(url::Host::Ipv6(addr)) => {
+                // have IPv6 address already
+                Some(SocketAddr::new(IpAddr::V6(addr), port))
+            }
+            None => {
+                warn!("Unsupported URL {:?}", &url);
+
+                // don't try again
+                self.dns_deadline = u128::MAX;
+                return;
+            }
+        };
+        self.data_ip = ip_addr_opt;
+        if let Some(ip) = self.data_ip.as_ref() {
+            debug!("{}: Resolved data URL {} to {}", &self, &self.data_url, &ip);
+        }
+    }
+
     /// Carry on a conversation with the remote peer.
     /// Called from the p2p network thread, so no need for a network handle.
     /// Attempts to fulfill requests in other threads as a result of processing a message.
@@ -2572,6 +2851,8 @@ impl ConversationP2P {
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
@@ -2594,14 +2875,14 @@ impl ConversationP2P {
                 // we already have this remote peer's public key, so the message signature will
                 // have been verified by the underlying ConnectionP2P.
                 update_stats = true;
-                self.handle_authenticated_control_message(network, &mut msg)?
+                self.handle_authenticated_control_message(network, &mut msg, ibd)?
             } else {
                 // the underlying ConnectionP2P does not yet have a public key installed (i.e.
                 // we don't know it yet), so treat this message with a little bit more
                 // suspicion.
                 // Update stats only if we were asking for this message.
                 update_stats = self.connection.is_solicited(&msg);
-                self.handle_unauthenticated_control_message(network, &mut msg)?
+                self.handle_unauthenticated_control_message(network, &mut msg, ibd)?
             };
 
             if let Some(mut reply) = reply_opt.take() {
@@ -2670,6 +2951,9 @@ impl ConversationP2P {
             }
         }
 
+        // while we're at it, update our IP address if we have a pending DNS resolution (or start
+        // the process if we need it)
+        self.try_resolve_data_url_host(dns_client_opt, network.get_connection_opts().dns_timeout);
         Ok(unsolicited)
     }
 
@@ -3156,14 +3440,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -3437,14 +3721,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -3616,13 +3900,13 @@ mod test {
         // convo_2 receives it and automatically rejects it.
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 has a handshakreject
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -3764,12 +4048,13 @@ mod test {
 
         // convo_2 receives it and processes it, and barfs
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2_err = convo_2.chat(&mut net_2, &sortdb_2, &mut chainstate_2);
+        let unhandled_2_err =
+            convo_2.chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false);
 
         // convo_1 gets a nack and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         // the waiting reply aborts on disconnect
@@ -3922,13 +4207,13 @@ mod test {
         // convo_2 receives it and processes it, and rejects it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 gets a handshake-reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         // the waiting reply aborts on disconnect
@@ -4057,13 +4342,13 @@ mod test {
         // convo_2 receives it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 has a handshakaccept
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -4111,13 +4396,13 @@ mod test {
         // convo_2 receives it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 has a handshakaccept
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -4254,13 +4539,13 @@ mod test {
         // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         // convo_1 gets a handshake reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // get back handshake reject
@@ -4415,7 +4700,7 @@ mod test {
             &mut convo_2,
         );
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 has a handshakeaccept
@@ -4427,7 +4712,7 @@ mod test {
             &mut convo_1,
         );
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
@@ -4588,7 +4873,7 @@ mod test {
                 &mut convo_2,
             );
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
@@ -4598,7 +4883,7 @@ mod test {
                 &mut convo_1,
             );
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
@@ -4798,13 +5083,13 @@ mod test {
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
         convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 has a nack
         convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
@@ -4971,12 +5256,12 @@ mod test {
 
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             // connection should break off since nodes ignore unsolicited messages
@@ -5117,14 +5402,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5200,14 +5485,14 @@ mod test {
             test_debug!("send getblocksinv");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 gets back a blocksinv message
             test_debug!("send blocksinv");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5253,14 +5538,289 @@ mod test {
             test_debug!("send getblocksinv (diverged)");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
                 .unwrap();
 
             // convo_1 gets back a nack message
             test_debug!("send nack (diverged)");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
+                .unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            // no unhandled messages forwarded
+            assert_eq!(unhandled_1, vec![]);
+            assert_eq!(unhandled_2, vec![]);
+
+            // convo 2 returned a nack with the appropriate error message
+            match reply_1.payload {
+                StacksMessageType::Nack(ref data) => {
+                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+                }
+                _ => {
+                    assert!(false);
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn convo_handshake_getnakamotoinv() {
+        with_timeout(100, || {
+            let conn_opts = ConnectionOptions::default();
+
+            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+            let first_burn_hash = BurnchainHeaderHash::from_hex(
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            )
+            .unwrap();
+
+            let burnchain = testing_burnchain_config();
+
+            let mut chain_view = BurnchainView {
+                burn_block_height: 12331,
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+                burn_stable_block_height: 12331 - 7,
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
+            };
+            chain_view.make_test_data();
+
+            let test_name_1 = "convo_handshake_getnakamotoinv_1";
+            let test_name_2 = "convo_handshake_getnakamotoinv_2";
+            let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    test_name_1,
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    test_name_2,
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
+
+            let mut net_1 = db_setup(
+                &test_name_1,
+                &burnchain,
+                0x9abcdef0,
+                &mut peerdb_1,
+                &mut sortdb_1,
+                &socketaddr_1,
+                &chain_view,
+            );
+            let mut net_2 = db_setup(
+                &test_name_2,
+                &burnchain,
+                0x9abcdef0,
+                &mut peerdb_2,
+                &mut sortdb_2,
+                &socketaddr_2,
+                &chain_view,
+            );
+
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+            let mut convo_1 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+            let mut convo_2 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_1,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+
+            // no peer public keys known yet
+            assert!(convo_1.connection.get_public_key().is_none());
+            assert!(convo_2.connection.get_public_key().is_none());
+
+            // convo_1 sends a handshake to convo_2
+            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+            let handshake_1 = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Handshake(handshake_data_1.clone()),
+                )
+                .unwrap();
+            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
+            // it along to the chat caller (us)
+            test_debug!("send handshake");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
+                .unwrap();
+
+            // convo_1 has a handshakeaccept
+            test_debug!("send handshake-accept");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
+                .unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);
+
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            // received a valid HandshakeAccept from peer 2
+            match reply_1.payload {
+                StacksMessageType::HandshakeAccept(ref data)
+                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
+                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                    assert_eq!(data.handshake.port, local_peer_2.port);
+                    assert_eq!(data.handshake.services, local_peer_2.services);
+                    assert_eq!(
+                        data.handshake.node_public_key,
+                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                            &local_peer_2.private_key
+                        ))
+                    );
+                    assert_eq!(
+                        data.handshake.expire_block_height,
+                        local_peer_2.private_key_expire
+                    );
+                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            // convo_1 sends a getnakamotoinv to convo_2 for all the tenures in the last reward cycle
+            let convo_1_chaintip =
+                SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
+            let convo_1_ancestor = {
+                let ic = sortdb_1.index_conn();
+                SortitionDB::get_ancestor_snapshot(
+                    &ic,
+                    convo_1_chaintip.block_height - 10 - 1,
+                    &convo_1_chaintip.sortition_id,
+                )
+                .unwrap()
+                .unwrap()
+            };
+
+            let getnakamotodata_1 = GetNakamotoInvData {
+                consensus_hash: convo_1_ancestor.consensus_hash,
+            };
+            let getnakamotodata_1_msg = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_1.clone()),
+                )
+                .unwrap();
+            let mut rh_1 = convo_1
+                .send_signed_request(getnakamotodata_1_msg, 10000000)
+                .unwrap();
+
+            // convo_2 receives it, and handles it
+            test_debug!("send getnakamotoinv");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
+                .unwrap();
+
+            // convo_1 gets back a nakamotoinv message
+            test_debug!("send nakamotoinv");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
+                .unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            // no unhandled messages forwarded
+            assert_eq!(unhandled_1, vec![]);
+            assert_eq!(unhandled_2, vec![]);
+
+            // convo 2 returned a tenure-inv for all tenures
+            match reply_1.payload {
+                StacksMessageType::NakamotoInv(ref data) => {
+                    assert_eq!(data.tenures.len(), 10);
+                    test_debug!("data: {:?}", data);
+
+                    // all burn blocks had sortitions, but we have no tenures :(
+                    for i in 0..10 {
+                        assert_eq!(data.tenures.get(i).unwrap(), false);
+                    }
+                }
+                x => {
+                    error!("received invalid payload: {:?}", &x);
+                    assert!(false);
+                }
+            }
+
+            // request for a non-existent consensus hash
+            let getnakamotodata_diverged_1 = GetNakamotoInvData {
+                consensus_hash: ConsensusHash([0xff; 20]),
+            };
+            let getnakamotodata_diverged_1_msg = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_diverged_1.clone()),
+                )
+                .unwrap();
+            let mut rh_1 = convo_1
+                .send_signed_request(getnakamotodata_diverged_1_msg, 10000000)
+                .unwrap();
+
+            // convo_2 receives it, and handles it
+            test_debug!("send getnakamotoinv (diverged)");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
+                .unwrap();
+
+            // convo_1 gets back a nack message
+            test_debug!("send nack (diverged)");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5393,14 +5953,14 @@ mod test {
         test_debug!("send natpunch {:?}", &natpunch_1);
         convo_send_recv(&mut convo_1, vec![&mut rh_natpunch_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
 
         // convo_1 gets back a natpunch reply
         test_debug!("reply natpunch-reply");
         convo_send_recv(&mut convo_2, vec![&mut rh_natpunch_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
             .unwrap();
 
         let natpunch_reply_1 = rh_natpunch_1.recv(0).unwrap();

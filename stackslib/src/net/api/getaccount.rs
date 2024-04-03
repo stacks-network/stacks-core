@@ -149,16 +149,17 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                             clarity_db.get_current_burnchain_block_height().ok()? as u64;
                         let v1_unlock_height = clarity_db.get_v1_unlock_height();
                         let v2_unlock_height = clarity_db.get_v2_unlock_height().ok()?;
+                        let v3_unlock_height = clarity_db.get_v3_unlock_height().ok()?;
                         let (balance, balance_proof) = if with_proof {
                             clarity_db
-                                .get_with_proof::<STXBalance>(&key)
+                                .get_data_with_proof::<STXBalance>(&key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                         } else {
                             clarity_db
-                                .get::<STXBalance>(&key)
+                                .get_data::<STXBalance>(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))
@@ -168,14 +169,14 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                         let key = ClarityDatabase::make_key_for_account_nonce(&account);
                         let (nonce, nonce_proof) = if with_proof {
                             clarity_db
-                                .get_with_proof(&key)
+                                .get_data_with_proof(&key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (0, Some("".into())))
                         } else {
                             clarity_db
-                                .get(&key)
+                                .get_data(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))
@@ -187,12 +188,15 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                 burn_block_height,
                                 v1_unlock_height,
                                 v2_unlock_height,
+                                v3_unlock_height,
                             )
                             .ok()?;
+
                         let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                             burn_block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         );
 
                         let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));

@@ -17,20 +17,22 @@
 use std::io::{Read, Write};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::ClarityVersion;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha256Sum;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::mempool::MemPoolDB;
+use crate::core::StacksEpoch;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -70,7 +72,7 @@ pub struct RPCPoxNextCycleInfo {
     pub blocks_until_prepare_phase: i64,
     pub reward_phase_start_block_height: u64,
     pub blocks_until_reward_phase: u64,
-    pub ustx_until_pox_rejection: u64,
+    pub ustx_until_pox_rejection: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -78,6 +80,27 @@ pub struct RPCPoxContractVersion {
     pub contract_id: String,
     pub activation_burnchain_block_height: u64,
     pub first_reward_cycle_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxEpoch {
+    pub epoch_id: StacksEpochId,
+    pub start_height: u64,
+    pub end_height: u64,
+    pub block_limit: ExecutionCost,
+    pub network_epoch: u8,
+}
+
+impl From<StacksEpoch> for RPCPoxEpoch {
+    fn from(epoch: StacksEpoch) -> Self {
+        Self {
+            epoch_id: epoch.epoch_id,
+            start_height: epoch.start_height,
+            end_height: epoch.end_height,
+            block_limit: epoch.block_limit,
+            network_epoch: epoch.network_epoch,
+        }
+    }
 }
 
 /// The data we return on GET /v2/pox
@@ -90,17 +113,18 @@ pub struct RPCPoxInfoData {
     pub prepare_phase_block_length: u64,
     pub reward_phase_block_length: u64,
     pub reward_slots: u64,
-    pub rejection_fraction: u64,
+    pub rejection_fraction: Option<u64>,
     pub total_liquid_supply_ustx: u64,
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
+    pub epochs: Vec<RPCPoxEpoch>,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
     pub prepare_cycle_length: u64,
     pub reward_cycle_id: u64,
     pub reward_cycle_length: u64,
-    pub rejection_votes_left_required: u64,
+    pub rejection_votes_left_required: Option<u64>,
     pub next_reward_cycle_in: u64,
 
     // Information specific to each PoX contract version
@@ -135,22 +159,33 @@ impl RPCPoxInfoData {
 
         // Note: should always be 0 unless somehow configured to start later
         let pox_1_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.first_block_height))
             .ok_or(NetError::ChainstateError(
                 "PoX-1 first reward cycle begins before first burn block height".to_string(),
             ))?;
 
         let pox_2_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.pox_constants.v1_unlock_height))
             .ok_or(NetError::ChainstateError(
                 "PoX-2 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
         let pox_3_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_3_activation_height,
+            ))
             .ok_or(NetError::ChainstateError(
                 "PoX-3 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_4_first_cycle = burnchain
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_4_activation_height,
+            ))
+            .ok_or(NetError::ChainstateError(
+                "PoX-4 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -163,7 +198,7 @@ impl RPCPoxInfoData {
                     sender,
                     None,
                     cost_track,
-                    |env| env.execute_contract(&contract_identifier, function, &vec![], true),
+                    |env| env.execute_contract(&contract_identifier, function, &[], true),
                 )
             })
             .map_err(|_| NetError::NotFoundError)?;
@@ -175,58 +210,61 @@ impl RPCPoxInfoData {
 
         let first_burnchain_block_height = res
             .get("first-burnchain-block-height")
-            .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'first-burnchain-block-height'"))
             .to_owned()
             .expect_u128()? as u64;
 
         let min_stacking_increment_ustx = res
             .get("min-amount-ustx")
-            .expect(&format!("FATAL: no 'min-amount-ustx'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'min-amount-ustx'"))
             .to_owned()
             .expect_u128()? as u64;
 
         let prepare_cycle_length = res
             .get("prepare-cycle-length")
-            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
-            .to_owned()
-            .expect_u128()? as u64;
-
-        let rejection_fraction = res
-            .get("rejection-fraction")
-            .expect(&format!("FATAL: no 'rejection-fraction'"))
-            .to_owned()
-            .expect_u128()? as u64;
-
-        let reward_cycle_id = res
-            .get("reward-cycle-id")
-            .expect(&format!("FATAL: no 'reward-cycle-id'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'prepare-cycle-length'"))
             .to_owned()
             .expect_u128()? as u64;
 
         let reward_cycle_length = res
             .get("reward-cycle-length")
-            .expect(&format!("FATAL: no 'reward-cycle-length'"))
-            .to_owned()
-            .expect_u128()? as u64;
-
-        let current_rejection_votes = res
-            .get("current-rejection-votes")
-            .expect(&format!("FATAL: no 'current-rejection-votes'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
             .to_owned()
             .expect_u128()? as u64;
 
         let total_liquid_supply_ustx = res
             .get("total-liquid-supply-ustx")
-            .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
+            .unwrap_or_else(|_| panic!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
             .expect_u128()? as u64;
 
-        let total_required = (total_liquid_supply_ustx as u128 / 100)
-            .checked_mul(rejection_fraction as u128)
-            .ok_or_else(|| NetError::DBError(DBError::Overflow))?
-            as u64;
+        let has_rejection_data = pox_contract_name == POX_1_NAME
+            || pox_contract_name == POX_2_NAME
+            || pox_contract_name == POX_3_NAME;
 
-        let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
+        let (rejection_fraction, rejection_votes_left_required) = if has_rejection_data {
+            let rejection_fraction = res
+                .get("rejection-fraction")
+                .unwrap_or_else(|_| panic!("FATAL: no 'rejection-fraction'"))
+                .to_owned()
+                .expect_u128()? as u64;
+
+            let current_rejection_votes = res
+                .get("current-rejection-votes")
+                .unwrap_or_else(|_| panic!("FATAL: no 'current-rejection-votes'"))
+                .to_owned()
+                .expect_u128()? as u64;
+
+            let total_required = (total_liquid_supply_ustx as u128 / 100)
+                .checked_mul(rejection_fraction as u128)
+                .ok_or_else(|| NetError::DBError(DBError::Overflow))?
+                as u64;
+
+            let votes_left = total_required.saturating_sub(current_rejection_votes);
+            (Some(rejection_fraction), Some(votes_left))
+        } else {
+            (None, None)
+        };
 
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
@@ -248,7 +286,16 @@ impl RPCPoxInfoData {
             return Err(NetError::DBError(DBError::Corruption));
         }
 
+        // Manually calculate `reward_cycle_id` so that clients don't get an "off by one" view at
+        //  reward cycle boundaries (because if the reward cycle is loaded from clarity, its
+        //  evaluated in the last mined Stacks block, not the most recent burn block).
+        let reward_cycle_id = burnchain
+            .block_height_to_reward_cycle(burnchain_tip.block_height)
+            .ok_or_else(|| {
+                NetError::ChainstateError("Current burn block height is before stacks start".into())
+            })?;
         let effective_height = burnchain_tip.block_height - first_burnchain_block_height;
+
         let next_reward_cycle_in = reward_cycle_length - (effective_height % reward_cycle_length);
 
         let next_rewards_start = burnchain_tip.block_height + next_reward_cycle_in;
@@ -311,6 +358,10 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+        let epochs: Vec<_> = SortitionDB::get_stacks_epochs(sortdb.conn())?
+            .into_iter()
+            .map(|epoch| RPCPoxEpoch::from(epoch))
+            .collect();
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
@@ -339,6 +390,7 @@ impl RPCPoxInfoData {
                 blocks_until_reward_phase: next_reward_cycle_in,
                 ustx_until_pox_rejection: rejection_votes_left_required,
             },
+            epochs,
             min_amount_ustx: next_threshold,
             prepare_cycle_length,
             reward_cycle_id,
@@ -364,6 +416,14 @@ impl RPCPoxInfoData {
                         .pox_3_activation_height
                         as u64,
                     first_reward_cycle_id: pox_3_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_4_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_4_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_4_first_cycle,
                 },
             ],
         })

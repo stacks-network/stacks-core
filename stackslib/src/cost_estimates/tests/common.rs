@@ -29,7 +29,8 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
                 microblock_pubkey_hash: Hash160([0; 20]),
-            },
+            }
+            .into(),
             microblock_tail: None,
             stacks_block_height: 1,
             index_root: TrieHash([0; 32]),
@@ -49,5 +50,6 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
         parent_burn_block_timestamp: 1,
         evaluated_epoch: StacksEpochId::Epoch20,
         epoch_transition: false,
+        signers_updated: false,
     }
 }

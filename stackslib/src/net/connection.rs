@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::convert::TryFrom;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::mpsc::{
@@ -280,6 +279,7 @@ impl<P: ProtocolFamily> Write for NetworkReplyHandle<P> {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn flush(&mut self) -> io::Result<()> {
         self.pipe_flush()
     }
@@ -411,13 +411,19 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
+    /// If set to true, this forces the p2p state machine to believe that it is running in
+    /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
+    /// 2.x and Nakamoto state machines.
+    pub force_nakamoto_epoch_transition: bool,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 }
 
 impl std::default::Default for ConnectionOptions {
     fn default() -> ConnectionOptions {
         ConnectionOptions {
-            inbox_maxlen: 5,
-            outbox_maxlen: 5,
+            inbox_maxlen: 1024,
+            outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
             handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
@@ -503,6 +509,8 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
+            force_nakamoto_epoch_transition: false,
+            block_proposal_token: None,
         }
     }
 }
@@ -560,6 +568,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
     /// try to consume buffered data to form a message preamble.
     /// returns an option of the preamble consumed and the number of bytes used from the bytes slice
+    #[cfg_attr(test, mutants::skip)]
     fn consume_preamble(
         &mut self,
         protocol: &mut P,
@@ -621,6 +630,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// buffer up bytes for a message
+    #[cfg_attr(test, mutants::skip)]
     fn buffer_message_bytes(&mut self, bytes: &[u8], message_len_opt: Option<usize>) -> usize {
         let message_len = message_len_opt.unwrap_or(MAX_MESSAGE_LEN as usize);
         let buffered_so_far = self.buf[self.message_ptr..].len();
@@ -1196,6 +1206,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     }
 
     /// How many queued messsages do we have?
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_messages(&self) -> usize {
         self.outbox.len()
     }
@@ -1356,6 +1367,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Receive data
+    #[cfg_attr(test, mutants::skip)]
     pub fn recv_data<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
         self.inbox.recv_bytes(&mut self.protocol, fd)
     }

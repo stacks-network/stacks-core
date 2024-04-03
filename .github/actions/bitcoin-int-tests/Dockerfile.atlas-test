@@ -1,8 +1,10 @@
-FROM rust:bullseye
+FROM rust:bookworm
 
 WORKDIR /src
 
 COPY . .
+
+RUN apt-get -y install libllvm16 libclang1-16
 
 RUN cargo test --no-run --workspace
 

@@ -75,7 +75,7 @@ fn make_dummy_coinbase_tx() -> StacksTransactionReceipt {
     StacksTransactionReceipt::from_coinbase(StacksTransaction::new(
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
-        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None),
+        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None),
     ))
 }
 

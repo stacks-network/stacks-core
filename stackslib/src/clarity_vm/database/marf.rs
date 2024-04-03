@@ -195,14 +195,18 @@ impl MarfedKV {
         current: &StacksBlockId,
         next: &StacksBlockId,
     ) -> WritableMarfStore<'a> {
-        let mut tx = self.marf.begin_tx().expect(&format!(
-            "ERROR: Failed to begin new MARF block {} - {})",
-            current, next
-        ));
-        tx.begin(current, next).expect(&format!(
-            "ERROR: Failed to begin new MARF block {} - {})",
-            current, next
-        ));
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {})",
+                current, next
+            )
+        });
+        tx.begin(current, next).unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {})",
+                current, next
+            )
+        });
 
         let chain_tip = tx
             .get_open_chain_tip()
@@ -216,14 +220,18 @@ impl MarfedKV {
     }
 
     pub fn begin_unconfirmed<'a>(&'a mut self, current: &StacksBlockId) -> WritableMarfStore<'a> {
-        let mut tx = self.marf.begin_tx().expect(&format!(
-            "ERROR: Failed to begin new unconfirmed MARF block for {})",
-            current
-        ));
-        tx.begin_unconfirmed(current).expect(&format!(
-            "ERROR: Failed to begin new unconfirmed MARF block for {})",
-            current
-        ));
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new unconfirmed MARF block for {})",
+                current
+            )
+        });
+        tx.begin_unconfirmed(current).unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new unconfirmed MARF block for {})",
+                current
+            )
+        });
 
         let chain_tip = tx
             .get_open_chain_tip()
@@ -362,10 +370,12 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.marf
             .get_bhh_at_height(&self.chain_tip, block_height)
-            .expect(&format!(
-                "Unexpected MARF failure: failed to get block at height {} off of {}.",
-                block_height, &self.chain_tip
-            ))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Unexpected MARF failure: failed to get block at height {} off of {}.",
+                    block_height, &self.chain_tip
+                )
+            })
             .map(|x| StacksBlockId(x.to_bytes()))
     }
 
@@ -385,7 +395,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -407,7 +417,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .transpose()
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -437,7 +447,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .transpose()
     }
 
-    fn put_all(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
@@ -553,7 +563,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -583,7 +593,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .transpose()
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -612,10 +622,12 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         self.marf
             .get_block_at_height(height, &self.chain_tip)
-            .expect(&format!(
-                "Unexpected MARF failure: failed to get block at height {} off of {}.",
-                height, &self.chain_tip
-            ))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Unexpected MARF failure: failed to get block at height {} off of {}.",
+                    height, &self.chain_tip
+                )
+            })
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
@@ -666,7 +678,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         }
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {

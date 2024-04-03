@@ -26,12 +26,39 @@ use clarity::vm::{Environment, Value};
 use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
-use crate::events::synthesize_pox_2_or_3_event_info;
+use crate::events::synthesize_pox_event_info;
 // Note: PoX-3 uses the same contract-call result parsing routines as PoX-2
 use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacking_result};
 use crate::{LockingError, POX_3_NAME};
 
 /////////////////////// PoX-3 /////////////////////////////////
+
+/// is a PoX-3 function call read only?
+pub(crate) fn is_read_only(func_name: &str) -> bool {
+    "get-pox-rejection" == func_name
+        || "is-pox-active" == func_name
+        || "burn-height-to-reward-cycle" == func_name
+        || "reward-cycle-to-burn-height" == func_name
+        || "current-pox-reward-cycle" == func_name
+        || "get-stacker-info" == func_name
+        || "get-check-delegation" == func_name
+        || "get-reward-set-size" == func_name
+        || "next-cycle-rejection-votes" == func_name
+        || "get-total-ustx-stacked" == func_name
+        || "get-reward-set-pox-address" == func_name
+        || "get-stacking-minimum" == func_name
+        || "check-pox-addr-version" == func_name
+        || "check-pox-addr-hashbytes" == func_name
+        || "check-pox-lock-period" == func_name
+        || "can-stack-stx" == func_name
+        || "minimal-can-stack-stx" == func_name
+        || "get-pox-info" == func_name
+        || "get-delegation-info" == func_name
+        || "get-allowance-contract-callers" == func_name
+        || "get-num-reward-set-pox-addresses" == func_name
+        || "get-partial-stacked-by-cycle" == func_name
+        || "get-total-pox-rejection" == func_name
+}
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
 pub fn pox_lock_v3(
@@ -360,12 +387,13 @@ pub fn handle_contract_call(
             // for some reason.
             // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the whole
             // network!  Event capture is not consensus-critical.
-            let event_info_opt = match synthesize_pox_2_or_3_event_info(
+            let event_info_opt = match synthesize_pox_event_info(
                 global_context,
                 contract_id,
                 sender_opt,
                 function_name,
                 args,
+                response,
             ) {
                 Ok(Some(event_info)) => Some(event_info),
                 Ok(None) => None,

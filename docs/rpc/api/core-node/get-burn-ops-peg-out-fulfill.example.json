@@ -1,0 +1,15 @@
+{
+    "peg_out_fulfill": [
+        {
+            "chain_tip": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+            "amount": 1337,
+            "recipient": "1BixGeiRyKT7NTkJAHpWuP197KXUNqhCU9",
+            "request_ref": "e81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157772",
+            "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+            "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+            "block_height": 218,
+            "vtxindex": 2,
+            "memo": "00010203"
+        }
+    ]
+}

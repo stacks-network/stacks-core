@@ -28,8 +28,8 @@ use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::neighbors::{
-    NeighborComms, NeighborCommsRequest, NeighborReplacements, NeighborWalkDB, ToNeighborKey,
-    MAX_NEIGHBOR_BLOCK_DELAY, NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
+    NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey, MAX_NEIGHBOR_BLOCK_DELAY,
+    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
@@ -1375,7 +1375,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
         // select a random neighbor index, if exclude is set, and matches this
         //  neighbor, then use the next index (modulo the frontier length).
-        let mut neighbor_index = rnd.gen_range(0, frontier.len());
+        let mut neighbor_index = rnd.gen_range(0..frontier.len());
         for _ in 0..2 {
             // two attempts, in case our first attempt lands on `exclude`
             for (cnt, (nk, n)) in frontier.iter().enumerate() {

@@ -17,6 +17,7 @@ path = "./src/libsigner.rs"
 
 [dependencies]
 clarity = { path = "../clarity" }
+hashbrown = { workspace = true }
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 serde = "1"
@@ -26,8 +27,14 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 stacks-common = { path = "../stacks-common" }
+stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
+wsts = { workspace = true }
+
+[dev-dependencies]
+rand_core = { workspace = true }
+rand = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"
@@ -37,8 +44,8 @@ features = ["arbitrary_precision", "unbounded_depth"]
 version = "0.24.3"
 features = ["serde", "recovery"]
 
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), target_env = "msvc"))'.dependencies]
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
 sha2 = { version = "0.10" }

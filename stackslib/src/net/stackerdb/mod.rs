@@ -122,11 +122,16 @@ use std::collections::{HashMap, HashSet};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
@@ -134,10 +139,19 @@ use crate::net::{
     StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData,
     StacksMessage, StacksMessageType,
 };
-use crate::util_lib::db::{DBConn, DBTx};
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
+/// maximum length of an inventory page's Clarity list
+pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
+/// maximum number of pages that can be used in a StackerDB contract
+pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
+
+pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
+pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
+pub const MINER_SLOT_COUNT: u32 = 2;
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
@@ -186,6 +200,7 @@ impl StackerDBConfig {
     }
 
     /// How many slots are in this DB total?
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
@@ -199,6 +214,115 @@ pub struct StackerDBs {
     path: String,
 }
 
+impl StackerDBs {
+    /// Create a StackerDB.
+    /// Fails only if the underlying DB fails
+    fn create_stackerdb(
+        &mut self,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        new_config: &StackerDBConfig,
+    ) -> Result<(), db_error> {
+        info!("Creating local replica of StackerDB {stackerdb_contract_id}");
+        test_debug!(
+            "Creating local replica of StackerDB {stackerdb_contract_id} with config {:?}",
+            &new_config
+        );
+        let tx = self.tx_begin(new_config.clone())?;
+        tx.create_stackerdb(stackerdb_contract_id, &new_config.signers)
+            .unwrap_or_else(|e| {
+                warn!(
+                    "Failed to create StackerDB replica {stackerdb_contract_id}: {:?}",
+                    &e
+                );
+            });
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Reconfigure a StackerDB.
+    /// Fails only if the underlying DB fails
+    fn reconfigure_stackerdb(
+        &mut self,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        new_config: &StackerDBConfig,
+    ) -> Result<(), db_error> {
+        debug!("Reconfiguring StackerDB {stackerdb_contract_id}...");
+        let tx = self.tx_begin(new_config.clone())?;
+        tx.reconfigure_stackerdb(stackerdb_contract_id, &new_config.signers)
+            .unwrap_or_else(|e| {
+                warn!(
+                    "Failed to reconfigure StackerDB replica {}: {:?}",
+                    stackerdb_contract_id, &e
+                );
+            });
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Create or reconfigure the supplied contracts with the appropriate stacker DB config.
+    /// Returns a map of the stacker DBs and their loaded configs.
+    /// Fails only if the underlying DB fails
+    pub fn create_or_reconfigure_stackerdbs(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
+        let existing_contract_ids = self.get_stackerdb_contract_ids()?;
+        let mut new_stackerdb_configs = HashMap::new();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+
+        for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
+            // Determine the new config for this StackerDB replica
+            let new_config = if stackerdb_contract_id
+                == boot_code_id(MINERS_NAME, chainstate.mainnet)
+            {
+                // .miners contract -- directly generate the config
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
+                    warn!(
+                        "Failed to generate .miners StackerDB config";
+                        "contract" => %stackerdb_contract_id,
+                        "err" => ?e,
+                    );
+                    StackerDBConfig::noop()
+                })
+            } else {
+                // attempt to load the config from the contract itself
+                StackerDBConfig::from_smart_contract(chainstate, &sortdb, &stackerdb_contract_id)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
+            };
+            // Create the StackerDB replica if it does not exist already
+            if !existing_contract_ids.contains(&stackerdb_contract_id) {
+                if let Err(e) = self.create_stackerdb(&stackerdb_contract_id, &new_config) {
+                    warn!(
+                        "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
+                        &e
+                    );
+                }
+            } else if new_config != stackerdb_config && new_config.signers.len() > 0 {
+                // only reconfigure if the config has changed
+                if let Err(e) = self.reconfigure_stackerdb(&stackerdb_contract_id, &new_config) {
+                    warn!(
+                        "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
+                        &e
+                    );
+                }
+            }
+            // Even if we failed to create or reconfigure the DB, we still want to keep track of them
+            // so that we can attempt to create/reconfigure them again later.
+            debug!("Reloaded configuration for {}", &stackerdb_contract_id);
+            new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
+        }
+        Ok(new_stackerdb_configs)
+    }
+}
 /// A transaction against one or more stacker DBs (really, against StackerDBSet)
 pub struct StackerDBTx<'a> {
     sql_tx: DBTx<'a>,

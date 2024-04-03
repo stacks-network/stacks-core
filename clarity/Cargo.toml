@@ -18,8 +18,8 @@ name = "clarity"
 path = "./src/libclarity.rs"
 
 [dependencies]
-rand = "0.7.3"
-rand_chacha = "=0.2.2"
+rand = { workspace = true }
+rand_chacha = { workspace = true }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -30,6 +30,8 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 stacks_common = { package = "stacks-common", path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
+hashbrown = { workspace = true }
+mutants = "0.0.3"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -54,7 +56,4 @@ default = []
 developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
-
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
-sha2-asm = "0.5.3"
-
+devtools = []

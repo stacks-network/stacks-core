@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -235,6 +233,7 @@ pub fn special_stx_account(
         .canonical_balance_repr()?;
     let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;
+    let v3_unlock_ht = env.global_context.database.get_v3_unlock_height()?;
 
     TupleData::from_data(vec![
         (
@@ -253,9 +252,11 @@ pub fn special_stx_account(
             "unlock-height"
                 .try_into()
                 .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
-            Value::UInt(u128::from(
-                stx_balance.effective_unlock_height(v1_unlock_ht, v2_unlock_ht),
-            )),
+            Value::UInt(u128::from(stx_balance.effective_unlock_height(
+                v1_unlock_ht,
+                v2_unlock_ht,
+                v3_unlock_ht,
+            ))),
         ),
     ])
     .map(Value::Tuple)

@@ -16,11 +16,11 @@
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
+use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
@@ -170,8 +170,8 @@ impl StacksMessageCodec for ContractName {
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[PreSymbolicExpression]>),
-    Tuple(Box<[PreSymbolicExpression]>),
+    List(Vec<PreSymbolicExpression>),
+    Tuple(Vec<PreSymbolicExpression>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -323,14 +323,14 @@ impl PreSymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+    pub fn list(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
             ..PreSymbolicExpression::cons()
         }
     }
 
-    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+    pub fn tuple(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::Tuple(val),
             ..PreSymbolicExpression::cons()
@@ -412,7 +412,7 @@ impl PreSymbolicExpression {
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[SymbolicExpression]>),
+    List(Vec<SymbolicExpression>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
@@ -544,7 +544,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()
