@@ -1275,7 +1275,6 @@ impl Signer {
             return Ok(());
         }
         debug!("{self}: Checking if old DKG vote transaction exists in StackerDB...");
-        debug!("{self}: Checking if old DKG vote transaction exists in StackerDB...");
         // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
         // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
         let signer_address = stacks_client.get_signer_address();
