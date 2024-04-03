@@ -109,7 +109,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     stackerWallet.amountLocked = newTotalLocked;
     stackerWallet.amountUnlocked = stackerWallet.amountUnlocked -
       this.increaseBy;
-    operatorWallet.amountToCommit += this.increaseBy
+    operatorWallet.amountToCommit += this.increaseBy;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
