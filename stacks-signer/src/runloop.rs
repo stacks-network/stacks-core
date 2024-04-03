@@ -68,12 +68,19 @@ pub struct RewardCycleInfo {
 
 impl RewardCycleInfo {
     /// Check if the provided burnchain block height is part of the reward cycle
-    pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
+    pub fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
         let reward_cycle_length = self
             .reward_phase_block_length
             .saturating_add(self.prepare_phase_block_length);
         let reward_cycle = blocks_mined / reward_cycle_length;
+        debug!("Checking if block height is part of reward cycle info.";
+            "reward_cycle_info.reward_cycle" => self.reward_cycle,
+            "reward_cycle" => reward_cycle,
+            "burnchain_block_height" => burnchain_block_height,
+            "reward_cycle_length" => reward_cycle_length,
+            "blocks_mined" => blocks_mined
+        );
         self.reward_cycle == reward_cycle
     }
 
@@ -282,6 +289,11 @@ impl RunLoop {
                     .get_current_reward_cycle_info()
                     .map_err(backoff::Error::transient)
             })?;
+            debug!("Updating reward cycle info.";
+                "old_reward_cycle" => reward_cycle_info.reward_cycle,
+                "new_reward_cycle" => new_reward_cycle_info.reward_cycle,
+                "current_burn_block_height" => current_burn_block_height
+            );
             *reward_cycle_info = new_reward_cycle_info;
         }
         let current_reward_cycle = reward_cycle_info.reward_cycle;
