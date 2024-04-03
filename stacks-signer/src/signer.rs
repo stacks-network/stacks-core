@@ -1040,7 +1040,7 @@ impl Signer {
             nonce,
         )?;
         let tx_fee = if epoch < &StacksEpochId::Epoch30 {
-            debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
+            info!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
             let fee = if let Some(max_fee) = self.max_tx_fee_ustx {
                 let estimated_fee = stacks_client
                     .get_medium_estimated_fee_ustx(&unsigned_tx)
