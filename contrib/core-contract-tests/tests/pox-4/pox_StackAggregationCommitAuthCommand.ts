@@ -10,9 +10,9 @@ import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
 /**
- * The `StackAggregationCommitAuthCommand` allows an operator to commit 
- * partially stacked STX & to allocate a new PoX reward address slot. 
- * This allows a stacker to lock fewer STX than the minimal threshold 
+ * The `StackAggregationCommitAuthCommand` allows an operator to commit
+ * partially stacked STX & to allocate a new PoX reward address slot.
+ * This allows a stacker to lock fewer STX than the minimal threshold
  * in multiple transactions, so long as:
  *  1. The pox-addr is the same.
  *  2. The "commit" transaction is called _before_ the PoX anchor block.
@@ -23,7 +23,6 @@ import { Cl } from "@stacks/transactions";
  * - The Operator must have locked STX on behalf of at least one stacker.
  * - The total amount previously locked by the Operator on behalf of the
  *   stackers has to be greater than the uSTX threshold.
- * - All of the Stackers must have delegated to the same pox address.
  */
 export class StackAggregationCommitAuthCommand implements PoxCommand {
   readonly operator: Wallet;
@@ -52,22 +51,9 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
     // - The Operator must have locked STX on behalf of at least one stacker.
     // - The total amount previously locked by the Operator on behalf of the
     //   stackers has to be greater than the uSTX threshold.
-    // - All of the Stackers must have delegated to the same pox address.
-    let sameDelegatedPoxAddrAllStackers = true;
-    const firstDelegatedPoxAddress = this.operator.lockedAddresses.length > 0
-      ? model.wallets.get(this.operator.lockedAddresses[0])!.delegatedPoxAddress
-      : this.operator.btcAddress;
-
-    this.operator.lockedAddresses.forEach((stacker) => {
-      if (
-        model.wallets.get(stacker)!.delegatedPoxAddress !==
-          firstDelegatedPoxAddress
-      ) sameDelegatedPoxAddrAllStackers = false;
-    });
 
     return this.operator.lockedAddresses.length > 0 &&
-      this.operator.amountToCommit >= model.stackingMinimum &&
-      sameDelegatedPoxAddrAllStackers;
+      this.operator.amountToCommit >= model.stackingMinimum;
   }
 
   run(model: Stub, real: Real): void {
