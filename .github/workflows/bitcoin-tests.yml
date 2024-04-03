@@ -86,6 +86,7 @@ jobs:
           - tests::signer::stackerdb_block_proposal
           - tests::signer::stackerdb_filter_bad_transactions
           - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
+          - tests::signer::stackerdb_sign_after_signer_reboot
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::neon_integrations::bitcoin_reorg_flap
     steps:
