@@ -11,14 +11,14 @@ import { Cl } from "@stacks/transactions";
 import { bufferFromHex } from "@stacks/transactions/dist/cl";
 
 /**
- * The `StackAggregationCommitSigCommand` allows an operator commits partially
- * stacked STX and allocate a new PoX reward address slot. This allows a
- * stacker to lock fewer STX than the minimal threshold in multiple transactions,
- * so long as:
+ * The `StackAggregationCommitSigCommand` allows an operator to commit 
+ * partially stacked STX & to allocate a new PoX reward address slot. 
+ * This allows a stacker to lock fewer STX than the minimal threshold 
+ * in multiple transactions, so long as:
  *  1. The pox-addr is the same.
  *  2. This "commit" transaction is called _before_ the PoX anchor block.
  *
- * This command calls `stack-aggregation-commit` using an `signature`.
+ * This command calls `stack-aggregation-commit` using a `signature`.
  *
  * Constraints for running this command include:
  * - The Operator must have locked STX on behalf of at least one stacker.
