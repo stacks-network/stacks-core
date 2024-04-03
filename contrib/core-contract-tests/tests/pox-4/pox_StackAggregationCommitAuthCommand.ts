@@ -92,7 +92,7 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
         // (allowed bool)
         Cl.bool(true),
         // (max-amount uint)
-        Cl.uint(this.operator.amountToCommit),
+        Cl.uint(committedAmount),
         // (auth-id uint)
         Cl.uint(this.authId),
       ],
