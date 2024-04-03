@@ -15,7 +15,7 @@ import { Cl } from "@stacks/transactions";
  * This allows a stacker to lock fewer STX than the minimal threshold 
  * in multiple transactions, so long as:
  *  1. The pox-addr is the same.
- *  2. This "commit" transaction is called _before_ the PoX anchor block.
+ *  2. The "commit" transaction is called _before_ the PoX anchor block.
  *
  * This command calls stack-aggregation-commit using an `authorization`.
  *
