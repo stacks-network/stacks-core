@@ -10,10 +10,10 @@ import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
 /**
- * The `StackAggregationCommitAuthCommand` allows an operator commits partially
- * stacked STX and allocate a new PoX reward address slot. This allows a
- * stacker to lock fewer STX than the minimal threshold in multiple transactions,
- * so long as:
+ * The `StackAggregationCommitAuthCommand` allows an operator to commit 
+ * partially stacked STX & to allocate a new PoX reward address slot. 
+ * This allows a stacker to lock fewer STX than the minimal threshold 
+ * in multiple transactions, so long as:
  *  1. The pox-addr is the same.
  *  2. This "commit" transaction is called _before_ the PoX anchor block.
  *
