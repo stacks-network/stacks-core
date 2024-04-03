@@ -56,8 +56,8 @@ pub enum State {
 pub struct RewardCycleInfo {
     /// The current reward cycle
     pub reward_cycle: u64,
-    /// The reward phase cycle length
-    pub reward_phase_block_length: u64,
+    /// The total reward cycle length
+    pub reward_cycle_length: u64,
     /// The prepare phase length
     pub prepare_phase_block_length: u64,
     /// The first burn block height
@@ -70,10 +70,7 @@ impl RewardCycleInfo {
     /// Check if the provided burnchain block height is part of the reward cycle
     pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
-        let reward_cycle_length = self
-            .reward_phase_block_length
-            .saturating_add(self.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
+        let reward_cycle = blocks_mined / self.reward_cycle_length;
         self.reward_cycle == reward_cycle
     }
 
@@ -81,7 +78,7 @@ impl RewardCycleInfo {
     pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         PoxConstants::static_is_in_prepare_phase(
             self.first_burnchain_block_height,
-            self.reward_phase_block_length,
+            self.reward_cycle_length,
             self.prepare_phase_block_length,
             burnchain_block_height,
         )
