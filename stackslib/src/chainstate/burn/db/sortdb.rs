@@ -2877,25 +2877,6 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
-    /// Load up all stacks chain tips, in ascending order by block height.  Great for testing!
-    pub fn get_all_stacks_chain_tips(
-        &self,
-    ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
-        let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
-        let mut stmt = self.conn().prepare(sql)?;
-        let mut qry = stmt.query(NO_PARAMS)?;
-        let mut ret = vec![];
-        while let Some(row) = qry.next()? {
-            let sort_id: SortitionId = row.get("sortition_id")?;
-            let consensus_hash: ConsensusHash = row.get("consensus_hash")?;
-            let block_hash: BlockHeaderHash = row.get("block_hash")?;
-            let block_height_i64: i64 = row.get("block_height")?;
-            let block_height = u64::try_from(block_height_i64).map_err(|_| db_error::ParseError)?;
-            ret.push((sort_id, consensus_hash, block_hash, block_height));
-        }
-        Ok(ret)
-    }
-
     /// Get all snapshots for a burn block hash, even if they're not on the canonical PoX fork.
     pub fn get_all_snapshots_for_burn_block(
         conn: &DBConn,
@@ -6632,6 +6613,26 @@ pub mod tests {
             }
 
             Ok(None)
+        }
+
+        /// Load up all stacks chain tips, in ascending order by block height.  Great for testing!
+        pub fn get_all_stacks_chain_tips(
+            &self,
+        ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+            let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
+            let mut stmt = self.conn().prepare(sql)?;
+            let mut qry = stmt.query(NO_PARAMS)?;
+            let mut ret = vec![];
+            while let Some(row) = qry.next()? {
+                let sort_id: SortitionId = row.get("sortition_id")?;
+                let consensus_hash: ConsensusHash = row.get("consensus_hash")?;
+                let block_hash: BlockHeaderHash = row.get("block_hash")?;
+                let block_height_i64: i64 = row.get("block_height")?;
+                let block_height =
+                    u64::try_from(block_height_i64).map_err(|_| db_error::ParseError)?;
+                ret.push((sort_id, consensus_hash, block_hash, block_height));
+            }
+            Ok(ret)
         }
     }
 
