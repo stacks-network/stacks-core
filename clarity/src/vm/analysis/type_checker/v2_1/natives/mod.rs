@@ -23,7 +23,8 @@ use super::{
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
+    analysis_typecheck_cost, cost_functions, runtime_cost, CostErrors, CostOverflowingMath,
+    CostTracker,
 };
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
@@ -234,6 +235,7 @@ fn check_special_let(
 
     runtime_cost(ClarityCostFunction::AnalysisCheckLet, checker, args.len())?;
 
+    let mut added_memory = 0u64;
     handle_binding_list(binding_list, |var_name, var_sexp| {
         checker.contract_context.check_name_used(var_name)?;
         if out_context.lookup_variable_type(var_name).is_some() {
@@ -249,11 +251,24 @@ fn check_special_let(
             checker,
             typed_result.type_size()?,
         )?;
+        if checker.epoch.analysis_memory() {
+            let memory_use = u64::from(var_name.len())
+                .checked_add(u64::from(typed_result.type_size()?))
+                .ok_or_else(|| CostErrors::CostOverflow)?;
+            added_memory = added_memory
+                .checked_add(memory_use)
+                .ok_or_else(|| CostErrors::CostOverflow)?;
+            checker.add_memory(memory_use)?;
+        }
         out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
         Ok(())
     })?;
 
-    checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
+    let res = checker.type_check_consecutive_statements(&args[1..args.len()], &out_context);
+    if checker.epoch.analysis_memory() {
+        checker.drop_memory(added_memory)?;
+    }
+    res
 }
 
 fn check_special_fetch_var(
