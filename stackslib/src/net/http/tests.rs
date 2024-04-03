@@ -225,7 +225,7 @@ fn test_http_request_preamble_headers() {
 
     assert!(txt.find("HTTP/1.1").is_some(), "HTTP version is missing");
     assert!(
-        txt.find("User-Agent: stacks/2.0\r\n").is_some(),
+        txt.find("User-Agent: stacks/3.0\r\n").is_some(),
         "User-Agnet header is missing"
     );
     assert!(

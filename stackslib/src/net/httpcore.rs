@@ -39,8 +39,8 @@ use url::Url;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::db::blocks::StagingBlock;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::{MemPoolDB, StacksEpoch};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
@@ -413,11 +413,10 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
         preamble: &HttpRequestPreamble,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-    ) -> Result<StagingBlock, StacksHttpResponse> {
-        chainstate
-            .get_stacks_chain_tip(sortdb)
+    ) -> Result<StacksHeaderInfo, StacksHttpResponse> {
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .map_err(|e| {
-                let msg = format!("Failed to load stacks chain tip: {:?}", &e);
+                let msg = format!("Failed to load stacks chain tip header: {:?}", &e);
                 warn!("{}", &msg);
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
             })?
@@ -872,6 +871,8 @@ pub struct StacksHttp {
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 }
 
 impl StacksHttp {
@@ -887,6 +888,7 @@ impl StacksHttp {
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+            block_proposal_token: conn_opts.block_proposal_token.clone(),
         };
         http.register_rpc_methods();
         http
@@ -1569,6 +1571,7 @@ impl ProtocolFamily for StacksHttp {
 impl PeerNetwork {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.
+    #[cfg_attr(test, mutants::skip)]
     pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,

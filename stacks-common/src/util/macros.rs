@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-
 // is this machine big-endian?
 pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
@@ -212,16 +210,25 @@ macro_rules! guarded_string {
 ///  gives you a try_from(u8) -> Option<Self> function
 #[macro_export]
 macro_rules! define_u8_enum {
-    ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
+    ($(#[$outer:meta])*
+     $Name:ident {
+         $(
+             $(#[$inner:meta])*
+             $Variant:ident = $Val:literal),+
+     }) =>
     {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[repr(u8)]
+        $(#[$outer])*
         pub enum $Name {
-            $($Variant = $Val),*,
+            $(  $(#[$inner])*
+                $Variant = $Val),*,
         }
         impl $Name {
+            /// All members of the enum
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
 
+            /// Return the u8 representation of the variant
             pub fn to_u8(&self) -> u8 {
                 match self {
                     $(
@@ -230,6 +237,8 @@ macro_rules! define_u8_enum {
                 }
             }
 
+            /// Returns Some and the variant if `v` is a u8 corresponding to a variant in this enum.
+            /// Returns None otherwise
             pub fn from_u8(v: u8) -> Option<Self> {
                 match v {
                     $(
@@ -465,6 +474,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a slice of bytes
+            /// Note: if this type is a hashing type, this sets the hash result to `inp` exactly: this method does **not** perform the hash.
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {

@@ -599,7 +599,8 @@ fn verify_checksum(hrp: &[u8], data: &[u5]) -> Option<Variant> {
 }
 
 fn hrp_expand(hrp: &[u8]) -> Vec<u5> {
-    let mut v: Vec<u5> = Vec::new();
+    let size = (hrp.len() * 2) + 1;
+    let mut v: Vec<u5> = Vec::with_capacity(size);
     for b in hrp {
         v.push(u5::try_from_u8(*b >> 5).expect("can't be out of range, max. 7"));
     }

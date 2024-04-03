@@ -1,12 +1,11 @@
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 
 use crate::address::c32::{c32_address, c32_address_decode};
 use crate::address::{
-    public_keys_to_address_hash, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    public_keys_to_address_hash, to_bits_p2pkh, AddressHashMode,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::deps_common::bitcoin::blockdata::transaction::TxOut;
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
@@ -71,11 +70,28 @@ pub enum StacksEpochId {
     Epoch22 = 0x0200f,
     Epoch23 = 0x02014,
     Epoch24 = 0x02019,
+    Epoch25 = 0x0201a,
+    Epoch30 = 0x03000,
 }
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch24
+        StacksEpochId::Epoch30
+    }
+
+    /// Returns whether or not this Epoch should perform
+    ///  memory checks during analysis
+    pub fn analysis_memory(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => false,
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+        }
     }
 
     /// Returns whether or not this Epoch should perform
@@ -88,8 +104,18 @@ impl StacksEpochId {
             | StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
-            StacksEpochId::Epoch24 => true,
+            StacksEpochId::Epoch24 | StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
         }
+    }
+
+    /// Does this epoch support unlocking PoX contributors that miss a slot?
+    ///
+    /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,
+    ///  the behavior never activates in those epochs because the Pox1 contract does not provide
+    ///  `contibuted_stackers` information. This check maintains that exact semantics by returning
+    ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
+    pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
+        self < &StacksEpochId::Epoch25
     }
 }
 
@@ -103,6 +129,8 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch22 => write!(f, "2.2"),
             StacksEpochId::Epoch23 => write!(f, "2.3"),
             StacksEpochId::Epoch24 => write!(f, "2.4"),
+            StacksEpochId::Epoch25 => write!(f, "2.5"),
+            StacksEpochId::Epoch30 => write!(f, "3.0"),
         }
     }
 }
@@ -119,6 +147,8 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch22 as u32 => Ok(StacksEpochId::Epoch22),
             x if x == StacksEpochId::Epoch23 as u32 => Ok(StacksEpochId::Epoch23),
             x if x == StacksEpochId::Epoch24 as u32 => Ok(StacksEpochId::Epoch24),
+            x if x == StacksEpochId::Epoch25 as u32 => Ok(StacksEpochId::Epoch25),
+            x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
             _ => Err("Invalid epoch"),
         }
     }
@@ -205,6 +235,25 @@ impl StacksAddress {
 
         let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
         Some(StacksAddress::new(version, hash_bits))
+    }
+
+    /// Make a P2PKH StacksAddress
+    pub fn p2pkh(mainnet: bool, pubkey: &StacksPublicKey) -> StacksAddress {
+        let bytes = to_bits_p2pkh(pubkey);
+        Self::p2pkh_from_hash(mainnet, bytes)
+    }
+
+    /// Make a P2PKH StacksAddress
+    pub fn p2pkh_from_hash(mainnet: bool, hash: Hash160) -> StacksAddress {
+        let version = if mainnet {
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+        } else {
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+        };
+        Self {
+            version,
+            bytes: hash,
+        }
     }
 }
 

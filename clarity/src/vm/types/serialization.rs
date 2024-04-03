@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::StacksEpochId;
@@ -560,7 +559,7 @@ impl Value {
                 }
             };
 
-            if expect_size as u64 > bytes_read {
+            if bytes_read > expect_size as u64 {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
                     "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
@@ -727,7 +726,7 @@ impl Value {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(
-                                    expected_type.unwrap().clone(),
+                                    expected_type.unwrap(),
                                 ));
                             }
                             (Some(list_type), Some(list_type.get_list_item_type()))
@@ -780,7 +779,7 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
+                                        expected_type.unwrap(),
                                     ));
                                 }
                             } else {
@@ -788,7 +787,7 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
+                                        expected_type.unwrap(),
                                     ));
                                 }
                             }
@@ -1248,7 +1247,7 @@ impl Value {
                 if l.len().ok()? > lt.get_max_len() {
                     return None;
                 }
-                let mut sanitized_items = vec![];
+                let mut sanitized_items = Vec::with_capacity(l.data.len());
                 let mut did_sanitize_children = false;
                 for item in l.data.into_iter() {
                     let (sanitized_item, did_sanitize) =
@@ -1265,11 +1264,12 @@ impl Value {
                     TypeSignature::TupleType(tt) => tt,
                     _ => return None,
                 };
-                let mut sanitized_tuple_entries = vec![];
+                let type_map = tt.get_type_map();
+                let mut sanitized_tuple_entries = Vec::with_capacity(type_map.len());
                 let original_tuple_len = tuple_data.len();
                 let mut tuple_data_map = tuple_data.data_map;
                 let mut did_sanitize_children = false;
-                for (key, expect_key_type) in tt.get_type_map().iter() {
+                for (key, expect_key_type) in type_map.iter() {
                     let field_data = tuple_data_map.remove(key)?;
                     let (sanitized_field, did_sanitize) =
                         Self::sanitize_value(epoch, expect_key_type, field_data)?;
@@ -1487,7 +1487,7 @@ pub mod tests {
         );
         // parent list longer than expected
         test_bad_expectation(
-            list_list_int.clone(),
+            list_list_int,
             TypeSignature::from_string("(list 0 (list 2 uint))", version, epoch),
         );
 

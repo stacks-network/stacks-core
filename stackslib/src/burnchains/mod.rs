@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::default::Default;
 use std::marker::PhantomData;
 use std::{error, fmt, io};
 
@@ -44,7 +42,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -305,8 +303,12 @@ pub struct PoxConstants {
     pub v1_unlock_height: u32,
     /// The auto unlock height for PoX v2 lockups during Epoch 2.2
     pub v2_unlock_height: u32,
+    /// The auto unlock height for PoX v3 lockups during Epoch 2.5
+    pub v3_unlock_height: u32,
     /// After this burn height, reward cycles use pox-3 for reward set data
     pub pox_3_activation_height: u32,
+    /// After this burn height, reward cycles use pox-4 for reward set data
+    pub pox_4_activation_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -321,12 +323,14 @@ impl PoxConstants {
         sunset_end: u64,
         v1_unlock_height: u32,
         v2_unlock_height: u32,
+        v3_unlock_height: u32,
         pox_3_activation_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
         assert!(sunset_start <= sunset_end);
         assert!(v2_unlock_height >= v1_unlock_height);
+        assert!(v3_unlock_height >= v2_unlock_height);
         assert!(pox_3_activation_height >= v2_unlock_height);
 
         PoxConstants {
@@ -339,23 +343,60 @@ impl PoxConstants {
             sunset_end,
             v1_unlock_height,
             v2_unlock_height,
+            v3_unlock_height,
             pox_3_activation_height,
+            pox_4_activation_height: v3_unlock_height,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX)
+        PoxConstants::new(
+            10,
+            5,
+            3,
+            25,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
+    }
+
+    #[cfg(test)]
+    /// Create a PoX constants used in tests with 5-block cycles,
+    ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
+    ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.
+    pub(crate) fn test_20_no_sunset() -> PoxConstants {
+        PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn static_active_pox_contract(
         v1_unlock_height: u64,
         pox_3_activation_height: u64,
+        pox_4_activation_height: u64,
         burn_height: u64,
     ) -> &'static str {
-        if burn_height > pox_3_activation_height {
+        if burn_height > pox_4_activation_height {
+            POX_4_NAME
+        } else if burn_height > pox_3_activation_height {
             POX_3_NAME
         } else if burn_height > v1_unlock_height {
             POX_2_NAME
@@ -367,14 +408,16 @@ impl PoxConstants {
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
         Self::static_active_pox_contract(
-            self.v1_unlock_height as u64,
-            self.pox_3_activation_height as u64,
+            u64::from(self.v1_unlock_height),
+            u64::from(self.pox_3_activation_height),
+            u64::from(self.pox_4_activation_height),
             burn_height,
         )
     }
 
     pub fn reward_slots(&self) -> u32 {
-        (self.reward_cycle_length - self.prepare_length) * (OUTPUTS_PER_COMMIT as u32)
+        (self.reward_cycle_length - self.prepare_length)
+            * u32::try_from(OUTPUTS_PER_COMMIT).expect("FATAL: > 2^32 outputs per commit")
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
@@ -383,7 +426,7 @@ impl PoxConstants {
             .checked_mul(100)
             .expect("OVERFLOW: uSTX overflowed u128")
             > liquid_ustx
-                .checked_mul(self.pox_participation_threshold_pct as u128)
+                .checked_mul(u128::from(self.pox_participation_threshold_pct))
                 .expect("OVERFLOW: uSTX overflowed u128")
     }
 
@@ -398,6 +441,7 @@ impl PoxConstants {
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_MAINNET_EARLY_UNLOCK_HEIGHT,
+            POX_V3_MAINNET_EARLY_UNLOCK_HEIGHT,
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
@@ -415,6 +459,7 @@ impl PoxConstants {
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_TESTNET_EARLY_UNLOCK_HEIGHT,
+            POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT,
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
@@ -424,14 +469,15 @@ impl PoxConstants {
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,
-            1,
-            1,
+            3,
+            2,
             3333333333333333,
             1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             1_000_000,
             2_000_000,
+            4_000_000,
             3_000_000,
         )
     }
@@ -467,16 +513,30 @@ impl PoxConstants {
         }
     }
 
+    /// What's the first block in the prepare phase
+    pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
+        let reward_cycle_start =
+            self.reward_cycle_to_block_height(first_block_height, reward_cycle);
+        let prepare_phase_start = reward_cycle_start + u64::from(self.reward_cycle_length)
+            - u64::from(self.prepare_length);
+        prepare_phase_start
+    }
+
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
         // first block of the new reward cycle
-        (effective_height % (self.reward_cycle_length as u64)) == 1
+        (effective_height % u64::from(self.reward_cycle_length)) == 1
     }
 
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
-        first_block_height + reward_cycle * (self.reward_cycle_length as u64) + 1
+        first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
+    }
+
+    pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {
+        let effective_height = burn_height.checked_sub(first_block_height)?;
+        Some(effective_height % u64::from(self.reward_cycle_length))
     }
 
     pub fn block_height_to_reward_cycle(
@@ -487,15 +547,38 @@ impl PoxConstants {
         Self::static_block_height_to_reward_cycle(
             block_height,
             first_block_height,
-            self.reward_cycle_length as u64,
+            u64::from(self.reward_cycle_length),
         )
+    }
+
+    /// Return the reward cycle that the current prepare phase corresponds to if `block_height` is _in_ a prepare
+    /// phase. If it is not in a prepare phase, return None.
+    pub fn reward_cycle_of_prepare_phase(
+        &self,
+        first_block_height: u64,
+        block_height: u64,
+    ) -> Option<u64> {
+        if !self.is_in_prepare_phase(first_block_height, block_height) {
+            return None;
+        }
+        // the None branches here should be unreachable, because if `first_block_height > block_height`,
+        //   `is_in_prepare_phase` would have returned false, but no need to be unsafe anyways.
+        let effective_height = block_height.checked_sub(first_block_height)?;
+        let current_cycle = self.block_height_to_reward_cycle(first_block_height, block_height)?;
+        if effective_height % u64::from(self.reward_cycle_length) == 0 {
+            // if this is the "mod 0" block of a prepare phase, its corresponding reward cycle is the current one
+            Some(current_cycle)
+        } else {
+            // otherwise, the corresponding reward cycle is actually the _next_ reward cycle
+            Some(current_cycle + 1)
+        }
     }
 
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
         Self::static_is_in_prepare_phase(
             first_block_height,
-            self.reward_cycle_length as u64,
-            self.prepare_length as u64,
+            u64::from(self.reward_cycle_length),
+            u64::from(self.prepare_length),
             block_height,
         )
     }
@@ -515,7 +598,10 @@ impl PoxConstants {
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
-            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
+            // TODO: I *think* the logic of `== 0` here requires some further digging.
+            //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
+            //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
+            reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
         }
     }
 
@@ -601,6 +687,8 @@ pub enum Error {
     UnknownBlock(BurnchainHeaderHash),
     NonCanonicalPoxId(PoxId, PoxId),
     CoordinatorClosed,
+    /// Graceful shutdown error
+    ShutdownInitiated,
 }
 
 impl fmt::Display for Error {
@@ -625,6 +713,7 @@ impl fmt::Display for Error {
                 parent, child
             ),
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
+            Error::ShutdownInitiated => write!(f, "Graceful shutdown was initiated"),
         }
     }
 }
@@ -647,6 +736,7 @@ impl error::Error for Error {
             Error::UnknownBlock(_) => None,
             Error::NonCanonicalPoxId(_, _) => None,
             Error::CoordinatorClosed => None,
+            Error::ShutdownInitiated => None,
         }
     }
 }

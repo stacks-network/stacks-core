@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
@@ -23,6 +22,7 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::STXEventType;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, Value};
+use lazy_static::lazy_static;
 use rand::RngCore;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -57,8 +57,10 @@ mod epoch_21;
 mod epoch_22;
 mod epoch_23;
 mod epoch_24;
+mod epoch_25;
 mod integrations;
 mod mempool;
+pub mod nakamoto_integrations;
 pub mod neon_integrations;
 mod signer;
 mod stackerdb;
@@ -366,7 +368,7 @@ pub fn make_poison(
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 

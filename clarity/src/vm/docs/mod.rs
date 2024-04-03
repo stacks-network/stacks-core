@@ -2564,7 +2564,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
 
 fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI {
     FunctionAPI {
-        name: function.get_name().to_string(),
+        name: function.get_name(),
         snippet: api.snippet.to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
@@ -2609,20 +2609,18 @@ pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
 fn make_all_api_reference() -> ReferenceAPIs {
     let mut functions: Vec<_> = NativeFunctions::ALL
         .iter()
-        .map(|x| make_api_reference(x))
+        .map(make_api_reference)
         .collect();
     for data_type in DefineFunctions::ALL.iter() {
         functions.push(make_define_reference(data_type))
     }
     functions.sort_by(|x, y| x.name.cmp(&y.name));
 
-    let mut keywords = Vec::new();
-    for variable in NativeVariables::ALL.iter() {
-        let output = make_keyword_reference(variable);
-        if let Some(api_ref) = output {
-            keywords.push(api_ref)
-        }
-    }
+    let mut keywords: Vec<_> = NativeVariables::ALL
+        .iter()
+        .filter_map(make_keyword_reference)
+        .collect();
+
     keywords.sort_by(|x, y| x.name.cmp(&y.name));
 
     ReferenceAPIs {
@@ -2780,7 +2778,15 @@ mod test {
             u32::MAX
         }
 
+        fn get_v3_unlock_height(&self) -> u32 {
+            u32::MAX
+        }
+
         fn get_pox_3_activation_height(&self) -> u32 {
+            u32::MAX
+        }
+
+        fn get_pox_4_activation_height(&self) -> u32 {
             u32::MAX
         }
 
@@ -2911,7 +2917,7 @@ mod test {
                     .type_map
                     .as_ref()
                     .unwrap()
-                    .get_type(&analysis.expressions.last().unwrap())
+                    .get_type_expected(&analysis.expressions.last().unwrap())
                     .cloned(),
             );
         }
@@ -3174,7 +3180,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ]),
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
@@ -3202,7 +3208,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ],
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint | int | principal");
@@ -3217,7 +3223,7 @@ mod test {
         result = get_input_type_string(&function_type);
         assert_eq!(result, "int, ...");
 
-        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret);
         result = get_input_type_string(&function_type);
         assert_eq!(result, "principal, ...");
     }

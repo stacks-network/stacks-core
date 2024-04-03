@@ -59,6 +59,10 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 2.4.
                 StacksEpochId::Epoch24 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.5.
+                StacksEpochId::Epoch25 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.0.
+                StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
             }
         }
     };
@@ -608,7 +612,7 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let arg = args.get(0).ok_or_else(|| {
+    let arg = args.first().ok_or_else(|| {
         InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
     let input = eval(arg, env, context)?;
@@ -697,7 +701,7 @@ pub fn parse_eval_bindings(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;

@@ -118,7 +118,7 @@ pub fn make_block(
     );
 
     let new_tip_info = StacksHeaderInfo {
-        anchored_header,
+        anchored_header: anchored_header.into(),
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
         stacks_block_height: block_height,

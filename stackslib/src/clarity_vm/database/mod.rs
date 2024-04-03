@@ -270,22 +270,44 @@ fn get_stacks_header_column<F, R>(
     loader: F,
 ) -> Option<R>
 where
-    F: FnOnce(&Row) -> R,
+    F: Fn(&Row) -> R,
 {
     let args: &[&dyn ToSql] = &[id_bhh];
+    if let Some(result) = conn
+        .query_row(
+            &format!(
+                "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+                column_name
+            ),
+            args,
+            |x| Ok(loader(x)),
+        )
+        .optional()
+        .unwrap_or_else(|_| {
+            panic!(
+                "Unexpected SQL failure querying block header table for '{}'",
+                column_name
+            )
+        })
+    {
+        return Some(result);
+    }
+    // if nothing was found in `block_headers`, try `nakamoto_block_headers`
     conn.query_row(
         &format!(
-            "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+            "SELECT {} FROM nakamoto_block_headers WHERE index_block_hash = ?",
             column_name
         ),
         args,
         |x| Ok(loader(x)),
     )
     .optional()
-    .expect(&format!(
-        "Unexpected SQL failure querying block header table for '{}'",
-        column_name
-    ))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Unexpected SQL failure querying block header table for '{}'",
+            column_name
+        )
+    })
 }
 
 fn get_miner_column<F, R>(
@@ -307,10 +329,12 @@ where
         |x| Ok(loader(x)),
     )
     .optional()
-    .expect(&format!(
-        "Unexpected SQL failure querying miner payment table for '{}'",
-        column_name
-    ))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Unexpected SQL failure querying miner payment table for '{}'",
+            column_name
+        )
+    })
 }
 
 fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
@@ -345,6 +369,13 @@ pub trait SortitionDBRef: BurnStateDB {
         parent_stacks_block_burn_ht: u64,
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
+
+    /// Return an upcasted dynamic reference for the sortition DB
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB;
+
+    /// Return a pointer to the underlying sqlite connection or transaction for
+    /// this DB reference
+    fn sqlite_conn(&self) -> &Connection;
 }
 
 fn get_pox_start_cycle_info(
@@ -386,6 +417,14 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.tx()
+    }
 }
 
 impl SortitionDBRef for SortitionDBConn<'_> {
@@ -397,6 +436,14 @@ impl SortitionDBRef for SortitionDBConn<'_> {
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
         let mut handle = self.as_handle(sortition_id);
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
+    }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.conn()
     }
 }
 
@@ -454,8 +501,16 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         self.context.pox_constants.v2_unlock_height
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        self.context.pox_constants.v3_unlock_height
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_3_activation_height
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_4_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
@@ -573,8 +628,16 @@ impl BurnStateDB for SortitionDBConn<'_> {
         self.context.pox_constants.v2_unlock_height
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        self.context.pox_constants.v3_unlock_height
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_3_activation_height
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_4_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
@@ -665,11 +728,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
@@ -701,7 +764,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }

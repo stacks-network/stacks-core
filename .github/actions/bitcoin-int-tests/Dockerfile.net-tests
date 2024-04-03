@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:bookworm
 
 WORKDIR /src
 
@@ -11,7 +11,7 @@ RUN ln -s /bitcoin-25.0/bin/bitcoind /bin/
 RUN ln -s /bitcoin-25.0/bin/bitcoin-cli /bin/
 
 RUN apt-get update
-RUN apt-get install -y jq screen net-tools ncat sqlite3 xxd openssl curl
+RUN apt-get install -y jq screen net-tools ncat sqlite3 xxd openssl curl libllvm16 libclang1-16
 
 RUN cargo build --workspace
 

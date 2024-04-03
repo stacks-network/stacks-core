@@ -162,7 +162,7 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
             }
             _ => {
                 return Err(Error::DecodeError(
-                    "Wrong Content-Type for transaction; expected application/json".to_string(),
+                    "Wrong Content-Type for transaction; expected application/json or application/octet-stream".to_string(),
                 ));
             }
         }
@@ -230,7 +230,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                 chainstate,
                 sortdb,
                 &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &stacks_tip.anchored_header.block_hash(),
                 &tx,
                 event_observer,
                 &stacks_epoch.block_limit,

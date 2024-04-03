@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-extern crate regex;
-
 pub mod diagnostic;
 pub mod errors;
 
@@ -52,7 +50,6 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 
 use serde_json;
 use stacks_common::types::StacksEpochId;
@@ -259,7 +256,7 @@ pub fn apply(
         resp
     } else {
         let mut used_memory = 0;
-        let mut evaluated_args = vec![];
+        let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
             let arg_value = match eval(arg_x, env, context) {
@@ -589,8 +586,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
+    use hashbrown::HashMap;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
@@ -613,16 +609,16 @@ mod test {
         //  (define a 59)
         //  (do_work a)
         //
-        let content = [SymbolicExpression::list(Box::new([
+        let content = [SymbolicExpression::list(vec![
             SymbolicExpression::atom("do_work".into()),
             SymbolicExpression::atom("a".into()),
-        ]))];
+        ])];
 
-        let func_body = SymbolicExpression::list(Box::new([
+        let func_body = SymbolicExpression::list(vec![
             SymbolicExpression::atom("+".into()),
             SymbolicExpression::atom_value(Value::Int(5)),
             SymbolicExpression::atom("x".into()),
-        ]));
+        ]);
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(

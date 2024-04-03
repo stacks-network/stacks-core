@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::{io, str};
 
+use hashbrown::HashMap;
 use stacks_common::util::chunked_encoding::*;
 
 use crate::error::{EventError, RPCError};
@@ -150,7 +150,7 @@ fn test_decode_http_response_err() {
 
 #[test]
 fn test_decode_http_body() {
-    let tests = vec![
+    let tests = [
         (true, ""),
         (true, "this is the song that never ends"),
         (false, ""),
@@ -264,7 +264,7 @@ fn test_run_http_request_with_body() {
 
         let result_chunked = run_http_request(
             &mut msock_chunked,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -275,7 +275,7 @@ fn test_run_http_request_with_body() {
 
         let result_plain = run_http_request(
             &mut msock_plain,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -321,7 +321,7 @@ fn test_run_http_request_no_body() {
 
         let result_chunked = run_http_request(
             &mut msock_chunked,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,
@@ -330,7 +330,7 @@ fn test_run_http_request_no_body() {
         .unwrap();
         let result_plain = run_http_request(
             &mut msock_plain,
-            &"127.0.0.1:20443".parse().unwrap(),
+            &"127.0.0.1:20443",
             verb,
             path,
             content_type,

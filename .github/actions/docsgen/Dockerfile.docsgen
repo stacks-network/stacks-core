@@ -1,4 +1,4 @@
-FROM rust:bullseye as build
+FROM rust:bookworm as build
 
 WORKDIR /src
 
