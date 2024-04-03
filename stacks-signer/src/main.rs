@@ -324,12 +324,28 @@ fn handle_generate_stacking_signature(
     )
     .expect("Failed to generate signature");
 
-    if do_print {
-        println!(
-            "\nSigner Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
+    let output_str = if args.json {
+        serde_json::to_string(&serde_json::json!({
+            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerSignature": to_hex(signature.to_rsv().as_slice()),
+            "authId": format!("{}", args.auth_id),
+            "rewardCycle": args.reward_cycle,
+            "maxAmount": format!("{}", args.max_amount),
+            "period": args.period,
+            "poxAddress": args.pox_address.to_b58(),
+            "method": args.method.topic().to_string(),
+        }))
+        .expect("Failed to serialize JSON")
+    } else {
+        format!(
+            "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
             to_hex(&public_key.to_bytes_compressed()),
             to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
-        );
+        )
+    };
+
+    if do_print {
+        println!("{}", output_str);
     }
 
     signature
@@ -451,6 +467,7 @@ pub mod tests {
             period: 12,
             max_amount: u128::MAX,
             auth_id: 1,
+            json: false,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
@@ -505,6 +522,7 @@ pub mod tests {
             period: 12,
             max_amount: u128::MAX,
             auth_id: 1,
+            json: false,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
