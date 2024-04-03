@@ -432,7 +432,10 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
+    use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+    use super::RewardCycleInfo;
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
@@ -458,5 +461,80 @@ mod tests {
             signer_ids,
             (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn is_in_reward_cycle_info() {
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(last_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(last_burnchain_block_height));
+
+        assert!(!reward_cycle_info
+            .is_in_reward_cycle(first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+        assert!(!reward_cycle_info
+            .is_in_prepare_phase(!first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+        assert!(!reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height.wrapping_add(1)));
+        assert!(
+            !reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height.wrapping_add(1))
+        );
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
     }
 }
