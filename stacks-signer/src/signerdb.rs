@@ -35,7 +35,7 @@ pub struct SignerDb {
     db: Connection,
 }
 
-const CREATE_BLOCKS_TABLE: &'static str = "
+const CREATE_BLOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
@@ -170,8 +170,8 @@ where
 pub fn test_signer_db(db_path: &str) -> SignerDb {
     use std::fs;
 
-    if fs::metadata(&db_path).is_ok() {
-        fs::remove_file(&db_path).unwrap();
+    if fs::metadata(db_path).is_ok() {
+        fs::remove_file(db_path).unwrap();
     }
     SignerDb::new(db_path).expect("Failed to create signer db")
 }
