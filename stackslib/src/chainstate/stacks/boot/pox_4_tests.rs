@@ -1862,7 +1862,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let steph_stack_extend = make_pox_4_extend(
         &steph_key,
         steph_stack_extend_nonce,
-        steph_pox_addr,
+        steph_pox_addr.clone(),
         lock_period,
         steph_signing_key,
         Some(stack_extend_signature),
@@ -2117,6 +2117,35 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
         common_data,
         bob_aggregation_commit_tx_op_data,
     );
+
+    with_sortdb(&mut peer, |chainstate, sortdb| {
+        let mut check_cycle = next_reward_cycle as u64;
+        let reward_set = chainstate
+            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .unwrap();
+        assert_eq!(reward_set.len(), 2);
+        assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
+        assert_eq!(reward_set[0].reward_address, steph_pox_addr);
+        assert_eq!(reward_set[0].amount_stacked, min_ustx + 100);
+        assert_eq!(reward_set[1].stacker, None);
+        assert_eq!(reward_set[1].reward_address, bob_pox_addr);
+        assert_eq!(reward_set[1].amount_stacked, min_ustx);
+
+        check_cycle += 1;
+        let reward_set = chainstate
+            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .unwrap();
+        assert_eq!(reward_set.len(), 1);
+        assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
+        assert_eq!(reward_set[0].reward_address, steph_pox_addr);
+        assert_eq!(reward_set[0].amount_stacked, min_ustx + 100);
+
+        check_cycle += 1;
+        let reward_set = chainstate
+            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .unwrap();
+        assert!(reward_set.is_empty());
+    });
 }
 
 // This test calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
