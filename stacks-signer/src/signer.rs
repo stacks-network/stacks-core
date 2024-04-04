@@ -810,10 +810,14 @@ impl Signer {
         stacks_client: &StacksClient,
         block: &NakamotoBlock,
     ) -> bool {
-        if self.approved_aggregate_public_key.is_some() {
-            // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
-            // TODO: should be only allow special cased transactions during prepare phase before a key is set?
-            debug!("{self}: Already have an aggregate key. Skipping transaction verification...");
+        let next_reward_cycle = self.reward_cycle.wrapping_add(1);
+        let approved_aggregate_public_key = stacks_client
+            .get_approved_aggregate_key(next_reward_cycle)
+            .unwrap_or(None);
+        if approved_aggregate_public_key.is_some() {
+            // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set for the upcoming signers' reward cycle
+            // Otherwise it is a waste of block space and time to enforce as the desired outcome has been reached.
+            debug!("{self}: Already have an aggregate key for the next signer set's reward cycle ({}). Skipping transaction verification...", next_reward_cycle);
             return true;
         }
         if let Ok(expected_transactions) = self.get_expected_transactions(stacks_client) {
