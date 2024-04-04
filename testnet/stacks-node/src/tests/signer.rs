@@ -9,8 +9,8 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
-    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEventReceiver,
-    SignerMessage,
+    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEntries,
+    SignerEventReceiver, SignerMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -42,13 +42,14 @@ use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
+use stacks_signer::coordinator::CoordinatorSelector;
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::OperationResult;
+use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
@@ -56,8 +57,9 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
-    next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
+    boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
+    naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
@@ -496,6 +498,16 @@ impl SignerTest {
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
             .expect("FATAL: signer not registered")
+    }
+
+    fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
+        let entries = self
+            .stacks_client
+            .get_reward_set_signers_with_retry(reward_cycle)
+            .unwrap()
+            .unwrap();
+        let entries = SignerEntries::parse(false, &entries).unwrap();
+        entries.public_keys
     }
 
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
@@ -959,6 +971,101 @@ fn stackerdb_dkg() {
     assert_ne!(new_key, key);
 
     info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
+}
+
+#[test]
+#[ignore]
+/// Test the signer can handle delayed start and still see the DKG round has commenced
+fn stackerdb_delayed_start_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let num_signers = 5;
+    let mut signer_test = SignerTest::new(num_signers);
+    boot_to_epoch_3_reward_set_calculation_boundary(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+
+    info!("------------------------- Stop Signers -------------------------");
+    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
+    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let coordinator_selector = CoordinatorSelector::from(public_keys);
+    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
+    let coordinator_public_key =
+        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
+    let mut to_stop = vec![];
+    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
+        let public_key = StacksPublicKey::from_private(key);
+        if public_key == coordinator_public_key {
+            // Do not stop the coordinator. We want coordinator to start a DKG round
+            continue;
+        }
+        to_stop.push(idx);
+        if to_stop.len() == num_signers.saturating_sub(2) {
+            // Keep one signer alive to test scenario where restartings signers can read both coordinator and signer messages to catch up
+            break;
+        }
+    }
+    let mut stopped_signers = Vec::with_capacity(to_stop.len());
+    for idx in to_stop.into_iter().rev() {
+        let signer_key = signer_test.stop_signer(idx);
+        debug!(
+            "Removed signer {idx} with key: {:?}, {}",
+            signer_key,
+            signer_key.to_hex()
+        );
+        stopped_signers.push((idx, signer_key));
+    }
+
+    info!("------------------------- Start DKG -------------------------");
+    let height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    // Advance one more to trigger DKG
+    run_until_burnchain_height(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+        height.wrapping_add(1),
+        &signer_test.running_nodes.conf,
+    );
+    // Wait one second so DKG is actually triggered and signers are not available to respond
+    std::thread::sleep(Duration::from_secs(1));
+    // Make sure DKG did not get set
+    assert!(signer_test
+        .stacks_client
+        .get_approved_aggregate_key(reward_cycle)
+        .expect("Failed to get approved aggregate key")
+        .is_none());
+    info!("------------------------- Restart Stopped Signers -------------------------");
+
+    for (idx, signer_key) in stopped_signers {
+        signer_test.restart_signer(idx, signer_key);
+    }
+
+    info!("------------------------- Wait for DKG -------------------------");
+    let key = signer_test.wait_for_dkg(timeout);
+    // Make sure DKG did not get set
+    assert_eq!(
+        key,
+        signer_test
+            .stacks_client
+            .get_approved_aggregate_key(reward_cycle)
+            .expect("Failed to get approved aggregate key")
+            .expect("No approved aggregate key found")
+    );
 }
 
 #[test]

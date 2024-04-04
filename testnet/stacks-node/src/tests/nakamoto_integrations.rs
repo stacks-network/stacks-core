@@ -807,7 +807,7 @@ fn signer_vote_if_needed(
 /// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
 ///   for pox-4 to activate
 /// * `signer_pks` - must be the same size as `stacker_sks`
-pub fn boot_to_epoch_3_reward_set(
+pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
@@ -828,9 +828,9 @@ pub fn boot_to_epoch_3_reward_set(
     );
     let epoch_3_reward_cycle_boundary =
         epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
-    let epoch_3_reward_set_calculation_boundary =
-        epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
-    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // +2 to ensure we are at the second block of the prepare phase
+    let epoch_3_reward_set_calculation_boundary = epoch_3_reward_cycle_boundary
+        .saturating_sub(prepare_phase_len)
+        .wrapping_add(1);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -850,7 +850,6 @@ pub fn boot_to_epoch_3_reward_set(
      "block_height" => {block_height},
      "reward_cycle" => {reward_cycle},
      "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
-     "epoch_3_reward_set_calculation" => {epoch_3_reward_set_calculation},
      "epoch_3_start_height" => {epoch_3_start_height},
     );
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
@@ -899,10 +898,39 @@ pub fn boot_to_epoch_3_reward_set(
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        epoch_3_reward_set_calculation,
+        epoch_3_reward_set_calculation_boundary,
         &naka_conf,
     );
 
+    info!("Bootstrapped to Epoch 3.0 reward set calculation boundary height: {epoch_3_reward_set_calculation_boundary}.");
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_3_reward_set(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    boot_to_epoch_3_reward_set_calculation_boundary(
+        naka_conf,
+        blocks_processed,
+        stacker_sks,
+        signer_sks,
+        btc_regtest_controller,
+    );
+    let epoch_3_reward_set_calculation =
+        btc_regtest_controller.get_headers_height().wrapping_add(1);
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        epoch_3_reward_set_calculation,
+        &naka_conf,
+    );
     info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
