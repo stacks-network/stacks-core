@@ -316,7 +316,6 @@
           (some delegation-info))))
 
 ;; Get the size of the reward set for a reward cycle.
-;; Note that this does _not_ return duplicate PoX addresses.
 ;; Note that this also _will_ return PoX addresses that are beneath
 ;; the minimum threshold -- i.e. the threshold can increase after insertion.
 ;; Used internally by the Stacks node, which filters out the entries
@@ -1169,9 +1168,6 @@
 
     ;; Verify signature from delegate that allows this sender for this cycle
     (try! (consume-signer-key-authorization pox-addr cur-cycle "stack-extend" extend-count signer-sig signer-key u0 max-amount auth-id))
-
-    ;; TODO: add more assertions to sanity check the `stacker-info` values with
-    ;;       the `stacker-state` values
 
     (let ((last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
           (lock-period (+ u1 (- last-extend-cycle first-reward-cycle)))
