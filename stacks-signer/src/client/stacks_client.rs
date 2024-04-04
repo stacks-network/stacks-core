@@ -444,13 +444,13 @@ impl StacksClient {
         let blocks_mined = pox_data
             .current_burnchain_block_height
             .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_phase_block_length = pox_data
+        let reward_cycle_length = pox_data
             .reward_phase_block_length
             .saturating_add(pox_data.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_phase_block_length;
+        let reward_cycle = blocks_mined / reward_cycle_length;
         Ok(RewardCycleInfo {
             reward_cycle,
-            reward_phase_block_length,
+            reward_cycle_length,
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
             last_burnchain_block_height: pox_data.current_burnchain_block_height,

@@ -56,8 +56,8 @@ pub enum State {
 pub struct RewardCycleInfo {
     /// The current reward cycle
     pub reward_cycle: u64,
-    /// The reward phase cycle length
-    pub reward_phase_block_length: u64,
+    /// The total reward cycle length
+    pub reward_cycle_length: u64,
     /// The prepare phase length
     pub prepare_phase_block_length: u64,
     /// The first burn block height
@@ -70,10 +70,7 @@ impl RewardCycleInfo {
     /// Check if the provided burnchain block height is part of the reward cycle
     pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
-        let reward_cycle_length = self
-            .reward_phase_block_length
-            .saturating_add(self.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
+        let reward_cycle = blocks_mined / self.reward_cycle_length;
         self.reward_cycle == reward_cycle
     }
 
@@ -81,7 +78,7 @@ impl RewardCycleInfo {
     pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         PoxConstants::static_is_in_prepare_phase(
             self.first_burnchain_block_height,
-            self.reward_phase_block_length,
+            self.reward_cycle_length,
             self.prepare_phase_block_length,
             burnchain_block_height,
         )
@@ -388,7 +385,11 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
 
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = signer.update_dkg(&self.stacks_client, current_reward_cycle) {
+                if let Err(e) = retry_with_exponential_backoff(|| {
+                    signer
+                        .update_dkg(&self.stacks_client)
+                        .map_err(backoff::Error::transient)
+                }) {
                     error!("{signer}: failed to update DKG: {e}");
                 }
             }
@@ -429,7 +430,10 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
+    use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+    use super::RewardCycleInfo;
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
@@ -455,5 +459,80 @@ mod tests {
             signer_ids,
             (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn is_in_reward_cycle_info() {
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(last_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(last_burnchain_block_height));
+
+        assert!(!reward_cycle_info
+            .is_in_reward_cycle(first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+        assert!(!reward_cycle_info
+            .is_in_prepare_phase(!first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+        assert!(!reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height.wrapping_add(1)));
+        assert!(
+            !reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height.wrapping_add(1))
+        );
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
     }
 }
