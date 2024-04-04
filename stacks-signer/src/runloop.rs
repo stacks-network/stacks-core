@@ -385,11 +385,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
 
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client)
-                        .map_err(backoff::Error::transient)
-                }) {
+                if let Err(e) = signer.update_dkg(&self.stacks_client) {
                     error!("{signer}: failed to update DKG: {e}");
                 }
             }
