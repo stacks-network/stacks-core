@@ -22,7 +22,7 @@ use stacks::chainstate::stacks::{
     TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
-use stacks::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -832,7 +832,7 @@ fn integration_test_get_info() {
                 let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200,     // bad nonce
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
-                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize_with_epoch(&mut &tx_xfer_invalid[..], StacksEpochId::latest()).unwrap();
+                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
@@ -1197,11 +1197,9 @@ fn contract_stx_transfer() {
                         &contract_identifier.clone().into(),
                         1000,
                     );
-                    let xfer_to_contract = StacksTransaction::consensus_deserialize_with_epoch(
-                        &mut &xfer_to_contract[..],
-                        StacksEpochId::latest(),
-                    )
-                    .unwrap();
+                    let xfer_to_contract =
+                        StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..])
+                            .unwrap();
                     tenure
                         .mem_pool
                         .submit(
@@ -1219,11 +1217,8 @@ fn contract_stx_transfer() {
                 // this one should fail because the nonce is already in the mempool
                 let xfer_to_contract =
                     make_stacks_transfer(&sk_3, 3, 190, &contract_identifier.clone().into(), 1000);
-                let xfer_to_contract = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &xfer_to_contract[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let xfer_to_contract =
+                    StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
                 match tenure
                     .mem_pool
                     .submit(
@@ -2184,11 +2179,8 @@ fn mempool_errors() {
                     &send_to,
                     456,
                 );
-                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_xfer_invalid[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client
                     .post(&path)
@@ -2228,11 +2220,8 @@ fn mempool_errors() {
                     &send_to,
                     456,
                 );
-                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_xfer_invalid[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client
                     .post(&path)
@@ -2264,11 +2253,8 @@ fn mempool_errors() {
                     &send_to,
                     456,
                 );
-                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_xfer_invalid[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client
                     .post(&path)
@@ -2311,11 +2297,8 @@ fn mempool_errors() {
                     &send_to,
                     1000,
                 );
-                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_xfer_invalid[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let tx_xfer_invalid_tx =
+                    StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client
                     .post(&path)

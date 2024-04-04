@@ -28,7 +28,6 @@ use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::types::{Address, StacksEpochId};
@@ -645,11 +644,8 @@ fn fix_to_pox_contract() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut tx_bytes.as_slice(),
-                StacksEpochId::Epoch24,
-            )
-            .unwrap();
+            let parsed =
+                StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr
                 && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2

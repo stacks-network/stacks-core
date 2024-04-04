@@ -31,7 +31,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlockHeader};
-use crate::stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use crate::stacks_common::codec::StacksMessageCodec;
 use crate::stacks_common::types::StacksEpochId;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
@@ -218,10 +218,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let Some(block_bytes) = data else {
             return Ok(None);
         };
-        let block = NakamotoBlock::consensus_deserialize_with_epoch(
-            &mut block_bytes.as_slice(),
-            StacksEpochId::latest(),
-        )?;
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
         if &block.header.consensus_hash != consensus_hash {
             error!(
                 "Staging DB corruption: expected {}, got {}",
@@ -258,10 +255,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let Some(block_bytes) = res else {
             return Ok(None);
         };
-        let block = NakamotoBlock::consensus_deserialize_with_epoch(
-            &mut block_bytes.as_slice(),
-            StacksEpochId::latest(),
-        )?;
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
         if &block.header.block_id() != index_block_hash {
             error!(
                 "Staging DB corruption: expected {}, got {}",
@@ -311,7 +305,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         self
             .query_row_and_then(query, NO_PARAMS, |row| {
                 let data: Vec<u8> = row.get("data")?;
-                let block = NakamotoBlock::consensus_deserialize_with_epoch(&mut data.as_slice(), StacksEpochId::latest())?;
+                let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
                 Ok(Some((
                     block,
                     u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),

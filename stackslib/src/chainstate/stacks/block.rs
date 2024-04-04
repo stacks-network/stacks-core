@@ -21,8 +21,8 @@ use std::io::{Read, Write};
 
 use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch,
-    Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
+    MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
@@ -312,22 +312,13 @@ impl StacksMessageCodec for StacksBlock {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StacksBlock, codec_error> {
-        panic!("StacksBlock should be deserialized with consensus_deserialize_with_epoch instead")
-    }
-}
-
-impl DeserializeWithEpoch for StacksBlock {
-    fn consensus_deserialize_with_epoch<R: Read>(
-        fd: &mut R,
-        epoch_id: StacksEpochId,
-    ) -> Result<StacksBlock, codec_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlock, codec_error> {
         // NOTE: don't worry about size clamps here; do that when receiving the data from the peer
         // network.  This code assumes that the block will be small enough.
         let header: StacksBlockHeader = read_next(fd)?;
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
+            read_next_at_most(&mut bound_read, u32::MAX)
         }?;
 
         // there must be at least one transaction (the coinbase)
@@ -859,65 +850,7 @@ impl StacksMessageCodec for StacksMicroblock {
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
             // The latest epoch where StacksMicroblock exist is Epoch25
-            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::Epoch25)
-        }?;
-
-        if txs.len() == 0 {
-            warn!("Invalid microblock: zero transactions");
-            return Err(codec_error::DeserializeError(
-                "Invalid microblock: zero transactions".to_string(),
-            ));
-        }
-
-        if !StacksBlock::validate_transactions_unique(&txs) {
-            warn!("Invalid microblock: duplicate transaction");
-            return Err(codec_error::DeserializeError(
-                "Invalid microblock: duplicate transaction".to_string(),
-            ));
-        }
-
-        if !StacksBlock::validate_anchor_mode(&txs, false) {
-            warn!("Invalid microblock: found on-chain-only transaction");
-            return Err(codec_error::DeserializeError(
-                "Invalid microblock: found on-chain-only transaction".to_string(),
-            ));
-        }
-
-        // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
-
-        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-        let tx_merkle_root = merkle_tree.root();
-
-        if tx_merkle_root != header.tx_merkle_root {
-            return Err(codec_error::DeserializeError(
-                "Invalid microblock: tx Merkle root mismatch".to_string(),
-            ));
-        }
-
-        if !StacksBlock::validate_coinbase(&txs, false) {
-            warn!("Invalid microblock: found coinbase transaction");
-            return Err(codec_error::DeserializeError(
-                "Invalid microblock: found coinbase transaction".to_string(),
-            ));
-        }
-
-        Ok(StacksMicroblock { header, txs })
-    }
-}
-
-// This implementation is used for testing purposes, StacksMicroblock won't be used in Epoch 3.0
-impl DeserializeWithEpoch for StacksMicroblock {
-    fn consensus_deserialize_with_epoch<R: Read>(
-        fd: &mut R,
-        epoch_id: StacksEpochId,
-    ) -> Result<StacksMicroblock, codec_error> {
-        // NOTE: maximum size must be checked elsewhere!
-        let header: StacksMicroblockHeader = read_next(fd)?;
-        let txs: Vec<StacksTransaction> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            // The latest epoch where StacksMicroblock exist is Epoch24
-            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
+            read_next_at_most(&mut bound_read, u32::MAX)
         }?;
 
         if txs.len() == 0 {
@@ -1227,11 +1160,7 @@ mod test {
             block_bytes.len(),
             block.txs.len()
         );
-        check_codec_and_corruption_with_epoch::<StacksBlock>(
-            &block,
-            &block_bytes,
-            StacksEpochId::latest(),
-        );
+        check_codec_and_corruption::<StacksBlock>(&block, &block_bytes);
     }
 
     #[test]
@@ -1314,11 +1243,7 @@ mod test {
                 txs: txs,
             };
 
-            check_codec_and_corruption_with_epoch::<StacksMicroblock>(
-                &mblock,
-                &block_bytes,
-                StacksEpochId::latest(),
-            );
+            check_codec_and_corruption::<StacksMicroblock>(&mblock, &block_bytes);
         }
     }
 
@@ -1910,25 +1835,19 @@ mod test {
                     let mut bytes: Vec<u8> = vec![];
                     tx.consensus_serialize(&mut bytes).unwrap();
 
-                    StacksTransaction::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id)
-                        .unwrap();
+                    StacksTransaction::consensus_deserialize(&mut &bytes[..]).unwrap();
                 }
 
-                StacksBlock::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id).unwrap();
+                StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap();
             } else {
                 for tx in txs.iter() {
                     let mut bytes: Vec<u8> = vec![];
                     tx.consensus_serialize(&mut bytes).unwrap();
 
-                    let _ = StacksTransaction::consensus_deserialize_with_epoch(
-                        &mut &bytes[..],
-                        *epoch_id,
-                    )
-                    .unwrap_err();
+                    let _ = StacksTransaction::consensus_deserialize(&mut &bytes[..]).unwrap_err();
                 }
 
-                let _ = StacksBlock::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id)
-                    .unwrap_err();
+                let _ = StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap_err();
 
                 assert!(!StacksBlock::validate_transactions_static_epoch(
                     &txs, *epoch_id, false,

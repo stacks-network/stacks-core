@@ -18,7 +18,6 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
-use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
@@ -231,11 +230,7 @@ fn test_exact_block_costs() {
             .filter_map(|tx| {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_bytes[..],
-                    StacksEpochId::Epoch2_05,
-                )
-                .unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
                 if let TransactionPayload::ContractCall(ref cc) = &parsed.payload {
                     if cc.function_name.as_str() == "db-get2" {
                         Some(parsed)
@@ -425,11 +420,7 @@ fn test_dynamic_db_method_costs() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::Epoch2_05,
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
 
             if let TransactionPayload::ContractCall(ref cc) = parsed.payload {
                 assert_eq!(
@@ -1172,11 +1163,7 @@ fn bigger_microblock_streams_in_2_05() {
                     continue;
                 }
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_bytes[..],
-                    StacksEpochId::Epoch2_05,
-                )
-                .unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
                 if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                     if tsc.name.to_string().find("costs-2").is_some() {
                         in_205 = true;

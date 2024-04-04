@@ -32,8 +32,8 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAM
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
-    read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch, Error as CodecError,
-    StacksMessageCodec, MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
+    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
+    MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -3351,21 +3351,12 @@ impl StacksMessageCodec for NakamotoBlock {
     }
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        panic!("NakamotoBlock should be deserialized with consensus_deserialize_with_epoch instead")
-    }
-}
-
-impl DeserializeWithEpoch for NakamotoBlock {
-    fn consensus_deserialize_with_epoch<R: std::io::Read>(
-        fd: &mut R,
-        epoch_id: StacksEpochId,
-    ) -> Result<NakamotoBlock, CodecError> {
         let header: NakamotoBlockHeader = read_next(fd)?;
 
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
             // The latest epoch where StacksMicroblock exist is Epoch25
-            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
+            read_next_at_most(&mut bound_read, u32::MAX)
         }?;
 
         // all transactions are unique

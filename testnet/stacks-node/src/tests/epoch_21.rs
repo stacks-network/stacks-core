@@ -26,7 +26,6 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
 use stacks::util_lib::boot::boot_code_id;
-use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
@@ -385,10 +384,9 @@ fn transition_adds_burn_block_height() {
     );
     submit_tx(&http_origin, &tx);
 
-    let cc_txid =
-        StacksTransaction::consensus_deserialize_with_epoch(&mut &tx[..], StacksEpochId::Epoch21)
-            .unwrap()
-            .txid();
+    let cc_txid = StacksTransaction::consensus_deserialize(&mut &tx[..])
+        .unwrap()
+        .txid();
 
     // mine it
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -407,11 +405,7 @@ fn transition_adds_burn_block_height() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::Epoch21,
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if parsed.txid() == cc_txid {
                 // check events for this block
                 for event in events.iter() {
@@ -1227,12 +1221,9 @@ fn transition_adds_get_pox_addr_recipients() {
         "test-get-pox-addrs",
         &[Value::UInt((stack_sort_height).into())],
     );
-    let cc_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &cc_tx[..],
-        StacksEpochId::Epoch21,
-    )
-    .unwrap()
-    .txid();
+    let cc_txid = StacksTransaction::consensus_deserialize(&mut &cc_tx[..])
+        .unwrap()
+        .txid();
 
     submit_tx(&http_origin, &cc_tx);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -1251,11 +1242,7 @@ fn transition_adds_get_pox_addr_recipients() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::Epoch21,
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if parsed.txid() == cc_txid {
                 // check events for this block
                 for (_i, event) in events.iter().enumerate() {
@@ -1985,11 +1972,7 @@ fn transition_empty_blocks() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::Epoch21,
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name == "pox-2".into() {
                     have_pox2 = true;
@@ -4910,11 +4893,7 @@ fn trait_invocation_cross_epoch() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::Epoch21,
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if interesting_txids.contains(&parsed.txid().to_string()) {
                 eprintln!(
                     "{} => {}",

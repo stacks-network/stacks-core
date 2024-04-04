@@ -18,7 +18,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName};
-use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
 };
@@ -161,11 +160,7 @@ fn test_stream_blocks() {
     }
 
     // should decode back into the block
-    let staging_block = StacksBlock::consensus_deserialize_with_epoch(
-        &mut &all_block_bytes[..],
-        StacksEpochId::Epoch25,
-    )
-    .unwrap();
+    let staging_block = StacksBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
     assert_eq!(staging_block, block);
 
     // accept it
@@ -190,10 +185,6 @@ fn test_stream_blocks() {
     }
 
     // should decode back into the block
-    let staging_block = StacksBlock::consensus_deserialize_with_epoch(
-        &mut &all_block_bytes[..],
-        StacksEpochId::Epoch25,
-    )
-    .unwrap();
+    let staging_block = StacksBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
     assert_eq!(staging_block, block);
 }

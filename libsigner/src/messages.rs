@@ -43,8 +43,8 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_at_most_with_epoch, read_next_exact, write_next,
-    Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
+    StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -366,7 +366,7 @@ impl StacksMessageCodec for SignerMessage {
                 // I don't think these messages are stored on the blockchain, so `StacksEpochId::latest()` should be fine
                 let transactions: Vec<StacksTransaction> = {
                     let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-                    read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::latest())
+                    read_next_at_most(&mut bound_read, u32::MAX)
                 }?;
                 SignerMessage::Transactions(transactions)
             }
@@ -1224,7 +1224,7 @@ impl StacksMessageCodec for RejectCode {
                 // I don't think these messages are stored on the blockchain, so `StacksEpochId::latest()` should be fine
                 let transactions: Vec<StacksTransaction> = {
                     let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-                    read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::latest())
+                    read_next_at_most(&mut bound_read, u32::MAX)
                 }?;
                 RejectCode::MissingTransactions(transactions)
             }
