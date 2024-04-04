@@ -126,6 +126,8 @@ pub enum Command {
 /// The Signer state
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
+    /// The signer is uninitialized and should read stackerdb to restore state
+    Uninitialized,
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
@@ -215,6 +217,29 @@ impl Signer {
     fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
         self.coordinator_selector.get_coordinator()
     }
+    /// Read stackerdb messages in case the signer was started late or restarted and missed incoming messages
+    pub fn read_stackerdb_messages(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        // TODO: should load DKG shares first and potentially check dkg results before attempting to load any other state.
+        // This should be done on initialization and not on ever read right when a signer is first created. This call will then
+        // be called when state is equal to some sort of "in between" state where it has loaded its DKG shares if they exist
+        // but not yet if it missed messages and needs to respond to them.
+        // See https://github.com/stacks-network/stacks-core/issues/4595
+        if self.state != State::Uninitialized {
+            // We already have state. Do not load it again.
+            return Ok(());
+        }
+        let packets = self.stackerdb.get_all_packets(&self.signer_slot_ids)?;
+        self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
+        if self.state == State::Uninitialized {
+            self.state = State::Idle;
+        }
+        Ok(())
+    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -290,7 +315,7 @@ impl From<SignerConfig> for Signer {
         Self {
             coordinator,
             state_machine,
-            state: State::Idle,
+            state: State::Uninitialized,
             commands: VecDeque::new(),
             stackerdb,
             mainnet: signer_config.mainnet,
@@ -437,6 +462,10 @@ impl Signer {
         current_reward_cycle: u64,
     ) {
         match &self.state {
+            State::Uninitialized => {
+                // We cannot process any commands until we have restored our state
+                warn!("{self}: Cannot process commands until state is restored. Waiting...");
+            }
             State::Idle => {
                 let Some(command) = self.commands.front() else {
                     debug!("{self}: Nothing to process. Waiting for command...");

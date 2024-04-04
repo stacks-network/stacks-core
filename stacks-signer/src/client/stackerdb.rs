@@ -23,6 +23,7 @@ use slog::{slog_debug, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
+use wsts::net::Packet;
 
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
@@ -179,45 +180,83 @@ impl StackerDB {
         }
     }
 
-    /// Get the transactions from stackerdb for the signers
-    fn get_transactions(
-        transactions_session: &mut StackerDBSession,
-        signer_ids: &[SignerSlotID],
-    ) -> Result<Vec<StacksTransaction>, ClientError> {
+    /// Get all signer messages from stackerdb for the given slot IDs
+    fn get_messages(
+        session: &mut StackerDBSession,
+        slot_ids: &[u32],
+    ) -> Result<Vec<SignerMessage>, ClientError> {
+        let mut messages = vec![];
         let send_request = || {
-            transactions_session
-                .get_latest_chunks(&signer_ids.iter().map(|id| id.0).collect::<Vec<_>>())
+            session
+                .get_latest_chunks(slot_ids)
                 .map_err(backoff::Error::transient)
         };
         let chunk_ack = retry_with_exponential_backoff(send_request)?;
-        let mut transactions = Vec::new();
         for (i, chunk) in chunk_ack.iter().enumerate() {
-            let signer_id = *signer_ids
-                .get(i)
-                .expect("BUG: retrieved an unequal amount of chunks to requested chunks");
             let Some(data) = chunk else {
                 continue;
             };
             let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
                 if !data.is_empty() {
                     warn!("Failed to deserialize chunk data into a SignerMessage");
-                    debug!(
-                        "signer #{signer_id}: Failed chunk ({}): {data:?}",
-                        &data.len(),
-                    );
+                    debug!("slot #{i}: Failed chunk ({}): {data:?}", &data.len(),);
                 }
                 continue;
             };
+            messages.push(message);
+        }
+        Ok(messages)
+    }
 
+    /// Get all wsts packets from stackerdb for each of the given signer IDs
+    pub fn get_all_packets(
+        &mut self,
+        signer_ids: &[SignerSlotID],
+    ) -> Result<Vec<Packet>, ClientError> {
+        let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
+        let mut packets = Vec::new();
+        let packet_slots = &[
+            MessageSlotID::DkgBegin,
+            MessageSlotID::DkgPrivateBegin,
+            MessageSlotID::DkgEndBegin,
+            MessageSlotID::DkgEnd,
+            MessageSlotID::DkgPublicShares,
+            MessageSlotID::DkgPrivateShares,
+            MessageSlotID::NonceRequest,
+            MessageSlotID::NonceResponse,
+            MessageSlotID::SignatureShareRequest,
+            MessageSlotID::SignatureShareResponse,
+        ];
+        for packet_slot in packet_slots {
+            let session = self
+                .signers_message_stackerdb_sessions
+                .get_mut(packet_slot)
+                .ok_or(ClientError::NotConnected)?;
+            let messages = Self::get_messages(session, &slot_ids)?;
+            for message in messages {
+                let SignerMessage::Packet(packet) = message else {
+                    warn!("Found an unexpected type in a packet slot");
+                    continue;
+                };
+                packets.push(packet);
+            }
+        }
+        Ok(packets)
+    }
+
+    /// Get the transactions from stackerdb for the signers
+    fn get_transactions(
+        transactions_session: &mut StackerDBSession,
+        signer_ids: &[SignerSlotID],
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
+        let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
+        let messages = Self::get_messages(transactions_session, &slot_ids)?;
+        let mut transactions = vec![];
+        for message in messages {
             let SignerMessage::Transactions(chunk_transactions) = message else {
                 warn!("Signer wrote an unexpected type to the transactions slot");
                 continue;
             };
-            debug!(
-                "Retrieved {} transactions from signer ID {}.",
-                chunk_transactions.len(),
-                signer_id
-            );
             transactions.extend(chunk_transactions);
         }
         Ok(transactions)
