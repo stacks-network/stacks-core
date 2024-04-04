@@ -1317,7 +1317,7 @@ impl Signer {
             // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
             let account_nonce = stacks_client.get_account_nonce(signer_address).unwrap_or(0);
-            let old_transactions = self.stackerdb.get_current_transactions_with_retry()?;
+            let old_transactions = self.stackerdb.get_current_transactions()?;
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
                 // We should not consider other signer transactions and should ignore invalid transaction versions
