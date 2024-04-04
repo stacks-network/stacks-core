@@ -901,10 +901,10 @@
           (total-ustx (+ (get total-ustx existing-total) amount-ustx)))
 
           ;; must be stackable
-          (try! (minimal-can-stack-stx pox-addr total-ustx reward-cycle u1))
+          (try! (minimal-can-stack-stx pox-addr increased-ustx reward-cycle u1))
 
           ;; new total must exceed the stacking minimum
-          (asserts! (<= (get-stacking-minimum) total-ustx)
+          (asserts! (<= (get-stacking-minimum) increased-ustx)
                     (err ERR_STACKING_THRESHOLD_NOT_MET))
 
           ;; there must *not* be a stacker entry (since this is a delegator)
