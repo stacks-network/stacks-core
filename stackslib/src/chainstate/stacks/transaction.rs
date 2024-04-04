@@ -22,9 +22,7 @@ use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, SymbolicExpressionType, Value};
-use stacks_common::codec::{
-    read_next, write_next, DeserializeWithEpoch, Error as codec_error, StacksMessageCodec,
-};
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
@@ -613,7 +611,6 @@ impl StacksTransaction {
 
     pub fn consensus_deserialize_with_len<R: Read>(
         fd: &mut R,
-        epoch_id: StacksEpochId,
     ) -> Result<(StacksTransaction, u64), codec_error> {
         let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN.into());
         let fd = &mut bound_read;
@@ -699,13 +696,6 @@ impl StacksTransaction {
             payload,
         };
 
-        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch_id, false) {
-            warn!("Invalid tx: target epoch is not activated");
-            return Err(codec_error::DeserializeError(
-                "Failed to parse transaction: target epoch is not activated".to_string(),
-            ));
-        }
-
         Ok((tx, fd.num_read()))
     }
 
@@ -742,17 +732,8 @@ impl StacksMessageCodec for StacksTransaction {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StacksTransaction, codec_error> {
-        panic!("StacksTransaction should be deserialized with consensus_deserialize_with_epoch instead")
-    }
-}
-
-impl DeserializeWithEpoch for StacksTransaction {
-    fn consensus_deserialize_with_epoch<R: Read>(
-        fd: &mut R,
-        epoch_id: StacksEpochId,
-    ) -> Result<StacksTransaction, codec_error> {
-        StacksTransaction::consensus_deserialize_with_len(fd, epoch_id).map(|(result, _)| result)
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, codec_error> {
+        StacksTransaction::consensus_deserialize_with_len(fd).map(|(result, _)| result)
     }
 }
 
@@ -1360,9 +1341,7 @@ mod test {
         StacksPublicKey as PubKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *, *,
     };
-    use crate::net::codec::test::{
-        check_codec_and_corruption, check_codec_and_corruption_with_epoch,
-    };
+    use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
     use crate::net::*;
 
@@ -1974,10 +1953,7 @@ mod test {
             // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
             let mut reader = LogReader::from_reader(&mut cursor);
-            match StacksTransaction::consensus_deserialize_with_epoch(
-                &mut reader,
-                StacksEpochId::latest(),
-            ) {
+            match StacksTransaction::consensus_deserialize(&mut reader) {
                 Ok(corrupt_tx) => {
                     let mut corrupt_tx_bytes = vec![];
                     corrupt_tx
@@ -3907,11 +3883,7 @@ mod test {
             test_debug!("---------");
             test_debug!("text tx bytes:\n{}", &to_hex(&tx_bytes));
 
-            check_codec_and_corruption_with_epoch::<StacksTransaction>(
-                &tx,
-                &tx_bytes,
-                StacksEpochId::latest(),
-            );
+            check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
         }
     }
 

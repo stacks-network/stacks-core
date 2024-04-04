@@ -36,7 +36,7 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
     self, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
@@ -817,9 +817,7 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
 
     if res.status().is_success() {
         let res: Vec<u8> = res.bytes().unwrap().to_vec();
-        let block =
-            StacksBlock::consensus_deserialize_with_epoch(&mut &res[..], StacksEpochId::latest())
-                .unwrap();
+        let block = StacksBlock::consensus_deserialize(&mut &res[..]).unwrap();
         Some(block)
     } else {
         None
@@ -858,11 +856,7 @@ pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
-    let block = StacksBlock::consensus_deserialize_with_epoch(
-        &mut block_bytes.as_ref(),
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
     (stacks_tip_consensus_hash, block)
 }
@@ -1419,11 +1413,7 @@ fn deep_contract() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = parsed.payload {
                 included_smart_contract = true;
             }
@@ -1636,11 +1626,7 @@ fn liquid_ustx_integration() {
             continue;
         }
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-            &mut &tx_bytes[..],
-            StacksEpochId::latest(),
-        )
-        .unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "execute" {
@@ -3411,18 +3397,12 @@ fn microblock_fork_poison_integration_test() {
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
-    let unconfirmed_tx = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &unconfirmed_tx_bytes[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let unconfirmed_tx =
+        StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
     let second_unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&second_spender_sk, 0, 1000, &recipient.into(), 1500);
-    let second_unconfirmed_tx = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &second_unconfirmed_tx_bytes[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let second_unconfirmed_tx =
+        StacksTransaction::consensus_deserialize(&mut &second_unconfirmed_tx_bytes[..]).unwrap();
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
@@ -3537,11 +3517,7 @@ fn microblock_fork_poison_integration_test() {
                     continue;
                 }
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_bytes[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
 
                 if let TransactionPayload::PoisonMicroblock(..) = &parsed.payload {
                     found = true;
@@ -3679,18 +3655,12 @@ fn microblock_integration_test() {
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
-    let unconfirmed_tx = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &unconfirmed_tx_bytes[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let unconfirmed_tx =
+        StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
     let second_unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&second_spender_sk, 0, 1000, &recipient.into(), 1500);
-    let second_unconfirmed_tx = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &second_unconfirmed_tx_bytes[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let second_unconfirmed_tx =
+        StacksTransaction::consensus_deserialize(&mut &second_unconfirmed_tx_bytes[..]).unwrap();
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
@@ -4374,11 +4344,7 @@ fn size_check_integration_test() {
                     "large-0",
                     &giant_contract,
                 );
-                let parsed_tx = StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx[..],
-                    StacksEpochId::latest(),
-                )
-                .unwrap();
+                let parsed_tx = StacksTransaction::consensus_deserialize(&mut &tx[..]).unwrap();
                 debug!("Mine transaction {} in a microblock", &parsed_tx.txid());
                 tx
             }
@@ -4680,11 +4646,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
@@ -4886,11 +4848,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
@@ -5065,11 +5023,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
@@ -5348,11 +5302,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             eprintln!("tx: {:?}", &parsed);
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
@@ -5672,11 +5622,7 @@ fn cost_voting_integration() {
             continue;
         }
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-            &mut &tx_bytes[..],
-            StacksEpochId::latest(),
-        )
-        .unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "execute-2" {
@@ -5725,11 +5671,7 @@ fn cost_voting_integration() {
             continue;
         }
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-            &mut &tx_bytes[..],
-            StacksEpochId::latest(),
-        )
-        .unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "confirm-miners" {
@@ -5778,11 +5720,7 @@ fn cost_voting_integration() {
             continue;
         }
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-            &mut &tx_bytes[..],
-            StacksEpochId::latest(),
-        )
-        .unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "confirm-miners" {
@@ -5827,11 +5765,7 @@ fn cost_voting_integration() {
             continue;
         }
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-            &mut &tx_bytes[..],
-            StacksEpochId::latest(),
-        )
-        .unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "execute-2" {
@@ -7068,11 +7002,7 @@ fn pox_integration_test() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
                 eprintln!("{}", contract_call.function_name.as_str());
                 if contract_call.function_name.as_str() == "stack-stx" {
@@ -9198,16 +9128,8 @@ fn use_latest_tip_integration_test() {
     let publish_tx =
         make_contract_publish_microblock_only(&spender_sk, 1, 1000, "caller", caller_src);
 
-    let tx_1 = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &transfer_tx[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
-    let tx_2 = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &publish_tx[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let tx_1 = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
+    let tx_2 = StacksTransaction::consensus_deserialize(&mut &publish_tx[..]).unwrap();
     let vec_tx = vec![tx_1, tx_2];
     let privk =
         find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
@@ -9554,12 +9476,9 @@ fn test_problematic_txs_are_not_stored() {
         "test-edge",
         &tx_edge_body,
     );
-    let tx_edge_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_edge[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_edge_txid = StacksTransaction::consensus_deserialize(&mut &tx_edge[..])
+        .unwrap()
+        .txid();
 
     // something just over the limit of the expression depth
     let exceeds_repeat_factor = edge_repeat_factor + 1;
@@ -9574,12 +9493,9 @@ fn test_problematic_txs_are_not_stored() {
         "test-exceeds",
         &tx_exceeds_body,
     );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_exceeds[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
+        .unwrap()
+        .txid();
 
     // something stupidly high over the expression depth
     let high_repeat_factor = 128 * 1024;
@@ -9594,12 +9510,9 @@ fn test_problematic_txs_are_not_stored() {
         "test-high",
         &tx_high_body,
     );
-    let tx_high_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_high[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
+        .unwrap()
+        .txid();
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9813,12 +9726,9 @@ fn test_problematic_blocks_are_not_mined() {
         "test-exceeds",
         &tx_exceeds_body,
     );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_exceeds[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
+        .unwrap()
+        .txid();
 
     // something stupidly high over the expression depth
     let high_repeat_factor = 3200;
@@ -9833,12 +9743,9 @@ fn test_problematic_blocks_are_not_mined() {
         "test-high",
         &tx_high_body,
     );
-    let tx_high_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_high[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
+        .unwrap()
+        .txid();
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9910,11 +9817,7 @@ fn test_problematic_blocks_are_not_mined() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_exceeds_txid {
                     found = true;
@@ -10011,11 +9914,7 @@ fn test_problematic_blocks_are_not_mined() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 assert!(parsed.txid() != tx_high_txid);
             }
@@ -10185,12 +10084,9 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         "test-exceeds",
         &tx_exceeds_body,
     );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_exceeds[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
+        .unwrap()
+        .txid();
 
     let high_repeat_factor = 70;
     let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
@@ -10204,12 +10100,9 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         "test-high",
         &tx_high_body,
     );
-    let tx_high_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_high[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
+        .unwrap()
+        .txid();
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -10281,11 +10174,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_exceeds_txid {
                     found = true;
@@ -10411,11 +10300,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_high_txid {
                     bad_block_height = Some(block.get("block_height").unwrap().as_u64().unwrap());
@@ -10598,12 +10483,9 @@ fn test_problematic_microblocks_are_not_mined() {
         "test-exceeds",
         &tx_exceeds_body,
     );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_exceeds[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
+        .unwrap()
+        .txid();
 
     // something stupidly high over the expression depth
     let high_repeat_factor =
@@ -10619,12 +10501,9 @@ fn test_problematic_microblocks_are_not_mined() {
         "test-high",
         &tx_high_body,
     );
-    let tx_high_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_high[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
+        .unwrap()
+        .txid();
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -10703,11 +10582,7 @@ fn test_problematic_microblocks_are_not_mined() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_exceeds_txid {
                     found = true;
@@ -10816,11 +10691,7 @@ fn test_problematic_microblocks_are_not_mined() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 assert_ne!(parsed.txid(), tx_high_txid);
             }
@@ -10998,12 +10869,9 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         "test-exceeds",
         &tx_exceeds_body,
     );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_exceeds[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
+        .unwrap()
+        .txid();
 
     // greatly exceeds AST depth, but is still mineable without a stack overflow
     let high_repeat_factor =
@@ -11019,12 +10887,9 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         "test-high",
         &tx_high_body,
     );
-    let tx_high_txid = StacksTransaction::consensus_deserialize_with_epoch(
-        &mut &tx_high[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap()
-    .txid();
+    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
+        .unwrap()
+        .txid();
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -11099,11 +10964,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_exceeds_txid {
                     found = true;
@@ -11232,11 +11093,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_bytes[..],
-                StacksEpochId::latest(),
-            )
-            .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
                 if parsed.txid() == tx_high_txid {
                     bad_block_id = {

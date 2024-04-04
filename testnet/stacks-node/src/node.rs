@@ -921,7 +921,7 @@ impl Node {
                 &metadata.anchored_header.block_hash(),
             )
             .unwrap();
-            StacksChainState::consensus_load_with_epoch(&block_path, stacks_epoch.epoch_id).unwrap()
+            StacksChainState::consensus_load(&block_path).unwrap()
         };
 
         let chain_tip = ChainTip {

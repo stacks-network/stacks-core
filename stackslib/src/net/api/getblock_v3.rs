@@ -20,7 +20,7 @@ use std::{fs, io};
 use regex::{Captures, Regex};
 use rusqlite::Connection;
 use serde::de::Error as de_Error;
-use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
@@ -318,10 +318,7 @@ impl StacksHttpResponse {
 
         // contents will be raw bytes
         let block_bytes: Vec<u8> = contents.try_into()?;
-        let block = NakamotoBlock::consensus_deserialize_with_epoch(
-            &mut &block_bytes[..],
-            StacksEpochId::latest(),
-        )?;
+        let block = NakamotoBlock::consensus_deserialize(&mut &block_bytes[..])?;
 
         Ok(block)
     }

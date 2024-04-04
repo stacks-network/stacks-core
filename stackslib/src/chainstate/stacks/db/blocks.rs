@@ -38,7 +38,7 @@ use rusqlite::{Connection, DatabaseName, Error as sqlite_error, OptionalExtensio
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{read_next, write_next, DeserializeWithEpoch, MAX_MESSAGE_LEN};
+use stacks_common::codec::{read_next, write_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
 };
@@ -560,28 +560,6 @@ impl StacksChainState {
         Ok(inst)
     }
 
-    pub fn consensus_load_with_epoch<T: DeserializeWithEpoch>(
-        path: &str,
-        epoch_id: StacksEpochId,
-    ) -> Result<T, Error> {
-        let mut fd = fs::OpenOptions::new()
-            .read(true)
-            .write(false)
-            .open(path)
-            .map_err(|e| {
-                if e.kind() == io::ErrorKind::NotFound {
-                    Error::DBError(db_error::NotFoundError)
-                } else {
-                    Error::DBError(db_error::IOError(e))
-                }
-            })?;
-
-        let mut bound_reader = BoundReader::from_reader(&mut fd, MAX_MESSAGE_LEN as u64);
-        let inst = T::consensus_deserialize_with_epoch(&mut bound_reader, epoch_id)
-            .map_err(Error::CodecError)?;
-        Ok(inst)
-    }
-
     /// Do we have a stored a block in the chunk store?
     /// Will be true even if it's invalid.
     pub fn has_block_indexed(
@@ -871,8 +849,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let block: StacksBlock =
-            StacksChainState::consensus_load_with_epoch(&block_path, epoch_id)?;
+        let block: StacksBlock = StacksChainState::consensus_load(&block_path)?;
         Ok(Some(block))
     }
 
@@ -1077,10 +1054,7 @@ impl StacksChainState {
                     return Ok(None);
                 }
 
-                match StacksBlock::consensus_deserialize_with_epoch(
-                    &mut &staging_block.block_data[..],
-                    StacksEpochId::Epoch25,
-                ) {
+                match StacksBlock::consensus_deserialize(&mut &staging_block.block_data[..]) {
                     Ok(block) => Ok(Some(block)),
                     Err(e) => Err(Error::CodecError(e)),
                 }
@@ -6002,11 +5976,8 @@ impl StacksChainState {
         epoch_id: StacksEpochId,
     ) -> Result<StacksBlock, Error> {
         let block = {
-            StacksBlock::consensus_deserialize_with_epoch(
-                &mut &next_staging_block.block_data[..],
-                epoch_id,
-            )
-            .map_err(Error::CodecError)?
+            StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
+                .map_err(Error::CodecError)?
         };
 
         let block_hash = block.block_hash();

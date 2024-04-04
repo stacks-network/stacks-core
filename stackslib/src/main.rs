@@ -76,7 +76,7 @@ use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use stacks_common::codec::{read_next, DeserializeWithEpoch, StacksMessageCodec};
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
@@ -197,7 +197,7 @@ fn main() {
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
         let epoch_id = parse_input_epoch(3);
 
-        let tx = StacksTransaction::consensus_deserialize_with_epoch(&mut debug_cursor, epoch_id)
+        let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
             .map_err(|e| {
                 eprintln!("Failed to decode transaction: {:?}", &e);
                 eprintln!("Bytes consumed:");
@@ -226,15 +226,12 @@ fn main() {
             fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
         let epoch_id = parse_input_epoch(3);
 
-        let block = StacksBlock::consensus_deserialize_with_epoch(
-            &mut io::Cursor::new(&block_data),
-            epoch_id,
-        )
-        .map_err(|_e| {
-            eprintln!("Failed to decode block");
-            process::exit(1);
-        })
-        .unwrap();
+        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+            .map_err(|_e| {
+                eprintln!("Failed to decode block");
+                process::exit(1);
+            })
+            .unwrap();
 
         println!("{:#?}", &block);
         process::exit(0);
@@ -300,15 +297,13 @@ fn main() {
 
         let epoch_id = parse_input_epoch(4);
 
-        let block = StacksBlock::consensus_deserialize_with_epoch(
-            &mut io::Cursor::new(&block_info.block_data),
-            epoch_id,
-        )
-        .map_err(|_e| {
-            eprintln!("Failed to decode block");
-            process::exit(1);
-        })
-        .unwrap();
+        let block =
+            StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_info.block_data))
+                .map_err(|_e| {
+                    eprintln!("Failed to decode block");
+                    process::exit(1);
+                })
+                .unwrap();
 
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
@@ -1460,9 +1455,7 @@ simulating a miner.
                     let raw_tx_hex = item.as_str().unwrap();
                     let raw_tx_bytes = hex_bytes(&raw_tx_hex[2..]).unwrap();
                     let mut cursor = io::Cursor::new(&raw_tx_bytes);
-                    let raw_tx =
-                        StacksTransaction::consensus_deserialize_with_epoch(&mut cursor, epoch_id)
-                            .unwrap();
+                    let raw_tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
                     if found_block_height {
                         if submit_tx_count >= mine_max_txns {
                             info!("Reached mine_max_txns {}", submit_tx_count);

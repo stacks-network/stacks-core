@@ -35,7 +35,7 @@ use stacks::chainstate::stacks::{
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::util_lib::strings::StacksString;
 use stacks_common::address::AddressHashMode;
@@ -472,9 +472,7 @@ pub fn select_transactions_where(
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed =
-                StacksTransaction::consensus_deserialize_with_epoch(&mut &tx_bytes[..], epoch_id)
-                    .unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if test_fn(&parsed) {
                 result.push(parsed);
             }

@@ -18,7 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName};
-use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
 };
@@ -183,10 +183,6 @@ fn test_stream_nakamoto_blocks() {
         all_block_bytes.append(&mut next_bytes);
     }
 
-    let staging_block = NakamotoBlock::consensus_deserialize_with_epoch(
-        &mut &all_block_bytes[..],
-        StacksEpochId::latest(),
-    )
-    .unwrap();
+    let staging_block = NakamotoBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
     assert_eq!(staging_block.header.block_id(), nakamoto_tip_block_id);
 }
