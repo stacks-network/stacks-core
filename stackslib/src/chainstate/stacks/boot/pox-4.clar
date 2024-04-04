@@ -873,7 +873,11 @@
 ;;
 (define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                            (reward-cycle uint)
-                                           (reward-cycle-index uint))
+                                           (reward-cycle-index uint)
+                                           (signer-sig (optional (buff 65)))
+                                           (signer-key (buff 33))
+                                           (max-amount uint)
+                                           (auth-id uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
@@ -912,14 +916,19 @@
           (asserts! (is-eq pox-addr (get pox-addr existing-entry))
                     (err ERR_DELEGATION_WRONG_REWARD_SLOT))
 
+          ;; Validate that amount is less than or equal to `max-amount`
+          (asserts! (>= max-amount increased-ustx) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+
+          ;; Verify signature from delegate that allows this sender for this cycle
+          (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-increase" u1 signer-sig signer-key increased-ustx max-amount auth-id))
+
           ;; update the pox-address list -- bump the total-ustx
           (map-set reward-cycle-pox-address-list
                    { reward-cycle: reward-cycle, index: reward-cycle-index }
                    { pox-addr: pox-addr,
                      total-ustx: increased-ustx,
                      stacker: none,
-                     ;; TODO: this must be authorized with a signature, or tx-sender allowance!
-                     signer: (get signer existing-entry) })
+                     signer: signer-key })
 
           ;; update the total ustx in this cycle
           (map-set reward-cycle-total-stacked
