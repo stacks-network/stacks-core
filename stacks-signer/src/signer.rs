@@ -28,7 +28,9 @@ use libsigner::{
     BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
     SignerMessage,
 };
+use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
@@ -38,6 +40,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
 use wsts::curve::keys::PublicKey;
 use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{
@@ -219,7 +222,7 @@ impl Signer {
 
 impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb = StackerDB::from(&signer_config);
 
         let num_signers = signer_config
             .signer_entries
@@ -275,6 +278,20 @@ impl From<SignerConfig> for Signer {
             signer_config.ecdsa_private_key,
             signer_config.signer_entries.public_keys,
         );
+
+        if let Some(encrypted_state) = stackerdb
+            .get_encrypted_signer_state(signer_config.signer_slot_id.into())
+            .expect("Failed to load encrypted signer state from StackerDB")
+        {
+            let serialized_state = decrypt(&state_machine.network_private_key, &encrypted_state);
+            let state = serde_json::from_slice(&serialized_state)
+                .expect("Failed to deserialize decryoted state");
+            debug!(
+                "Reward cycle #{} Signer #{}: Loading signer",
+                signer_config.reward_cycle, signer_config.signer_id
+            );
+            state_machine.signer = v2::Signer::load(&state);
+        }
 
         if let Some(state) = signer_db
             .get_signer_state(signer_config.reward_cycle)
@@ -574,6 +591,7 @@ impl Signer {
             .filter_map(|msg| match msg {
                 SignerMessage::DkgResults { .. }
                 | SignerMessage::BlockResponse(_)
+                | SignerMessage::EncryptedSignerState { .. }
                 | SignerMessage::Transactions(_) => None,
                 // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {
@@ -701,8 +719,14 @@ impl Signer {
             self.update_operation();
         }
 
-        debug!("{self}: Saving signer state");
-        self.save_signer_state();
+        if packets.iter().any(|packet| match packet.msg {
+            Message::DkgEnd(_) => true,
+            _ => false,
+        }) {
+            debug!("{self}: Saving signer state");
+            self.save_signer_state_in_signerdb();
+            self.save_signer_state_in_stackerdb();
+        }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
     }
@@ -1233,11 +1257,30 @@ impl Signer {
     ///
     /// # Panics
     /// Panics if the insertion fails
-    fn save_signer_state(&self) {
+    fn save_signer_state_in_signerdb(&self) {
         let state = self.state_machine.signer.save();
         self.signer_db
             .insert_signer_state(self.reward_cycle, &state)
             .expect("Failed to persist signer state");
+    }
+
+    /// Persist state needed to ensure the signer can continue to perform
+    /// DKG and participate in signing rounds accross crashes
+    ///
+    /// # Panics
+    /// Panics if the encryption fails or if the insertion into stackerDB fails
+    fn save_signer_state_in_stackerdb(&mut self) {
+        let state = self.state_machine.signer.save();
+        let serialized_state =
+            serde_json::to_vec(&state).expect("Failed to serialize signer state");
+
+        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state);
+
+        let message = SignerMessage::EncryptedSignerState(encrypted_state);
+
+        self.stackerdb
+            .send_message_with_retry(message)
+            .expect("Failed to send encrypted state to stackerdb");
     }
 
     /// Send any operation results across the provided channel
@@ -1451,5 +1494,43 @@ impl Signer {
             }
         }
         Ok(())
+    }
+}
+
+fn encrypt(private_key: &Scalar, msg: &[u8]) -> Vec<u8> {
+    wsts::util::encrypt(&derive_encryption_key(private_key), msg, &mut OsRng)
+        .expect("Failed to encrypt message")
+}
+
+fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Vec<u8> {
+    wsts::util::decrypt(&derive_encryption_key(private_key), encrypted_msg)
+        .expect("Failed to decrypt message")
+}
+
+fn derive_encryption_key(private_key: &Scalar) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+
+    hasher.update("SIGNER_STATE_ENCRYPTION_KEY/".as_bytes());
+    hasher.update(private_key.to_bytes());
+
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encrypted_messages_should_be_possible_to_decrypt() {
+        let msg = "Nobody's gonna know".as_bytes();
+        let key = Scalar::random(&mut OsRng);
+
+        let encrypted = encrypt(&key, msg);
+
+        assert_ne!(encrypted, msg);
+
+        let decrypted = decrypt(&key, &encrypted);
+
+        assert_eq!(decrypted, msg);
     }
 }

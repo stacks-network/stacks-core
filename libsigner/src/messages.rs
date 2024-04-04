@@ -94,14 +94,17 @@ MessageSlotID {
     /// Transactions list for miners and signers to observe
     Transactions = 11,
     /// DKG Results
-    DkgResults = 12
+    DkgResults = 12,
+    /// Persisted encrypted signer state containing DKG shares
+    EncryptedSignerState = 13
 });
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
     Transactions = 2,
-    DkgResults = 3
+    DkgResults = 3,
+    EncryptedSignerState = 4
 });
 
 impl MessageSlotID {
@@ -142,6 +145,9 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
             SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
+            SignerMessage::EncryptedSignerState { .. } => {
+                SignerMessageTypePrefix::EncryptedSignerState
+            }
         }
     }
 }
@@ -234,6 +240,8 @@ pub enum SignerMessage {
         /// The polynomial commits used to construct the aggregate key
         party_polynomials: Vec<(u32, PolyCommitment)>,
     },
+    /// The encrypted state of the signer to be persisted
+    EncryptedSignerState(Vec<u8>),
 }
 
 impl Debug for SignerMessage {
@@ -254,6 +262,9 @@ impl Debug for SignerMessage {
                     .field("aggregate_key", &aggregate_key.to_string())
                     .field("party_polynomials", &party_polynomials)
                     .finish()
+            }
+            Self::EncryptedSignerState(s) => {
+                f.debug_tuple("EncryptedSignerState").field(s).finish()
             }
         }
     }
@@ -278,6 +289,7 @@ impl SignerMessage {
             Self::BlockResponse(_) => MessageSlotID::BlockResponse,
             Self::Transactions(_) => MessageSlotID::Transactions,
             Self::DkgResults { .. } => MessageSlotID::DkgResults,
+            Self::EncryptedSignerState(_) => MessageSlotID::EncryptedSignerState,
         }
     }
 }
@@ -345,6 +357,9 @@ impl StacksMessageCodec for SignerMessage {
                     party_polynomials.iter().map(|(a, b)| (a, b)),
                 )?;
             }
+            SignerMessage::EncryptedSignerState(encrypted_state) => {
+                write_next(fd, encrypted_state)?;
+            }
         };
         Ok(())
     }
@@ -382,6 +397,10 @@ impl StacksMessageCodec for SignerMessage {
                     aggregate_key,
                     party_polynomials,
                 }
+            }
+            SignerMessageTypePrefix::EncryptedSignerState => {
+                let encrypted_state = read_next::<_, _>(fd)?;
+                SignerMessage::EncryptedSignerState(encrypted_state)
             }
         };
         Ok(message)
