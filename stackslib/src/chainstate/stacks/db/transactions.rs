@@ -1479,10 +1479,8 @@ impl StacksChainState {
                 return Err(Error::InvalidStacksTransaction(msg, false));
             }
         }
-        let is_transaction_valid_in_epoch =
-            StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch, quiet);
 
-        if !is_transaction_valid_in_epoch {
+        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch, quiet) {
             let msg = format!(
                 "Invalid transaction {}: target epoch is not activated",
                 tx.txid()

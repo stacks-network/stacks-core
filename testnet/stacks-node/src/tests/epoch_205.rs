@@ -18,6 +18,7 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
@@ -821,7 +822,6 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
-        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_contract_defines.len(), 1);
 
@@ -853,7 +853,6 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
-        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_calls_alice.len(), 1);
 
@@ -887,7 +886,6 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
-        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_calls_bob.len(), 0);
 

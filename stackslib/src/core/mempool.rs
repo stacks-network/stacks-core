@@ -218,13 +218,6 @@ fn parse_mempool_query_page_id<R: Read>(
 pub fn decode_tx_stream<R: Read>(
     fd: &mut R,
 ) -> Result<(Vec<StacksTransaction>, Option<Txid>), net_error> {
-    decode_tx_stream_with_epoch(fd, StacksEpochId::latest())
-}
-
-pub fn decode_tx_stream_with_epoch<R: Read>(
-    fd: &mut R,
-    epoch_id: StacksEpochId,
-) -> Result<(Vec<StacksTransaction>, Option<Txid>), net_error> {
     // The wire format is `tx, tx, tx, tx, .., tx, txid`.
     // The last 32 bytes are the page ID for the next mempool query.
     // NOTE: there will be no length prefix on this.

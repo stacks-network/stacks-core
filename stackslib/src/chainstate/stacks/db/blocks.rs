@@ -828,20 +828,6 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StacksBlock>, Error> {
-        StacksChainState::load_block_with_epoch(
-            blocks_dir,
-            consensus_hash,
-            block_hash,
-            StacksEpochId::latest(),
-        )
-    }
-
-    pub fn load_block_with_epoch(
-        blocks_dir: &str,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        epoch_id: StacksEpochId,
-    ) -> Result<Option<StacksBlock>, Error> {
         let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
@@ -5971,10 +5957,7 @@ impl StacksChainState {
     }
 
     /// Extract and parse the block from a loaded staging block, and verify its integrity.
-    pub fn extract_stacks_block(
-        next_staging_block: &StagingBlock,
-        epoch_id: StacksEpochId,
-    ) -> Result<StacksBlock, Error> {
+    pub fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
         let block = {
             StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
                 .map_err(Error::CodecError)?
@@ -6142,13 +6125,7 @@ impl StacksChainState {
             None => return Ok((None, None)),
         };
 
-        let epoch_id = SortitionDB::get_stacks_epoch(sort_tx, burn_header_height as u64)?
-            .expect(&format!(
-                "FATAL: no epoch defined at burn height {}",
-                burn_header_height
-            ))
-            .epoch_id;
-        let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id)?;
+        let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())
             .expect("FATAL: more than 2^64 transactions");
 
@@ -6689,10 +6666,7 @@ impl StacksChainState {
         // 4: check if transaction is valid in the current epoch
         let epoch = clarity_connection.get_epoch().clone();
 
-        let is_transaction_valid_in_epoch =
-            StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch, true);
-
-        if !is_transaction_valid_in_epoch {
+        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch, true) {
             return Err(MemPoolRejection::Other(
                 "Transaction is not supported in this epoch".to_string(),
             ));
@@ -7305,11 +7279,10 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             consensus_hash,
-            &block.block_hash(),
-            StacksEpochId::Epoch25,
+            &block.block_hash()
         )
         .unwrap()
         .is_none());
@@ -7367,20 +7340,18 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             consensus_hash,
-            &block.block_hash(),
-            StacksEpochId::Epoch25,
+            &block.block_hash()
         )
         .unwrap()
         .is_some());
         assert_eq!(
-            StacksChainState::load_block_with_epoch(
+            StacksChainState::load_block(
                 &chainstate.blocks_path,
                 consensus_hash,
-                &block.block_hash(),
-                StacksEpochId::Epoch25,
+                &block.block_hash()
             )
             .unwrap()
             .unwrap(),
@@ -7642,11 +7613,10 @@ pub mod test {
             &BlockHeaderHash([2u8; 32])
         )
         .unwrap());
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &BlockHeaderHash([2u8; 32]),
-            StacksEpochId::Epoch25,
+            &BlockHeaderHash([2u8; 32])
         )
         .unwrap()
         .is_none());
@@ -7713,20 +7683,18 @@ pub mod test {
         )
         .unwrap());
 
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash(),
-            StacksEpochId::Epoch25,
+            &block.block_hash()
         )
         .unwrap()
         .is_some());
         assert_eq!(
-            StacksChainState::load_block_with_epoch(
+            StacksChainState::load_block(
                 &chainstate.blocks_path,
                 &ConsensusHash([1u8; 20]),
-                &block.block_hash(),
-                StacksEpochId::Epoch25,
+                &block.block_hash()
             )
             .unwrap()
             .unwrap(),
@@ -7757,11 +7725,10 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash(),
-            StacksEpochId::Epoch25,
+            &block.block_hash()
         )
         .unwrap()
         .is_none());
@@ -7800,11 +7767,10 @@ pub mod test {
         )
         .unwrap());
 
-        assert!(StacksChainState::load_block_with_epoch(
+        assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash(),
-            StacksEpochId::Epoch25,
+            &block.block_hash()
         )
         .unwrap()
         .is_none());

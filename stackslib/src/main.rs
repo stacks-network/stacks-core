@@ -195,7 +195,6 @@ fn main() {
 
         let mut cursor = io::Cursor::new(&tx_bytes);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
-        let epoch_id = parse_input_epoch(3);
 
         let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
             .map_err(|e| {
@@ -224,7 +223,6 @@ fn main() {
         let block_path = &argv[2];
         let block_data =
             fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
-        let epoch_id = parse_input_epoch(3);
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
@@ -294,8 +292,6 @@ fn main() {
         )
         .unwrap()
         .expect("No such block");
-
-        let epoch_id = parse_input_epoch(4);
 
         let block =
             StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_info.block_data))
@@ -1362,11 +1358,6 @@ simulating a miner.
     let estimator = Box::new(UnitEstimator);
     let metric = Box::new(UnitMetric);
 
-    let epoch_id = SortitionDB::get_stacks_epoch(&sort_db.conn(), chain_tip.block_height)
-        .expect("Error getting Epoch")
-        .expect("No Epoch found")
-        .epoch_id;
-
     let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
         .expect("Failed to open mempool db");
 
@@ -1569,26 +1560,6 @@ simulating a miner.
     process::exit(0);
 }
 
-fn parse_input_epoch(epoch_arg_index: usize) -> StacksEpochId {
-    let argv: Vec<String> = env::args().collect();
-
-    let mut epoch_id = StacksEpochId::latest();
-
-    if argv.len() > epoch_arg_index {
-        let epoch_id_u32 = argv[epoch_arg_index]
-            .parse::<u32>()
-            .expect("Failed to parse epoch id");
-        epoch_id = StacksEpochId::try_from(epoch_id_u32)
-            .map_err(|_e| {
-                eprintln!("Failed to match epoch number");
-                process::exit(1);
-            })
-            .unwrap();
-    }
-
-    return epoch_id;
-}
-
 fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
     let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{stacks_path}/mainnet/chainstate/");
@@ -1674,12 +1645,8 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         return;
     };
 
-    let epoch_id = SortitionDB::get_stacks_epoch(&sort_tx, u64::from(burn_header_height))
-        .expect("Error getting Epoch")
-        .expect("No Epoch found")
-        .epoch_id;
-    let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id)
-        .expect("Failed to get block");
+    let block =
+        StacksChainState::extract_stacks_block(&next_staging_block).expect("Failed to get block");
     let block_size = next_staging_block.block_data.len() as u64;
 
     let parent_block_header = match &parent_header_info.anchored_header {

@@ -307,16 +307,4 @@ impl StacksHttpResponse {
 
         Ok(block)
     }
-
-    /// Decode an HTTP response into a block.
-    /// If it fails, return Self::Error(..)
-    pub fn decode_block_with_epoch(self, epoch_id: StacksEpochId) -> Result<StacksBlock, NetError> {
-        let contents = self.get_http_payload_ok()?;
-
-        // contents will be raw bytes
-        let block_bytes: Vec<u8> = contents.try_into()?;
-        let block = StacksBlock::consensus_deserialize(&mut &block_bytes[..])?;
-
-        Ok(block)
-    }
 }

@@ -33,7 +33,6 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use stacks_common::address::*;
 use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::VRFProof;
@@ -2485,20 +2484,12 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
         )
         .unwrap();
 
-        let chunk_1_opt = StacksChainState::load_block_with_epoch(
-            &ch1.blocks_path,
-            &all_blocks_1[i].0,
-            &all_blocks_1[i].1,
-            StacksEpochId::Epoch25,
-        )
-        .unwrap();
-        let chunk_2_opt = StacksChainState::load_block_with_epoch(
-            &ch2.blocks_path,
-            &all_blocks_2[i].0,
-            &all_blocks_2[i].1,
-            StacksEpochId::Epoch25,
-        )
-        .unwrap();
+        let chunk_1_opt =
+            StacksChainState::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1)
+                .unwrap();
+        let chunk_2_opt =
+            StacksChainState::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1)
+                .unwrap();
 
         match (staging_1_opt, staging_2_opt) {
             (Some(staging_1), Some(staging_2)) => {

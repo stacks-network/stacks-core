@@ -97,9 +97,7 @@ fn test_try_make_response() {
 
     // got the block
     let response = responses.remove(0);
-    let resp = response
-        .decode_block_with_epoch(StacksEpochId::Epoch25)
-        .unwrap();
+    let resp = response.decode_block().unwrap();
 
     assert_eq!(
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &resp.block_hash()),

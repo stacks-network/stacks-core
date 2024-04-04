@@ -1025,6 +1025,7 @@ impl StacksTransaction {
         Ok(next_sig)
     }
 
+    #[cfg(any(test, feature = "testing"))]
     pub fn append_sponsor_signature(
         &mut self,
         signature: MessageSignature,

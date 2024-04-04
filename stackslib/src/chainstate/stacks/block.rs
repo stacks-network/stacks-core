@@ -41,15 +41,6 @@ use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader
 use crate::core::*;
 use crate::net::Error as net_error;
 
-/// Quietable error
-macro_rules! qerror {
-    ($cond: expr, $($arg:tt)*) => ({
-        if ($cond) {
-            error!($($arg)*);
-        }
-    });
-}
-
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
@@ -583,33 +574,40 @@ impl StacksBlock {
             if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
                 if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                     // not supported
-                    qerror!(quiet, "Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    if !quiet {
+                        error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    }
                     return false;
                 }
                 if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
                     // not supported
-                    qerror!(quiet, "Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
+                    if !quiet {
+                        error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
+                    }
                     return false;
                 }
                 if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    qerror!(quiet, "Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                    if !quiet {
+                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                    }
                     return false;
                 }
             }
             if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
                 if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    qerror!(
-                        quiet,
-                        "Versioned smart contracts not supported before Stacks 2.1"
-                    );
+                    if !quiet {
+                        error!("Versioned smart contracts not supported before Stacks 2.1");
+                    }
                     return false;
                 }
             }
             if let TransactionPayload::TenureChange(..) = &tx.payload {
                 if epoch_id < StacksEpochId::Epoch30 {
-                    qerror!(quiet, "TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    if !quiet {
+                        error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    }
                     return false;
                 }
             }
@@ -618,7 +616,9 @@ impl StacksBlock {
                     match origin {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
+                                if !quiet {
+                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
+                                }
                                 return false;
                             }
                         }
@@ -627,7 +627,9 @@ impl StacksBlock {
                     match sponsor {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
+                                if !quiet {
+                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
+                                }
                                 return false;
                             }
                         }
@@ -637,7 +639,9 @@ impl StacksBlock {
                 TransactionAuth::Standard(ref origin) => match origin {
                     TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                         if epoch_id < StacksEpochId::Epoch30 {
-                            qerror!(quiet, "Order independent multisig transactions not supported before Stacks 3.0");
+                            if !quiet {
+                                error!("Order independent multisig transactions not supported before Stacks 3.0");
+                            }
                             return false;
                         }
                     }
@@ -1587,14 +1591,11 @@ mod test {
         for (ref block, ref msg) in invalid_blocks.iter() {
             let mut bytes: Vec<u8> = vec![];
             block.consensus_serialize(&mut bytes).unwrap();
-            assert!(StacksBlock::consensus_deserialize_with_epoch(
-                &mut &bytes[..],
-                StacksEpochId::Epoch25,
-            )
-            .unwrap_err()
-            .to_string()
-            .find(msg)
-            .is_some());
+            assert!(StacksBlock::consensus_deserialize(&mut &bytes[..])
+                .unwrap_err()
+                .to_string()
+                .find(msg)
+                .is_some());
         }
     }
 
@@ -1803,52 +1804,12 @@ mod test {
                     epoch_id.clone(),
                     false,
                 ));
-
-                for tx in txs.iter() {
-                    let mut bytes: Vec<u8> = vec![];
-                    tx.consensus_serialize(&mut bytes).unwrap();
-
-                    assert!(StacksTransaction::consensus_deserialize_with_epoch(
-                        &mut &bytes[..],
-                        *epoch_id
-                    )
-                    .unwrap_err()
-                    .to_string()
-                    .find("target epoch is not activated")
-                    .is_some());
-                }
-
-                assert!(
-                    StacksBlock::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id)
-                        .unwrap_err()
-                        .to_string()
-                        .find("target epoch is not activated")
-                        .is_some()
-                );
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {
                 assert!(StacksBlock::validate_transactions_static_epoch(
                     &txs, *epoch_id, false,
                 ));
-
-                for tx in txs.iter() {
-                    let mut bytes: Vec<u8> = vec![];
-                    tx.consensus_serialize(&mut bytes).unwrap();
-
-                    StacksTransaction::consensus_deserialize(&mut &bytes[..]).unwrap();
-                }
-
-                StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap();
             } else {
-                for tx in txs.iter() {
-                    let mut bytes: Vec<u8> = vec![];
-                    tx.consensus_serialize(&mut bytes).unwrap();
-
-                    let _ = StacksTransaction::consensus_deserialize(&mut &bytes[..]).unwrap_err();
-                }
-
-                let _ = StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap_err();
-
                 assert!(!StacksBlock::validate_transactions_static_epoch(
                     &txs, *epoch_id, false,
                 ));

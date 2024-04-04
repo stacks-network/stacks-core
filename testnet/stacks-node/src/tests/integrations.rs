@@ -808,7 +808,7 @@ fn integration_test_get_info() {
                     .json()
                     .unwrap();
 
-                assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize_with_epoch(&mut &tx_xfer[..], StacksEpochId::latest()).unwrap().txid()));
+                assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
 
                 // let's test a posttransaction call that fails to deserialize,
                 let tx_hex = "80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e80001031734446f0870af42bb0cafad27f405e5d9eba441375eada8607a802b875fbb7ba7c4da3474f2bfd76851fb6314a48fe98b57440b8ccec6c9b8362c843a89f303020000000001047465737400000007282b2031203129";

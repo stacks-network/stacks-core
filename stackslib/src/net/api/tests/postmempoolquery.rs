@@ -20,12 +20,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName, Value};
-use stacks_common::codec::{read_next_with_epoch, Error as CodecError, StacksMessageCodec};
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::types::Address;
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::TestRPC;
@@ -214,24 +214,23 @@ fn test_stream_mempool_txs() {
     let mut decoded_txs = vec![];
     let mut ptr = &buf[..];
     loop {
-        let tx: StacksTransaction =
-            match read_next_with_epoch::<StacksTransaction, _>(&mut ptr, StacksEpochId::latest()) {
-                Ok(tx) => tx,
-                Err(e) => match e {
-                    CodecError::ReadError(ref ioe) => match ioe.kind() {
-                        io::ErrorKind::UnexpectedEof => {
-                            eprintln!("out of transactions");
-                            break;
-                        }
-                        _ => {
-                            panic!("IO error: {:?}", &e);
-                        }
-                    },
+        let tx: StacksTransaction = match read_next::<StacksTransaction, _>(&mut ptr) {
+            Ok(tx) => tx,
+            Err(e) => match e {
+                CodecError::ReadError(ref ioe) => match ioe.kind() {
+                    io::ErrorKind::UnexpectedEof => {
+                        eprintln!("out of transactions");
+                        break;
+                    }
                     _ => {
-                        panic!("other error: {:?}", &e);
+                        panic!("IO error: {:?}", &e);
                     }
                 },
-            };
+                _ => {
+                    panic!("other error: {:?}", &e);
+                }
+            },
+        };
         decoded_txs.push(tx);
     }
 

@@ -721,13 +721,10 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         let res: String = res.json().unwrap();
         assert_eq!(
             res,
-            StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx[..],
-                StacksEpochId::latest()
-            )
-            .unwrap()
-            .txid()
-            .to_string()
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
         );
         return res;
     } else {
@@ -769,12 +766,9 @@ pub fn submit_block(
             res.stacks_block_id,
             StacksBlockId::new(
                 consensus_hash,
-                &StacksBlock::consensus_deserialize_with_epoch(
-                    &mut &block[..],
-                    StacksEpochId::latest()
-                )
-                .unwrap()
-                .block_hash()
+                &StacksBlock::consensus_deserialize(&mut &block[..])
+                    .unwrap()
+                    .block_hash()
             )
         );
         return res;
@@ -3049,11 +3043,7 @@ fn bitcoind_resubmission_test() {
         );
         let mut garbage_block = StacksMicroblock::first_unsigned(
             &chain_tip.1,
-            vec![StacksTransaction::consensus_deserialize_with_epoch(
-                &mut garbage_tx.as_slice(),
-                StacksEpochId::latest(),
-            )
-            .unwrap()],
+            vec![StacksTransaction::consensus_deserialize(&mut garbage_tx.as_slice()).unwrap()],
         );
         garbage_block.header.prev_block = BlockHeaderHash([3; 32]);
         garbage_block.header.sequence = 1;
@@ -3987,13 +3977,10 @@ fn microblock_integration_test() {
             let res: String = res.json().unwrap();
             assert_eq!(
                 res,
-                StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &unconfirmed_tx_bytes[..],
-                    StacksEpochId::latest()
-                )
-                .unwrap()
-                .txid()
-                .to_string()
+                StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
             );
             eprintln!("Sent {}", &res);
         } else {
@@ -7416,13 +7403,10 @@ fn atlas_integration_test() {
             let res: String = res.json().unwrap();
             assert_eq!(
                 res,
-                StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_1[..],
-                    StacksEpochId::latest()
-                )
-                .unwrap()
-                .txid()
-                .to_string()
+                StacksTransaction::consensus_deserialize(&mut &tx_1[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
             );
         } else {
             eprintln!("{}", res.text().unwrap());
@@ -7500,13 +7484,10 @@ fn atlas_integration_test() {
             let res: String = res.json().unwrap();
             assert_eq!(
                 res,
-                StacksTransaction::consensus_deserialize_with_epoch(
-                    &mut &tx_2[..],
-                    StacksEpochId::latest()
-                )
-                .unwrap()
-                .txid()
-                .to_string()
+                StacksTransaction::consensus_deserialize(&mut &tx_2[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
             );
         } else {
             eprintln!("{}", res.text().unwrap());
@@ -8205,13 +8186,10 @@ fn atlas_stress_integration_test() {
         let res: String = res.json().unwrap();
         assert_eq!(
             res,
-            StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_1[..],
-                StacksEpochId::latest()
-            )
-            .unwrap()
-            .txid()
-            .to_string()
+            StacksTransaction::consensus_deserialize(&mut &tx_1[..])
+                .unwrap()
+                .txid()
+                .to_string()
         );
     } else {
         eprintln!("{}", res.text().unwrap());
@@ -8289,13 +8267,10 @@ fn atlas_stress_integration_test() {
         let res: String = res.json().unwrap();
         assert_eq!(
             res,
-            StacksTransaction::consensus_deserialize_with_epoch(
-                &mut &tx_2[..],
-                StacksEpochId::latest()
-            )
-            .unwrap()
-            .txid()
-            .to_string()
+            StacksTransaction::consensus_deserialize(&mut &tx_2[..])
+                .unwrap()
+                .txid()
+                .to_string()
         );
     } else {
         eprintln!("{}", res.text().unwrap());

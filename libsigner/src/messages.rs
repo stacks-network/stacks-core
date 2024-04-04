@@ -363,7 +363,6 @@ impl StacksMessageCodec for SignerMessage {
                 SignerMessage::BlockResponse(block_response)
             }
             SignerMessageTypePrefix::Transactions => {
-                // I don't think these messages are stored on the blockchain, so `StacksEpochId::latest()` should be fine
                 let transactions: Vec<StacksTransaction> = {
                     let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
                     read_next_at_most(&mut bound_read, u32::MAX)

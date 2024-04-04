@@ -35,10 +35,10 @@ use stacks::chainstate::stacks::{
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::util_lib::strings::StacksString;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -464,7 +464,6 @@ fn make_microblock(
 pub fn select_transactions_where(
     blocks: &Vec<serde_json::Value>,
     test_fn: fn(&StacksTransaction) -> bool,
-    epoch_id: StacksEpochId,
 ) -> Vec<StacksTransaction> {
     let mut result = vec![];
     for block in blocks {

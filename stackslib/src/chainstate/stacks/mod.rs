@@ -1584,7 +1584,7 @@ pub mod test {
             origin_auth.clone(),
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
-        let mut tx_coinbase_proof = StacksTransaction::new(
+        let tx_coinbase_proof = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof.clone())),
