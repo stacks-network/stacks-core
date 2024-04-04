@@ -3545,7 +3545,7 @@ fn stack_agg_increase() {
         Some(bob.pox_address.clone()),
     );
     eve.nonce += 1;
-    // Bob pool operator calling delegate-stack-stx on behalf of Dave
+    // Bob pool operator calling delegate-stack-stx on behalf of Eve
     let bob_delegate_stack_stx_for_eve_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
