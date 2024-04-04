@@ -112,6 +112,7 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
 
     const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     operatorWallet.amountToCommit -= committedAmount;
+    model.nextRewardSetIndex++;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
