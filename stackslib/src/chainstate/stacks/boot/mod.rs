@@ -2185,6 +2185,40 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_aggregation_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        reward_cycle_index: u128,
+        signature_opt: Option<Vec<u8>>,
+        signer_key: &Secp256k1PublicKey,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let signature = signature_opt
+            .map(|sig| Value::some(Value::buff_from(sig).unwrap()).unwrap())
+            .unwrap_or_else(|| Value::none());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-aggregation-increase",
+            vec![
+                addr_tuple,
+                Value::UInt(reward_cycle),
+                Value::UInt(reward_cycle_index),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_4_stack_increase(
         key: &StacksPrivateKey,
         nonce: u64,

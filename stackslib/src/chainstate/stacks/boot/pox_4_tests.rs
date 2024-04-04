@@ -43,6 +43,7 @@ use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stdext::num::integer::Integer;
+use wsts::curve::field::P;
 use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
@@ -52,6 +53,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
     check_pox_print_event, generate_pox_clarity_value, get_partial_stacked, get_reward_cycle_total,
@@ -60,7 +62,7 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 };
 use crate::chainstate::stacks::boot::{
     PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
-    POX_2_NAME, POX_3_NAME,
+    MINERS_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -74,7 +76,7 @@ use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -3280,6 +3282,322 @@ fn stack_agg_commit_verify_sig() {
         u128::MAX,
         1,
     );
+}
+
+// Helper struct to hold information about stackers and signers
+#[derive(Debug, Clone)]
+struct StackerSignerInfo {
+    private_key: StacksPrivateKey,
+    public_key: StacksPublicKey,
+    principal: PrincipalData,
+    address: StacksAddress,
+    pox_address: PoxAddress,
+    nonce: u64,
+}
+
+impl StackerSignerInfo {
+    fn new() -> Self {
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let address = key_to_stacks_addr(&private_key);
+        let pox_address =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes.clone());
+        let principal = PrincipalData::from(address.clone());
+        let nonce = 0;
+        Self {
+            private_key,
+            public_key,
+            address,
+            principal,
+            pox_address,
+            nonce,
+        }
+    }
+}
+
+/// Helper function to advance to a specific block height with the passed txs as the first in the block
+/// Returns a tuple of the tip and the observed block that should contain the provided txs
+fn advance_to_block_height(
+    peer: &mut TestPeer,
+    observer: &TestEventObserver,
+    txs: &[StacksTransaction],
+    peer_nonce: &mut usize,
+    target_height: u64,
+) -> (StacksBlockId, TestEventObserverBlock) {
+    let mut tx_block = None;
+    let mut latest_block = None;
+    let mut passed_txs = txs;
+    while peer.get_burn_block_height() < target_height {
+        latest_block = Some(peer.tenure_with_txs(&passed_txs, peer_nonce));
+        passed_txs = &[];
+        if tx_block.is_none() {
+            tx_block = Some(observer.get_blocks().last().unwrap().clone());
+        }
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    let tx_block = tx_block.expect("Failed to get tx block");
+    (latest_block, tx_block)
+}
+
+#[test]
+/// Tests for verifying signatures in `stack-aggregation-commit`
+fn stack_agg_increase() {
+    // Alice service signer setup
+    let mut alice = StackerSignerInfo::new();
+    // Bob pool operator
+    let mut bob = StackerSignerInfo::new();
+    // Carl pool delegate
+    let mut carl = StackerSignerInfo::new();
+    // Dave pool delegate
+    let mut dave = StackerSignerInfo::new();
+    // Eve late pool delegate
+    let mut eve = StackerSignerInfo::new();
+
+    let default_initial_balances = 1_000_000_000_000_000_000;
+    let observer = TestEventObserver::new();
+    let test_signers = TestSigners::default();
+    let mut initial_balances = vec![
+        (alice.principal.clone(), default_initial_balances),
+        (bob.principal.clone(), default_initial_balances),
+        (carl.principal.clone(), default_initial_balances),
+        (dave.principal.clone(), default_initial_balances),
+        (eve.principal.clone(), default_initial_balances),
+    ];
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let private_key = peer_config.private_key.clone();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // reward cycles are 5 blocks long
+    // first 25 blocks are boot-up
+    // reward cycle 6 instantiates pox-3
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances);
+    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
+    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
+    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
+    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
+    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
+    peer_config.burnchain.pox_constants.prepare_length = 5;
+    let epochs = peer_config.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer_nonce = 0;
+    // Set constants
+    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
+    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+
+    // Advance into pox4
+    let mut target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut latest_block = None;
+    // Produce blocks until the first reward phase that everyone should be in
+    while peer.get_burn_block_height() < u64::from(target_height) {
+        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
+        observer.get_blocks();
+    }
+    let latest_block = latest_block.expect("Failed to get tip");
+    // Current reward cycle: 5 (starts at burn block 101)
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let next_reward_cycle = reward_cycle.wrapping_add(1);
+    // Current burn block height: 105
+    let burn_block_height = peer.get_burn_block_height();
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
+
+    // Signatures
+    // Initial Alice Signature For Bob
+    let lock_period = 1;
+    let alice_signature_initial = make_signer_key_signature(
+        &bob.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Increase Alice Signature For Bob
+    let alice_signature_increase = make_signer_key_signature(
+        &bob.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationIncrease,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+
+    // Timely Delegate-STX Functions
+    // Carl pool stacker timely delegating STX to Bob
+    let carl_delegate_stx_to_bob_tx = make_pox_4_delegate_stx(
+        &carl.private_key,
+        carl.nonce,
+        amount,
+        bob.principal.clone(),
+        None,
+        Some(bob.pox_address.clone()),
+    );
+    carl.nonce += 1;
+
+    // Dave pool stacker timely delegating STX to Bob
+    let dave_delegate_stx_to_bob_tx = make_pox_4_delegate_stx(
+        &dave.private_key,
+        dave.nonce,
+        amount,
+        bob.principal.clone(),
+        None,
+        Some(bob.pox_address.clone()),
+    );
+    dave.nonce += 1;
+
+    // Timely Delegate-Stack-STX Functions
+    // Bob pool operator calling delegate-stack-stx on behalf of Carl
+    let bob_delegate_stack_stx_for_carl_tx = make_pox_4_delegate_stack_stx(
+        &bob.private_key,
+        bob.nonce,
+        carl.principal.clone(),
+        amount,
+        bob.pox_address.clone(),
+        burn_block_height as u128,
+        lock_period,
+    );
+    bob.nonce += 1;
+    // Bob pool operator calling delegate-stack-stx on behalf of Dave
+    let bob_delegate_stack_stx_for_dave_tx = make_pox_4_delegate_stack_stx(
+        &bob.private_key,
+        bob.nonce,
+        dave.principal.clone(),
+        amount,
+        bob.pox_address.clone(),
+        burn_block_height as u128,
+        lock_period,
+    );
+    bob.nonce += 1;
+
+    // Aggregate Commit
+    let bobs_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &bob.private_key,
+        bob.nonce,
+        &bob.pox_address,
+        next_reward_cycle,
+        Some(alice_signature_initial),
+        &alice.public_key,
+        u128::MAX,
+        1,
+    );
+    bob.nonce += 1;
+
+    let txs = vec![
+        carl_delegate_stx_to_bob_tx.clone(),
+        dave_delegate_stx_to_bob_tx.clone(),
+        bob_delegate_stack_stx_for_carl_tx.clone(),
+        bob_delegate_stack_stx_for_dave_tx.clone(),
+        bobs_aggregate_commit_index_tx.clone(),
+    ];
+
+    // Advance to next block in order to collect aggregate commit reward index
+    target_height += 1;
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height.into(),
+    );
+
+    // Get Bob's aggregate commit reward index
+    let bob_aggregate_commit_reward_index_actual = &tx_block
+        .receipts
+        .get(5)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    let bob_aggregate_commit_reward_index_expected = Value::UInt(0);
+    assert_eq!(
+        bob_aggregate_commit_reward_index_actual,
+        &bob_aggregate_commit_reward_index_expected
+    );
+
+    // Eve Late Functions
+    // Eve pool stacker late delegating STX to Bob
+    let eve_delegate_stx_to_bob_tx = make_pox_4_delegate_stx(
+        &eve.private_key,
+        eve.nonce,
+        amount,
+        bob.principal.clone(),
+        None,
+        Some(bob.pox_address.clone()),
+    );
+    eve.nonce += 1;
+    // Bob pool operator calling delegate-stack-stx on behalf of Dave
+    let bob_delegate_stack_stx_for_eve_tx = make_pox_4_delegate_stack_stx(
+        &bob.private_key,
+        bob.nonce,
+        eve.principal.clone(),
+        amount,
+        bob.pox_address.clone(),
+        burn_block_height as u128,
+        lock_period,
+    );
+    bob.nonce += 1;
+    // Bob's Aggregate Increase
+    let bobs_aggregate_increase = make_pox_4_aggregation_increase(
+        &bob.private_key,
+        bob.nonce,
+        &bob.pox_address,
+        next_reward_cycle,
+        bob_aggregate_commit_reward_index_actual
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        Some(alice_signature_increase),
+        &alice.public_key,
+        u128::MAX,
+        1,
+    );
+
+    let txs = vec![
+        eve_delegate_stx_to_bob_tx.clone(),
+        bob_delegate_stack_stx_for_eve_tx.clone(),
+        bobs_aggregate_increase.clone(),
+    ];
+
+    // Advance to next block in order to attempt aggregate increase
+    target_height += 1;
+    let (latest_block, tx_block) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height.into(),
+    );
+
+    // Fetch the aggregate increase result & check that value is true
+    let bob_aggregate_increase_result = &tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(bob_aggregate_increase_result, &Value::Bool(true));
 }
 
 #[test]
