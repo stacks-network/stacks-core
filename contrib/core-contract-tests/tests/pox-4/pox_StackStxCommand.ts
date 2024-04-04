@@ -162,6 +162,7 @@ export class StackStxCommand implements PoxCommand {
     wallet.amountLocked = amountUstx;
     wallet.unlockHeight = Number(unlockBurnHeight.value);
     wallet.amountUnlocked -= amountUstx;
+    model.nextRewardSetIndex++;
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
