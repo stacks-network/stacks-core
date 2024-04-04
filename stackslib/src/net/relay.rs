@@ -5937,15 +5937,15 @@ pub mod test {
                             &tip.sortition_id,
                             &header_tip.anchored_header.block_hash(),
                         )
-                            .unwrap()
-                            .unwrap(); // succeeds because we don't fork
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
                         )
-                            .unwrap()
-                            .unwrap()
+                        .unwrap()
+                        .unwrap()
                     }
                 };
 
@@ -5983,7 +5983,7 @@ pub mod test {
                     tip.total_burn,
                     Hash160(mblock_pubkey_hash_bytes),
                 )
-                    .unwrap();
+                .unwrap();
 
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
@@ -5991,7 +5991,7 @@ pub mod test {
                     &sortdb.index_conn(),
                     vec![coinbase_tx, versioned_contract],
                 )
-                    .unwrap();
+                .unwrap();
 
                 eprintln!("{:?}", &anchored_block.0);
                 (anchored_block.0, vec![])

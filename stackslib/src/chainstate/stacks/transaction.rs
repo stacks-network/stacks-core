@@ -1279,7 +1279,8 @@ mod test {
         ) -> Result<(), net_error> {
             match self.auth {
                 TransactionAuth::Standard(ref mut origin_condition)
-                | TransactionAuth::Sponsored(ref mut origin_condition, _) => match origin_condition {
+                | TransactionAuth::Sponsored(ref mut origin_condition, _) => match origin_condition
+                {
                     TransactionSpendingCondition::Singlesig(ref mut cond) => {
                         cond.set_signature(signature);
                     }
@@ -1302,7 +1303,8 @@ mod test {
             let next_sig = match self.auth {
                 TransactionAuth::Standard(_) => {
                     return Err(net_error::SigningError(
-                        "Cannot sign standard authorization with a sponsoring private key".to_string(),
+                        "Cannot sign standard authorization with a sponsoring private key"
+                            .to_string(),
                     ));
                 }
                 TransactionAuth::Sponsored(_, ref mut sponsor_condition) => {
@@ -1329,7 +1331,8 @@ mod test {
                     "Cannot appned a public key to the sponsor of a standard auth condition"
                         .to_string(),
                 )),
-                TransactionAuth::Sponsored(_, ref mut sponsor_condition) => match sponsor_condition {
+                TransactionAuth::Sponsored(_, ref mut sponsor_condition) => match sponsor_condition
+                {
                     TransactionSpendingCondition::Singlesig(ref mut cond) => {
                         Ok(cond.set_signature(signature))
                     }
