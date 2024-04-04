@@ -3340,7 +3340,8 @@ fn advance_to_block_height(
 }
 
 #[test]
-/// Tests for verifying signatures in `stack-aggregation-commit`
+/// Test for verifying that the stacker aggregation works as expected
+///   with new signature parameters.
 fn stack_agg_increase() {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
