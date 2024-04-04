@@ -12,6 +12,7 @@ export class Stub {
   readonly wallets: Map<StxAddress, Wallet>;
   readonly statistics: Map<string, number>;
   stackingMinimum: number;
+  nextRewardSetIndex: number
 
   constructor(
     wallets: Map<StxAddress, Wallet>,
@@ -20,6 +21,7 @@ export class Stub {
     this.wallets = wallets;
     this.statistics = statistics;
     this.stackingMinimum = 0;
+    this.nextRewardSetIndex = 0;
   }
 
   trackCommandRun(commandName: string) {
