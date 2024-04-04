@@ -43,7 +43,6 @@ use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stdext::num::integer::Integer;
-use wsts::curve::field::P;
 use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
