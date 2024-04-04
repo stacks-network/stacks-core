@@ -75,6 +75,10 @@ impl HttpRequest for RPCGetTransactionUnconfirmedRequestHandler {
         Regex::new(r#"^/v2/transactions/unconfirmed/(?P<txid>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/transactions/unconfirmed/:txid"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

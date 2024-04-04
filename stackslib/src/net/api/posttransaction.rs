@@ -120,6 +120,10 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
         Regex::new(r#"^/v2/transactions$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/transactions"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

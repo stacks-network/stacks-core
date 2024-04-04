@@ -83,6 +83,10 @@ impl HttpRequest for RPCGetConstantValRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/constant_val/:principal/:contract_name/:const_name"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

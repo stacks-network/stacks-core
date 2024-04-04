@@ -36,6 +36,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::Url;
 
+use super::rpc::ConversationHttp;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
@@ -1240,6 +1241,27 @@ impl StacksHttp {
             _ => [buf[i - 4], buf[i - 3], buf[i - 2], buf[i - 1]],
         };
         window
+    }
+
+    /// Get a unique `&str` identifier for each request type
+    /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
+    /// For details see https://github.com/stacks-network/stacks-core/issues/4574
+    pub fn metrics_identifier(&self, req: &StacksHttpRequest) -> &str {
+        let Ok((decoded_path, _)) = decode_request_path(&req.request_path()) else {
+            return "<err-url-decode>";
+        };
+        let Some(response_handler_index) =
+            self.find_response_handler(&req.preamble().verb, &decoded_path)
+        else {
+            return "<err-handler-not-found>";
+        };
+
+        let (_, _, request_handler) = self
+            .request_handlers
+            .get(response_handler_index)
+            .expect("FATAL: request points to a nonexistent handler");
+
+        request_handler.metrics_identifier()
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
