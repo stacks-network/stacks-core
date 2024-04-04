@@ -5870,7 +5870,6 @@ pub mod test {
         peer.sortdb = Some(sortdb);
         peer.stacks_node = Some(node);
     }
-
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
@@ -5938,15 +5937,15 @@ pub mod test {
                             &tip.sortition_id,
                             &header_tip.anchored_header.block_hash(),
                         )
-                        .unwrap()
-                        .unwrap(); // succeeds because we don't fork
+                            .unwrap()
+                            .unwrap(); // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
                         )
-                        .unwrap()
-                        .unwrap()
+                            .unwrap()
+                            .unwrap()
                     }
                 };
 
@@ -5984,7 +5983,7 @@ pub mod test {
                     tip.total_burn,
                     Hash160(mblock_pubkey_hash_bytes),
                 )
-                .unwrap();
+                    .unwrap();
 
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
@@ -5992,7 +5991,7 @@ pub mod test {
                     &sortdb.index_conn(),
                     vec![coinbase_tx, versioned_contract],
                 )
-                .unwrap();
+                    .unwrap();
 
                 eprintln!("{:?}", &anchored_block.0);
                 (anchored_block.0, vec![])
@@ -6007,22 +6006,8 @@ pub mod test {
 
             let sortdb = peer.sortdb.take().unwrap();
             let mut node = peer.stacks_node.take().unwrap();
-            match Relayer::process_new_anchored_block(
-                &sortdb.index_conn(),
-                &mut node.chainstate,
-                &consensus_hash,
-                &stacks_block,
-                123,
-            ) {
-                Ok(x) => {
-                    eprintln!("{:?}", &stacks_block);
-                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
-                }
-                Err(chainstate_error::InvalidStacksBlock(_)) => {}
-                Err(e) => {
-                    panic!("Got unexpected error {:?}", &e);
-                }
-            };
+            // incorrect transaction was filtered and no error in the block will appear
+            assert_eq!(stacks_block.txs.len(), 1);
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
         }

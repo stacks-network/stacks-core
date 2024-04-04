@@ -954,102 +954,6 @@ impl StacksTransaction {
         Ok(next_sighash)
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    fn sign_no_append_origin(
-        &self,
-        cur_sighash: &Txid,
-        privk: &StacksPrivateKey,
-    ) -> Result<MessageSignature, net_error> {
-        let next_sig = match self.auth {
-            TransactionAuth::Standard(ref origin_condition)
-            | TransactionAuth::Sponsored(ref origin_condition, _) => {
-                let (next_sig, _next_sighash) = TransactionSpendingCondition::next_signature(
-                    cur_sighash,
-                    &TransactionAuthFlags::AuthStandard,
-                    origin_condition.tx_fee(),
-                    origin_condition.nonce(),
-                    privk,
-                )?;
-                next_sig
-            }
-        };
-        Ok(next_sig)
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn append_origin_signature(
-        &mut self,
-        signature: MessageSignature,
-        key_encoding: TransactionPublicKeyEncoding,
-    ) -> Result<(), net_error> {
-        match self.auth {
-            TransactionAuth::Standard(ref mut origin_condition)
-            | TransactionAuth::Sponsored(ref mut origin_condition, _) => match origin_condition {
-                TransactionSpendingCondition::Singlesig(ref mut cond) => {
-                    cond.set_signature(signature);
-                }
-                TransactionSpendingCondition::Multisig(ref mut cond) => {
-                    cond.push_signature(key_encoding, signature);
-                }
-                TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
-                    cond.push_signature(key_encoding, signature);
-                }
-            },
-        };
-        Ok(())
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn sign_no_append_sponsor(
-        &mut self,
-        cur_sighash: &Txid,
-        privk: &StacksPrivateKey,
-    ) -> Result<MessageSignature, net_error> {
-        let next_sig = match self.auth {
-            TransactionAuth::Standard(_) => {
-                return Err(net_error::SigningError(
-                    "Cannot sign standard authorization with a sponsoring private key".to_string(),
-                ));
-            }
-            TransactionAuth::Sponsored(_, ref mut sponsor_condition) => {
-                let (next_sig, _next_sighash) = TransactionSpendingCondition::next_signature(
-                    cur_sighash,
-                    &TransactionAuthFlags::AuthSponsored,
-                    sponsor_condition.tx_fee(),
-                    sponsor_condition.nonce(),
-                    privk,
-                )?;
-                next_sig
-            }
-        };
-        Ok(next_sig)
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn append_sponsor_signature(
-        &mut self,
-        signature: MessageSignature,
-        key_encoding: TransactionPublicKeyEncoding,
-    ) -> Result<(), net_error> {
-        match self.auth {
-            TransactionAuth::Standard(_) => Err(net_error::SigningError(
-                "Cannot appned a public key to the sponsor of a standard auth condition"
-                    .to_string(),
-            )),
-            TransactionAuth::Sponsored(_, ref mut sponsor_condition) => match sponsor_condition {
-                TransactionSpendingCondition::Singlesig(ref mut cond) => {
-                    Ok(cond.set_signature(signature))
-                }
-                TransactionSpendingCondition::Multisig(ref mut cond) => {
-                    Ok(cond.push_signature(key_encoding, signature))
-                }
-                TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
-                    Ok(cond.push_signature(key_encoding, signature))
-                }
-            },
-        }
-    }
-
     /// Append the next public key to the origin account authorization.
     pub fn append_next_origin(&mut self, pubk: &StacksPublicKey) -> Result<(), net_error> {
         match self.auth {
@@ -1345,6 +1249,100 @@ mod test {
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
     use crate::net::*;
+
+    impl StacksTransaction {
+        fn sign_no_append_origin(
+            &self,
+            cur_sighash: &Txid,
+            privk: &StacksPrivateKey,
+        ) -> Result<MessageSignature, net_error> {
+            let next_sig = match self.auth {
+                TransactionAuth::Standard(ref origin_condition)
+                | TransactionAuth::Sponsored(ref origin_condition, _) => {
+                    let (next_sig, _next_sighash) = TransactionSpendingCondition::next_signature(
+                        cur_sighash,
+                        &TransactionAuthFlags::AuthStandard,
+                        origin_condition.tx_fee(),
+                        origin_condition.nonce(),
+                        privk,
+                    )?;
+                    next_sig
+                }
+            };
+            Ok(next_sig)
+        }
+
+        fn append_origin_signature(
+            &mut self,
+            signature: MessageSignature,
+            key_encoding: TransactionPublicKeyEncoding,
+        ) -> Result<(), net_error> {
+            match self.auth {
+                TransactionAuth::Standard(ref mut origin_condition)
+                | TransactionAuth::Sponsored(ref mut origin_condition, _) => match origin_condition {
+                    TransactionSpendingCondition::Singlesig(ref mut cond) => {
+                        cond.set_signature(signature);
+                    }
+                    TransactionSpendingCondition::Multisig(ref mut cond) => {
+                        cond.push_signature(key_encoding, signature);
+                    }
+                    TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
+                        cond.push_signature(key_encoding, signature);
+                    }
+                },
+            };
+            Ok(())
+        }
+
+        fn sign_no_append_sponsor(
+            &mut self,
+            cur_sighash: &Txid,
+            privk: &StacksPrivateKey,
+        ) -> Result<MessageSignature, net_error> {
+            let next_sig = match self.auth {
+                TransactionAuth::Standard(_) => {
+                    return Err(net_error::SigningError(
+                        "Cannot sign standard authorization with a sponsoring private key".to_string(),
+                    ));
+                }
+                TransactionAuth::Sponsored(_, ref mut sponsor_condition) => {
+                    let (next_sig, _next_sighash) = TransactionSpendingCondition::next_signature(
+                        cur_sighash,
+                        &TransactionAuthFlags::AuthSponsored,
+                        sponsor_condition.tx_fee(),
+                        sponsor_condition.nonce(),
+                        privk,
+                    )?;
+                    next_sig
+                }
+            };
+            Ok(next_sig)
+        }
+
+        pub fn append_sponsor_signature(
+            &mut self,
+            signature: MessageSignature,
+            key_encoding: TransactionPublicKeyEncoding,
+        ) -> Result<(), net_error> {
+            match self.auth {
+                TransactionAuth::Standard(_) => Err(net_error::SigningError(
+                    "Cannot appned a public key to the sponsor of a standard auth condition"
+                        .to_string(),
+                )),
+                TransactionAuth::Sponsored(_, ref mut sponsor_condition) => match sponsor_condition {
+                    TransactionSpendingCondition::Singlesig(ref mut cond) => {
+                        Ok(cond.set_signature(signature))
+                    }
+                    TransactionSpendingCondition::Multisig(ref mut cond) => {
+                        Ok(cond.push_signature(key_encoding, signature))
+                    }
+                    TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
+                        Ok(cond.push_signature(key_encoding, signature))
+                    }
+                },
+            }
+        }
+    }
 
     fn corrupt_auth_field(
         corrupt_auth_fields: &TransactionAuth,

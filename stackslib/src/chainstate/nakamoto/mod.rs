@@ -1176,7 +1176,7 @@ impl NakamotoBlock {
             warn!("Not a well-formed tenure-extend block");
             return false;
         }
-        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, true) {
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, false) {
             return false;
         }
         return true;
