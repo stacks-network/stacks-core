@@ -30,9 +30,9 @@ export class Stub {
   }
 
   reportCommandRuns() {
-    process.stdout.write("Command run method execution counts:");
+    console.log("Command run method execution counts:");
     this.statistics.forEach((count, commandName) => {
-      process.stdout.write(`\n${commandName}: ${count}`);
+      console.log(`${commandName}: ${count}`);
     });
   }
 }
