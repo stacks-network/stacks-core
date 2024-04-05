@@ -367,14 +367,6 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             return None;
         }
         for signer in self.stacks_signers.values_mut() {
-            // First check if we missed any messages due to a restart or being late to the party
-            if let Err(e) = signer.read_stackerdb_messages(
-                &self.stacks_client,
-                res.clone(),
-                current_reward_cycle,
-            ) {
-                error!("{signer}: failed to read stackerdb messages: {e}");
-            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -423,8 +415,15 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     signer.commands.push_back(command.command);
                 }
             }
+            // Check if we missed any messages due to a restart or being late to the party
+            if let Err(e) = signer.read_stackerdb_messages(
+                &self.stacks_client,
+                res.clone(),
+                current_reward_cycle,
+            ) {
+                error!("{signer}: failed to read stackerdb messages: {e}");
+            }
             // After processing event, run the next command for each signer
-
             signer.process_next_command(&self.stacks_client, current_reward_cycle);
         }
         None

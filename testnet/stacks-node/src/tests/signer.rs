@@ -975,103 +975,8 @@ fn stackerdb_dkg() {
 
 #[test]
 #[ignore]
-/// Test the signer can handle delayed start and still see the DKG round has commenced
-fn stackerdb_delayed_start_dkg() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
-
-    info!("------------------------- Test Setup -------------------------");
-    let timeout = Duration::from_secs(200);
-    let num_signers = 5;
-    let mut signer_test = SignerTest::new(num_signers);
-    boot_to_epoch_3_reward_set_calculation_boundary(
-        &signer_test.running_nodes.conf,
-        &signer_test.running_nodes.blocks_processed,
-        &signer_test.signer_stacks_private_keys,
-        &signer_test.signer_stacks_private_keys,
-        &mut signer_test.running_nodes.btc_regtest_controller,
-    );
-
-    info!("------------------------- Stop Signers -------------------------");
-    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
-    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
-    let coordinator_selector = CoordinatorSelector::from(public_keys);
-    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
-    let coordinator_public_key =
-        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
-    let mut to_stop = vec![];
-    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
-        let public_key = StacksPublicKey::from_private(key);
-        if public_key == coordinator_public_key {
-            // Do not stop the coordinator. We want coordinator to start a DKG round
-            continue;
-        }
-        to_stop.push(idx);
-        if to_stop.len() == num_signers.saturating_sub(2) {
-            // Keep one signer alive to test scenario where restartings signers can read both coordinator and signer messages to catch up
-            break;
-        }
-    }
-    let mut stopped_signers = Vec::with_capacity(to_stop.len());
-    for idx in to_stop.into_iter().rev() {
-        let signer_key = signer_test.stop_signer(idx);
-        debug!(
-            "Removed signer {idx} with key: {:?}, {}",
-            signer_key,
-            signer_key.to_hex()
-        );
-        stopped_signers.push((idx, signer_key));
-    }
-
-    info!("------------------------- Start DKG -------------------------");
-    let height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
-    // Advance one more to trigger DKG
-    run_until_burnchain_height(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
-        height.wrapping_add(1),
-        &signer_test.running_nodes.conf,
-    );
-    // Wait one second so DKG is actually triggered and signers are not available to respond
-    std::thread::sleep(Duration::from_secs(1));
-    // Make sure DKG did not get set
-    assert!(signer_test
-        .stacks_client
-        .get_approved_aggregate_key(reward_cycle)
-        .expect("Failed to get approved aggregate key")
-        .is_none());
-    info!("------------------------- Restart Stopped Signers -------------------------");
-
-    for (idx, signer_key) in stopped_signers {
-        signer_test.restart_signer(idx, signer_key);
-    }
-
-    info!("------------------------- Wait for DKG -------------------------");
-    let key = signer_test.wait_for_dkg(timeout);
-    // Make sure DKG did not get set
-    assert_eq!(
-        key,
-        signer_test
-            .stacks_client
-            .get_approved_aggregate_key(reward_cycle)
-            .expect("Failed to get approved aggregate key")
-            .expect("No approved aggregate key found")
-    );
-}
-
-#[test]
-#[ignore]
-/// Test the signer can respond to external commands to perform DKG
-fn stackerdb_sign() {
+/// Test the signer rejects requests to sign that do not come from a miner
+fn stackerdb_sign_request_rejected() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1202,6 +1107,185 @@ fn stackerdb_sign() {
     } else {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
+    info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
+}
+
+#[test]
+#[ignore]
+/// Test that a signer can be offline when a DKG round has commenced and
+/// can rejoin the DKG round after it has restarted
+fn stackerdb_delayed_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let mut signer_test = SignerTest::new(3);
+    boot_to_epoch_3_reward_set_calculation_boundary(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
+    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let coordinator_selector = CoordinatorSelector::from(public_keys);
+    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
+    let coordinator_public_key =
+        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
+
+    info!("------------------------- Stop Signers -------------------------");
+    let mut to_stop = None;
+    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
+        let public_key = StacksPublicKey::from_private(key);
+        if public_key == coordinator_public_key {
+            // Do not stop the coordinator. We want coordinator to start a DKG round
+            continue;
+        }
+        // Only stop one signer
+        to_stop = Some(idx);
+        break;
+    }
+    let signer_idx = to_stop.expect("Failed to find a signer to stop");
+    let signer_key = signer_test.stop_signer(signer_idx);
+    debug!(
+        "Removed signer {signer_idx} with key: {:?}, {}",
+        signer_key,
+        signer_key.to_hex()
+    );
+
+    info!("------------------------- Start DKG -------------------------");
+    let height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    // Advance one more to trigger DKG
+    run_until_burnchain_height(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+        height.wrapping_add(1),
+        &signer_test.running_nodes.conf,
+    );
+    // Wait a bit so DKG is actually triggered and signers are not available to respond
+    std::thread::sleep(Duration::from_secs(5));
+
+    // Make sure DKG did not get set
+    assert!(signer_test
+        .stacks_client
+        .get_approved_aggregate_key(reward_cycle)
+        .expect("Failed to get approved aggregate key")
+        .is_none());
+
+    info!("------------------------- Restart Stopped Signer -------------------------");
+
+    signer_test.restart_signer(signer_idx, signer_key);
+
+    info!("------------------------- Wait for DKG -------------------------");
+    let key = signer_test.wait_for_dkg(timeout);
+    let height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    // Advance one more to mine dkg transactions
+    run_until_burnchain_height(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+        height.wrapping_add(1),
+        &signer_test.running_nodes.conf,
+    );
+    // Make sure DKG did get set
+    assert_eq!(
+        key,
+        signer_test
+            .stacks_client
+            .get_approved_aggregate_key(reward_cycle)
+            .expect("Failed to get approved aggregate key")
+            .expect("No approved aggregate key found")
+    );
+}
+
+#[test]
+#[ignore]
+/// Test that a signer can be offline when a sign round has commenced
+/// and can rejoin the sign round after it has restarted
+fn stackerdb_delayed_sign() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let mut signer_test = SignerTest::new(3);
+    let _key = signer_test.boot_to_epoch_3(timeout);
+    let rpc_bind = signer_test.running_nodes.conf.node.rpc_bind.clone();
+    let run_stamp = signer_test.run_stamp;
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let coordinator_selector = CoordinatorSelector::from(public_keys);
+    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
+    let coordinator_public_key =
+        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
+
+    info!("------------------------- Stop Signer -------------------------");
+    let mut to_stop = None;
+    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
+        let public_key = StacksPublicKey::from_private(key);
+        if public_key == coordinator_public_key {
+            // Do not stop the coordinator. We want coordinator to start a sign round
+            continue;
+        }
+        // Only stop one signer
+        to_stop = Some(idx);
+        break;
+    }
+    let signer_idx = to_stop.expect("Failed to find a signer to stop");
+    let signer_key = signer_test.stop_signer(signer_idx);
+    debug!(
+        "Removed signer {signer_idx} with key: {:?}, {}",
+        signer_key,
+        signer_key.to_hex()
+    );
+
+    info!("------------------------- Start Sign -------------------------");
+    let sign_now = Instant::now();
+    let h = std::thread::spawn(move || signer_test.mine_nakamoto_block(timeout));
+
+    // Sleep a bit to wait for a miner to propose a block
+    std::thread::sleep(Duration::from_secs(5));
+
+    info!("------------------------- Restart Stopped Signer -------------------------");
+    let signer_config = build_signer_config_tomls(
+        &[signer_key],
+        &rpc_bind,
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        &Network::Testnet,
+        "12345",
+        run_stamp,
+        3000 + signer_idx,
+    )
+    .pop()
+    .unwrap();
+
+    let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
+
+    let _signer = spawn_signer(&signer_config, cmd_recv, res_send);
+    info!("------------------------- Wait for Signed Block -------------------------");
+    // Now the signer has come back online, it should sign the block
+    h.join().unwrap();
+    let sign_elapsed = sign_now.elapsed();
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
 }
 

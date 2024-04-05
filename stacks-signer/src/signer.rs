@@ -234,7 +234,51 @@ impl Signer {
             return Ok(());
         }
         let packets = self.stackerdb.get_all_packets(&self.signer_slot_ids)?;
-        self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
+        let mut ordered_packets = vec![];
+        if self.approved_aggregate_public_key.is_none() {
+            // we should read the DKG messages in order to see if we are in the middle of a DKG round
+            // TODO: we should check if we already computed some party shares. In which case, we should start LATER in this list
+            debug!("{self}: Checking stackerdb for missed DKG messages.");
+            let dkg_order = &[
+                MessageSlotID::DkgBegin,
+                MessageSlotID::DkgEndBegin,
+                MessageSlotID::DkgPublicShares,
+                MessageSlotID::DkgPrivateBegin,
+                MessageSlotID::DkgPrivateShares,
+                MessageSlotID::DkgEndBegin,
+                MessageSlotID::DkgEnd,
+            ];
+            for slot_id in dkg_order {
+                let packets = packets.get(slot_id).cloned().unwrap_or_default();
+                ordered_packets.extend(packets);
+            }
+        } else {
+            debug!("{self}: Checking stackerdb for missed Sign messages.");
+            let sign_order = &[
+                MessageSlotID::NonceRequest,
+                MessageSlotID::NonceResponse,
+                MessageSlotID::SignatureShareRequest,
+                MessageSlotID::SignatureShareResponse,
+            ];
+            for slot_id in sign_order {
+                let packets = packets.get(slot_id).cloned().unwrap_or_default();
+                ordered_packets.extend(packets);
+            }
+        }
+        if !ordered_packets.is_empty() {
+            debug!(
+                "{self}: Processing {} messages from stackerdb: {ordered_packets:?}",
+                ordered_packets.len()
+            );
+            self.handle_packets(
+                stacks_client,
+                res.clone(),
+                &ordered_packets,
+                current_reward_cycle,
+            );
+        }
+        debug!("{:?}", self.state);
+        debug!("{self}: Finished checking stackerdb for missed messages.");
         if self.state == State::Uninitialized {
             self.state = State::Idle;
         }
