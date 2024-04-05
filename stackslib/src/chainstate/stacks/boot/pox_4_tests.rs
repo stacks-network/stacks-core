@@ -3410,6 +3410,7 @@ fn stack_agg_increase() {
         observer.get_blocks();
     }
     let latest_block = latest_block.expect("Failed to get tip");
+    //let latest_block = peer.tenure_with_txs(&[], &mut peer_nonce);
     // Current reward cycle: 5 (starts at burn block 101)
     let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
     let next_reward_cycle = reward_cycle.wrapping_add(1);
@@ -3424,6 +3425,17 @@ fn stack_agg_increase() {
     let alice_signature_initial = make_signer_key_signature(
         &bob.pox_address,
         &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        lock_period,
+        u128::MAX,
+        1,
+    );
+    // Increase Error Bob Signature For Bob
+    let lock_period = 1;
+    let bob_err_signature_increase = make_signer_key_signature(
+        &bob.pox_address,
+        &bob.private_key,
         next_reward_cycle,
         &Pox4SignatureTopic::AggregationCommit,
         lock_period,
@@ -3556,6 +3568,22 @@ fn stack_agg_increase() {
         lock_period,
     );
     bob.nonce += 1;
+    // Bob's Error Aggregate Increase
+    let bobs_err_aggregate_increase = make_pox_4_aggregation_increase(
+        &bob.private_key,
+        bob.nonce,
+        &bob.pox_address,
+        next_reward_cycle,
+        bob_aggregate_commit_reward_index_actual
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        Some(bob_err_signature_increase),
+        &bob.public_key,
+        u128::MAX,
+        1,
+    );
+    bob.nonce += 1;
     // Bob's Aggregate Increase
     let bobs_aggregate_increase = make_pox_4_aggregation_increase(
         &bob.private_key,
@@ -3575,6 +3603,7 @@ fn stack_agg_increase() {
     let txs = vec![
         eve_delegate_stx_to_bob_tx.clone(),
         bob_delegate_stack_stx_for_eve_tx.clone(),
+        bobs_err_aggregate_increase.clone(),
         bobs_aggregate_increase.clone(),
     ];
 
@@ -3588,10 +3617,25 @@ fn stack_agg_increase() {
         target_height.into(),
     );
 
+    // Fetch the error aggregate increase result & check that the err is ERR_INVALID_SIGNER_KEY
+    let bob_err_increase_result_actual = &tx_block
+        .receipts
+        .get(3)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
+    let bob_err_increase_result_expected = Value::Int(32);
+    assert_eq!(
+        bob_err_increase_result_actual,
+        &bob_err_increase_result_expected
+    );
+
     // Fetch the aggregate increase result & check that value is true
     let bob_aggregate_increase_result = &tx_block
         .receipts
-        .get(3)
+        .get(4)
         .unwrap()
         .result
         .clone()

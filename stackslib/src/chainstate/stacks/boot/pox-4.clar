@@ -904,7 +904,8 @@
           (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
                           (err ERR_DELEGATION_NO_REWARD_SLOT)))
           (increased-entry-total (+ (get total-ustx existing-entry) partial-amount-ustx))
-          (increased-cycle-total (+ (get total-ustx existing-cycle) partial-amount-ustx)))
+          (increased-cycle-total (+ (get total-ustx existing-cycle) partial-amount-ustx))
+          (existing-signer-key (get signer existing-entry)))
 
           ;; must be stackable
           (try! (minimal-can-stack-stx pox-addr increased-entry-total reward-cycle u1))
@@ -923,6 +924,9 @@
 
           ;; Validate that amount is less than or equal to `max-amount`
           (asserts! (>= max-amount increased-entry-total) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+
+          ;; Validate that signer-key matches the existing signer-key
+          (asserts! (is-eq existing-signer-key signer-key) (err ERR_INVALID_SIGNER_KEY))
 
           ;; Verify signature from delegate that allows this sender for this cycle
           ;; 'lock-period' param set to one period, same as aggregation-commit-indexed
