@@ -3374,10 +3374,6 @@ fn stack_agg_increase() {
     )
     .unwrap();
 
-    // reward cycles are 5 blocks long
-    // first 25 blocks are boot-up
-    // reward cycle 6 instantiates pox-3
-    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
     peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     peer_config
         .stacker_dbs
