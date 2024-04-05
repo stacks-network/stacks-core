@@ -664,6 +664,10 @@
                 (err ERR_STACKING_INVALID_POX_ADDRESS))
          true)
 
+      ;; address hashbytes must be valid for the version
+      (asserts! (check-pox-addr-hashbytes (get version pox-addr) (get hashbytes pox-addr))
+                (err ERR_STACKING_INVALID_POX_ADDRESS))
+
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
@@ -919,6 +923,7 @@
           (asserts! (>= max-amount increased-ustx) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
 
           ;; Verify signature from delegate that allows this sender for this cycle
+          ;; 'lock-period' param set to one period, same as aggregation-commit-indexed
           (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-increase" u1 signer-sig signer-key increased-ustx max-amount auth-id))
 
           ;; update the pox-address list -- bump the total-ustx
