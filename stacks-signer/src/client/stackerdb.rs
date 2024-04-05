@@ -209,25 +209,13 @@ impl StackerDB {
     }
 
     /// Get all wsts packets from stackerdb for each of the given signer IDs
-    pub fn get_all_packets(
+    pub fn get_packets(
         &mut self,
         signer_ids: &[SignerSlotID],
-    ) -> Result<HashMap<MessageSlotID, Vec<Packet>>, ClientError> {
+        packet_slots: &[MessageSlotID],
+    ) -> Result<Vec<Packet>, ClientError> {
         let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
-        let mut packets = HashMap::new();
-        let packet_slots = &[
-            MessageSlotID::DkgBegin,
-            MessageSlotID::DkgPrivateBegin,
-            MessageSlotID::DkgEndBegin,
-            MessageSlotID::DkgEnd,
-            MessageSlotID::DkgPublicShares,
-            MessageSlotID::DkgPrivateShares,
-            MessageSlotID::NonceRequest,
-            MessageSlotID::NonceResponse,
-            MessageSlotID::SignatureShareRequest,
-            MessageSlotID::SignatureShareResponse,
-        ];
-
+        let mut packets = vec![];
         for packet_slot in packet_slots {
             let session = self
                 .signers_message_stackerdb_sessions
@@ -239,10 +227,7 @@ impl StackerDB {
                     warn!("Found an unexpected type in a packet slot {packet_slot}");
                     continue;
                 };
-                packets
-                    .entry(*packet_slot)
-                    .or_insert_with(|| vec![])
-                    .push(packet);
+                packets.push(packet);
             }
         }
         Ok(packets)

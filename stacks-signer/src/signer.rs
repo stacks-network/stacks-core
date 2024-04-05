@@ -233,38 +233,30 @@ impl Signer {
             // We already have state. Do not load it again.
             return Ok(());
         }
-        let packets = self.stackerdb.get_all_packets(&self.signer_slot_ids)?;
-        let mut ordered_packets = vec![];
-        if self.approved_aggregate_public_key.is_none() {
+        let packet_slots = if self.approved_aggregate_public_key.is_none() {
             // we should read the DKG messages in order to see if we are in the middle of a DKG round
             // TODO: we should check if we already computed some party shares. In which case, we should start LATER in this list
             debug!("{self}: Checking stackerdb for missed DKG messages.");
-            let dkg_order = &[
+            vec![
                 MessageSlotID::DkgBegin,
-                MessageSlotID::DkgEndBegin,
                 MessageSlotID::DkgPublicShares,
                 MessageSlotID::DkgPrivateBegin,
                 MessageSlotID::DkgPrivateShares,
                 MessageSlotID::DkgEndBegin,
                 MessageSlotID::DkgEnd,
-            ];
-            for slot_id in dkg_order {
-                let packets = packets.get(slot_id).cloned().unwrap_or_default();
-                ordered_packets.extend(packets);
-            }
+            ]
         } else {
             debug!("{self}: Checking stackerdb for missed Sign messages.");
-            let sign_order = &[
+            vec![
                 MessageSlotID::NonceRequest,
                 MessageSlotID::NonceResponse,
                 MessageSlotID::SignatureShareRequest,
                 MessageSlotID::SignatureShareResponse,
-            ];
-            for slot_id in sign_order {
-                let packets = packets.get(slot_id).cloned().unwrap_or_default();
-                ordered_packets.extend(packets);
-            }
-        }
+            ]
+        };
+        let ordered_packets = self
+            .stackerdb
+            .get_packets(&self.signer_slot_ids, &packet_slots)?;
         if !ordered_packets.is_empty() {
             debug!(
                 "{self}: Processing {} messages from stackerdb: {ordered_packets:?}",
@@ -277,8 +269,6 @@ impl Signer {
                 current_reward_cycle,
             );
         }
-        debug!("{:?}", self.state);
-        debug!("{self}: Finished checking stackerdb for missed messages.");
         if self.state == State::Uninitialized {
             self.state = State::Idle;
         }
