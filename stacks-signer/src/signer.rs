@@ -217,6 +217,7 @@ impl Signer {
     fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
         self.coordinator_selector.get_coordinator()
     }
+
     /// Read stackerdb messages in case the signer was started late or restarted and missed incoming messages
     pub fn read_stackerdb_messages(
         &mut self,
@@ -256,7 +257,17 @@ impl Signer {
         };
         let ordered_packets = self
             .stackerdb
-            .get_packets(&self.signer_slot_ids, &packet_slots)?;
+            .get_packets(&self.signer_slot_ids, &packet_slots)?
+            .iter()
+            .filter_map(|packet| {
+                let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                    self.get_coordinator_dkg().1
+                } else {
+                    self.get_coordinator_sign(current_reward_cycle).1
+                };
+                self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
+            })
+            .collect::<Vec<_>>();
         if !ordered_packets.is_empty() {
             debug!(
                 "{self}: Processing {} messages from stackerdb: {ordered_packets:?}",
