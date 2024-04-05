@@ -894,21 +894,21 @@
     (asserts! (> reward-cycle (current-pox-reward-cycle))
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
-    (let ((amount-ustx (get stacked-amount partial-stacked))
+    (let ((partial-amount-ustx (get stacked-amount partial-stacked))
           ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
           ;; infallible; getting something from partial-stacked-by-cycle succeeded so this must succeed
-          (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+          (existing-cycle-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
           ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
-          (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
+          (existing-entry-total (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
                           (err ERR_DELEGATION_NO_REWARD_SLOT)))
-          (increased-ustx (+ (get total-ustx existing-entry) amount-ustx))
-          (total-ustx (+ (get total-ustx existing-total) amount-ustx)))
+          (increased-entry-total (+ (get total-ustx existing-entry-total) partial-amount-ustx))
+          (increased-cycle-total (+ (get total-ustx existing-cycle-total) partial-amount-ustx)))
 
           ;; must be stackable
-          (try! (minimal-can-stack-stx pox-addr increased-ustx reward-cycle u1))
+          (try! (minimal-can-stack-stx pox-addr increased-entry-total reward-cycle u1))
 
           ;; new total must exceed the stacking minimum
-          (asserts! (<= (get-stacking-minimum) increased-ustx)
+          (asserts! (<= (get-stacking-minimum) increased-entry-total)
                     (err ERR_STACKING_THRESHOLD_NOT_MET))
 
           ;; there must *not* be a stacker entry (since this is a delegator)
@@ -920,24 +920,24 @@
                     (err ERR_DELEGATION_WRONG_REWARD_SLOT))
 
           ;; Validate that amount is less than or equal to `max-amount`
-          (asserts! (>= max-amount increased-ustx) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+          (asserts! (>= max-amount increased-entry-total) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
 
           ;; Verify signature from delegate that allows this sender for this cycle
           ;; 'lock-period' param set to one period, same as aggregation-commit-indexed
-          (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-increase" u1 signer-sig signer-key increased-ustx max-amount auth-id))
+          (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-increase" u1 signer-sig signer-key increased-entry-total max-amount auth-id))
 
           ;; update the pox-address list -- bump the total-ustx
           (map-set reward-cycle-pox-address-list
                    { reward-cycle: reward-cycle, index: reward-cycle-index }
                    { pox-addr: pox-addr,
-                     total-ustx: increased-ustx,
+                     total-ustx: increased-entry-total,
                      stacker: none,
                      signer: signer-key })
 
           ;; update the total ustx in this cycle
           (map-set reward-cycle-total-stacked
                    { reward-cycle: reward-cycle }
-                   { total-ustx: total-ustx })
+                   { total-ustx: increased-cycle-total })
 
           ;; don't update the stacking-state map,
           ;;  because it _already has_ this stacker's state
