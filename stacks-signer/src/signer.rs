@@ -48,7 +48,7 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
+use crate::client::{ClientError, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::coordinator::CoordinatorSelector;
 use crate::signerdb::SignerDb;
@@ -158,8 +158,11 @@ pub struct Signer {
     pub next_signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
-    /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
+    /// The default tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0).
     pub tx_fee_ustx: u64,
+    /// If estimating the tx fee, the max tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0)
+    /// If None, will not cap the fee.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The coordinator info for the signer
     pub coordinator_selector: CoordinatorSelector,
     /// The approved key registered to the contract
@@ -302,6 +305,7 @@ impl From<SignerConfig> for Signer {
             next_signer_addresses: vec![],
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ustx: signer_config.tx_fee_ustx,
+            max_tx_fee_ustx: signer_config.max_tx_fee_ustx,
             coordinator_selector,
             approved_aggregate_public_key: None,
             miner_key: None,
@@ -352,11 +356,7 @@ impl Signer {
                     debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
                     return;
                 }
-                let vote_round = match retry_with_exponential_backoff(|| {
-                    stacks_client
-                        .get_last_round(self.reward_cycle)
-                        .map_err(backoff::Error::transient)
-                }) {
+                let vote_round = match stacks_client.get_last_round(self.reward_cycle) {
                     Ok(last_round) => last_round,
                     Err(e) => {
                         error!("{self}: Unable to perform DKG. Failed to get last round from stacks node: {e:?}");
@@ -631,7 +631,7 @@ impl Signer {
                         });
                     // Submit the block for validation
                     stacks_client
-                        .submit_block_for_validation_with_retry(proposal.block.clone())
+                        .submit_block_for_validation(proposal.block.clone())
                         .unwrap_or_else(|e| {
                             warn!("{self}: Failed to submit block for validation: {e:?}");
                         });
@@ -786,7 +786,7 @@ impl Signer {
             );
             let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
             stacks_client
-                .submit_block_for_validation_with_retry(block)
+                .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}",);
                 });
@@ -877,7 +877,7 @@ impl Signer {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let transactions: Vec<_> = self
             .stackerdb
-            .get_current_transactions_with_retry()?
+            .get_current_transactions()?
             .into_iter()
             .filter_map(|tx| {
                 if !NakamotoSigners::valid_vote_transaction(nonces, &tx, self.mainnet) {
@@ -902,7 +902,7 @@ impl Signer {
         let account_nonces = self.get_account_nonces(stacks_client, &self.next_signer_addresses);
         let transactions: Vec<_> = self
             .stackerdb
-            .get_next_transactions_with_retry(&self.next_signer_slot_ids)?;
+            .get_next_transactions(&self.next_signer_slot_ids)?;
         let mut filtered_transactions = std::collections::HashMap::new();
         NakamotoSigners::update_filtered_transactions(
             &mut filtered_transactions,
@@ -1031,44 +1031,26 @@ impl Signer {
                        "error" => %e);
         }
 
-        let epoch = retry_with_exponential_backoff(|| {
-            stacks_client
-                .get_node_epoch()
-                .map_err(backoff::Error::transient)
-        })
-        .unwrap_or(StacksEpochId::Epoch24);
-        let tx_fee = if epoch < StacksEpochId::Epoch30 {
-            debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
-            Some(self.tx_fee_ustx)
-        } else {
-            None
-        };
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
         // Retreieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
         let account_nonces = self.get_account_nonces(stacks_client, &self.signer_addresses);
         let account_nonce = account_nonces.get(signer_address).unwrap_or(&0);
-        let signer_transactions = retry_with_exponential_backoff(|| {
-            self.get_signer_transactions(&account_nonces)
-                .map_err(backoff::Error::transient)
-        })
-        .map_err(|e| {
-            warn!("{self}: Unable to get signer transactions: {e:?}");
-        })
-        .unwrap_or_default();
+        let signer_transactions = self
+            .get_signer_transactions(&account_nonces)
+            .map_err(|e| {
+                error!("{self}: Unable to get signer transactions: {e:?}.");
+            })
+            .unwrap_or_default();
         // If we have a transaction in the stackerdb slot, we need to increment the nonce hence the +1, else should use the account nonce
         let next_nonce = signer_transactions
             .first()
             .map(|tx| tx.get_origin_nonce().wrapping_add(1))
             .unwrap_or(*account_nonce);
-        match stacks_client.build_vote_for_aggregate_public_key(
-            self.stackerdb.get_signer_slot_id().0,
-            self.coordinator.current_dkg_id,
-            *dkg_public_key,
-            self.reward_cycle,
-            tx_fee,
-            next_nonce,
-        ) {
+        let epoch = stacks_client
+            .get_node_epoch()
+            .unwrap_or(StacksEpochId::Epoch24);
+        match self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key) {
             Ok(new_transaction) => {
                 if let Err(e) = self.broadcast_dkg_vote(
                     stacks_client,
@@ -1087,6 +1069,44 @@ impl Signer {
                 );
             }
         }
+    }
+
+    /// Build a signed DKG vote transaction
+    fn build_dkg_vote(
+        &mut self,
+        stacks_client: &StacksClient,
+        epoch: &StacksEpochId,
+        nonce: u64,
+        dkg_public_key: Point,
+    ) -> Result<StacksTransaction, ClientError> {
+        let mut unsigned_tx = stacks_client.build_unsigned_vote_for_aggregate_public_key(
+            self.stackerdb.get_signer_slot_id().0,
+            self.coordinator.current_dkg_id,
+            dkg_public_key,
+            self.reward_cycle,
+            nonce,
+        )?;
+        let tx_fee = if epoch < &StacksEpochId::Epoch30 {
+            info!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
+            let fee = if let Some(max_fee) = self.max_tx_fee_ustx {
+                let estimated_fee = stacks_client
+                    .get_medium_estimated_fee_ustx(&unsigned_tx)
+                    .map_err(|e| {
+                        warn!("{self}: unable to estimate fee for DKG vote transaction: {e:?}.");
+                        e
+                    })
+                    .unwrap_or(self.tx_fee_ustx);
+                std::cmp::min(estimated_fee, max_fee)
+            } else {
+                self.tx_fee_ustx
+            };
+            debug!("{self}: Using a fee of {fee} uSTX for DKG vote transaction.");
+            fee
+        } else {
+            0
+        };
+        unsigned_tx.set_tx_fee(tx_fee);
+        stacks_client.sign_transaction(unsigned_tx)
     }
 
     // Get the account nonces for the provided list of signer addresses
@@ -1126,7 +1146,7 @@ impl Signer {
             debug!("{self}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.");
         } else if epoch == StacksEpochId::Epoch25 {
             debug!("{self}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.");
-            stacks_client.submit_transaction_with_retry(&new_transaction)?;
+            stacks_client.submit_transaction(&new_transaction)?;
             info!("{self}: Submitted DKG vote transaction ({txid:?}) to the mempool");
         } else {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
@@ -1301,7 +1321,7 @@ impl Signer {
             // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
             let account_nonce = stacks_client.get_account_nonce(signer_address).unwrap_or(0);
-            let old_transactions = self.stackerdb.get_current_transactions_with_retry()?;
+            let old_transactions = self.stackerdb.get_current_transactions()?;
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
                 // We should not consider other signer transactions and should ignore invalid transaction versions
