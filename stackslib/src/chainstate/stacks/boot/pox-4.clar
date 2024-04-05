@@ -664,9 +664,11 @@
                 (err ERR_STACKING_INVALID_POX_ADDRESS))
          true)
 
-      ;; address hashbytes must be valid for the version
-      (asserts! (check-pox-addr-hashbytes (get version pox-addr) (get hashbytes pox-addr))
+      (match pox-addr
+         pox-tuple
+            (asserts! (check-pox-addr-hashbytes (get version pox-tuple) (get hashbytes pox-tuple))
                 (err ERR_STACKING_INVALID_POX_ADDRESS))
+         true)
 
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
@@ -897,12 +899,12 @@
     (let ((partial-amount-ustx (get stacked-amount partial-stacked))
           ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
           ;; infallible; getting something from partial-stacked-by-cycle succeeded so this must succeed
-          (existing-cycle-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+          (existing-cycle (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
           ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
-          (existing-entry-total (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
+          (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
                           (err ERR_DELEGATION_NO_REWARD_SLOT)))
-          (increased-entry-total (+ (get total-ustx existing-entry-total) partial-amount-ustx))
-          (increased-cycle-total (+ (get total-ustx existing-cycle-total) partial-amount-ustx)))
+          (increased-entry-total (+ (get total-ustx existing-entry) partial-amount-ustx))
+          (increased-cycle-total (+ (get total-ustx existing-cycle) partial-amount-ustx)))
 
           ;; must be stackable
           (try! (minimal-can-stack-stx pox-addr increased-entry-total reward-cycle u1))
