@@ -6005,7 +6005,7 @@ pub mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
             let sortdb = peer.sortdb.take().unwrap();
-            let mut node = peer.stacks_node.take().unwrap();
+            let node = peer.stacks_node.take().unwrap();
             // incorrect transaction was filtered and no error in the block will appear
             assert_eq!(stacks_block.txs.len(), 1);
             peer.sortdb = Some(sortdb);
