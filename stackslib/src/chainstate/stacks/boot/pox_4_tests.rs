@@ -3665,7 +3665,7 @@ fn stack_agg_increase() {
         &alice.public_key,
         u128::MAX,
         2,
-    );  
+    );
     bob.nonce += 1;
 
     let txs = vec![
