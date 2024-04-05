@@ -3340,18 +3340,24 @@ fn advance_to_block_height(
 
 #[test]
 /// Test for verifying that the stacker aggregation works as expected
-///   with new signature parameters.
+///   with new signature parameters. In this test Alice is the service signer,
+///   Bob is the pool operator, Carl & Dave are delegates for pool 1, Eve is a late
+///   delegate for pool 1, Frank is a delegate for pool 2, & Grace is a delegate for pool 2.
 fn stack_agg_increase() {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob pool operator
     let mut bob = StackerSignerInfo::new();
-    // Carl pool delegate
+    // Carl pool 1 delegate
     let mut carl = StackerSignerInfo::new();
-    // Dave pool delegate
+    // Dave pool 1 delegate
     let mut dave = StackerSignerInfo::new();
-    // Eve late pool delegate
+    // Eve late 1 pool delegate
     let mut eve = StackerSignerInfo::new();
+    // Frank pool 2 delegate
+    let mut frank = StackerSignerInfo::new();
+    // Grace pool 2 delegate
+    let mut grace = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
@@ -3362,6 +3368,8 @@ fn stack_agg_increase() {
         (carl.principal.clone(), default_initial_balances),
         (dave.principal.clone(), default_initial_balances),
         (eve.principal.clone(), default_initial_balances),
+        (frank.principal.clone(), default_initial_balances),
+        (grace.principal.clone(), default_initial_balances),
     ];
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
@@ -3416,9 +3424,9 @@ fn stack_agg_increase() {
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
 
     // Signatures
-    // Initial Alice Signature For Bob
+    // Initial Alice Signature For Bob Pool 1
     let lock_period = 1;
-    let alice_signature_initial = make_signer_key_signature(
+    let alice_signature_initial_one = make_signer_key_signature(
         &bob.pox_address,
         &alice.private_key,
         next_reward_cycle,
@@ -3428,7 +3436,6 @@ fn stack_agg_increase() {
         1,
     );
     // Increase Error Bob Signature For Bob
-    let lock_period = 1;
     let bob_err_signature_increase = make_signer_key_signature(
         &bob.pox_address,
         &bob.private_key,
@@ -3447,6 +3454,16 @@ fn stack_agg_increase() {
         lock_period,
         u128::MAX,
         1,
+    );
+    // Initial Alice Signature For Bob Pool 2
+    let alice_signature_initial_two = make_signer_key_signature(
+        &bob.pox_address,
+        &alice.private_key,
+        next_reward_cycle,
+        &Pox4SignatureTopic::AggregationCommit,
+        lock_period,
+        u128::MAX,
+        2,
     );
 
     // Timely Delegate-STX Functions
@@ -3502,7 +3519,7 @@ fn stack_agg_increase() {
         bob.nonce,
         &bob.pox_address,
         next_reward_cycle,
-        Some(alice_signature_initial),
+        Some(alice_signature_initial_one),
         &alice.public_key,
         u128::MAX,
         1,
@@ -3595,12 +3612,72 @@ fn stack_agg_increase() {
         u128::MAX,
         1,
     );
+    bob.nonce += 1;
+    // Frank pool stacker delegating STX to Bob
+    let frank_delegate_stx_to_bob_tx = make_pox_4_delegate_stx(
+        &frank.private_key,
+        frank.nonce,
+        amount,
+        bob.principal.clone(),
+        None,
+        Some(bob.pox_address.clone()),
+    );
+    frank.nonce += 1;
+    // Grace pool stacker delegating STX to Bob
+    let grace_delegate_stx_to_bob_tx = make_pox_4_delegate_stx(
+        &grace.private_key,
+        grace.nonce,
+        amount,
+        bob.principal.clone(),
+        None,
+        Some(bob.pox_address.clone()),
+    );
+    grace.nonce += 1;
+    // Bob pool operator calling delegate-stack-stx on behalf of Faith
+    let bob_delegate_stack_stx_for_faith_tx = make_pox_4_delegate_stack_stx(
+        &bob.private_key,
+        bob.nonce,
+        frank.principal.clone(),
+        amount,
+        bob.pox_address.clone(),
+        burn_block_height as u128,
+        lock_period,
+    );
+    bob.nonce += 1;
+    // Bob pool operator calling delegate-stack-stx on behalf of Grace
+    let bob_delegate_stack_stx_for_grace_tx = make_pox_4_delegate_stack_stx(
+        &bob.private_key,
+        bob.nonce,
+        grace.principal.clone(),
+        amount,
+        bob.pox_address.clone(),
+        burn_block_height as u128,
+        lock_period,
+    );
+    bob.nonce += 1;
+    // Aggregate Commit 2nd Pool
+    let bobs_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
+        &bob.private_key,
+        bob.nonce,
+        &bob.pox_address,
+        next_reward_cycle,
+        Some(alice_signature_initial_two),
+        &alice.public_key,
+        u128::MAX,
+        2,
+    );  
+    bob.nonce += 1;
 
     let txs = vec![
         eve_delegate_stx_to_bob_tx.clone(),
         bob_delegate_stack_stx_for_eve_tx.clone(),
         bobs_err_aggregate_increase.clone(),
         bobs_aggregate_increase.clone(),
+        frank_delegate_stx_to_bob_tx.clone(),
+        grace_delegate_stx_to_bob_tx.clone(),
+        bob_delegate_stack_stx_for_faith_tx.clone(),
+        bob_delegate_stack_stx_for_grace_tx.clone(),
+        bobs_aggregate_commit_index_tx.clone(),
     ];
 
     // Advance to next block in order to attempt aggregate increase
@@ -3638,6 +3715,17 @@ fn stack_agg_increase() {
         .expect_result_ok()
         .unwrap();
     assert_eq!(bob_aggregate_increase_result, &Value::Bool(true));
+
+    // Check that Bob's second pool has an assigned reward index of 1
+    let bob_aggregate_commit_reward_index = &tx_block
+        .receipts
+        .get(9)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    assert_eq!(bob_aggregate_commit_reward_index, &Value::UInt(1));
 }
 
 #[test]
