@@ -3345,7 +3345,7 @@ fn advance_to_block_height(
 ///   delegate for pool 1, Frank is a delegate for pool 2, & Grace is a delegate for pool 2.
 fn stack_agg_increase() {
     // Alice service signer setup
-    let mut alice = StackerSignerInfo::new();
+    let alice = StackerSignerInfo::new();
     // Bob pool operator
     let mut bob = StackerSignerInfo::new();
     // Carl pool 1 delegate
@@ -3411,10 +3411,8 @@ fn stack_agg_increase() {
     // Produce blocks until the first reward phase that everyone should be in
     while peer.get_burn_block_height() < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-        observer.get_blocks();
     }
     let latest_block = latest_block.expect("Failed to get tip");
-    //let latest_block = peer.tenure_with_txs(&[], &mut peer_nonce);
     // Current reward cycle: 5 (starts at burn block 101)
     let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
     let next_reward_cycle = reward_cycle.wrapping_add(1);
