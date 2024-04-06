@@ -1555,7 +1555,6 @@ impl ProtocolFamily for StacksP2P {
 pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
-    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::secp256k1::*;
 
