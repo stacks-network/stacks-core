@@ -64,6 +64,7 @@ export type Wallet = {
   firstLockedRewardCycle: number;
   allowedContractCaller: StxAddress;
   callerAllowedBy: StxAddress[];
+  committedRewCycleIndexes: number[];
 };
 
 export type PoxCommand = fc.Command<Stub, Real>;
