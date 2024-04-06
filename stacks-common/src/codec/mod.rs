@@ -3,7 +3,6 @@ use std::{error, fmt, io, mem};
 
 // use crate::types::chainstate::MARFValue;
 use crate::types::chainstate::SortitionId;
-use crate::types::StacksEpochId;
 use crate::util::hash::HASH160_ENCODED_SIZE;
 use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
