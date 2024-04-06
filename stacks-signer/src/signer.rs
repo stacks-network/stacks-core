@@ -996,6 +996,10 @@ impl Signer {
     /// Process a dkg result by broadcasting a vote to the stacks node
     fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
         let mut dkg_results_bytes = vec![];
+        debug!(
+            "{self}: Received DKG result. Broadcasting vote to the stacks node...";
+            "dkg_public_key" => %dkg_public_key
+        );
         if let Err(e) = SignerMessage::serialize_dkg_result(
             &mut dkg_results_bytes,
             dkg_public_key,
