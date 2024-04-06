@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::types::Address;
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
