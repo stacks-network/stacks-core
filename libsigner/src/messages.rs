@@ -48,7 +48,6 @@ use stacks_common::codec::{
 };
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::retry::BoundReader;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
