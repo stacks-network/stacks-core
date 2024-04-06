@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
 use stacks_common::util::retry::BoundReader;
 
