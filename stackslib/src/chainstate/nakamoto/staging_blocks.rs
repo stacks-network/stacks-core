@@ -32,7 +32,6 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlockHeader};
 use crate::stacks_common::codec::StacksMessageCodec;
-use crate::stacks_common::types::StacksEpochId;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
     DBConn, Error as DBError, FromRow,
