@@ -100,6 +100,7 @@ it("statefully interacts with PoX-4", async () => {
       firstLockedRewardCycle: 0,
       allowedContractCaller: "",
       callerAllowedBy: [],
+      committedRewCycleIndexes: [],
     };
   });
 
