@@ -15,6 +15,7 @@ import { StackAggregationCommitAuthCommand } from "./pox_StackAggregationCommitA
 import { StackAggregationCommitSigCommand } from "./pox_StackAggregationCommitSigCommand";
 import { StackAggregationCommitIndexedSigCommand } from "./pox_StackAggregationCommitIndexedSigCommand";
 import { StackAggregationCommitIndexedAuthCommand } from "./pox_StackAggregationCommitIndexedAuthCommand";
+import { StackAggregationIncreaseCommand } from "./pox_StackAggregationIncreaseCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -148,6 +149,33 @@ export function PoxCommands(
         r.wallet,
         r.authId,
         r.currentCycle,
+      )
+    ),
+    // StackAggregationIncreaseCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).chain((r) => {
+      const committedRewCycleIndexesOrFallback =
+        r.wallet.committedRewCycleIndexes.length > 0
+          ? r.wallet.committedRewCycleIndexes
+          : [-1];
+      return fc.record({
+        rewardCycleIndex: fc.constantFrom(
+          ...committedRewCycleIndexesOrFallback,
+        ),
+      }).map((cycleIndex) => ({ ...r, ...cycleIndex }));
+    }).map((
+      r: {
+        wallet: Wallet;
+        currentCycle: number;
+        rewardCycleIndex: number;
+      },
+    ) =>
+      new StackAggregationIncreaseCommand(
+        r.wallet,
+        r.currentCycle,
+        r.rewardCycleIndex,
       )
     ),
     // RevokeDelegateStxCommand

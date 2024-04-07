@@ -112,6 +112,7 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
 
     const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     operatorWallet.amountToCommit -= committedAmount;
+    operatorWallet.committedRewCycleIndexes.push(model.nextRewardSetIndex);
     model.nextRewardSetIndex++;
 
     // Log to console for debugging purposes. This is not necessary for the
