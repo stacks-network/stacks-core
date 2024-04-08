@@ -124,13 +124,22 @@ pub enum Command {
     },
 }
 
+/// The specific operations that a signer can perform
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Operation {
+    /// A DKG operation
+    Dkg,
+    /// A Sign operation
+    Sign,
+}
+
 /// The Signer state
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
-    OperationInProgress,
+    OperationInProgress(Operation),
 }
 
 /// The stacks signer registered for the reward cycle
@@ -332,8 +341,8 @@ impl Signer {
     }
 
     /// Update operation
-    fn update_operation(&mut self) {
-        self.state = State::OperationInProgress;
+    fn update_operation(&mut self, operation: Operation) {
+        self.state = State::OperationInProgress(operation);
         self.coordinator_selector.last_message_time = Some(Instant::now());
     }
 
@@ -367,6 +376,7 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("{self}: ACK: {ack:?}",);
+                        self.update_operation(Operation::Dkg);
                     }
                     Err(e) => {
                         error!("{self}: Failed to start DKG: {e:?}",);
@@ -412,6 +422,7 @@ impl Signer {
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
+                        self.update_operation(Operation::Sign);
                     }
                     Err(e) => {
                         error!("{self}: Failed to start signing block: {e:?}",);
@@ -420,7 +431,6 @@ impl Signer {
                 }
             }
         }
-        self.update_operation();
     }
 
     /// Attempt to process the next command in the queue, and update state accordingly
@@ -444,9 +454,12 @@ impl Signer {
                     debug!("{self}: Nothing to process. Waiting for command...",);
                 }
             }
-            State::OperationInProgress => {
+            State::OperationInProgress(op) => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
+                debug!(
+                    "{self}: Waiting for {op:?} operation to finish. Coordinator state = {:?}",
+                    self.coordinator.state
+                );
             }
         }
     }
@@ -680,9 +693,26 @@ impl Signer {
             self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
             self.finish_operation();
-        } else if !packets.is_empty() && self.coordinator.state != CoordinatorState::Idle {
-            // We have received a message and are in the middle of an operation. Update our state accordingly
-            self.update_operation();
+        } else if !packets.is_empty() {
+            // We have received a message. Update our state accordingly
+            // Let us be extra explicit in case a new state type gets added to wsts' state machine
+            match &self.coordinator.state {
+                CoordinatorState::Idle => {}
+                CoordinatorState::DkgPublicDistribute
+                | CoordinatorState::DkgPublicGather
+                | CoordinatorState::DkgPrivateDistribute
+                | CoordinatorState::DkgPrivateGather
+                | CoordinatorState::DkgEndDistribute
+                | CoordinatorState::DkgEndGather => {
+                    self.update_operation(Operation::Dkg);
+                }
+                CoordinatorState::NonceRequest(_, _)
+                | CoordinatorState::NonceGather(_, _)
+                | CoordinatorState::SigShareRequest(_, _)
+                | CoordinatorState::SigShareGather(_, _) => {
+                    self.update_operation(Operation::Sign);
+                }
+            }
         }
 
         debug!("{self}: Saving signer state");
@@ -1239,16 +1269,14 @@ impl Signer {
         }
     }
 
-    /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
-        let reward_cycle = self.reward_cycle;
+    /// Refresh DKG value and queue DKG command if necessary
+    pub fn refresh_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
+        // First check if we should queue DKG based on contract vote state and stackerdb transactions
+        let should_queue = self.should_queue_dkg(stacks_client)?;
+        // Before queueing the command, check one last time if DKG has been approved (could have happend in the meantime)
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
-            stacks_client.get_approved_aggregate_key(reward_cycle)?;
+            stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
         if self.approved_aggregate_public_key.is_some() {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
@@ -1256,13 +1284,28 @@ impl Signer {
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             if old_dkg != self.approved_aggregate_public_key {
-                debug!(
+                warn!(
                     "{self}: updated DKG value to {:?}.",
                     self.approved_aggregate_public_key
                 );
             }
-            return Ok(());
-        };
+            if matches!(self.state, State::OperationInProgress(Operation::Dkg)) {
+                debug!(
+                    "{self}: DKG has already been set. Aborting DKG operation {}.",
+                    self.coordinator.current_dkg_id
+                );
+                self.finish_operation();
+            }
+        } else if should_queue {
+            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
+            self.commands.push_front(Command::Dkg);
+        }
+        Ok(())
+    }
+
+    /// Should DKG be queued to the current signer's command queue
+    /// This assumes that no key has been approved by the contract yet
+    pub fn should_queue_dkg(&mut self, stacks_client: &StacksClient) -> Result<bool, ClientError> {
         if self.state != State::Idle
             || Some(self.signer_id) != self.get_coordinator(current_reward_cycle).0
         {
@@ -1321,32 +1364,10 @@ impl Signer {
                 );
                 return Ok(());
             }
-
-            // Try again to get the approved key, in case it has reached the threshold weight
-            // after we last checked.
-            self.approved_aggregate_public_key =
-                stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
-            if self.approved_aggregate_public_key.is_some() {
-                self.coordinator
-                    .set_aggregate_public_key(self.approved_aggregate_public_key);
-                return Ok(false);
-            }
-            debug!("{self}: Vote for DKG failed.";
-                "voting_round" => self.coordinator.current_dkg_id,
-                "aggregate_key" => %aggregate_key,
-                "round_weight" => round_weight,
-                "threshold_weight" => threshold_weight,
-            );
         } else {
             debug!("{self}: Triggering a DKG round.");
         }
-        if self.commands.front() != Some(&Command::Dkg) {
-            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-            self.commands.push_front(Command::Dkg);
-        } else {
-            debug!("{self}: DKG command already queued...");
-        }
-        Ok(())
+        Ok(true)
     }
 
     /// Process the event
