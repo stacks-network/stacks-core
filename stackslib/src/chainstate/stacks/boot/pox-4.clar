@@ -1437,6 +1437,9 @@
                                              (max-amount uint)
                                              (auth-id uint))
   (begin
+    ;; must be called directly by the tx-sender or by an allowed contract-caller
+    (asserts! (check-caller-allowed)
+      (err ERR_NOT_ALLOWED))
     ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
     (asserts! (is-eq
       (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
