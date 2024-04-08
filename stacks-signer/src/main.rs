@@ -582,7 +582,4 @@ pub mod tests {
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
     }
-
-    #[test]
-    fn test_proper_data_sanitization() {}
 }
