@@ -17,6 +17,7 @@
 use std::net::{SocketAddr, TcpStream};
 use std::str;
 
+use blockstack_lib::net::stackerdb::SIGNERS_STACKERDB_CHUNK_SIZE;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{
     stackerdb_get_chunk_path, stackerdb_get_metadata_path, stackerdb_post_chunk_path, SlotMetadata,
@@ -217,7 +218,16 @@ impl SignerSession for StackerDBSession {
         for slot_id in slot_ids.iter() {
             let path = stackerdb_get_chunk_path(self.stackerdb_contract_id.clone(), *slot_id, None);
             let chunk = match self.rpc_request("GET", &path, None, &[]) {
-                Ok(body_bytes) => Some(body_bytes),
+                Ok(body_bytes) => {
+                    // Verify that the chunk is not too large
+                    if body_bytes.len() > u32::MAX as usize {
+                        None
+                    } else if body_bytes.len() as u32 > SIGNERS_STACKERDB_CHUNK_SIZE {
+                        None
+                    } else {
+                        Some(body_bytes)
+                    }
+                }
                 Err(RPCError::HttpError(code)) => {
                     if code != 404 {
                         return Err(RPCError::HttpError(code));
