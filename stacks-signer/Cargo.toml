@@ -43,6 +43,7 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = { workspace = true }
 rand = { workspace = true }
 url = "2.1.0"
+regex = "1.10.3"
 
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }

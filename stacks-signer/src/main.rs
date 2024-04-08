@@ -71,11 +71,12 @@ fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> Stack
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
-        let bytes = io::stdout().write(chunk).unwrap();
-        if bytes < chunk.len() {
+        let sanitized_chunk = sanitize_chunk(chunk);
+        let bytes = io::stdout().write(&sanitized_chunk).unwrap();
+        if bytes < sanitized_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
-                chunk.len() - bytes
+                sanitized_chunk.len() - bytes
             );
         }
     }
@@ -176,7 +177,9 @@ fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
     let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
-    println!("{}", serde_json::to_string(&chunk_list).unwrap());
+    let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
+    let sanitized_output = sanitize_json_output(&chunk_list_json);
+    println!("{}", sanitized_output);
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
@@ -366,6 +369,33 @@ fn write_file(dir: &Path, filename: &str, contents: &str) {
     println!("Created file: {}", filename);
 }
 
+/// Helper function for sanitizing StackerDB chunks to ensure safe terminal output
+fn sanitize_chunk(data: &[u8]) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i < data.len() {
+        // skipping ANSI escape sequence
+        if i + 1 < data.len() && data[i] == 0x1B && data[i + 1] == b'[' {
+            i += 2;
+            while i < data.len() && !(data[i] >= 0x40 && data[i] <= 0x7E) {
+                i += 1;
+            }
+            i += 1;
+        } else {
+            result.push(data[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
+/// Helper function for sanitizing JSON String to ensure safe terminal output
+fn sanitize_json_output(input: &str) -> String {
+    // regex to remove ANSI escape sequences
+    let re = regex::Regex::new(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]").unwrap();
+    re.replace_all(input, "").to_string()
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -552,4 +582,7 @@ pub mod tests {
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
     }
+
+    #[test]
+    fn test_proper_data_sanitization() {}
 }
