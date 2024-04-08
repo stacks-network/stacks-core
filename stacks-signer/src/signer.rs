@@ -1321,11 +1321,21 @@ impl Signer {
                 );
                 return Ok(());
             }
-            debug!("{self}: Vote for DKG failed. Triggering a DKG round.";
+
+            // Try again to get the approved key, in case it has reached the threshold weight
+            // after we last checked.
+            self.approved_aggregate_public_key =
+                stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
+            if self.approved_aggregate_public_key.is_some() {
+                self.coordinator
+                    .set_aggregate_public_key(self.approved_aggregate_public_key);
+                return Ok(false);
+            }
+            debug!("{self}: Vote for DKG failed.";
                 "voting_round" => self.coordinator.current_dkg_id,
                 "aggregate_key" => %aggregate_key,
                 "round_weight" => round_weight,
-                "threshold_weight" => threshold_weight
+                "threshold_weight" => threshold_weight,
             );
         } else {
             debug!("{self}: Triggering a DKG round.");
