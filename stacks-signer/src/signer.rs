@@ -123,6 +123,15 @@ pub enum Command {
     },
 }
 
+/// The signer operation types that can be performed
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Operation {
+    /// RUnning a DKG round
+    Dkg,
+    /// Running a sign round
+    Sign,
+}
+
 /// The Signer state
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
@@ -131,7 +140,7 @@ pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
-    OperationInProgress,
+    OperationInProgress(Operation),
 }
 
 /// The stacks signer registered for the reward cycle
@@ -218,71 +227,40 @@ impl Signer {
         self.coordinator_selector.get_coordinator()
     }
 
-    /// Read stackerdb messages in case the signer was started late or restarted and missed incoming messages
-    pub fn read_stackerdb_messages(
+    /// Read stackerdb messages in case the signer was started late or restarted and missed incoming DKG messages
+    pub fn read_dkg_stackerdb_messages(
         &mut self,
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
-        // TODO: should load DKG shares first and potentially check dkg results before attempting to load any other state.
-        // This should be done on initialization and not on ever read right when a signer is first created. This call will then
-        // be called when state is equal to some sort of "in between" state where it has loaded its DKG shares if they exist
-        // but not yet if it missed messages and needs to respond to them.
-        // See https://github.com/stacks-network/stacks-core/issues/4595
         if self.state != State::Uninitialized {
-            // We already have state. Do not load it again.
+            // We should only read stackerdb if we are uninitialized
             return Ok(());
-        }
-        let packet_slots = if self.approved_aggregate_public_key.is_none() {
-            // we should read the DKG messages in order to see if we are in the middle of a DKG round
-            // TODO: we should check if we already computed some party shares. In which case, we should start LATER in this list
-            debug!("{self}: Checking stackerdb for missed DKG messages.");
-            vec![
-                MessageSlotID::DkgBegin,
-                MessageSlotID::DkgPublicShares,
-                MessageSlotID::DkgPrivateBegin,
-                MessageSlotID::DkgPrivateShares,
-                MessageSlotID::DkgEndBegin,
-                MessageSlotID::DkgEnd,
-            ]
-        } else {
-            debug!("{self}: Checking stackerdb for missed Sign messages.");
-            vec![
-                MessageSlotID::NonceRequest,
-                MessageSlotID::NonceResponse,
-                MessageSlotID::SignatureShareRequest,
-                MessageSlotID::SignatureShareResponse,
-            ]
         };
         let ordered_packets = self
             .stackerdb
-            .get_packets(&self.signer_slot_ids, &packet_slots)?
+            .get_dkg_packets(&self.signer_slot_ids)?
             .iter()
             .filter_map(|packet| {
                 let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
                     self.get_coordinator_dkg().1
                 } else {
-                    self.get_coordinator_sign(current_reward_cycle).1
+                    debug!(
+                        "{self}: Received a non-DKG message in the DKG message queue. Ignoring it."
+                    );
+                    return None;
                 };
                 self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
             })
             .collect::<Vec<_>>();
-        if !ordered_packets.is_empty() {
-            debug!(
-                "{self}: Processing {} messages from stackerdb: {ordered_packets:?}",
-                ordered_packets.len()
-            );
-            self.handle_packets(
-                stacks_client,
-                res.clone(),
-                &ordered_packets,
-                current_reward_cycle,
-            );
-        }
-        if self.state == State::Uninitialized {
-            self.state = State::Idle;
-        }
+        // We successfully read stackerdb so we are no longer uninitialized
+        self.state = State::Idle;
+        debug!(
+            "{self}: Processing {} DKG messages from stackerdb: {ordered_packets:?}",
+            ordered_packets.len()
+        );
+        self.handle_packets(stacks_client, res, &ordered_packets, current_reward_cycle);
         Ok(())
     }
 }
@@ -413,8 +391,8 @@ impl Signer {
     }
 
     /// Update operation
-    fn update_operation(&mut self) {
-        self.state = State::OperationInProgress;
+    fn update_operation(&mut self, operation: Operation) {
+        self.state = State::OperationInProgress(operation);
         self.coordinator_selector.last_message_time = Some(Instant::now());
     }
 
@@ -450,6 +428,7 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Dkg);
             }
             Command::Sign {
                 block,
@@ -495,9 +474,9 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Sign);
             }
         }
-        self.update_operation();
     }
 
     /// Attempt to process the next command in the queue, and update state accordingly
@@ -534,10 +513,10 @@ impl Signer {
                     .expect("BUG: Already asserted that the command queue was not empty");
                 self.execute_command(stacks_client, &command);
             }
-            State::OperationInProgress => {
+            State::OperationInProgress(op) => {
                 // We cannot execute the next command until the current one is finished...
                 debug!(
-                    "{self}: Waiting for operation to finish. Coordinator state = {:?}",
+                    "{self}: Waiting for {op:?} operation to finish. Coordinator state = {:?}",
                     self.coordinator.state
                 );
             }
@@ -770,9 +749,26 @@ impl Signer {
             self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
             self.finish_operation();
-        } else if !packets.is_empty() && self.coordinator.state != CoordinatorState::Idle {
-            // We have received a message and are in the middle of an operation. Update our state accordingly
-            self.update_operation();
+        } else if !packets.is_empty() {
+            // We have received a message. Update our state accordingly
+            // Let us be extra explicit in case a new state type gets added to wsts' state machine
+            match &self.coordinator.state {
+                CoordinatorState::Idle => {}
+                CoordinatorState::DkgPublicDistribute
+                | CoordinatorState::DkgPublicGather
+                | CoordinatorState::DkgPrivateDistribute
+                | CoordinatorState::DkgPrivateGather
+                | CoordinatorState::DkgEndDistribute
+                | CoordinatorState::DkgEndGather => {
+                    self.update_operation(Operation::Dkg);
+                }
+                CoordinatorState::NonceRequest(_, _)
+                | CoordinatorState::NonceGather(_, _)
+                | CoordinatorState::SigShareRequest(_, _)
+                | CoordinatorState::SigShareGather(_, _) => {
+                    self.update_operation(Operation::Sign);
+                }
+            }
         }
 
         debug!("{self}: Saving signer state");
@@ -1438,7 +1434,12 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
+    pub fn update_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
@@ -1454,8 +1455,27 @@ impl Signer {
                     self.approved_aggregate_public_key
                 );
             }
+            if matches!(self.state, State::OperationInProgress(Operation::Dkg)) {
+                // We already have DKG, abort operation and reset state.
+                debug!(
+                    "{self}: DKG has already been set. Aborting DKG round {}.",
+                    self.coordinator.current_dkg_id
+                );
+                self.finish_operation();
+            }
+            if self.state == State::Uninitialized {
+                // If we successfully load the DKG value, we are fully initialized
+                self.state = State::Idle;
+            }
             return Ok(());
-        };
+        }
+        // Check if we missed any DKG messages due to a restart or being late to the party
+        // Note: We currently only check for DKG specific messages as we cannot rejoin a sign
+        // round due to a miner overwriting its own message slots (impossible to recover without every message)
+        if let Err(e) = self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)
+        {
+            error!("{self}: failed to read stackerdb messages: {e}");
+        }
         if self.should_queue_dkg(stacks_client)? {
             info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
             self.commands.push_front(Command::Dkg);

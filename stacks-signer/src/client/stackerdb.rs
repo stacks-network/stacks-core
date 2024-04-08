@@ -208,12 +208,19 @@ impl StackerDB {
         Ok(messages)
     }
 
-    /// Get all wsts packets from stackerdb for each of the given signer IDs
-    pub fn get_packets(
+    /// Get the ordered DKG packets from stackerdb for the signer slot IDs.
+    pub fn get_dkg_packets(
         &mut self,
         signer_ids: &[SignerSlotID],
-        packet_slots: &[MessageSlotID],
     ) -> Result<Vec<Packet>, ClientError> {
+        let packet_slots = &[
+            MessageSlotID::DkgBegin,
+            MessageSlotID::DkgPublicShares,
+            MessageSlotID::DkgPrivateBegin,
+            MessageSlotID::DkgPrivateShares,
+            MessageSlotID::DkgEndBegin,
+            MessageSlotID::DkgEnd,
+        ];
         let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
         let mut packets = vec![];
         for packet_slot in packet_slots {

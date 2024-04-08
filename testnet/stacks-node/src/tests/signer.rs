@@ -503,7 +503,7 @@ impl SignerTest {
     fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
         let entries = self
             .stacks_client
-            .get_reward_set_signers_with_retry(reward_cycle)
+            .get_reward_set_signers(reward_cycle)
             .unwrap()
             .unwrap();
         let entries = SignerEntries::parse(false, &entries).unwrap();
@@ -1209,84 +1209,6 @@ fn stackerdb_delayed_dkg() {
             .expect("Failed to get approved aggregate key")
             .expect("No approved aggregate key found")
     );
-}
-
-#[test]
-#[ignore]
-/// Test that a signer can be offline when a sign round has commenced
-/// and can rejoin the sign round after it has restarted
-fn stackerdb_delayed_sign() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
-
-    info!("------------------------- Test Setup -------------------------");
-    let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(3);
-    let _key = signer_test.boot_to_epoch_3(timeout);
-    let rpc_bind = signer_test.running_nodes.conf.node.rpc_bind.clone();
-    let run_stamp = signer_test.run_stamp;
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
-    let coordinator_selector = CoordinatorSelector::from(public_keys);
-    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
-    let coordinator_public_key =
-        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
-
-    info!("------------------------- Stop Signer -------------------------");
-    let mut to_stop = None;
-    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
-        let public_key = StacksPublicKey::from_private(key);
-        if public_key == coordinator_public_key {
-            // Do not stop the coordinator. We want coordinator to start a sign round
-            continue;
-        }
-        // Only stop one signer
-        to_stop = Some(idx);
-        break;
-    }
-    let signer_idx = to_stop.expect("Failed to find a signer to stop");
-    let signer_key = signer_test.stop_signer(signer_idx);
-    debug!(
-        "Removed signer {signer_idx} with key: {:?}, {}",
-        signer_key,
-        signer_key.to_hex()
-    );
-
-    info!("------------------------- Start Sign -------------------------");
-    let sign_now = Instant::now();
-    let h = std::thread::spawn(move || signer_test.mine_nakamoto_block(timeout));
-
-    // Sleep a bit to wait for a miner to propose a block
-    std::thread::sleep(Duration::from_secs(5));
-
-    info!("------------------------- Restart Stopped Signer -------------------------");
-    let signer_config = build_signer_config_tomls(
-        &[signer_key],
-        &rpc_bind,
-        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
-        &Network::Testnet,
-        "12345",
-        run_stamp,
-        3000 + signer_idx,
-    )
-    .pop()
-    .unwrap();
-
-    let (_cmd_send, cmd_recv) = channel();
-    let (res_send, _res_recv) = channel();
-
-    let _signer = spawn_signer(&signer_config, cmd_recv, res_send);
-    info!("------------------------- Wait for Signed Block -------------------------");
-    // Now the signer has come back online, it should sign the block
-    h.join().unwrap();
-    let sign_elapsed = sign_now.elapsed();
-    info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
 }
 
 pub fn find_block_response(chunk_events: Vec<StackerDBChunksEvent>) -> Option<SignerMessage> {
