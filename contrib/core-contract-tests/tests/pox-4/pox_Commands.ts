@@ -16,6 +16,7 @@ import { StackAggregationCommitSigCommand } from "./pox_StackAggregationCommitSi
 import { StackAggregationCommitIndexedSigCommand } from "./pox_StackAggregationCommitIndexedSigCommand";
 import { StackAggregationCommitIndexedAuthCommand } from "./pox_StackAggregationCommitIndexedAuthCommand";
 import { StackAggregationIncreaseCommand } from "./pox_StackAggregationIncreaseCommand";
+import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -326,6 +327,20 @@ export function PoxCommands(
             r.alllowUntilBurnHt,
           ),
       ),
+    // DisallowContractCallerCommand
+    fc.record({
+      stacker: fc.constantFrom(...wallets.values()),
+      callerToDisallow: fc.constantFrom(...wallets.values()),
+    }).map(
+      (r: {
+        stacker: Wallet;
+        callerToDisallow: Wallet;
+      }) =>
+        new DisallowContractCallerCommand(
+          r.stacker,
+          r.callerToDisallow,
+        ),
+    ),
     // GetStxAccountCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
