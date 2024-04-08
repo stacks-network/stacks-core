@@ -23,7 +23,6 @@ use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::traits::SignerState;
 
 use crate::signer::BlockInfo;
 
@@ -41,12 +40,6 @@ CREATE TABLE IF NOT EXISTS blocks (
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
-)";
-
-const CREATE_SIGNER_STATE_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS signer_states (
-    reward_cycle INTEGER PRIMARY KEY,
-    state TEXT NOT NULL
 )";
 
 impl SignerDb {
@@ -68,10 +61,6 @@ impl SignerDb {
             self.db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
         }
 
-        if !table_exists(&self.db, "signer_states")? {
-            self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
-        }
-
         Ok(())
     }
 
@@ -81,31 +70,6 @@ impl SignerDb {
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
             false,
         )
-    }
-
-    /// Get the signer state for the provided reward cycle if it exists in the database
-    pub fn get_signer_state(&self, reward_cycle: u64) -> Result<Option<SignerState>, DBError> {
-        let result: Option<String> = query_row(
-            &self.db,
-            "SELECT state FROM signer_states WHERE reward_cycle = ?",
-            [u64_to_sql(reward_cycle)?],
-        )?;
-
-        try_deserialize(result)
-    }
-
-    /// Insert the given state in the `signer_states` table for the given reward cycle
-    pub fn insert_signer_state(
-        &self,
-        reward_cycle: u64,
-        signer_state: &SignerState,
-    ) -> Result<(), DBError> {
-        let serialized_state = serde_json::to_string(signer_state)?;
-        self.db.execute(
-            "INSERT OR REPLACE INTO signer_states (reward_cycle, state) VALUES (?1, ?2)",
-            params![&u64_to_sql(reward_cycle)?, &serialized_state],
-        )?;
-        Ok(())
     }
 
     /// Fetch a block from the database using the block's
@@ -185,15 +149,9 @@ mod tests {
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use num_traits::identities::Zero;
-    use polynomial::Polynomial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::secp256k1::MessageSignature;
-    use wsts::common::Nonce;
-    use wsts::curve::point::Point;
-    use wsts::curve::scalar::Scalar;
-    use wsts::traits::PartyState;
 
     use super::*;
 
@@ -224,30 +182,6 @@ mod tests {
         };
         overrides(&mut block);
         (BlockInfo::new(block.clone()), block)
-    }
-
-    fn create_signer_state(id: u32) -> SignerState {
-        let ps1 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        let ps2 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        SignerState {
-            id,
-            key_ids: vec![2, 4],
-            num_keys: 12,
-            num_parties: 10,
-            threshold: 7,
-            group_key: Point::from(Scalar::from(42)),
-            parties: vec![(2, ps1), (4, ps2)],
-        }
     }
 
     fn create_block() -> (BlockInfo, NakamotoBlock) {
@@ -334,42 +268,5 @@ mod tests {
 
         assert_ne!(old_block_info, block_info);
         assert_eq!(block_info.vote, Some(vote));
-    }
-
-    #[test]
-    fn test_write_signer_state() {
-        let db_path = tmp_db_path();
-        let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let state_0 = create_signer_state(0);
-        let state_1 = create_signer_state(1);
-
-        db.insert_signer_state(10, &state_0)
-            .expect("Failed to insert signer state");
-
-        db.insert_signer_state(11, &state_1)
-            .expect("Failed to insert signer state");
-
-        assert_eq!(
-            db.get_signer_state(10)
-                .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_0.id
-        );
-        assert_eq!(
-            db.get_signer_state(11)
-                .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_1.id
-        );
-        assert!(db
-            .get_signer_state(12)
-            .expect("Failed to get signer state")
-            .is_none());
-        assert!(db
-            .get_signer_state(9)
-            .expect("Failed to get signer state")
-            .is_none());
     }
 }

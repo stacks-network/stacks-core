@@ -293,17 +293,6 @@ impl From<SignerConfig> for Signer {
             state_machine.signer = v2::Signer::load(&state);
         }
 
-        if let Some(state) = signer_db
-            .get_signer_state(signer_config.reward_cycle)
-            .expect("Failed to load signer state")
-        {
-            debug!(
-                "Reward cycle #{} Signer #{}: Loading signer",
-                signer_config.reward_cycle, signer_config.signer_id
-            );
-            state_machine.signer = v2::Signer::load(&state);
-        }
-
         Self {
             coordinator,
             state_machine,
@@ -724,7 +713,6 @@ impl Signer {
             _ => false,
         }) {
             debug!("{self}: Saving signer state");
-            self.save_signer_state_in_signerdb();
             self.save_signer_state_in_stackerdb();
         }
         self.send_outbound_messages(signer_outbound_messages);
@@ -1250,18 +1238,6 @@ impl Signer {
         {
             warn!("{self}: Failed to send block rejection submission to stacker-db: {e:?}");
         }
-    }
-
-    /// Persist state needed to ensure the signer can continue to perform
-    /// DKG and participate in signing rounds accross crashes
-    ///
-    /// # Panics
-    /// Panics if the insertion fails
-    fn save_signer_state_in_signerdb(&self) {
-        let state = self.state_machine.signer.save();
-        self.signer_db
-            .insert_signer_state(self.reward_cycle, &state)
-            .expect("Failed to persist signer state");
     }
 
     /// Persist state needed to ensure the signer can continue to perform
