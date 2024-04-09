@@ -1301,7 +1301,12 @@ impl Signer {
             }
         } else if should_queue {
             info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-            self.commands.push_front(Command::Dkg);
+            if self.commands.front() != Some(&Command::Dkg) {
+                info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
+                self.commands.push_front(Command::Dkg);
+            } else {
+                debug!("{self}: DKG command already queued...");
+            }
         }
         Ok(())
     }
@@ -1310,10 +1315,10 @@ impl Signer {
     /// This assumes that no key has been approved by the contract yet
     pub fn should_queue_dkg(&mut self, stacks_client: &StacksClient) -> Result<bool, ClientError> {
         if self.state != State::Idle
-            || Some(self.signer_id) != self.get_coordinator(current_reward_cycle).0
+            || Some(self.signer_id) != self.get_coordinator(self.reward_cycle).0
         {
             // We are not the coordinator or we are in the middle of an operation. Do not attempt to queue DKG
-            return Ok(());
+            return Ok(false);
         }
         debug!("{self}: Checking if old DKG vote transaction exists in StackerDB...");
         // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
@@ -1329,14 +1334,13 @@ impl Signer {
                     NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).unwrap_or_else(|| panic!("BUG: {self}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}"));
             if Some(params.aggregate_key) == self.coordinator.aggregate_public_key
                 && params.voting_round == self.coordinator.current_dkg_id
-                && reward_cycle == self.reward_cycle
             {
                 debug!("{self}: Not triggering a DKG round. Already have a pending vote transaction.";
                     "txid" => %transaction.txid(),
                     "aggregate_key" => %params.aggregate_key,
                     "voting_round" => params.voting_round
                 );
-                return Ok(());
+                return Ok(false);
             }
         }
         if let Some(aggregate_key) = stacks_client.get_vote_for_aggregate_public_key(
@@ -1352,7 +1356,7 @@ impl Signer {
                     "voting_round" => self.coordinator.current_dkg_id,
                     "aggregate_key" => %aggregate_key
                 );
-                return Ok(());
+                return Ok(false);
             };
             let threshold_weight = stacks_client.get_vote_threshold_weight(self.reward_cycle)?;
             if round_weight < threshold_weight {
@@ -1365,7 +1369,7 @@ impl Signer {
                     "round_weight" => round_weight,
                     "threshold_weight" => threshold_weight
                 );
-                return Ok(());
+                return Ok(false);
             }
         } else {
             debug!("{self}: Triggering a DKG round.");
