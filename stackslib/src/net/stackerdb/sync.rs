@@ -249,11 +249,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .get_slot_write_timestamps(&self.smart_contract_id)?;
 
         if local_slot_versions.len() != local_write_timestamps.len() {
-            // interleaved DB write?
-            return Err(net_error::Transient(
-                "Interleaved DB write has led to an inconsistent view of the stackerdb. Try again."
-                    .into(),
-            ));
+            let msg = format!("Local slot versions ({}) out of sync with DB slot versions ({}); abandoning sync and trying again", local_slot_versions.len(), local_write_timestamps.len());
+            warn!("{}", &msg);
+            return Err(net_error::Transient(msg));
         }
 
         let mut need_chunks: HashMap<usize, (StackerDBGetChunkData, Vec<NeighborAddress>)> =
@@ -277,8 +275,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
                 if chunk_inv.slot_versions.len() != local_slot_versions.len() {
-                    // need to retry -- our view of the versions got changed through a
-                    // reconfiguration
+                    // remote peer and our DB are out of sync, so just skip this
                     continue;
                 }
 
@@ -365,6 +362,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             let mut local_chunk = None;
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
                 if chunk_inv.slot_versions.len() != local_slot_versions.len() {
+                    // remote peer and our DB are out of sync, so just skip this
                     continue;
                 }
 
