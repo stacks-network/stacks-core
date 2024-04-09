@@ -373,27 +373,21 @@ impl StacksMessageCodec for OrderIndependentMultisigSpendingCondition {
         }
 
         // must be given the right number of signatures
-        if num_sigs_given != signatures_required {
-            test_debug!(
-                "Failed to deserialize order independent multisig spending condition: got {} sigs, expected {}",
-                num_sigs_given,
-                signatures_required
+        if num_sigs_given < signatures_required {
+            let msg = format!(
+                "Failed to deserialize order independent multisig spending condition: got {num_sigs_given} sigs, expected at least {signatures_required}"
             );
-            return Err(codec_error::DeserializeError(format!(
-                "Failed to parse order independent multisig spending condition: got {} sigs, expected {}",
-                num_sigs_given, signatures_required
-            )));
+            test_debug!("{msg}");
+            return Err(codec_error::DeserializeError(msg));
         }
 
         // must all be compressed if we're using P2WSH
         if have_uncompressed && hash_mode == OrderIndependentMultisigHashMode::P2WSH {
-            test_debug!(
+            let msg = format!(
                 "Failed to deserialize order independent multisig spending condition: expected compressed keys only"
             );
-            return Err(codec_error::DeserializeError(
-                "Failed to parse order independent multisig spending condition: expected compressed keys only"
-                    .to_string(),
-            ));
+            test_debug!("{msg}");
+            return Err(codec_error::DeserializeError(msg));
         }
 
         Ok(OrderIndependentMultisigSpendingCondition {
@@ -481,10 +475,11 @@ impl OrderIndependentMultisigSpendingCondition {
             pubkeys.push(pubkey);
         }
 
-        if num_sigs != self.signatures_required {
-            return Err(net_error::VerifyingError(
-                "Incorrect number of signatures".to_string(),
-            ));
+        if num_sigs < self.signatures_required {
+            return Err(net_error::VerifyingError(format!(
+                "Not enough signatures. Got {num_sigs}, expected at least {req}",
+                req = self.signatures_required
+            )));
         }
 
         if have_uncompressed && self.hash_mode == OrderIndependentMultisigHashMode::P2WSH {
