@@ -13,7 +13,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -22,8 +22,10 @@ use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
 use stacks::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
-    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
+    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
@@ -211,7 +213,7 @@ mod tests {
             ConfigFile::from_str(&format!(
                 r#"
                     [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
+                    reward_cycle = 413
                     affirmation = "{affirmation_string}"
                 "#
             ))
@@ -222,7 +224,7 @@ mod tests {
         assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
         assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
         assert_eq!(
-            config.burnchain.affirmation_overrides.get(&1),
+            config.burnchain.affirmation_overrides.get(&413),
             Some(&affirmation)
         );
     }
@@ -267,7 +269,7 @@ mod tests {
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 3);
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
     }
 }
 
@@ -1445,7 +1447,7 @@ impl BurnchainConfigFile {
     /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
     /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
     pub fn add_affirmation_overrides_xenon(&mut self) {
-        let default_overrides = vec![
+        let mut default_overrides = vec![
         AffirmationOverride {
             reward_cycle: 413,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
@@ -1458,6 +1460,37 @@ impl BurnchainConfigFile {
             reward_cycle: 415,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
         }];
+
+        // Now compute the 2.5 overrides.
+        let affirmations_pre_2_5 = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaaapppppppnnnnnnnnnnnnnnnnnnnnnnnpnppnppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnpnpppppppppnppnnnnnnnnnnnnnnnnnnnnnnnnnppnppppppppp";
+        let xenon_pox_consts = PoxConstants::testnet_default();
+        let last_present_cycle = xenon_pox_consts
+            .block_height_to_reward_cycle(
+                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+            )
+            .unwrap();
+        eprintln!("last_present_cycle = {last_present_cycle}");
+        assert_eq!(
+            u64::try_from(affirmations_pre_2_5.len()).unwrap(),
+            last_present_cycle - 1
+        );
+        let last_override = xenon_pox_consts
+            .block_height_to_reward_cycle(
+                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
+            )
+            .unwrap();
+        eprintln!("last_present_cycle = {last_present_cycle}, last_override = {last_override}");
+
+        for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
+            let affirmation = format!("{affirmations_pre_2_5}{}", "a".repeat(override_index + 1));
+            default_overrides.push(AffirmationOverride {
+                reward_cycle,
+                affirmation,
+            });
+        }
+
         if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
             for affirmation in default_overrides {
                 affirmation_overrides.push(affirmation);
@@ -1503,6 +1536,12 @@ impl BurnchainConfigFile {
                         ao.reward_cycle, ao.affirmation
                     ));
                 };
+                if u64::try_from(affirmation_map.len()).unwrap() != ao.reward_cycle - 1 {
+                    return Err(format!(
+                        "Invalid affirmation override for reward cycle {}. Map len = {}, but expected {}.",
+                        ao.reward_cycle, affirmation_map.len(), ao.reward_cycle - 1,
+                    ));
+                }
                 affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
             }
         }
