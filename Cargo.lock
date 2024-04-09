@@ -3456,7 +3456,6 @@ dependencies = [
  "polynomial",
  "rand 0.8.5",
  "rand_core 0.6.4",
- "regex",
  "reqwest",
  "rusqlite",
  "secp256k1",

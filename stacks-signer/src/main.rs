@@ -71,12 +71,13 @@ fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> Stack
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
-        let sanitized_chunk = sanitize_chunk(chunk);
-        let bytes = io::stdout().write(&sanitized_chunk).unwrap();
-        if bytes < sanitized_chunk.len() {
+        let hexed_string = to_hex(chunk);
+        let hexed_chunk = hexed_string.as_bytes();
+        let bytes = io::stdout().write(&hexed_chunk).unwrap();
+        if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
-                sanitized_chunk.len() - bytes
+                hexed_chunk.len() - bytes
             );
         }
     }
@@ -178,8 +179,8 @@ fn handle_list_chunks(args: StackerDBArgs) {
     let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
     let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
-    let sanitized_output = sanitize_json_output(&chunk_list_json);
-    println!("{}", sanitized_output);
+    let hexed_json = to_hex(chunk_list_json.as_bytes());
+    println!("{}", hexed_json);
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
@@ -367,33 +368,6 @@ fn write_file(dir: &Path, filename: &str, contents: &str) {
     let mut file = File::create(filename).unwrap();
     file.write_all(contents.as_bytes()).unwrap();
     println!("Created file: {}", filename);
-}
-
-/// Helper function for sanitizing StackerDB chunks to ensure safe terminal output
-fn sanitize_chunk(data: &[u8]) -> Vec<u8> {
-    let mut result = Vec::new();
-    let mut i = 0;
-    while i < data.len() {
-        // skipping ANSI escape sequence
-        if i + 1 < data.len() && data[i] == 0x1B && data[i + 1] == b'[' {
-            i += 2;
-            while i < data.len() && !(data[i] >= 0x40 && data[i] <= 0x7E) {
-                i += 1;
-            }
-            i += 1;
-        } else {
-            result.push(data[i]);
-            i += 1;
-        }
-    }
-    result
-}
-
-/// Helper function for sanitizing JSON String to ensure safe terminal output
-fn sanitize_json_output(input: &str) -> String {
-    // regex to remove ANSI escape sequences
-    let re = regex::Regex::new(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]").unwrap();
-    re.replace_all(input, "").to_string()
 }
 
 fn main() {
