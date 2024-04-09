@@ -1,236 +1,17 @@
-import { assert, beforeEach, describe, expect, it } from "vitest";
-
+import { beforeEach, describe, expect, it } from "vitest";
+import { Cl, ClarityType } from "@stacks/transactions";
+import { poxAddressToTuple } from "@stacks/stacking";
 import {
-  Cl,
-  ClarityType,
-  getAddressFromPrivateKey,
-  TransactionVersion,
-  createStacksPrivateKey,
-  StacksPrivateKey,
-  UIntCV,
-} from "@stacks/transactions";
-import { StacksDevnet } from "@stacks/network";
-import {
-  getPublicKeyFromPrivate,
-  publicKeyToBtcAddress,
-} from "@stacks/encryption";
-import {
-  Pox4SignatureTopic,
-  StackingClient,
-  poxAddressToTuple,
-} from "@stacks/stacking";
+  ERRORS,
+  POX_CONTRACT,
+  StackerInfo,
+  getStackingMinimum,
+  stackStx,
+  stackers,
+} from "./helpers";
 
 const accounts = simnet.getAccounts();
 const address1 = accounts.get("wallet_1")!;
-const address2 = accounts.get("wallet_2")!;
-
-const POX_DEPLOYER = "ST000000000000000000002AMW42H";
-const POX_CONTRACT = `${POX_DEPLOYER}.pox-4`;
-
-// Error codes from the contract
-const ERR_STACKING_UNREACHABLE = 255;
-const ERR_STACKING_CORRUPTED_STATE = 254;
-const ERR_STACKING_INSUFFICIENT_FUNDS = 1;
-const ERR_STACKING_INVALID_LOCK_PERIOD = 2;
-const ERR_STACKING_ALREADY_STACKED = 3;
-const ERR_STACKING_NO_SUCH_PRINCIPAL = 4;
-const ERR_STACKING_EXPIRED = 5;
-const ERR_STACKING_STX_LOCKED = 6;
-const ERR_STACKING_PERMISSION_DENIED = 9;
-const ERR_STACKING_THRESHOLD_NOT_MET = 11;
-const ERR_STACKING_POX_ADDRESS_IN_USE = 12;
-const ERR_STACKING_INVALID_POX_ADDRESS = 13;
-const ERR_STACKING_INVALID_AMOUNT = 18;
-const ERR_NOT_ALLOWED = 19;
-const ERR_STACKING_ALREADY_DELEGATED = 20;
-const ERR_DELEGATION_EXPIRES_DURING_LOCK = 21;
-const ERR_DELEGATION_TOO_MUCH_LOCKED = 22;
-const ERR_DELEGATION_POX_ADDR_REQUIRED = 23;
-const ERR_INVALID_START_BURN_HEIGHT = 24;
-const ERR_NOT_CURRENT_STACKER = 25;
-const ERR_STACK_EXTEND_NOT_LOCKED = 26;
-const ERR_STACK_INCREASE_NOT_LOCKED = 27;
-const ERR_DELEGATION_NO_REWARD_SLOT = 28;
-const ERR_DELEGATION_WRONG_REWARD_SLOT = 29;
-const ERR_STACKING_IS_DELEGATED = 30;
-const ERR_STACKING_NOT_DELEGATED = 31;
-const ERR_INVALID_SIGNER_KEY = 32;
-const ERR_REUSED_SIGNER_KEY = 33;
-const ERR_DELEGATION_ALREADY_REVOKED = 34;
-const ERR_INVALID_SIGNATURE_PUBKEY = 35;
-const ERR_INVALID_SIGNATURE_RECOVER = 36;
-const ERR_INVALID_REWARD_CYCLE = 37;
-const ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH = 38;
-const ERR_SIGNER_AUTH_USED = 39;
-const ERR_INVALID_INCREASE = 40;
-
-// Keys to use for stacking
-// wallet_1, wallet_2, wallet_3 private keys
-const stackingKeys = [
-  "7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801",
-  "530d9f61984c888536871c6573073bdfc0058896dc1adfe9a6a10dfacadc209101",
-  "d655b2523bcd65e34889725c73064feb17ceb796831c0e111ba1a552b0f31b3901",
-];
-
-type StackerInfo = {
-  authId: number;
-  privKey: string;
-  pubKey: string;
-  stxAddress: string;
-  btcAddr: string;
-  signerPrivKey: StacksPrivateKey;
-  signerPubKey: string;
-  client: StackingClient;
-};
-
-const stackers = Object.freeze(
-  stackingKeys.map((privKey, i) => {
-    const network = new StacksDevnet();
-
-    const pubKey = getPublicKeyFromPrivate(privKey);
-    const stxAddress = getAddressFromPrivateKey(
-      privKey,
-      TransactionVersion.Testnet
-    );
-    const signerPrivKey = createStacksPrivateKey(privKey);
-    const signerPubKey = getPublicKeyFromPrivate(signerPrivKey.data);
-
-    const info: StackerInfo = {
-      authId: i,
-      privKey,
-      pubKey,
-      stxAddress,
-      btcAddr: publicKeyToBtcAddress(pubKey),
-      signerPrivKey: signerPrivKey,
-      signerPubKey: signerPubKey,
-      client: new StackingClient(stxAddress, network),
-    };
-    return info;
-  })
-);
-
-const getPoxInfo = () => {
-  const poxInfo = simnet.callReadOnlyFn(
-    POX_CONTRACT,
-    "get-pox-info",
-    [],
-    address1
-  );
-  // @ts-ignore
-  const data = poxInfo.result.value.data;
-  const typedPoxInfo = {
-    firstBurnchainBlockHeight: data["first-burnchain-block-height"]
-      .value as bigint,
-    minAmountUstx: data["min-amount-ustx"].value as bigint,
-    prepareCycleLength: data["prepare-cycle-length"].value as bigint,
-    rewardCycleId: data["reward-cycle-id"].value as bigint,
-    rewardCycleLength: data["reward-cycle-length"].value as bigint,
-    totalLiquidSupplyUstx: data["total-liquid-supply-ustx"].value as bigint,
-  };
-
-  return typedPoxInfo;
-};
-
-const getStackingMinimum = () => {
-  const response = simnet.callReadOnlyFn(
-    POX_CONTRACT,
-    "get-stacking-minimum",
-    [],
-    address1
-  );
-  return Number((response.result as UIntCV).value);
-};
-
-const burnHeightToRewardCycle = (burnHeight: number) => {
-  const poxInfo = getPoxInfo();
-  return Number(
-    (BigInt(burnHeight) - poxInfo.firstBurnchainBlockHeight) /
-      poxInfo.rewardCycleLength
-  );
-};
-
-// Helpers
-
-const stackStx = (
-  stacker: StackerInfo,
-  amount: number,
-  startBurnHeight: number,
-  lockPeriod: number,
-  maxAmount: number,
-  authId: number,
-  sender: string = address1
-) => {
-  const rewardCycle = burnHeightToRewardCycle(startBurnHeight);
-  const sigArgs = {
-    authId,
-    maxAmount,
-    rewardCycle,
-    period: lockPeriod,
-    topic: Pox4SignatureTopic.StackStx,
-    poxAddress: stacker.btcAddr,
-    signerPrivateKey: stacker.signerPrivKey,
-  };
-  const signerSignature = stacker.client.signPoxSignature(sigArgs);
-  const signerKey = Cl.bufferFromHex(stacker.signerPubKey);
-
-  const stackStxArgs = [
-    Cl.uint(amount),
-    poxAddressToTuple(stacker.btcAddr),
-    Cl.uint(startBurnHeight),
-    Cl.uint(lockPeriod),
-    Cl.some(Cl.bufferFromHex(signerSignature)),
-    signerKey,
-    Cl.uint(maxAmount),
-    Cl.uint(authId),
-  ];
-
-  return simnet.callPublicFn(POX_CONTRACT, "stack-stx", stackStxArgs, sender);
-};
-
-const delegateStx = (
-  amount: number,
-  delegateTo: string,
-  untilBurnHeight?: number,
-  poxAddr?: string,
-  sender: string = address1
-) => {
-  const delegateStxArgs = [
-    Cl.uint(amount),
-    Cl.principal(delegateTo),
-    untilBurnHeight ? Cl.some(Cl.uint(untilBurnHeight)) : Cl.none(),
-    poxAddr ? Cl.some(poxAddressToTuple(poxAddr)) : Cl.none(),
-  ];
-
-  return simnet.callPublicFn(
-    POX_CONTRACT,
-    "delegate-stx",
-    delegateStxArgs,
-    sender
-  );
-};
-
-const delegateStackStx = (
-  stacker: string,
-  amount: number,
-  poxAddr: string,
-  startBurnHeight: number,
-  lockPeriod: number,
-  sender: string = address1
-) => {
-  const delegateStackStxArgs = [
-    Cl.principal(stacker),
-    Cl.uint(amount),
-    poxAddressToTuple(poxAddr),
-    Cl.uint(startBurnHeight),
-    Cl.uint(lockPeriod),
-  ];
-  return simnet.callPublicFn(
-    POX_CONTRACT,
-    "delegate-stack-stx",
-    delegateStackStxArgs,
-    sender
-  );
-};
 
 beforeEach(() => {
   simnet.setEpoch("3.0");
@@ -275,7 +56,7 @@ describe("test `set-burnchain-parameters`", () => {
       [Cl.uint(101), Cl.uint(6), Cl.uint(21), Cl.uint(7)],
       address1
     );
-    expect(response.result).toBeErr(Cl.int(ERR_NOT_ALLOWED));
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
   });
 });
 
@@ -478,7 +259,8 @@ describe("test `get-stacker-info`", () => {
       1000,
       6,
       amount,
-      stacker.authId
+      stacker.authId,
+      address1
     );
     expect(stackResponse.result.type).toBe(ClarityType.ResponseOk);
     const response = simnet.callReadOnlyFn(
@@ -514,7 +296,8 @@ describe("test `get-stacker-info`", () => {
       1000,
       6,
       amount,
-      stacker.authId
+      stacker.authId,
+      address1
     );
     expect(stackResponse.result.type).toBe(ClarityType.ResponseOk);
     simnet.mineEmptyBlocks(2100);
@@ -551,7 +334,8 @@ describe("test `get-stacker-info`", () => {
       1000,
       6,
       amount,
-      stacker.authId
+      stacker.authId,
+      address1
     );
     expect(stackResponse.result.type).toBe(ClarityType.ResponseOk);
     simnet.mineEmptyBlocks(7350);
@@ -967,7 +751,7 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       canStackArgs,
       address1
     );
-    expect(result).toBeErr(Cl.int(ERR_STACKING_THRESHOLD_NOT_MET));
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_THRESHOLD_NOT_MET));
   });
 
   it("returns error if period is too low or to high", () => {
@@ -986,7 +770,9 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       canStackArgsTooLow,
       address1
     );
-    expect(resultTooLow).toBeErr(Cl.int(ERR_STACKING_INVALID_LOCK_PERIOD));
+    expect(resultTooLow).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
 
     const canStackArgsTooHigh = [
       poxAddressToTuple(stacker.btcAddr),
@@ -1001,7 +787,9 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       canStackArgsTooHigh,
       address1
     );
-    expect(resultTooHigh).toBeErr(Cl.int(ERR_STACKING_INVALID_LOCK_PERIOD));
+    expect(resultTooHigh).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
   });
 
   it("returns error if pox address is invalid", () => {
@@ -1025,137 +813,7 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       address1
     );
     expect(resultWrongVersion).toBeErr(
-      Cl.int(ERR_STACKING_INVALID_POX_ADDRESS)
+      Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
     );
   });
-});
-
-// DELEGATE
-describe("test `get-check-delegation`", () => {
-  it("returns none when principal is not delegated", () => {
-    const response = simnet.callReadOnlyFn(
-      POX_CONTRACT,
-      "get-check-delegation",
-      [Cl.principal(address1)],
-      address1
-    );
-    expect(response.result).toBeNone();
-  });
-
-  it("returns info after delegation", () => {
-    const amount = getStackingMinimum() * 1.2;
-
-    const untilBurnHeight = 10;
-    const delegateResponse = delegateStx(
-      amount,
-      address2,
-      untilBurnHeight,
-      stackers[0].btcAddr,
-      address1
-    );
-    expect(delegateResponse.events).toHaveLength(1);
-    expect(delegateResponse.result).toBeOk(Cl.bool(true));
-
-    const delegateInfo = simnet.callReadOnlyFn(
-      POX_CONTRACT,
-      "get-check-delegation",
-      [Cl.principal(address1)],
-      address1
-    );
-    expect(delegateInfo.result).toBeSome(
-      Cl.tuple({
-        "amount-ustx": Cl.uint(amount),
-        "delegated-to": Cl.principal(
-          "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG"
-        ),
-        "pox-addr": Cl.some(poxAddressToTuple(stackers[0].btcAddr)),
-        "until-burn-ht": Cl.some(Cl.uint(untilBurnHeight)),
-      })
-    );
-  });
-
-  it("does not expire if no burn height limit is set", () => {
-    const amount = getStackingMinimum() * 1.2;
-
-    delegateStx(amount, address2, undefined, stackers[0].btcAddr, address1);
-
-    const delegateInfo = simnet.callReadOnlyFn(
-      POX_CONTRACT,
-      "get-check-delegation",
-      [Cl.principal(address1)],
-      address1
-    );
-
-    simnet.mineEmptyBlocks(10_000);
-    expect(delegateInfo.result).toBeSome(
-      Cl.tuple({
-        "amount-ustx": Cl.uint(amount),
-        "delegated-to": Cl.principal(
-          "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG"
-        ),
-        "pox-addr": Cl.some(poxAddressToTuple(stackers[0].btcAddr)),
-        "until-burn-ht": Cl.none(),
-      })
-    );
-  });
-
-  it("returns none after burn height expiration", () => {
-    const amount = getStackingMinimum() * 1.2;
-    simnet.mineEmptyBlock();
-
-    const untilBurnHeight = 10;
-    delegateStx(
-      amount,
-      address2,
-      untilBurnHeight,
-      stackers[0].btcAddr,
-      address1
-    );
-
-    simnet.mineEmptyBlocks(2 + untilBurnHeight - simnet.blockHeight);
-    // a stacks block height of 12 means a burnchain block height of 11
-    assert(simnet.blockHeight === 12);
-
-    const delegateInfo = simnet.callReadOnlyFn(
-      POX_CONTRACT,
-      "get-check-delegation",
-      [Cl.principal(address1)],
-      address1
-    );
-    expect(delegateInfo.result).toBeNone();
-  });
-});
-
-describe.only("test `delegate-stack-stx`", () => {
-  it("does not delegate if principal is not delegated", () => {
-    const amount = getStackingMinimum() * 1.2;
-    const { result } = delegateStackStx(
-      address2,
-      amount,
-      stackers[0].btcAddr,
-      1000,
-      6,
-      address1
-    );
-    expect(result).toBeErr(Cl.int(ERR_STACKING_PERMISSION_DENIED));
-    console.log(Cl.prettyPrint(result));
-  });
-
-  it("can call delegate-stack-stx", () => {
-    const amount = getStackingMinimum() * 1.2;
-    delegateStx(amount, address2, 10, stackers[0].btcAddr, address1);
-    const { result } = delegateStackStx(
-      address1,
-      amount,
-      stackers[0].btcAddr,
-      1000,
-      6,
-      address2
-    );
-    expect(result).toBeErr(Cl.int(ERR_STACKING_PERMISSION_DENIED));
-  });
-});
-
-describe("test `delegate-stack-stx`", () => {
-  it("");
 });
