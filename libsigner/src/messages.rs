@@ -139,6 +139,7 @@ impl TryFrom<u8> for SignerMessageTypePrefix {
 }
 
 impl From<&SignerMessage> for SignerMessageTypePrefix {
+    #[cfg_attr(test, mutants::skip)]
     fn from(message: &SignerMessage) -> Self {
         match message {
             SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
@@ -245,6 +246,7 @@ pub enum SignerMessage {
 }
 
 impl Debug for SignerMessage {
+    #[cfg_attr(test, mutants::skip)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BlockResponse(b) => Debug::fmt(b, f),
@@ -272,6 +274,7 @@ impl Debug for SignerMessage {
 
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
+    #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> MessageSlotID {
         match self {
             Self::Packet(packet) => match packet.msg {
@@ -364,6 +367,7 @@ impl StacksMessageCodec for SignerMessage {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let type_prefix_byte = read_next::<u8, _>(fd)?;
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;

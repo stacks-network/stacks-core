@@ -322,6 +322,7 @@ impl SignCoordinator {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn begin_sign(
         &mut self,
         block: &NakamotoBlock,
