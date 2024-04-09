@@ -1273,7 +1273,10 @@ impl Signer {
     pub fn refresh_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         // First check if we should queue DKG based on contract vote state and stackerdb transactions
         let should_queue = self.should_queue_dkg(stacks_client)?;
-        // Before queueing the command, check one last time if DKG has been approved (could have happend in the meantime)
+        // Before queueing the command, check one last time if DKG has been
+        // approved. It could have happened after the last call to
+        // `get_approved_aggregate_key` but before the theshold check in
+        // `should_queue_dkg`.
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
