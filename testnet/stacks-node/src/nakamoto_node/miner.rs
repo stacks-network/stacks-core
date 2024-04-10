@@ -956,6 +956,10 @@ impl ParentStacksBlockInfo {
                 if stacks_tip_header.index_block_hash()
                     != last_parent_tenure_header.index_block_hash()
                 {
+                    debug!("New parent discovered";
+                        "stacks_tip_header" => %stacks_tip_header.index_block_hash(),
+                        "last_parent_tenure_header" => %last_parent_tenure_header.index_block_hash()
+                    );
                     return Err(NakamotoNodeError::NewParentDiscovered);
                 }
                 1 + last_parent_tenure_header.stacks_block_height
