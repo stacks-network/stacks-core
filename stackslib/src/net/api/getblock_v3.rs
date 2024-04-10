@@ -23,7 +23,6 @@ use serde::de::Error as de_Error;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
