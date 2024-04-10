@@ -437,7 +437,8 @@ impl<'a> BurnchainDBTransaction<'a> {
     ) -> Result<(), BurnchainError> {
         // find all block-commits for this block
         let commits: Vec<LeaderBlockCommitOp> = {
-            let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+            let block_ops_qry =
+                "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
             let block_ops = query_rows(&self.sql_tx, block_ops_qry, &[&hdr.block_hash])?;
             block_ops
                 .into_iter()
@@ -1155,7 +1156,8 @@ impl BurnchainDB {
         burn_header_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
-        let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
+        let qry =
+            "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[txid, burn_header_hash];
 
         match query_row(conn, qry, args) {
