@@ -21,11 +21,11 @@ beforeEach(() => {
   simnet.setEpoch("3.0");
 });
 
-describe("test `delegate-stx`", () => {
+describe("delegate-stx", () => {
   const amount = 1000000;
   const untilBurnHeight = 1000;
 
-  it("Returns `(ok true)` on success", () => {
+  it("returns `(ok true)` on success", () => {
     const delegateResponse = delegateStx(
       amount,
       address2,
@@ -36,7 +36,7 @@ describe("test `delegate-stx`", () => {
     expect(delegateResponse.result).toBeOk(Cl.bool(true));
   });
 
-  it("Can omit the `until-burn-ht`", () => {
+  it("can omit the `until-burn-ht`", () => {
     const delegateResponse = delegateStx(
       amount,
       address2,
@@ -47,7 +47,7 @@ describe("test `delegate-stx`", () => {
     expect(delegateResponse.result).toBeOk(Cl.bool(true));
   });
 
-  it("Can omit the `pox-addr`", () => {
+  it("can omit the `pox-addr`", () => {
     const delegateResponse = delegateStx(
       amount,
       address2,
@@ -58,7 +58,7 @@ describe("test `delegate-stx`", () => {
     expect(delegateResponse.result).toBeOk(Cl.bool(true));
   });
 
-  it("Emits the correct event on success", () => {
+  it("emits the correct event on success", () => {
     const delegateResponse = delegateStx(
       amount,
       address2,
@@ -81,7 +81,7 @@ describe("test `delegate-stx`", () => {
     );
   });
 
-  it("Fails if the account is already delegated", () => {
+  it("fails if the account is already delegated", () => {
     let delegateResponse = delegateStx(
       amount,
       address2,
@@ -101,7 +101,7 @@ describe("test `delegate-stx`", () => {
     );
   });
 
-  it("Fails if called indirectly through an unapproved contract", () => {
+  it("fails if called indirectly through an unapproved contract", () => {
     const delegateStxArgs = [
       Cl.uint(amount),
       Cl.principal(address2),
@@ -121,7 +121,7 @@ describe("test `delegate-stx`", () => {
     );
   });
 
-  it("Can be called indirectly through an approved contract", () => {
+  it("can be called indirectly through an approved contract", () => {
     allowContractCaller(`${deployer}.indirect`, null, address1);
 
     const delegateStxArgs = [
@@ -141,7 +141,7 @@ describe("test `delegate-stx`", () => {
     expect(delegateResponse.result).toBeOk(Cl.bool(true));
   });
 
-  it("Fails if the pox address is invalid", () => {
+  it("fails if the pox address is invalid", () => {
     let poxAddr = poxAddressToTuple(stackers[0].btcAddr);
     poxAddr.data["version"] = Cl.bufferFromHex("0a");
     const delegateStxArgs = [
