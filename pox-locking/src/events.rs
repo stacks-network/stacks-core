@@ -288,7 +288,7 @@ fn create_event_info_data_code(
                         ;; Get start cycle ID
                         start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
                     }}
-                }}
+                }})
                 "#,
                 stacker = &args[0],
                 pox_addr = &args[1],
