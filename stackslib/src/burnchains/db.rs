@@ -232,6 +232,11 @@ CREATE TABLE burnchain_db_block_ops (
     -- 32-byte transaction ID
     txid TEXT NOT NULL,
 
+    -- This should have been present when we created this table, but we forgot.
+    -- So instead, query methods against this table need to use REPLACE INTO and
+    -- SELECT DISTINCT for compatibility.
+    -- PRIMARY KEY(txid,block_hash),
+
     -- ensure that the operation corresponds to an actual block
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
@@ -432,7 +437,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     ) -> Result<(), BurnchainError> {
         // find all block-commits for this block
         let commits: Vec<LeaderBlockCommitOp> = {
-            let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+            let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
             let block_ops = query_rows(&self.sql_tx, block_ops_qry, &[&hdr.block_hash])?;
             block_ops
                 .into_iter()
@@ -891,7 +896,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         block_header: &BurnchainBlockHeader,
         block_ops: &[BlockstackOperationType],
     ) -> Result<(), BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_ops
+        let sql = "REPLACE INTO burnchain_db_block_ops
                    (block_hash, txid, op) VALUES (?, ?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
@@ -1133,7 +1138,7 @@ impl BurnchainDB {
     ) -> Result<BurnchainBlockData, BurnchainError> {
         let block_header_qry =
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
-        let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+        let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
         let block_header = query_row(conn, block_header_qry, &[block])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
@@ -1150,7 +1155,7 @@ impl BurnchainDB {
         burn_header_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
-        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
+        let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[txid, burn_header_hash];
 
         match query_row(conn, qry, args) {
@@ -1169,7 +1174,7 @@ impl BurnchainDB {
         indexer: &B,
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
-        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1";
+        let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1";
         let args: &[&dyn ToSql] = &[txid];
 
         let ops: Vec<BlockstackOperationType> =
