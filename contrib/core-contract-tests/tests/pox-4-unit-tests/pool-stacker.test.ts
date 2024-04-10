@@ -5,6 +5,7 @@ import {
   allowContractCaller,
   checkDelegateStxEvent,
   delegateStx,
+  revokeDelegateStx,
   stackers,
 } from "./helpers";
 import { Cl } from "@stacks/transactions";
@@ -160,6 +161,133 @@ describe("delegate-stx", () => {
 
     expect(delegateResponse.result).toBeErr(
       Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
+    );
+  });
+});
+
+describe("revoke-delegate-stx", () => {
+  it("returns prior state on success", () => {
+    const amount = 1000000;
+    const untilBurnHeight = 123;
+    delegateStx(
+      amount,
+      address2,
+      untilBurnHeight,
+      stackers[0].btcAddr,
+      address1
+    );
+    const revokeResponse = revokeDelegateStx(address1);
+    expect(revokeResponse.result).toBeOk(
+      Cl.some(
+        Cl.tuple({
+          "amount-ustx": Cl.uint(amount),
+          "delegated-to": Cl.principal(address2),
+          "pox-addr": Cl.some(poxAddressToTuple(stackers[0].btcAddr)),
+          "until-burn-ht": Cl.some(Cl.uint(untilBurnHeight)),
+        })
+      )
+    );
+  });
+
+  it("fails if the account is not delegated", () => {
+    const revokeResponse = revokeDelegateStx(address1);
+    expect(revokeResponse.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_ALREADY_REVOKED)
+    );
+  });
+
+  it("fails if the delegation was already revoked", () => {
+    const amount = 1000000;
+    const untilBurnHeight = 123;
+    delegateStx(
+      amount,
+      address2,
+      untilBurnHeight,
+      stackers[0].btcAddr,
+      address1
+    );
+
+    // First revoke passes
+    let revokeResponse = revokeDelegateStx(address1);
+    expect(revokeResponse.result).toBeOk(
+      Cl.some(
+        Cl.tuple({
+          "amount-ustx": Cl.uint(amount),
+          "delegated-to": Cl.principal(address2),
+          "pox-addr": Cl.some(poxAddressToTuple(stackers[0].btcAddr)),
+          "until-burn-ht": Cl.some(Cl.uint(untilBurnHeight)),
+        })
+      )
+    );
+
+    // Second revoke fails
+    revokeResponse = revokeDelegateStx(address1);
+    expect(revokeResponse.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_ALREADY_REVOKED)
+    );
+  });
+
+  it("fails if the delegation has expired", () => {
+    const amount = 1000000;
+    const untilBurnHeight = 3;
+    delegateStx(
+      amount,
+      address2,
+      untilBurnHeight,
+      stackers[0].btcAddr,
+      address1
+    );
+    while (simnet.blockHeight <= untilBurnHeight) {
+      simnet.mineEmptyBlock();
+    }
+    const revokeResponse = revokeDelegateStx(address1);
+    expect(revokeResponse.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_ALREADY_REVOKED)
+    );
+  });
+
+  it("fails when called by unapproved caller", () => {
+    const revokeResponse = simnet.callPublicFn(
+      "indirect",
+      "revoke-delegate-stx",
+      [],
+      address1
+    );
+
+    expect(revokeResponse.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("passes when called by approved caller", () => {
+    const amount = 1000000;
+    const untilBurnHeight = 123;
+
+    delegateStx(
+      amount,
+      address2,
+      untilBurnHeight,
+      stackers[0].btcAddr,
+      address1
+    );
+    allowContractCaller(`${deployer}.indirect`, null, address1);
+
+    const revokeResponse = simnet.callPublicFn(
+      "indirect",
+      "revoke-delegate-stx",
+      [],
+      address1
+    );
+
+    expect(revokeResponse.result).toBeOk(
+      Cl.some(
+        Cl.tuple({
+          "amount-ustx": Cl.uint(amount),
+          "delegated-to": Cl.principal(address2),
+          "pox-addr": Cl.some(poxAddressToTuple(stackers[0].btcAddr)),
+          "until-burn-ht": Cl.some(Cl.uint(untilBurnHeight)),
+        })
+      )
     );
   });
 });

@@ -4,3 +4,7 @@
                              (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx amount-ustx delegate-to until-burn-ht pox-addr)
 )
+
+(define-public (revoke-delegate-stx)
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx)
+)

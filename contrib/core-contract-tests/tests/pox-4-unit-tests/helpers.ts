@@ -206,6 +206,10 @@ export const delegateStx = (
   );
 };
 
+export const revokeDelegateStx = (sender: string) => {
+  return simnet.callPublicFn(POX_CONTRACT, "revoke-delegate-stx", [], sender);
+};
+
 export const delegateStackStx = (
   stacker: string,
   amount: number,
