@@ -335,6 +335,19 @@ describe("disallow-contract-caller", () => {
     );
   });
 
+  it("cannot be called indirectly, even by an approved caller", () => {
+    allowContractCaller(`${deployer}.indirect`, null, address1);
+    const response = simnet.callPublicFn(
+      "indirect",
+      "disallow-contract-caller",
+      [Cl.principal(`${deployer}.indirect`)],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
   it("returns `(ok false)` if the caller was not allowed", () => {
     const response = disallowContractCaller(`${deployer}.indirect`, address1);
     expect(response.result).toBeOk(Cl.bool(false));
