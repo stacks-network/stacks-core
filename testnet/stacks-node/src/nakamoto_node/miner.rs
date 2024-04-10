@@ -660,8 +660,18 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
-        let Some(stacks_tip) =
-            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
+        // The nakamoto miner must always build off of a chain tip that is the highest of:
+        // 1. The highest block in the miner's current tenure
+        // 2. The highest block in the current tenure's parent tenure
+        // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
+        let stacks_block_id = if let Some(block) = self.mined_blocks.last() {
+            block.block_id()
+        } else {
+            self.parent_tenure_id
+        };
+
+        let Some(stacks_tip_header) =
+            NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
                 .expect("FATAL: could not query chain tip")
         else {
             debug!("No Stacks chain tip known, will return a genesis block");
@@ -693,7 +703,7 @@ impl BlockMinerThread {
             &self.burn_block,
             miner_address,
             &self.parent_tenure_id,
-            stacks_tip,
+            stacks_tip_header,
         ) {
             Ok(parent_info) => Ok(parent_info),
             Err(NakamotoNodeError::BurnchainTipChanged) => {
