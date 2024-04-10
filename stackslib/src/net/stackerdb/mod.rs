@@ -148,8 +148,6 @@ pub const STACKERDB_INV_MAX: u32 = 4096;
 pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
 /// maximum number of pages that can be used in a StackerDB contract
 pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
-/// CHUNK_SIZE constant for signers StackerDBs
-pub const SIGNERS_STACKERDB_CHUNK_SIZE: u32 = 2 * 1024 * 1024; // 2MB
 
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
