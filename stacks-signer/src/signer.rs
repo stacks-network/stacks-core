@@ -21,7 +21,6 @@ use std::time::Instant;
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::HashSet;
@@ -49,7 +48,7 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
+use crate::client::{ClientError, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::coordinator::CoordinatorSelector;
 use crate::signerdb::SignerDb;
@@ -159,8 +158,11 @@ pub struct Signer {
     pub next_signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
-    /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
+    /// The default tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0).
     pub tx_fee_ustx: u64,
+    /// If estimating the tx fee, the max tx fee in uSTX to use when the epoch is pre Nakamoto (Epoch 3.0)
+    /// If None, will not cap the fee.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The coordinator info for the signer
     pub coordinator_selector: CoordinatorSelector,
     /// The approved key registered to the contract
@@ -186,9 +188,11 @@ impl std::fmt::Display for Signer {
 }
 
 impl Signer {
-    /// Return the current coordinator. If in the active reward cycle, this is the miner,
-    ///  so the first element of the tuple will be None (because the miner does not have a signer index).
-    fn get_coordinator(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
+    /// Return the current coordinator.
+    /// If the current reward cycle is the active reward cycle, this is the miner,
+    /// so the first element of the tuple will be None (because the miner does not have a signer index).
+    /// Otherwise, the coordinator is the signer with the index returned by the coordinator selector.
+    fn get_coordinator_sign(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
         if self.reward_cycle == current_reward_cycle {
             let Some(ref cur_miner) = self.miner_key else {
                 error!(
@@ -199,11 +203,17 @@ impl Signer {
                 return (Some(selected.0), selected.1);
             };
             // coordinator is the current miner.
-            (None, cur_miner.clone())
+            (None, *cur_miner)
         } else {
             let selected = self.coordinator_selector.get_coordinator();
-            return (Some(selected.0), selected.1);
+            (Some(selected.0), selected.1)
         }
+    }
+
+    /// Get the current coordinator for executing DKG
+    /// This will always use the coordinator selector to determine the coordinator
+    fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
+        self.coordinator_selector.get_coordinator()
     }
 }
 
@@ -295,6 +305,7 @@ impl From<SignerConfig> for Signer {
             next_signer_addresses: vec![],
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ustx: signer_config.tx_fee_ustx,
+            max_tx_fee_ustx: signer_config.max_tx_fee_ustx,
             coordinator_selector,
             approved_aggregate_public_key: None,
             miner_key: None,
@@ -345,11 +356,7 @@ impl Signer {
                     debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
                     return;
                 }
-                let vote_round = match retry_with_exponential_backoff(|| {
-                    stacks_client
-                        .get_last_round(self.reward_cycle)
-                        .map_err(backoff::Error::transient)
-                }) {
+                let vote_round = match stacks_client.get_last_round(self.reward_cycle) {
                     Ok(last_round) => last_round,
                     Err(e) => {
                         error!("{self}: Unable to perform DKG. Failed to get last round from stacks node: {e:?}");
@@ -429,24 +436,36 @@ impl Signer {
         stacks_client: &StacksClient,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         match &self.state {
             State::Idle => {
+                let Some(command) = self.commands.front() else {
+                    debug!("{self}: Nothing to process. Waiting for command...");
+                    return;
+                };
+                let coordinator_id = if matches!(command, Command::Dkg) {
+                    // We cannot execute a DKG command if we are not the coordinator
+                    Some(self.get_coordinator_dkg().0)
+                } else {
+                    self.get_coordinator_sign(current_reward_cycle).0
+                };
                 if coordinator_id != Some(self.signer_id) {
                     debug!(
                         "{self}: Coordinator is {coordinator_id:?}. Will not process any commands...",
                     );
                     return;
                 }
-                if let Some(command) = self.commands.pop_front() {
-                    self.execute_command(stacks_client, &command);
-                } else {
-                    debug!("{self}: Nothing to process. Waiting for command...",);
-                }
+                let command = self
+                    .commands
+                    .pop_front()
+                    .expect("BUG: Already asserted that the command queue was not empty");
+                self.execute_command(stacks_client, &command);
             }
             State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                debug!("{self}: Waiting for coordinator {coordinator_id:?} operation to finish. Coordinator state = {:?}", self.coordinator.state);
+                debug!(
+                    "{self}: Waiting for operation to finish. Coordinator state = {:?}",
+                    self.coordinator.state
+                );
             }
         }
     }
@@ -459,7 +478,6 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) {
-        let coordinator_id = self.get_coordinator(current_reward_cycle).0;
         let mut block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -531,32 +549,13 @@ impl Signer {
                 sig: vec![],
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
-        } else {
-            if block_info.valid.unwrap_or(false)
-                && !block_info.signed_over
-                && coordinator_id == Some(self.signer_id)
-            {
-                // We are the coordinator. Trigger a signing round for this block
-                debug!(
-                    "{self}: attempt to trigger a signing round for block";
-                    "signer_sighash" => %block_info.block.header.signer_signature_hash(),
-                    "block_hash" => %block_info.block.header.block_hash(),
-                );
-                self.commands.push_back(Command::Sign {
-                    block: block_info.block.clone(),
-                    is_taproot: false,
-                    merkle_root: None,
-                });
-            } else {
-                debug!(
-                    "{self}: ignoring block.";
-                    "block_hash" => block_info.block.header.block_hash(),
-                    "valid" => block_info.valid,
-                    "signed_over" => block_info.signed_over,
-                    "coordinator_id" => coordinator_id,
-                );
-            }
         }
+        debug!(
+            "{self}: Received a block validate response";
+            "block_hash" => block_info.block.header.block_hash(),
+            "valid" => block_info.valid,
+            "signed_over" => block_info.signed_over,
+        );
         self.signer_db
             .insert_block(self.reward_cycle, &block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
@@ -570,7 +569,6 @@ impl Signer {
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
-        let coordinator_pubkey = self.get_coordinator(current_reward_cycle).1;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -579,6 +577,11 @@ impl Signer {
                 | SignerMessage::Transactions(_) => None,
                 // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {
+                    let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                        self.get_coordinator_dkg().1
+                    } else {
+                        self.get_coordinator_sign(current_reward_cycle).1
+                    };
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
             })
@@ -628,7 +631,7 @@ impl Signer {
                         });
                     // Submit the block for validation
                     stacks_client
-                        .submit_block_for_validation_with_retry(proposal.block.clone())
+                        .submit_block_for_validation(proposal.block.clone())
                         .unwrap_or_else(|e| {
                             warn!("{self}: Failed to submit block for validation: {e:?}");
                         });
@@ -641,6 +644,19 @@ impl Signer {
                 }
             }
         }
+    }
+
+    /// Helper function for determining if the provided message is a DKG specific message
+    fn is_dkg_message(msg: &Message) -> bool {
+        matches!(
+            msg,
+            Message::DkgBegin(_)
+                | Message::DkgEnd(_)
+                | Message::DkgEndBegin(_)
+                | Message::DkgPrivateBegin(_)
+                | Message::DkgPrivateShares(_)
+                | Message::DkgPublicShares(_)
+        )
     }
 
     /// Process inbound packets as both a signer and a coordinator
@@ -770,7 +786,7 @@ impl Signer {
             );
             let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
             stacks_client
-                .submit_block_for_validation_with_retry(block)
+                .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}",);
                 });
@@ -794,10 +810,14 @@ impl Signer {
         stacks_client: &StacksClient,
         block: &NakamotoBlock,
     ) -> bool {
-        if self.approved_aggregate_public_key.is_some() {
-            // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
-            // TODO: should be only allow special cased transactions during prepare phase before a key is set?
-            debug!("{self}: Already have an aggregate key. Skipping transaction verification...");
+        let next_reward_cycle = self.reward_cycle.wrapping_add(1);
+        let approved_aggregate_public_key = stacks_client
+            .get_approved_aggregate_key(next_reward_cycle)
+            .unwrap_or(None);
+        if approved_aggregate_public_key.is_some() {
+            // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set for the upcoming signers' reward cycle
+            // Otherwise it is a waste of block space and time to enforce as the desired outcome has been reached.
+            debug!("{self}: Already have an aggregate key for the next signer set's reward cycle ({}). Skipping transaction verification...", next_reward_cycle);
             return true;
         }
         if let Ok(expected_transactions) = self.get_expected_transactions(stacks_client) {
@@ -857,7 +877,7 @@ impl Signer {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let transactions: Vec<_> = self
             .stackerdb
-            .get_current_transactions_with_retry()?
+            .get_current_transactions()?
             .into_iter()
             .filter_map(|tx| {
                 if !NakamotoSigners::valid_vote_transaction(nonces, &tx, self.mainnet) {
@@ -882,7 +902,7 @@ impl Signer {
         let account_nonces = self.get_account_nonces(stacks_client, &self.next_signer_addresses);
         let transactions: Vec<_> = self
             .stackerdb
-            .get_next_transactions_with_retry(&self.next_signer_slot_ids)?;
+            .get_next_transactions(&self.next_signer_slot_ids)?;
         let mut filtered_transactions = std::collections::HashMap::new();
         NakamotoSigners::update_filtered_transactions(
             &mut filtered_transactions,
@@ -940,7 +960,7 @@ impl Signer {
                     };
                     self.signer_db
                         .insert_block(self.reward_cycle, &updated_block_info)
-                        .expect(&format!("{self}: Failed to insert block in DB"));
+                        .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
                         debug!("Failed to validate nonce request");
@@ -1003,54 +1023,34 @@ impl Signer {
         ) {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);
-        } else {
-            if let Err(e) = self
-                .stackerdb
-                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-            {
-                error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
+        } else if let Err(e) = self
+            .stackerdb
+            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+        {
+            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
                        "error" => %e);
-            }
         }
 
-        let epoch = retry_with_exponential_backoff(|| {
-            stacks_client
-                .get_node_epoch()
-                .map_err(backoff::Error::transient)
-        })
-        .unwrap_or(StacksEpochId::Epoch24);
-        let tx_fee = if epoch < StacksEpochId::Epoch30 {
-            debug!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
-            Some(self.tx_fee_ustx)
-        } else {
-            None
-        };
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
         // Retreieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
         let account_nonces = self.get_account_nonces(stacks_client, &self.signer_addresses);
         let account_nonce = account_nonces.get(signer_address).unwrap_or(&0);
-        let signer_transactions = retry_with_exponential_backoff(|| {
-            self.get_signer_transactions(&account_nonces)
-                .map_err(backoff::Error::transient)
-        })
-        .map_err(|e| {
-            warn!("{self}: Unable to get signer transactions: {e:?}");
-        })
-        .unwrap_or_default();
+        let signer_transactions = self
+            .get_signer_transactions(&account_nonces)
+            .map_err(|e| {
+                error!("{self}: Unable to get signer transactions: {e:?}.");
+            })
+            .unwrap_or_default();
         // If we have a transaction in the stackerdb slot, we need to increment the nonce hence the +1, else should use the account nonce
         let next_nonce = signer_transactions
             .first()
             .map(|tx| tx.get_origin_nonce().wrapping_add(1))
             .unwrap_or(*account_nonce);
-        match stacks_client.build_vote_for_aggregate_public_key(
-            self.stackerdb.get_signer_slot_id().0,
-            self.coordinator.current_dkg_id,
-            *dkg_public_key,
-            self.reward_cycle,
-            tx_fee,
-            next_nonce,
-        ) {
+        let epoch = stacks_client
+            .get_node_epoch()
+            .unwrap_or(StacksEpochId::Epoch24);
+        match self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key) {
             Ok(new_transaction) => {
                 if let Err(e) = self.broadcast_dkg_vote(
                     stacks_client,
@@ -1069,6 +1069,44 @@ impl Signer {
                 );
             }
         }
+    }
+
+    /// Build a signed DKG vote transaction
+    fn build_dkg_vote(
+        &mut self,
+        stacks_client: &StacksClient,
+        epoch: &StacksEpochId,
+        nonce: u64,
+        dkg_public_key: Point,
+    ) -> Result<StacksTransaction, ClientError> {
+        let mut unsigned_tx = stacks_client.build_unsigned_vote_for_aggregate_public_key(
+            self.stackerdb.get_signer_slot_id().0,
+            self.coordinator.current_dkg_id,
+            dkg_public_key,
+            self.reward_cycle,
+            nonce,
+        )?;
+        let tx_fee = if epoch < &StacksEpochId::Epoch30 {
+            info!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
+            let fee = if let Some(max_fee) = self.max_tx_fee_ustx {
+                let estimated_fee = stacks_client
+                    .get_medium_estimated_fee_ustx(&unsigned_tx)
+                    .map_err(|e| {
+                        warn!("{self}: unable to estimate fee for DKG vote transaction: {e:?}.");
+                        e
+                    })
+                    .unwrap_or(self.tx_fee_ustx);
+                std::cmp::min(estimated_fee, max_fee)
+            } else {
+                self.tx_fee_ustx
+            };
+            debug!("{self}: Using a fee of {fee} uSTX for DKG vote transaction.");
+            fee
+        } else {
+            0
+        };
+        unsigned_tx.set_tx_fee(tx_fee);
+        stacks_client.sign_transaction(unsigned_tx)
     }
 
     // Get the account nonces for the provided list of signer addresses
@@ -1108,7 +1146,7 @@ impl Signer {
             debug!("{self}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.");
         } else if epoch == StacksEpochId::Epoch25 {
             debug!("{self}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.");
-            stacks_client.submit_transaction_with_retry(&new_transaction)?;
+            stacks_client.submit_transaction(&new_transaction)?;
             info!("{self}: Submitted DKG vote transaction ({txid:?}) to the mempool");
         } else {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
@@ -1235,64 +1273,20 @@ impl Signer {
         }
     }
 
-    /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
-        let reward_cycle = self.reward_cycle;
-        let old_dkg = self.approved_aggregate_public_key;
-        self.approved_aggregate_public_key =
-            stacks_client.get_approved_aggregate_key(reward_cycle)?;
-        if self.approved_aggregate_public_key.is_some() {
-            // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
-            // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
-            // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
-            self.coordinator
-                .set_aggregate_public_key(self.approved_aggregate_public_key);
-            if old_dkg != self.approved_aggregate_public_key {
-                debug!(
-                    "{self}: updated DKG value to {:?}.",
-                    self.approved_aggregate_public_key
-                );
-            }
-            return Ok(());
-        };
+    /// Should DKG be queued to the current signer's command queue
+    pub fn should_queue_dkg(&mut self, stacks_client: &StacksClient) -> Result<bool, ClientError> {
         if self.state != State::Idle
-            || Some(self.signer_id) != self.get_coordinator(current_reward_cycle).0
+            || self.signer_id != self.get_coordinator_dkg().0
+            || self.commands.front() == Some(&Command::Dkg)
         {
-            // We are not the coordinator or we are in the middle of an operation. Do not attempt to queue DKG
-            return Ok(());
+            // We are not the coordinator, we are in the middle of an operation, or we have already queued DKG. Do not attempt to queue DKG
+            return Ok(false);
         }
-        debug!("{self}: Checking if old DKG vote transaction exists in StackerDB...");
-        // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
-        // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
         let signer_address = stacks_client.get_signer_address();
-        let account_nonces = self.get_account_nonces(stacks_client, &[*signer_address]);
-        let old_transactions = self.get_signer_transactions(&account_nonces).map_err(|e| {
-                warn!("{self}: Failed to get old signer transactions: {e:?}. May trigger DKG unnecessarily");
-            }).unwrap_or_default();
-        // Check if we have an existing vote transaction for the same round and reward cycle
-        for transaction in old_transactions.iter() {
-            let params =
-                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction).unwrap_or_else(|| panic!("BUG: {self}: Received an invalid {SIGNERS_VOTING_FUNCTION_NAME} transaction in an already filtered list: {transaction:?}"));
-            if Some(params.aggregate_key) == self.coordinator.aggregate_public_key
-                && params.voting_round == self.coordinator.current_dkg_id
-                && reward_cycle == self.reward_cycle
-            {
-                debug!("{self}: Not triggering a DKG round. Already have a pending vote transaction.";
-                    "txid" => %transaction.txid(),
-                    "aggregate_key" => %params.aggregate_key,
-                    "voting_round" => params.voting_round
-                );
-                return Ok(());
-            }
-        }
         if let Some(aggregate_key) = stacks_client.get_vote_for_aggregate_public_key(
             self.coordinator.current_dkg_id,
             self.reward_cycle,
-            *stacks_client.get_signer_address(),
+            *signer_address,
         )? {
             let Some(round_weight) = stacks_client
                 .get_round_vote_weight(self.reward_cycle, self.coordinator.current_dkg_id)?
@@ -1302,7 +1296,7 @@ impl Signer {
                     "voting_round" => self.coordinator.current_dkg_id,
                     "aggregate_key" => %aggregate_key
                 );
-                return Ok(());
+                return Ok(false);
             };
             let threshold_weight = stacks_client.get_vote_threshold_weight(self.reward_cycle)?;
             if round_weight < threshold_weight {
@@ -1315,22 +1309,82 @@ impl Signer {
                     "round_weight" => round_weight,
                     "threshold_weight" => threshold_weight
                 );
-                return Ok(());
+                return Ok(false);
             }
-            debug!("{self}: Vote for DKG failed. Triggering a DKG round.";
+            warn!("{self}: Vote for DKG failed.";
                 "voting_round" => self.coordinator.current_dkg_id,
                 "aggregate_key" => %aggregate_key,
                 "round_weight" => round_weight,
                 "threshold_weight" => threshold_weight
             );
         } else {
-            debug!("{self}: Triggering a DKG round.");
+            // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
+            // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
+            let account_nonce = stacks_client.get_account_nonce(signer_address).unwrap_or(0);
+            let old_transactions = self.stackerdb.get_current_transactions()?;
+            // Check if we have an existing vote transaction for the same round and reward cycle
+            for transaction in old_transactions.iter() {
+                // We should not consider other signer transactions and should ignore invalid transaction versions
+                if transaction.origin_address() != *signer_address
+                    || transaction.is_mainnet() != self.mainnet
+                {
+                    continue;
+                }
+                let Some(params) =
+                    NakamotoSigners::parse_vote_for_aggregate_public_key(transaction)
+                else {
+                    continue;
+                };
+                let Some(dkg_public_key) = self.coordinator.aggregate_public_key.clone() else {
+                    break;
+                };
+                if params.aggregate_key == dkg_public_key
+                    && params.voting_round == self.coordinator.current_dkg_id
+                    && params.reward_cycle == self.reward_cycle
+                {
+                    let origin_nonce = transaction.get_origin_nonce();
+                    if origin_nonce < account_nonce {
+                        // We have already voted, but our vote nonce is outdated. Resubmit vote with updated transaction
+                        warn!("{self}: DKG vote submitted with invalid nonce ({origin_nonce} < {account_nonce}). Resubmitting vote.");
+                        self.process_dkg(stacks_client, &dkg_public_key);
+                    } else {
+                        debug!("{self}: Already have a pending DKG vote in StackerDB. Waiting for it to be confirmed.";
+                            "txid" => %transaction.txid(),
+                            "aggregate_key" => %params.aggregate_key,
+                            "voting_round" => params.voting_round,
+                            "reward_cycle" => params.reward_cycle,
+                            "nonce" => origin_nonce
+                        );
+                    }
+                    return Ok(false);
+                }
+            }
         }
-        if self.commands.front() != Some(&Command::Dkg) {
+        Ok(true)
+    }
+
+    /// Update the DKG for the provided signer info, triggering it if required
+    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
+        let old_dkg = self.approved_aggregate_public_key;
+        self.approved_aggregate_public_key =
+            stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
+        if self.approved_aggregate_public_key.is_some() {
+            // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
+            // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
+            // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
+            self.coordinator
+                .set_aggregate_public_key(self.approved_aggregate_public_key);
+            if old_dkg != self.approved_aggregate_public_key {
+                warn!(
+                    "{self}: updated DKG value to {:?}.",
+                    self.approved_aggregate_public_key
+                );
+            }
+            return Ok(());
+        };
+        if self.should_queue_dkg(stacks_client)? {
             info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
             self.commands.push_front(Command::Dkg);
-        } else {
-            debug!("{self}: DKG command already queued...");
         }
         Ok(())
     }

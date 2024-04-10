@@ -35,7 +35,7 @@ pub struct SignerDb {
     db: Connection,
 }
 
-const CREATE_BLOCKS_TABLE: &'static str = "
+const CREATE_BLOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
-const CREATE_SIGNER_STATE_TABLE: &'static str = "
+const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
     state TEXT NOT NULL
@@ -88,7 +88,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT state FROM signer_states WHERE reward_cycle = ?",
-            &[u64_to_sql(reward_cycle)?],
+            [u64_to_sql(reward_cycle)?],
         )?;
 
         try_deserialize(result)
@@ -170,8 +170,8 @@ where
 pub fn test_signer_db(db_path: &str) -> SignerDb {
     use std::fs;
 
-    if fs::metadata(&db_path).is_ok() {
-        fs::remove_file(&db_path).unwrap();
+    if fs::metadata(db_path).is_ok() {
+        fs::remove_file(db_path).unwrap();
     }
     SignerDb::new(db_path).expect("Failed to create signer db")
 }

@@ -116,6 +116,7 @@ pub(crate) mod tests {
     use blockstack_lib::net::api::getpoxinfo::{
         RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
     };
+    use blockstack_lib::net::api::postfeerate::{RPCFeeEstimate, RPCFeeEstimateResponse};
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::TupleData;
@@ -398,6 +399,44 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
+    /// Build a response for the get_medium_estimated_fee_ustx_response request with a specific medium estimate
+    pub fn build_get_medium_estimated_fee_ustx_response(
+        medium_estimate: u64,
+    ) -> (String, RPCFeeEstimateResponse) {
+        // Generate some random info
+        let fee_response = RPCFeeEstimateResponse {
+            estimated_cost: ExecutionCost {
+                write_length: thread_rng().next_u64(),
+                write_count: thread_rng().next_u64(),
+                read_length: thread_rng().next_u64(),
+                read_count: thread_rng().next_u64(),
+                runtime: thread_rng().next_u64(),
+            },
+            estimated_cost_scalar: thread_rng().next_u64(),
+            cost_scalar_change_by_byte: thread_rng().next_u32() as f64,
+            estimations: vec![
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: thread_rng().next_u64(),
+                },
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: medium_estimate,
+                },
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: thread_rng().next_u64(),
+                },
+            ],
+        };
+        let fee_response_json = serde_json::to_string(&fee_response)
+            .expect("Failed to serialize fee estimate response");
+        (
+            format!("HTTP/1.1 200 OK\n\n{fee_response_json}"),
+            fee_response,
+        )
+    }
+
     /// Generate a signer config with the given number of signers and keys where the first signer is
     /// obtained from the provided global config
     pub fn generate_signer_config(
@@ -515,6 +554,7 @@ pub(crate) mod tests {
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
             tx_fee_ustx: config.tx_fee_ustx,
+            max_tx_fee_ustx: config.max_tx_fee_ustx,
             db_path: config.db_path.clone(),
         }
     }
