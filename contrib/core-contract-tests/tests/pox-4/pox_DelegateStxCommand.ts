@@ -106,6 +106,9 @@ export class DelegateStxCommand implements PoxCommand {
       "until",
       this.untilBurnHt.toString()
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {

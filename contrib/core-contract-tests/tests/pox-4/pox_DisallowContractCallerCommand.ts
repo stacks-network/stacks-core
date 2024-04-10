@@ -87,6 +87,9 @@ export class DisallowContractCallerCommand implements PoxCommand {
       "disallow-contract-caller",
       this.callerToDisallow.label,
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {

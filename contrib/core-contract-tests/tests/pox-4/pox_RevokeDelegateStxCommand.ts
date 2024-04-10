@@ -85,6 +85,9 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(`✓ ${this.wallet.label}`, "revoke-delegate-stx");
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {

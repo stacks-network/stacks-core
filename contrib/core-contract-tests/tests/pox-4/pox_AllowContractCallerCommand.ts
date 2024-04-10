@@ -85,6 +85,9 @@ export class AllowContractCallerCommand implements PoxCommand {
       "until",
       optionalCVToString(this.allowUntilBurnHt),
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {
