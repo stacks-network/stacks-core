@@ -6302,6 +6302,107 @@ fn delegate_stack_increase() {
     assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
 }
 
+// In this test case, Alice delegates twice the stacking minimum to Bob.
+//  Bob stacks Alice's funds, and then immediately tries to stacks-aggregation-increase.
+//  This should return a clarity user error.
+#[test]
+fn delegate_stack_increase_err() {
+    let lock_period: u128 = 2;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let alice_nonce = 0;
+    let alice_key = &keys[0];
+    let alice_address = PrincipalData::from(key_to_stacks_addr(alice_key));
+    let mut bob_nonce = 0;
+    let bob_delegate_key = &keys[1];
+    let bob_delegate_address = PrincipalData::from(key_to_stacks_addr(bob_delegate_key));
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let signer_sk = StacksPrivateKey::from_seed(&[1, 3, 3, 7]);
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+    let signer_pk_bytes = signer_pk.to_bytes_compressed();
+    let signer_key_val = Value::buff_from(signer_pk_bytes.clone()).unwrap();
+
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(bob_delegate_key).bytes,
+    );
+
+    let next_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    let delegate_stx = make_pox_4_delegate_stx(
+        alice_key,
+        alice_nonce,
+        2 * min_ustx,
+        bob_delegate_address.clone(),
+        None,
+        Some(pox_addr.clone()),
+    );
+
+    let alice_principal = PrincipalData::from(key_to_stacks_addr(alice_key));
+
+    let delegate_stack_stx = make_pox_4_delegate_stack_stx(
+        bob_delegate_key,
+        bob_nonce,
+        alice_principal,
+        min_ustx * 2,
+        pox_addr.clone(),
+        block_height as u128,
+        lock_period,
+    );
+
+    let txs = vec![delegate_stx, delegate_stack_stx];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    bob_nonce += 1;
+
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle.into(),
+        &Pox4SignatureTopic::AggregationIncrease,
+        1_u128,
+        u128::MAX,
+        1,
+    );
+
+    // Bob's Aggregate Increase
+    let bobs_aggregate_increase = make_pox_4_aggregation_increase(
+        &bob_delegate_key,
+        bob_nonce,
+        &pox_addr,
+        next_reward_cycle.into(),
+        0,
+        Some(signature),
+        &signer_pk,
+        u128::MAX,
+        1,
+    );
+
+    let txs = vec![bobs_aggregate_increase];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    let delegate_transactions =
+        get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
+
+    let actual_result = delegate_transactions.first().cloned().unwrap().result;
+
+    // Should be a DELEGATION NO REWARD SLOT error
+    let expected_result = Value::error(Value::Int(28)).unwrap();
+
+    assert_eq!(actual_result, expected_result);
+
+    // test that the reward set is empty
+    let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert!(reward_set.is_empty());
+}
+
 pub fn get_stacking_state_pox_4(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
