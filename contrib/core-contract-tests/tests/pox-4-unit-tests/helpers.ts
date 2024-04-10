@@ -1,3 +1,4 @@
+import { ClarityEvent } from "@hirosystems/clarinet-sdk";
 import {
   getPublicKeyFromPrivate,
   publicKeyToBtcAddress,
@@ -10,12 +11,15 @@ import {
 } from "@stacks/stacking";
 import {
   Cl,
+  ResponseOkCV,
   StacksPrivateKey,
   TransactionVersion,
+  TupleCV,
   UIntCV,
   createStacksPrivateKey,
   getAddressFromPrivateKey,
 } from "@stacks/transactions";
+import { expect } from "vitest";
 
 export const POX_DEPLOYER = "ST000000000000000000002AMW42H";
 export const POX_CONTRACT = `${POX_DEPLOYER}.pox-4`;
@@ -223,4 +227,85 @@ export const delegateStackStx = (
     delegateStackStxArgs,
     sender
   );
+};
+
+export const allowContractCaller = (
+  caller: string,
+  untilBurnHeight: bigint | null,
+  sender: string
+) => {
+  const args = [
+    Cl.principal(caller),
+    untilBurnHeight ? Cl.some(Cl.uint(untilBurnHeight)) : Cl.none(),
+  ];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "allow-contract-caller",
+    args,
+    sender
+  );
+};
+
+// Validate a pox-4 event and return the value of the event.
+export const checkPox4Event = (event: ClarityEvent): TupleCV => {
+  expect(event.event).toEqual("print_event");
+  expect(event.data.contract_identifier).toEqual(POX_CONTRACT);
+  expect(event.data.topic).toEqual("print");
+  const value = (event.data.value! as ResponseOkCV).value;
+  return value as TupleCV;
+};
+
+// Validate the event that should be generated for a stack-* function,
+// a delegate-stack-* function, or a delegate-stx function.
+const checkStackOrDelegateEvent = (
+  value: TupleCV,
+  name: string,
+  stacker: string,
+  balance: bigint,
+  locked: bigint,
+  burnchainUnlockHeight: bigint
+) => {
+  const tuple = value.data;
+  expect(tuple["name"]).toBeAscii(name);
+  expect(tuple["stacker"]).toBePrincipal(stacker);
+  expect(tuple["balance"]).toBeUint(balance);
+  expect(tuple["locked"]).toBeUint(locked);
+  expect(tuple["burnchain-unlock-height"]).toBeUint(burnchainUnlockHeight);
+};
+
+// Validate the event that should be generated for a delegate-stx function.
+export const checkDelegateStxEvent = (
+  event: ClarityEvent,
+  stacker: string,
+  balance: bigint,
+  locked: bigint,
+  burnchainUnlockHeight: bigint,
+  amountUstx: bigint,
+  delegateTo: string,
+  poxAddr: string,
+  unlockBurnHeight: bigint
+) => {
+  let value = checkPox4Event(event);
+  checkStackOrDelegateEvent(
+    value,
+    "delegate-stx",
+    stacker,
+    balance,
+    locked,
+    burnchainUnlockHeight
+  );
+  const tuple = value.data;
+  const data = (tuple["data"] as TupleCV).data;
+  expect(data["amount-ustx"]).toBeUint(amountUstx);
+  expect(data["delegate-to"]).toBePrincipal(delegateTo);
+  if (poxAddr) {
+    expect(data["pox-addr"]).toBeSome(poxAddressToTuple(poxAddr));
+  } else {
+    expect(data["pox-addr"]).toBeNone();
+  }
+  if (unlockBurnHeight) {
+    expect(data["unlock-burn-height"]).toBeSome(Cl.uint(unlockBurnHeight));
+  } else {
+    expect(data["unlock-burn-height"]).toBeNone();
+  }
 };

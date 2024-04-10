@@ -60,6 +60,11 @@ plan:
             path: "./tests/bns_test.clar"
             clarity-version: 2
         - emulated-contract-publish:
+            contract-name: indirect
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "./tests/pox-4-unit-tests/indirect.clar"
+            clarity-version: 2
+        - emulated-contract-publish:
             contract-name: pox-4
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"

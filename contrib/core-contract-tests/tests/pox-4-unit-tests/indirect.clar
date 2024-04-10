@@ -1,0 +1,6 @@
+(define-public (delegate-stx (amount-ustx uint)
+                             (delegate-to principal)
+                             (until-burn-ht (optional uint))
+                             (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx amount-ustx delegate-to until-burn-ht pox-addr)
+)
