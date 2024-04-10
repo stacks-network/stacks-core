@@ -27,6 +27,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
+use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::{PrivateKey, PublicKey, Txid};
 use crate::chainstate::stacks::{
@@ -1385,6 +1386,35 @@ impl TransactionAuth {
                 origin_condition.clear();
                 sponsor_condition.clear();
             }
+        }
+    }
+
+    pub fn is_supported_in_epoch(
+        &self,
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        match &self {
+            TransactionAuth::Sponsored(ref origin, ref sponsor) => {
+                let origin_supported = match origin {
+                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                        epoch_id >= StacksEpochId::Epoch30
+                    },
+                    _ => true,
+                };
+                let sponsor_supported = match sponsor {
+                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                        epoch_id >= StacksEpochId::Epoch30
+                    },
+                    _ => true,
+                };
+                origin_supported && sponsor_supported
+            },
+            TransactionAuth::Standard(ref origin) => match origin {
+                TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                    epoch_id >= StacksEpochId::Epoch30
+                },
+                _ => true,
+            },
         }
     }
 }

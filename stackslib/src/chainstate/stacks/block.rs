@@ -600,37 +600,10 @@ impl StacksBlock {
                     return false;
                 }
             }
-            match &tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                            if epoch_id < StacksEpochId::Epoch30 {
-                                error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                return false;
-                            }
-                        }
-                        _ => (),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                            if epoch_id < StacksEpochId::Epoch30 {
-                                error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                return false;
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                        if epoch_id < StacksEpochId::Epoch30 {
-                            error!("Order independent multisig transactions not supported before Stacks 3.0");
-                            return false;
-                        }
-                    }
-                    _ => (),
-                },
-            };
+            if !tx.auth.is_supported_in_epoch(epoch_id) {
+                error!("Order independent multisig transactions not supported before Stacks 3.0");
+                return false;
+            }
         }
         return true;
     }
