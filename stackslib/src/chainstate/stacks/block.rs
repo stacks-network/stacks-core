@@ -568,46 +568,35 @@ impl StacksBlock {
     pub fn validate_transactions_static_epoch(
         txs: &[StacksTransaction],
         epoch_id: StacksEpochId,
-        quiet: bool,
     ) -> bool {
         for tx in txs.iter() {
             if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
                 if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    }
+                    error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
                     return false;
                 }
                 if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
-                    }
+                    error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
                     return false;
                 }
                 if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    if !quiet {
-                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    }
+                    error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
                     return false;
                 }
             }
             if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
                 if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
-                    if !quiet {
-                        error!("Versioned smart contracts not supported before Stacks 2.1");
-                    }
+                    error!("Versioned smart contracts not supported before Stacks 2.1");
                     return false;
                 }
             }
             if let TransactionPayload::TenureChange(..) = &tx.payload {
                 if epoch_id < StacksEpochId::Epoch30 {
-                    if !quiet {
-                        error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    }
+                    error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
                     return false;
                 }
             }
@@ -616,9 +605,7 @@ impl StacksBlock {
                     match origin {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                if !quiet {
-                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                }
+                                error!("Order independent multisig transactions not supported before Stacks 3.0");
                                 return false;
                             }
                         }
@@ -627,9 +614,7 @@ impl StacksBlock {
                     match sponsor {
                         TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                             if epoch_id < StacksEpochId::Epoch30 {
-                                if !quiet {
-                                    error!("Order independent multisig transactions not supported before Stacks 3.0");
-                                }
+                                error!("Order independent multisig transactions not supported before Stacks 3.0");
                                 return false;
                             }
                         }
@@ -639,9 +624,7 @@ impl StacksBlock {
                 TransactionAuth::Standard(ref origin) => match origin {
                     TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                         if epoch_id < StacksEpochId::Epoch30 {
-                            if !quiet {
-                                error!("Order independent multisig transactions not supported before Stacks 3.0");
-                            }
+                            error!("Order independent multisig transactions not supported before Stacks 3.0");
                             return false;
                         }
                     }
@@ -674,7 +657,7 @@ impl StacksBlock {
         if !StacksBlock::validate_coinbase(&self.txs, true) {
             return false;
         }
-        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, false) {
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
             return false;
         }
         return true;
@@ -853,8 +836,7 @@ impl StacksMessageCodec for StacksMicroblock {
         let header: StacksMicroblockHeader = read_next(fd)?;
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            // The latest epoch where StacksMicroblock exist is Epoch25
-            read_next_at_most(&mut bound_read, u32::MAX)
+            read_next(&mut bound_read)
         }?;
 
         if txs.len() == 0 {
@@ -1802,16 +1784,15 @@ mod test {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
                     &txs,
                     epoch_id.clone(),
-                    false,
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {
                 assert!(StacksBlock::validate_transactions_static_epoch(
-                    &txs, *epoch_id, false,
+                    &txs, *epoch_id,
                 ));
             } else {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    &txs, *epoch_id, false,
+                    &txs, *epoch_id,
                 ));
             }
         }

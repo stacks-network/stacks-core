@@ -6666,7 +6666,7 @@ impl StacksChainState {
         // 4: check if transaction is valid in the current epoch
         let epoch = clarity_connection.get_epoch().clone();
 
-        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch, true) {
+        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch) {
             return Err(MemPoolRejection::Other(
                 "Transaction is not supported in this epoch".to_string(),
             ));

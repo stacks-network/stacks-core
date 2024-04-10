@@ -32,8 +32,8 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAM
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
-    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
-    MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
+    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -1176,7 +1176,7 @@ impl NakamotoBlock {
             warn!("Not a well-formed tenure-extend block");
             return false;
         }
-        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, false) {
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
             return false;
         }
         return true;
@@ -3357,13 +3357,12 @@ impl StacksMessageCodec for NakamotoBlock {
     }
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let header: NakamotoBlockHeader = read_next(fd)?;
-
-        let txs: Vec<StacksTransaction> = {
+        let (header, txs) = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
-            // The latest epoch where StacksMicroblock exist is Epoch25
-            read_next_at_most(&mut bound_read, u32::MAX)
-        }?;
+            let header: NakamotoBlockHeader = read_next(&mut bound_read)?;
+            let txs: Vec<_> = read_next(&mut bound_read)?;
+            (header, txs)
+        };
 
         // all transactions are unique
         if !StacksBlock::validate_transactions_unique(&txs) {
