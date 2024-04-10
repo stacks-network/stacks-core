@@ -124,12 +124,17 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
       committedAmount.toString(),
       "authorization",
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.operator.label} stack-aggregation-commit auth-id ${this.authId} for reward cycle ${this.currentCycle}`;
+    return `${this.operator.label} stack-aggregation-commit auth-id ${this.authId} for reward cycle ${
+      this.currentCycle + 1
+    }`;
   }
 }

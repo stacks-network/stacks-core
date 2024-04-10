@@ -119,24 +119,27 @@ it("statefully interacts with PoX-4", async () => {
 
   simnet.setEpoch("3.0");
 
-  fc.assert(
-    fc.property(
-      PoxCommands(model.wallets, sut.network),
-      (cmds) => {
-        const initialState = () => ({ model: model, real: sut });
-        fc.modelRun(initialState, cmds);
+  // The testing suite will run for 5000 times.
+  for (let i = 0; i < 5000; i++) {
+    fc.assert(
+      fc.property(
+        PoxCommands(model.wallets, sut.network),
+        (cmds) => {
+          const initialState = () => ({ model: model, real: sut });
+          fc.modelRun(initialState, cmds);
+        },
+      ),
+      {
+        // Defines the number of test iterations to run; default is 100.
+        numRuns: 10,
+        // Adjusts the level of detail in test reports. Default is 0 (minimal).
+        // At level 2, reports include extensive details, helpful for deep
+        // debugging. This includes not just the failing case and its seed, but
+        // also a comprehensive log of all executed steps and their outcomes.
+        verbose: 2,
       },
-    ),
-    {
-      // Defines the number of test iterations to run; default is 100.
-      numRuns: 10,
-      // Adjusts the level of detail in test reports. Default is 0 (minimal).
-      // At level 2, reports include extensive details, helpful for deep
-      // debugging. This includes not just the failing case and its seed, but
-      // also a comprehensive log of all executed steps and their outcomes.
-      verbose: 2,
-    },
-  );
+    );
+  }
 
   model.reportCommandRuns();
 });

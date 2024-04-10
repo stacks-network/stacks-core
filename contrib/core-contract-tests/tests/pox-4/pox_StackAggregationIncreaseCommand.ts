@@ -96,6 +96,9 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       "cycle index",
       this.rewardCycleIndex.toString(),
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {

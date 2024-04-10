@@ -55,6 +55,9 @@ export class GetStackingMinimumCommand implements PoxCommand {
       "pox-4",
       stackingMinimum.value.toString(),
     );
+
+    // Refresh the model's state if the network gets to the next reward cycle.
+    model.stateRefresh(real);
   }
 
   toString() {
