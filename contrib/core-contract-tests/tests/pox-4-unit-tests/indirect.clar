@@ -8,3 +8,11 @@
 (define-public (revoke-delegate-stx)
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx)
 )
+
+(define-public (allow-contract-caller (caller principal) (until-burn-ht (optional uint)))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 allow-contract-caller caller until-burn-ht)
+)
+
+(define-public (disallow-contract-caller (caller principal))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 disallow-contract-caller caller)
+)

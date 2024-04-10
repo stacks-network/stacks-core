@@ -250,6 +250,16 @@ export const allowContractCaller = (
   );
 };
 
+export const disallowContractCaller = (caller: string, sender: string) => {
+  const args = [Cl.principal(caller)];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "disallow-contract-caller",
+    args,
+    sender
+  );
+};
+
 // Validate a pox-4 event and return the value of the event.
 export const checkPox4Event = (event: ClarityEvent): TupleCV => {
   expect(event.event).toEqual("print_event");

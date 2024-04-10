@@ -5,6 +5,7 @@ import {
   allowContractCaller,
   checkDelegateStxEvent,
   delegateStx,
+  disallowContractCaller,
   revokeDelegateStx,
   stackers,
 } from "./helpers";
@@ -289,5 +290,53 @@ describe("revoke-delegate-stx", () => {
         })
       )
     );
+  });
+});
+
+describe("allow-contract-caller", () => {
+  it("returns `(ok true)` on success", () => {
+    const response = allowContractCaller(
+      `${deployer}.indirect`,
+      null,
+      address1
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("cannot be called indirectly", () => {
+    const response = simnet.callPublicFn(
+      "indirect",
+      "allow-contract-caller",
+      [Cl.principal(`${deployer}.indirect`), Cl.none()],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+});
+
+describe("disallow-contract-caller", () => {
+  it("returns `(ok true)` on success", () => {
+    allowContractCaller(`${deployer}.indirect`, null, address1);
+    const response = disallowContractCaller(`${deployer}.indirect`, address1);
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("cannot be called indirectly", () => {
+    const response = simnet.callPublicFn(
+      "indirect",
+      "disallow-contract-caller",
+      [Cl.principal(`${deployer}.indirect`)],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("returns `(ok false)` if the caller was not allowed", () => {
+    const response = disallowContractCaller(`${deployer}.indirect`, address1);
+    expect(response.result).toBeOk(Cl.bool(false));
   });
 });
