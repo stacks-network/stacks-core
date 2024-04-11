@@ -23,8 +23,7 @@ use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::StacksEpochId;
-use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
