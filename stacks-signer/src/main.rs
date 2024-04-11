@@ -294,6 +294,8 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.password,
         rand::random(),
         3000,
+        None,
+        None,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -416,6 +418,7 @@ pub mod tests {
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
 
+    #[allow(clippy::too_many_arguments)]
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,
         reward_cycle: u128,

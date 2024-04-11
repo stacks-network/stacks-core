@@ -1826,6 +1826,11 @@ impl NakamotoChainState {
                 .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
         let aggregate_key_block_header =
             Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
+            .ok_or(ChainstateError::InvalidStacksBlock(
+                "Failed to get epoch ID".into(),
+            ))?
+            .epoch_id;
 
         let aggregate_public_key = Self::load_aggregate_public_key(
             sortdb,
@@ -1833,7 +1838,7 @@ impl NakamotoChainState {
             chainstate,
             block_sn.block_height,
             &aggregate_key_block_header.index_block_hash(),
-            true,
+            epoch_id >= StacksEpochId::Epoch30,
         )?;
         Ok(aggregate_public_key)
     }
