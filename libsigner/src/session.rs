@@ -218,7 +218,8 @@ impl SignerSession for StackerDBSession {
         let limit = if self.stackerdb_contract_id.name.starts_with("signer") {
             SIGNERS_STACKERDB_CHUNK_SIZE
         } else {
-            STACKERDB_MAX_CHUNK_SIZE as usize
+            usize::try_from(STACKERDB_MAX_CHUNK_SIZE)
+                .expect("infallible: StackerDB chunk size exceeds usize::MAX")
         };
         for slot_id in slot_ids.iter() {
             let path = stackerdb_get_chunk_path(self.stackerdb_contract_id.clone(), *slot_id, None);
