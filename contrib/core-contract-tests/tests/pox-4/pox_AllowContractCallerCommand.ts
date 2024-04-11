@@ -15,10 +15,11 @@ import {
 } from "@stacks/transactions";
 
 /**
- * The `AllowContractCallerComand` gives a `contract-caller` authorization to call stacking methods.
- * Normally, stacking methods may only be invoked by direct transactions (i.e., the tx-sender
- * issues a direct contract-call to the stacking methods).
- * By issuing an allowance, the tx-sender may call stacking methods through the allowed contract.
+ * The `AllowContractCallerCommand` authorizes a `contract-caller` to call
+ * stacking methods. Normally, stacking methods can only be invoked by direct
+ * transactions (i.e., the tx-sender issues a direct contract-call to the
+ * stacking methods). By issuing an allowance, the tx-sender may call stacking
+ * methods through the allowed contract.
  *
  * There are no constraints for running this command.
  */
@@ -28,12 +29,14 @@ export class AllowContractCallerCommand implements PoxCommand {
   readonly allowUntilBurnHt: OptionalCV<UIntCV>;
 
   /**
-   * Constructs an `AllowContractCallerComand` that authorizes a `contract-caller` to call
-   * stacking methods.
+   * Constructs an `AllowContractCallerCommand` that authorizes a
+   * `contract-caller` to call stacking methods.
    *
    * @param wallet - Represents the Stacker's wallet.
-   * @param allowanceTo - Represents the authorized `contract-caller` (i.e. a stacking pool)
-   * @param alllowUntilBurnHt - The burn block height until the authorization is valid.
+   * @param allowanceTo - Represents the authorized `contract-caller` (i.e., a
+   *                      stacking pool).
+   * @param allowUntilBurnHt - The burn block height until which the
+   *                           authorization is valid.
    */
   constructor(
     wallet: Wallet,
@@ -52,6 +55,7 @@ export class AllowContractCallerCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
     // Act
     const allowContractCaller = real.network.callPublicFn(
       "ST000000000000000000002AMW42H.pox-4",

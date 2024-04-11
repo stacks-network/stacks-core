@@ -7,11 +7,7 @@ import {
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
-import {
-  Cl,
-  ClarityType,
-  isClarityType,
-} from "@stacks/transactions";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 import {
   FIRST_BURNCHAIN_BLOCK_HEIGHT,
   REWARD_CYCLE_LENGTH,
@@ -19,10 +15,10 @@ import {
 
 /**
  * The `DelegateStackExtendCommand` allows a pool operator to
- * extend an active stacking lock, issuing a "partial commitment" 
+ * extend an active stacking lock, issuing a "partial commitment"
  * for the extended-to cycles.
- * 
- * This method extends stacker's current lockup for an additional 
+ *
+ * This method extends stacker's current lockup for an additional
  * extend-count and partially commits those new cycles to `pox-addr`.
  *
  * Constraints for running this command include:

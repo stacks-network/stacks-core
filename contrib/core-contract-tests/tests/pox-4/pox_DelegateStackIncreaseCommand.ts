@@ -13,7 +13,7 @@ import { Cl } from "@stacks/transactions";
  * The DelegateStackIncreaseCommand allows a pool operator to
  * increase an active stacking lock, issuing a "partial commitment"
  * for the increased cycles.
- * 
+ *
  * This method increases stacker's current lockup and partially
  * commits the additional STX to `pox-addr`.
  *
@@ -38,7 +38,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
    *
    * @param operator - Represents the Pool Operator's wallet.
    * @param stacker - Represents the Stacker's wallet.
-   * @param increaseBy - Represents the locked amount to be increased by
+   * @param increaseBy - Represents the locked amount to be increased by.
    */
   constructor(operator: Wallet, stacker: Wallet, increaseBy: number) {
     this.operator = operator;
@@ -103,7 +103,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
 
     // Get the Stacker's wallet from the model and update it with the new state.
     const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!
+    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     // Update model so that we know this stacker has increased the stacked amount.
     // Update locked and unlocked fields in the model.
     stackerWallet.amountLocked = newTotalLocked;

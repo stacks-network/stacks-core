@@ -32,7 +32,7 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackAggregationCommitIndexedAuthCommand` to lock uSTX 
+   * Constructs a `StackAggregationCommitIndexedAuthCommand` to lock uSTX
    * for stacking.
    *
    * @param operator - Represents the `Operator`'s wallet.

@@ -27,7 +27,6 @@ export class DisallowContractCallerCommand implements PoxCommand {
    * @param stacker - Represents the `Stacker`'s wallet.
    * @param callerToDisallow - The `contract-caller` to be revoked.
    */
-
   constructor(stacker: Wallet, callerToDisallow: Wallet) {
     this.stacker = stacker;
     this.callerToDisallow = callerToDisallow;
@@ -35,12 +34,14 @@ export class DisallowContractCallerCommand implements PoxCommand {
 
   check(_model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
-    // - The Caller to be disallowed must have been previously
-    //   allowed by the Operator.
+    // - The Caller to be disallowed must have been previously allowed
+    //   by the Operator.
 
     return (
       this.stacker.allowedContractCaller === this.callerToDisallow.stxAddress &&
-      this.callerToDisallow.callerAllowedBy.includes(this.stacker.stxAddress) ===
+      this.callerToDisallow.callerAllowedBy.includes(
+          this.stacker.stxAddress,
+        ) ===
         true
     );
   }
@@ -62,13 +63,13 @@ export class DisallowContractCallerCommand implements PoxCommand {
     // Assert
     expect(disallowContractCaller.result).toBeOk(boolCV(true));
 
-    // Get the wallet to be revoked stacking rights from the model and 
+    // Get the wallet to be revoked stacking rights from the model and
     // update it with the new state.
     const callerToDisallow = model.wallets.get(
       this.callerToDisallow.stxAddress,
     )!;
 
-    // Update model so that we know that the stacker has revoked stacking 
+    // Update model so that we know that the stacker has revoked stacking
     // allowance.
     this.stacker.allowedContractCaller = "";
 

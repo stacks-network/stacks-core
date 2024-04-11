@@ -26,12 +26,13 @@ export class GetStxAccountCommand implements PoxCommand {
   }
 
   check(_model: Readonly<Stub>): boolean {
-    // Can always check the `stx-account` info.
+    // There are no constraints for running this command.
     return true;
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
     const actual = model.wallets.get(this.wallet.stxAddress)!;
     expect(real.network.runSnippet(`(stx-account '${actual.stxAddress})`))
       .toBeTuple({
@@ -40,8 +41,10 @@ export class GetStxAccountCommand implements PoxCommand {
         "unlock-height": Cl.uint(actual.unlockHeight),
       });
 
-    expect(actual.amountLocked + actual.amountUnlocked).toBe(actual.ustxBalance);
-    
+    expect(actual.amountLocked + actual.amountUnlocked).toBe(
+      actual.ustxBalance,
+    );
+
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
