@@ -1262,6 +1262,7 @@ fn mine_multiple_per_tenure_integration() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
+        debug!("Mining tenure {}", tenure_ix);
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
