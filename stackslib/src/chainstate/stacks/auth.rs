@@ -23,11 +23,11 @@ use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
-use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::{PrivateKey, PublicKey, Txid};
 use crate::chainstate::stacks::{
@@ -1389,30 +1389,29 @@ impl TransactionAuth {
         }
     }
 
-    pub fn is_supported_in_epoch(
-        &self,
-        epoch_id: StacksEpochId,
-    ) -> bool {
+    /// Checks if this TransactionAuth is supported in the passed epoch
+    /// OrderIndependent multisig is not supported before epoch 3.0
+    pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
         match &self {
             TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                 let origin_supported = match origin {
                     TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                         epoch_id >= StacksEpochId::Epoch30
-                    },
+                    }
                     _ => true,
                 };
                 let sponsor_supported = match sponsor {
                     TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                         epoch_id >= StacksEpochId::Epoch30
-                    },
+                    }
                     _ => true,
                 };
                 origin_supported && sponsor_supported
-            },
+            }
             TransactionAuth::Standard(ref origin) => match origin {
                 TransactionSpendingCondition::OrderIndependentMultisig(..) => {
                     epoch_id >= StacksEpochId::Epoch30
-                },
+                }
                 _ => true,
             },
         }
@@ -1422,6 +1421,7 @@ impl TransactionAuth {
 #[rustfmt::skip]
 #[cfg(test)]
 mod test {
+    use stacks_common::types::StacksEpochId::Epoch30;
     use super::*;
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::net::codec::test::check_codec_and_corruption;
@@ -2382,5 +2382,91 @@ mod test {
             assert_eq!(verified_next_sighash, expected_sighash_postsign);
             assert_eq!(next_pubkey, StacksPublicKey::from_private(&keys[i]));
         }
+    }
+
+    fn tx_auth_check_all_epochs(
+        auth: TransactionAuth,
+        activation_epoch_id: Option<StacksEpochId>,
+    ) {
+        let epoch_list = [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
+            StacksEpochId::Epoch25,
+            StacksEpochId::Epoch30,
+        ];
+
+        for epoch_id in epoch_list.iter() {
+            if activation_epoch_id.is_none() {
+                assert_eq!(auth.is_supported_in_epoch(*epoch_id), true);
+            } else if activation_epoch_id.unwrap() > *epoch_id {
+                assert_eq!(auth.is_supported_in_epoch(*epoch_id), false);
+            } else {
+                assert_eq!(auth.is_supported_in_epoch(*epoch_id), true);
+            }
+        }
+    }
+
+    #[test]
+    fn tx_auth_is_supported_in_epoch() {
+        let privk_1 = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        ).unwrap();
+
+        let privk_2 = StacksPrivateKey::from_hex(
+            "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
+        ).unwrap();
+
+        let auth_p2pkh = TransactionAuth::from_p2pkh(&privk_1).unwrap();
+        let auth_sponsored_p2pkh = auth_p2pkh.clone().into_sponsored(
+            TransactionAuth::from_p2pkh(&privk_2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_p2pkh, None);
+        tx_auth_check_all_epochs(auth_sponsored_p2pkh, None);
+
+        let auth_p2wpkh = TransactionAuth::from_p2wpkh(&privk_1).unwrap();
+        let auth_sponsored_p2wpkh = auth_p2wpkh.clone().into_sponsored(
+            TransactionAuth::from_p2wpkh(&privk_2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_p2wpkh, None);
+        tx_auth_check_all_epochs(auth_sponsored_p2wpkh, None);
+
+        let auth_p2sh = TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let auth_sponsored_p2sh = auth_p2sh.clone().into_sponsored(
+            TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_p2sh, None);
+        tx_auth_check_all_epochs(auth_sponsored_p2sh, None);
+
+        let auth_p2wsh = TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_sponsored_p2wsh = auth_p2wsh.clone().into_sponsored(
+            TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_p2wsh, None);
+        tx_auth_check_all_epochs(auth_sponsored_p2wsh, None);
+
+        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let auth_sponsored_order_independent_p2sh = auth_order_independent_p2sh.clone().into_sponsored(
+            TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_order_independent_p2sh, Some(StacksEpochId::Epoch30));
+        tx_auth_check_all_epochs(auth_sponsored_order_independent_p2sh, Some(StacksEpochId::Epoch30));
+
+        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_sponsored_order_independent_p2wsh = auth_order_independent_p2wsh.clone().into_sponsored(
+            TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap()
+        ).unwrap();
+
+        tx_auth_check_all_epochs(auth_order_independent_p2wsh, Some(StacksEpochId::Epoch30));
+        tx_auth_check_all_epochs(auth_sponsored_order_independent_p2wsh, Some(StacksEpochId::Epoch30));
     }
 }
