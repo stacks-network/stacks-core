@@ -174,7 +174,7 @@ export class StackStxCommand implements PoxCommand {
     );
 
     // Refresh the model's state if the network gets to the next reward cycle.
-    model.stateRefresh(real);
+    model.refreshStateForNextRewardCycle(real);
   }
 
   toString() {
