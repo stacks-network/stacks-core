@@ -694,14 +694,14 @@ impl BlockMinerThread {
         if self.mined_blocks.is_empty() {
             // We could call this even if self.mined_blocks was not empty, but would return the same value, so save the effort and only do it when necessary.
             // If we are starting a new tenure, then make sure we are building off of the last block of our parent tenure
-            if let Some(last_tenure_finish_block_id) =
+            if let Some(last_tenure_finish_block_header) =
                 NakamotoChainState::get_nakamoto_tenure_finish_block_header(
                     chain_state.db(),
                     &stacks_tip_header.consensus_hash,
                 )
                 .expect("FATAL: could not query parent tenure finish block")
             {
-                stacks_tip_header = last_tenure_finish_block_id;
+                stacks_tip_header = last_tenure_finish_block_header;
             }
         }
         let miner_address = self
