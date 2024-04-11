@@ -350,6 +350,11 @@ fn handle_generate_stacking_signature(
     signature
 }
 
+fn handle_check_config(args: RunSignerArgs) {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    println!("Config: {}", config);
+}
+
 /// Helper function for writing the given contents to filename in the given directory
 fn write_file(dir: &Path, filename: &str, contents: &str) {
     let file_path = dir.join(filename);
@@ -397,6 +402,9 @@ fn main() {
         }
         Command::GenerateStackingSignature(args) => {
             handle_generate_stacking_signature(args, true);
+        }
+        Command::CheckConfig(args) => {
+            handle_check_config(args);
         }
     }
 }
