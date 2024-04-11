@@ -87,7 +87,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     logCommand(`✓ ${this.wallet.label}`, "revoke-delegate-stx");
 
     // Refresh the model's state if the network gets to the next reward cycle.
-    model.stateRefresh(real);
+    model.refreshStateForNextRewardCycle(real);
   }
 
   toString() {

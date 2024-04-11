@@ -42,7 +42,7 @@ export class Stub {
     });
   }
 
-  stateRefresh(real: Real) {
+  refreshStateForNextRewardCycle(real: Real) {
     const burnBlockHeightResult = real.network.runSnippet("burn-block-height");
     const burnBlockHeight = cvToValue(burnBlockHeightResult as ClarityValue);
     const lastRefreshedCycle = this.lastRefreshedCycle;
