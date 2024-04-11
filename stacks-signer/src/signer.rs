@@ -23,6 +23,7 @@ use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::util_lib::db::Error as DBError;
 use hashbrown::HashSet;
 use libsigner::{
     BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
@@ -279,30 +280,13 @@ impl From<SignerConfig> for Signer {
             signer_config.signer_entries.public_keys,
         );
 
-        if let Some(encrypted_state) = stackerdb
-            .get_encrypted_signer_state(signer_config.signer_slot_id.into())
-            .expect("Failed to load encrypted signer state from StackerDB")
-        {
-            let serialized_state = decrypt(&state_machine.network_private_key, &encrypted_state);
-            let state = serde_json::from_slice(&serialized_state)
-                .expect("Failed to deserialize decryoted state");
-            debug!(
-                "Reward cycle #{} Signer #{}: Loading signer",
-                signer_config.reward_cycle, signer_config.signer_id
-            );
-            state_machine.signer = v2::Signer::load(&state);
-        }
-
-        if let Some(state) = signer_db
-            .get_signer_state(signer_config.reward_cycle)
-            .expect("Failed to load signer state")
-        {
-            debug!(
-                "Reward cycle #{} Signer #{}: Loading signer",
-                signer_config.reward_cycle, signer_config.signer_id
-            );
-            state_machine.signer = v2::Signer::load(&state);
-        }
+        if let Some(state) = load_encrypted_signer_state(
+            &mut stackerdb,
+            signer_config.signer_slot_id.into(),
+            &state_machine.network_private_key,
+        ).or_else(|err| {warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}"); load_encrypted_signer_state(&signer_db, signer_config.reward_cycle, &state_machine.network_private_key)}).expect("Failed to load encrypted signer state from both StackerDB and SignerDB") {
+            state_machine.signer = state;
+        };
 
         Self {
             coordinator,
@@ -724,8 +708,9 @@ impl Signer {
             _ => false,
         }) {
             debug!("{self}: Saving signer state");
-            self.save_signer_state_in_signerdb();
-            self.save_signer_state_in_stackerdb();
+            for result in self.save_signer_state() {
+                result.expect(&format!("{self}: Failed to save signer state"))
+            }
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -1252,35 +1237,46 @@ impl Signer {
         }
     }
 
-    /// Persist state needed to ensure the signer can continue to perform
-    /// DKG and participate in signing rounds accross crashes
-    ///
-    /// # Panics
-    /// Panics if the insertion fails
-    fn save_signer_state_in_signerdb(&self) {
-        let state = self.state_machine.signer.save();
-        self.signer_db
-            .insert_signer_state(self.reward_cycle, &state)
-            .expect("Failed to persist signer state");
+    /// Persist signer state in both SignerDB and StackerDB
+    fn save_signer_state(&mut self) -> [Result<(), PersistenceError>; 2] {
+        let signerdb_result = self.save_signer_state_in_signerdb();
+        let stackerdb_result = self.save_signer_state_in_stackerdb();
+
+        if let Err(err) = &signerdb_result {
+            warn!("{self}: Failed to persist state in SignerDB: {err}");
+        }
+
+        if let Err(err) = &stackerdb_result {
+            warn!("{self}: Failed to persist state in StackerDB: {err}");
+        }
+
+        [signerdb_result, stackerdb_result]
     }
 
-    /// Persist state needed to ensure the signer can continue to perform
-    /// DKG and participate in signing rounds accross crashes
-    ///
-    /// # Panics
-    /// Panics if the encryption fails or if the insertion into stackerDB fails
-    fn save_signer_state_in_stackerdb(&mut self) {
+    /// Persist signer state in SignerDB
+    fn save_signer_state_in_signerdb(&self) -> Result<(), PersistenceError> {
         let state = self.state_machine.signer.save();
-        let serialized_state =
-            serde_json::to_vec(&state).expect("Failed to serialize signer state");
+        let serialized_state = serde_json::to_vec(&state)?;
 
-        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state);
+        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state)?;
+        self.signer_db
+            .insert_encrypted_signer_state(self.reward_cycle, &encrypted_state)?;
+
+        Ok(())
+    }
+
+    /// Persist signer state in StackerDB
+    fn save_signer_state_in_stackerdb(&mut self) -> Result<(), PersistenceError> {
+        let state = self.state_machine.signer.save();
+        let serialized_state = serde_json::to_vec(&state)?;
+
+        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state)?;
 
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
 
-        self.stackerdb
-            .send_message_with_retry(message)
-            .expect("Failed to send encrypted state to stackerdb");
+        self.stackerdb.send_message_with_retry(message)?;
+
+        Ok(())
     }
 
     /// Send any operation results across the provided channel
@@ -1497,14 +1493,59 @@ impl Signer {
     }
 }
 
-fn encrypt(private_key: &Scalar, msg: &[u8]) -> Vec<u8> {
-    wsts::util::encrypt(&derive_encryption_key(private_key), msg, &mut OsRng)
-        .expect("Failed to encrypt message")
+fn load_encrypted_signer_state<S: SignerStateStorage>(
+    storage: S,
+    id: S::IdType,
+    private_key: &Scalar,
+) -> Result<Option<v2::Signer>, PersistenceError> {
+    if let Some(encrypted_state) = storage.get_encrypted_signer_state(id)? {
+        let serialized_state = decrypt(private_key, &encrypted_state)?;
+        let state = serde_json::from_slice(&serialized_state)
+            .expect("Failed to deserialize decryoted state");
+        Ok(Some(v2::Signer::load(&state)))
+    } else {
+        Ok(None)
+    }
 }
 
-fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Vec<u8> {
+trait SignerStateStorage {
+    type IdType;
+
+    fn get_encrypted_signer_state(
+        self,
+        signer_config: Self::IdType,
+    ) -> Result<Option<Vec<u8>>, PersistenceError>;
+}
+
+impl SignerStateStorage for &mut StackerDB {
+    type IdType = SignerSlotID;
+
+    fn get_encrypted_signer_state(
+        self,
+        id: Self::IdType,
+    ) -> Result<Option<Vec<u8>>, PersistenceError> {
+        Ok(self.get_encrypted_signer_state(id)?)
+    }
+}
+
+impl SignerStateStorage for &SignerDb {
+    type IdType = u64;
+    fn get_encrypted_signer_state(
+        self,
+        id: Self::IdType,
+    ) -> Result<Option<Vec<u8>>, PersistenceError> {
+        Ok(self.get_encrypted_signer_state(id)?)
+    }
+}
+
+fn encrypt(private_key: &Scalar, msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    wsts::util::encrypt(&derive_encryption_key(private_key), msg, &mut OsRng)
+        .map_err(|_| EncryptionError::Encrypt)
+}
+
+fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
     wsts::util::decrypt(&derive_encryption_key(private_key), encrypted_msg)
-        .expect("Failed to decrypt message")
+        .map_err(|_| EncryptionError::Decrypt)
 }
 
 fn derive_encryption_key(private_key: &Scalar) -> [u8; 32] {
@@ -1516,6 +1557,34 @@ fn derive_encryption_key(private_key: &Scalar) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Error stemming from a persistence operation
+#[derive(Debug, thiserror::Error)]
+pub enum PersistenceError {
+    /// Encryption error
+    #[error("{0}")]
+    Encryption(#[from] EncryptionError),
+    /// Database error
+    #[error("Database operation failed: {0}")]
+    DBError(#[from] DBError),
+    /// Serialization error
+    #[error("JSON serialization failed: {0}")]
+    JsonSerializationError(#[from] serde_json::Error),
+    /// StackerDB client error
+    #[error("StackerDB client error: {0}")]
+    StackerDBClientError(#[from] ClientError),
+}
+
+/// Error stemming from a persistence operation
+#[derive(Debug, thiserror::Error)]
+pub enum EncryptionError {
+    /// Encryption failed
+    #[error("Encryption operation failed")]
+    Encrypt,
+    /// Decryption failed
+    #[error("Encryption operation failed")]
+    Decrypt,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1525,11 +1594,11 @@ mod tests {
         let msg = "Nobody's gonna know".as_bytes();
         let key = Scalar::random(&mut OsRng);
 
-        let encrypted = encrypt(&key, msg);
+        let encrypted = encrypt(&key, msg).unwrap();
 
         assert_ne!(encrypted, msg);
 
-        let decrypted = decrypt(&key, &encrypted);
+        let decrypted = decrypt(&key, &encrypted).unwrap();
 
         assert_eq!(decrypted, msg);
     }
