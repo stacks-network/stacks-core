@@ -56,6 +56,11 @@ use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
 use crate::{neon_node, ChainTip};
 
+#[cfg(test)]
+lazy_static::lazy_static! {
+    pub static ref TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+}
+
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
@@ -541,6 +546,15 @@ impl BlockMinerThread {
         block: NakamotoBlock,
         aggregate_public_key: &Point,
     ) -> Result<(), ChainstateError> {
+        #[cfg(test)]
+        {
+            if TEST_BROADCAST_STALL.lock().unwrap().is_some() {
+                warn!("Broadcasting is stalled due to testing directive.");
+                while *TEST_BROADCAST_STALL.lock().unwrap() != Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+        }
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
