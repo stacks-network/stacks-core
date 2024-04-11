@@ -669,12 +669,10 @@ impl BlockMinerThread {
         } else {
             self.parent_tenure_id
         };
-
-        let Some(stacks_tip_header) =
+        let Some(mut stacks_tip_header) =
             NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
-                .expect("FATAL: could not query chain tip")
+                .expect("FATAL: could not query prior stacks block id")
         else {
-            debug!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
@@ -693,6 +691,19 @@ impl BlockMinerThread {
             });
         };
 
+        if self.mined_blocks.is_empty() {
+            // We could call this even if self.mined_blocks was not empty, but would return the same value, so save the effort and only do it when necessary.
+            // If we are starting a new tenure, then make sure we are building off of the last block of our parent tenure
+            if let Some(last_tenure_finish_block_id) =
+                NakamotoChainState::get_nakamoto_tenure_finish_block_header(
+                    chain_state.db(),
+                    &stacks_tip_header.consensus_hash,
+                )
+                .expect("FATAL: could not query parent tenure finish block")
+            {
+                stacks_tip_header = last_tenure_finish_block_id;
+            }
+        }
         let miner_address = self
             .keychain
             .origin_address(self.config.is_mainnet())
