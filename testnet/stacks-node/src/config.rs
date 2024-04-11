@@ -271,6 +271,32 @@ mod tests {
         // Should default add xenon affirmation overrides
         assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
     }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
+    }
 }
 
 impl ConfigFile {
@@ -1470,7 +1496,6 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}");
         assert_eq!(
             u64::try_from(affirmations_pre_2_5.len()).unwrap(),
             last_present_cycle - 1
@@ -1481,10 +1506,12 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}, last_override = {last_override}");
+        let override_values = ["a", "n"];
 
         for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
-            let affirmation = format!("{affirmations_pre_2_5}{}", "a".repeat(override_index + 1));
+            assert!(override_values.len() > override_index);
+            let overrides = override_values[..(override_index + 1)].join("");
+            let affirmation = format!("{affirmations_pre_2_5}{overrides}");
             default_overrides.push(AffirmationOverride {
                 reward_cycle,
                 affirmation,
@@ -1493,7 +1520,10 @@ impl BurnchainConfigFile {
 
         if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
             for affirmation in default_overrides {
-                affirmation_overrides.push(affirmation);
+                // insert at front, so that the hashmap uses the configured overrides
+                //  instead of the defaults (the configured overrides will write over the
+                //  the defaults because they come later in the list).
+                affirmation_overrides.insert(0, affirmation);
             }
         } else {
             self.affirmation_overrides = Some(default_overrides);
