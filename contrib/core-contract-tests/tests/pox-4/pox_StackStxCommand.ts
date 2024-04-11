@@ -57,6 +57,7 @@ export class StackStxCommand implements PoxCommand {
     //   `get-stacking-minimum` function at the time of this call.
     // - The Stacker cannot currently be engaged in another stacking operation.
     // - The Stacker cannot currently be delegating STX to a delegatee.
+
     return (
       model.stackingMinimum > 0 &&
       !model.wallets.get(this.wallet.stxAddress)?.isStacking &&
@@ -66,6 +67,7 @@ export class StackStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
     // The maximum amount of uSTX that can be used (per tx) with this signer
     // key. For our tests, we will use the minimum amount of uSTX to be stacked
     // in the given reward cycle multiplied by the margin, which is a randomly

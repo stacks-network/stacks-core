@@ -10,13 +10,14 @@ import { expect } from "vitest";
 import { boolCV, Cl } from "@stacks/transactions";
 
 /**
- * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This operation
- * allows the `tx-sender` (the `wallet` in this case) to delegate stacking participation
- * to a `delegatee`.
+ * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This
+ * operation allows the `tx-sender` (the `wallet` in this case) to delegate
+ * stacking participation to a `delegatee`.
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be a delegator in another delegation.
- * - The PoX address provided should have a valid version (between 0 and 6 inclusive).
+ * - The PoX address provided should have a valid version (between 0 and 6
+ *   inclusive).
  */
 export class DelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
@@ -30,8 +31,8 @@ export class DelegateStxCommand implements PoxCommand {
    * @param wallet - Represents the Stacker's wallet.
    * @param delegateTo - Represents the Delegatee's STX address.
    * @param untilBurnHt - The burn block height until the delegation is valid.
-   * @param amount - The maximum amount the `Stacker` delegates the `Delegatee` to
-   *                 stack on his behalf
+   * @param amount - The maximum amount the `Stacker` delegates the `Delegatee`
+   *                 to stack on his behalf.
    */
   constructor(
     wallet: Wallet,
@@ -48,6 +49,7 @@ export class DelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker cannot currently be a delegator in another delegation.
+
     return (
       model.stackingMinimum > 0 &&
       !model.wallets.get(this.wallet.stxAddress)?.hasDelegated
@@ -56,6 +58,7 @@ export class DelegateStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
     // The amount of uSTX delegated by the Stacker to the Delegatee.
     // Even if there are no constraints about the delegated amount,
     // it will be checked in the future, when calling delegate-stack-stx.
@@ -104,7 +107,7 @@ export class DelegateStxCommand implements PoxCommand {
       "delegated to",
       this.delegateTo.label,
       "until",
-      this.untilBurnHt.toString()
+      this.untilBurnHt.toString(),
     );
 
     // Refresh the model's state if the network gets to the next reward cycle.

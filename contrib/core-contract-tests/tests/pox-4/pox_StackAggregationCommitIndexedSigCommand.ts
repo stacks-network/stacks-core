@@ -33,7 +33,7 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackAggregationCommitIndexedSigCommand` to lock uSTX 
+   * Constructs a `StackAggregationCommitIndexedSigCommand` to lock uSTX
    * for stacking.
    *
    * @param operator - Represents the `Operator`'s wallet.

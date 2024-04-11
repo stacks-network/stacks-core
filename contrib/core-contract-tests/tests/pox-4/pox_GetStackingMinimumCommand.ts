@@ -26,13 +26,13 @@ export class GetStackingMinimumCommand implements PoxCommand {
   }
 
   check(_model: Readonly<Stub>): boolean {
-    // Can always check the minimum number of uSTX to be stacked in the given
-    // reward cycle.
+    // There are no constraints for running this command.
     return true;
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
     // Act
     const { result: stackingMinimum } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",

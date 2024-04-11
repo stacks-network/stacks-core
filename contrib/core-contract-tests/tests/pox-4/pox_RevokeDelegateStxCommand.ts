@@ -10,7 +10,8 @@ import { expect } from "vitest";
 import { Cl, someCV, tupleCV } from "@stacks/transactions";
 
 /**
- * The `RevokeDelegateStxCommand` revokes the delegation for stacking within PoX-4.
+ * The `RevokeDelegateStxCommand` revokes the delegation for stacking within
+ * PoX-4.
  *
  * Constraints for running this command include:
  * - The `Stacker` has to currently be delegating.
@@ -30,6 +31,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker has to currently be delegating.
+
     return (
       model.stackingMinimum > 0 &&
       model.wallets.get(this.wallet.stxAddress)!.hasDelegated === true
@@ -38,7 +40,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
-    // Get the Operator's wallet
+
     const operatorWallet = model.wallets.get(this.wallet.delegatedTo)!;
 
     // Act
@@ -65,17 +67,18 @@ export class RevokeDelegateStxCommand implements PoxCommand {
       ),
     );
 
-    // Get the Stacker's wallet from the model and update the two wallets involved with the new state.
+    // Get the Stacker's wallet from the model and update the two wallets
+    // involved with the new state.
     const wallet = model.wallets.get(this.wallet.stxAddress)!;
     // Update model so that we know this wallet is not delegating anymore.
-    // This is important in order to prevent the test from revoking the delegation
-    // multiple times with the same address.
+    // This is important in order to prevent the test from revoking the
+    // delegation multiple times with the same address.
     wallet.hasDelegated = false;
     wallet.delegatedTo = "";
     wallet.delegatedUntilBurnHt = 0;
     wallet.delegatedMaxAmount = 0;
 
-    // Remove the Stacker from the Pool Operator's pool members list
+    // Remove the Stacker from the Pool Operator's pool members list.
     const walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(
       wallet.stxAddress,
     );
