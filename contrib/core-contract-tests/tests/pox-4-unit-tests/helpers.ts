@@ -108,7 +108,7 @@ export const stackers = Object.freeze(
   })
 );
 
-const getPoxInfo = () => {
+export const getPoxInfo = () => {
   const poxInfo = simnet.callReadOnlyFn(
     POX_CONTRACT,
     "get-pox-info",
