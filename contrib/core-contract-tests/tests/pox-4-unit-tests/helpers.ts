@@ -233,6 +233,44 @@ export const delegateStackStx = (
   );
 };
 
+export const delegateStackExtend = (
+  stacker: string,
+  poxAddr: string,
+  extendCount: bigint,
+  sender: string
+) => {
+  const delegateStackExtendArgs = [
+    Cl.principal(stacker),
+    poxAddressToTuple(poxAddr),
+    Cl.uint(extendCount),
+  ];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "delegate-stack-extend",
+    delegateStackExtendArgs,
+    sender
+  );
+};
+
+export const delegateStackIncrease = (
+  stacker: string,
+  poxAddr: string,
+  increaseBy: bigint,
+  sender: string
+) => {
+  const delegateStackIncreaseArgs = [
+    Cl.principal(stacker),
+    poxAddressToTuple(poxAddr),
+    Cl.uint(increaseBy),
+  ];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "delegate-stack-increase",
+    delegateStackIncreaseArgs,
+    sender
+  );
+};
+
 export const allowContractCaller = (
   caller: string,
   untilBurnHeight: bigint | null,
