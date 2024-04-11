@@ -6355,8 +6355,6 @@ fn test_scenario_one() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -6810,8 +6808,6 @@ fn test_scenario_two() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -7212,8 +7208,6 @@ fn test_scenario_three() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -7715,8 +7709,6 @@ fn test_scenario_four() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -8708,8 +8700,6 @@ fn test_scenario_five() {
     peer_config.test_signers = Some(test_signers.clone());
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
