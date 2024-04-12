@@ -549,8 +549,10 @@ impl BlockMinerThread {
         #[cfg(test)]
         {
             if TEST_BROADCAST_STALL.lock().unwrap().is_some() {
-                warn!("Broadcasting is stalled due to testing directive.");
-                while *TEST_BROADCAST_STALL.lock().unwrap() != Some(true) {
+                warn!("Broadcasting is stalled due to testing directive.";
+                    "block_id" => %block.block_id()
+                );
+                while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
