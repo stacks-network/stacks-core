@@ -1773,6 +1773,7 @@ impl NakamotoChainState {
         chainstate: &mut StacksChainState,
         for_burn_block_height: u64,
         at_block_id: &StacksBlockId,
+        warn_if_not_found: bool,
     ) -> Result<Point, ChainstateError> {
         // Get the current reward cycle
         let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
@@ -1788,18 +1789,22 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg));
         };
 
-        debug!(
+        test_debug!(
             "get-approved-aggregate-key at block {}, cycle {}",
-            at_block_id, rc
+            at_block_id,
+            rc
         );
         match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
             Some(key) => Ok(key),
             None => {
-                warn!(
-                    "Failed to get aggregate public key";
-                    "block_id" => %at_block_id,
-                    "reward_cycle" => rc,
-                );
+                // this can happen for a whole host of reasons
+                if warn_if_not_found {
+                    warn!(
+                        "Failed to get aggregate public key";
+                        "block_id" => %at_block_id,
+                        "reward_cycle" => rc,
+                    );
+                }
                 Err(ChainstateError::InvalidStacksBlock(
                     "Failed to get aggregate public key".into(),
                 ))
@@ -1821,6 +1826,11 @@ impl NakamotoChainState {
                 .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
         let aggregate_key_block_header =
             Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
+            .ok_or(ChainstateError::InvalidStacksBlock(
+                "Failed to get epoch ID".into(),
+            ))?
+            .epoch_id;
 
         let aggregate_public_key = Self::load_aggregate_public_key(
             sortdb,
@@ -1828,6 +1838,7 @@ impl NakamotoChainState {
             chainstate,
             block_sn.block_height,
             &aggregate_key_block_header.index_block_hash(),
+            epoch_id >= StacksEpochId::Epoch30,
         )?;
         Ok(aggregate_public_key)
     }

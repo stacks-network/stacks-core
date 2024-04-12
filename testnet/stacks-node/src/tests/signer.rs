@@ -92,6 +92,8 @@ struct SignerTest {
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
     pub stacks_client: StacksClient,
+    // Unique number used to isolate files created during the test
+    pub run_stamp: u16,
 }
 
 impl SignerTest {
@@ -107,6 +109,8 @@ impl SignerTest {
         let password = "12345";
         naka_conf.connection_options.block_proposal_token = Some(password.to_string());
 
+        let run_stamp = rand::random();
+
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
             &signer_stacks_private_keys,
@@ -114,6 +118,10 @@ impl SignerTest {
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
             password,
+            run_stamp,
+            3000,
+            Some(100_000),
+            None,
         );
 
         let mut running_signers = Vec::new();
@@ -144,6 +152,7 @@ impl SignerTest {
             running_signers,
             signer_stacks_private_keys,
             stacks_client,
+            run_stamp,
         }
     }
 
@@ -426,22 +435,11 @@ impl SignerTest {
                     .expect("failed to recv dkg results");
                 for result in results {
                     match result {
-                        OperationResult::Sign(sig) => {
-                            panic!("Received Signature ({},{})", &sig.R, &sig.z);
-                        }
-                        OperationResult::SignTaproot(proof) => {
-                            panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                        }
-                        OperationResult::DkgError(dkg_error) => {
-                            panic!("Received DkgError {:?}", dkg_error);
-                        }
-                        OperationResult::SignError(sign_error) => {
-                            panic!("Received SignError {}", sign_error);
-                        }
                         OperationResult::Dkg(point) => {
                             info!("Received aggregate_group_key {point}");
                             aggregate_public_key = Some(point);
                         }
+                        other => panic!("{}", operation_panic_message(&other)),
                     }
                 }
                 if aggregate_public_key.is_some() || dkg_now.elapsed() > timeout {
@@ -553,7 +551,7 @@ impl SignerTest {
                 None,
             ),
         };
-        let invalid_contract_address = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_address = StacksClient::build_unsigned_contract_call_transaction(
             &StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key)),
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -562,11 +560,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_contract_name = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_name = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             "bad-signers-contract-name".into(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -575,11 +572,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_signers_vote_function = StacksClient::build_signed_contract_call_transaction(
+        let invalid_signers_vote_function = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             "some-other-function".into(),
@@ -588,12 +584,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_signer_index =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -607,11 +602,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_function_arg_key = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_key = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -625,11 +619,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_function_arg_round = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_round = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -643,12 +636,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_reward_cycle =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -662,11 +654,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_nonce = StacksClient::build_signed_contract_call_transaction(
+        let invalid_nonce = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -675,7 +666,6 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             0, // Old nonce
-            10,
         )
         .unwrap();
 
@@ -686,10 +676,10 @@ impl SignerTest {
             false,
         );
         let invalid_signer_tx = invalid_stacks_client
-            .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
+            .build_unsigned_vote_for_aggregate_public_key(0, round, point, reward_cycle, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
 
-        vec![
+        let unsigned_txs = vec![
             invalid_nonce,
             invalid_not_contract_call,
             invalid_contract_name,
@@ -700,7 +690,57 @@ impl SignerTest {
             invalid_function_arg_round,
             invalid_function_arg_signer_index,
             invalid_signer_tx,
-        ]
+        ];
+        unsigned_txs
+            .into_iter()
+            .map(|unsigned| {
+                invalid_stacks_client
+                    .sign_transaction(unsigned)
+                    .expect("Failed to sign transaction")
+            })
+            .collect()
+    }
+
+    /// Kills the signer runloop at index `signer_idx`
+    ///  and returns the private key of the killed signer.
+    ///
+    /// # Panics
+    /// Panics if `signer_idx` is out of bounds
+    fn stop_signer(&mut self, signer_idx: usize) -> StacksPrivateKey {
+        let running_signer = self.running_signers.remove(signer_idx);
+        self.signer_cmd_senders.remove(signer_idx);
+        self.result_receivers.remove(signer_idx);
+        let signer_key = self.signer_stacks_private_keys.remove(signer_idx);
+
+        running_signer.stop();
+        signer_key
+    }
+
+    /// (Re)starts a new signer runloop with the given private key
+    fn restart_signer(&mut self, signer_idx: usize, signer_private_key: StacksPrivateKey) {
+        let signer_config = build_signer_config_tomls(
+            &[signer_private_key],
+            &self.running_nodes.conf.node.rpc_bind,
+            Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+            &Network::Testnet,
+            "12345", // It worked sir, we have the combination! -Great, what's the combination?
+            self.run_stamp,
+            3000 + signer_idx,
+            Some(100_000),
+            None,
+        )
+        .pop()
+        .unwrap();
+
+        let (cmd_send, cmd_recv) = channel();
+        let (res_send, res_recv) = channel();
+
+        info!("Restarting signer");
+        let signer = spawn_signer(&signer_config, cmd_recv, res_send);
+
+        self.result_receivers.insert(signer_idx, res_recv);
+        self.signer_cmd_senders.insert(signer_idx, cmd_send);
+        self.running_signers.insert(signer_idx, signer);
     }
 
     fn shutdown(self) {
@@ -848,6 +888,26 @@ fn setup_stx_btc_node(
         blocks_processed: blocks_processed.0,
         coord_channel,
         conf: naka_conf,
+    }
+}
+
+fn operation_panic_message(result: &OperationResult) -> String {
+    match result {
+        OperationResult::Sign(sig) => {
+            format!("Received Signature ({},{})", sig.R, sig.z)
+        }
+        OperationResult::SignTaproot(proof) => {
+            format!("Received SchnorrProof ({},{})", proof.r, proof.s)
+        }
+        OperationResult::DkgError(dkg_error) => {
+            format!("Received DkgError {:?}", dkg_error)
+        }
+        OperationResult::SignError(sign_error) => {
+            format!("Received SignError {}", sign_error)
+        }
+        OperationResult::Dkg(point) => {
+            format!("Received aggregate_group_key {point}")
+        }
     }
 }
 
@@ -1264,5 +1324,74 @@ fn stackerdb_filter_bad_transactions() {
             "Miner included an invalid transaction in the block"
         );
     }
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that signers will be able to continue their operations even if one signer is restarted.
+///
+/// Test Setup:
+/// The test spins up three stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is advanced to epoch 2.5, triggering a DKG round. The stacks node is then advanced
+/// to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// The signers sign one block as usual.
+/// Then, one of the signers is restarted.
+/// Finally, the signers sign another block with the restarted signer.
+///
+/// Test Assertion:
+/// The signers are able to produce a valid signature after one of them is restarted.
+fn stackerdb_sign_after_signer_reboot() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let mut signer_test = SignerTest::new(3);
+    let timeout = Duration::from_secs(200);
+    let short_timeout = Duration::from_secs(30);
+
+    let key = signer_test.boot_to_epoch_3(timeout);
+
+    info!("------------------------- Test Mine Block -------------------------");
+
+    signer_test.mine_nakamoto_block(timeout);
+    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
+    let signature =
+        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+
+    assert!(
+        signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
+        "Signature verification failed"
+    );
+
+    info!("------------------------- Restart one Signer -------------------------");
+    let signer_key = signer_test.stop_signer(2);
+    debug!(
+        "Removed signer 2 with key: {:?}, {}",
+        signer_key,
+        signer_key.to_hex()
+    );
+    signer_test.restart_signer(2, signer_key);
+
+    info!("------------------------- Test Mine Block after restart -------------------------");
+
+    signer_test.mine_nakamoto_block(timeout);
+    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
+    let frost_signature =
+        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+
+    assert!(
+        frost_signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
+        "Signature verification failed"
+    );
+
     signer_test.shutdown();
 }

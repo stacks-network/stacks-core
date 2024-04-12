@@ -675,6 +675,7 @@ mod test {
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7000, 7001);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -740,6 +741,7 @@ mod test {
                     };
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -903,6 +905,7 @@ mod test {
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7002, 7003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -968,6 +971,7 @@ mod test {
                     };
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -1146,6 +1150,7 @@ mod test {
             block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         }]);
+        let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
         let chainstate_path = peer.chainstate_path.clone();
@@ -1216,6 +1221,7 @@ mod test {
                     };
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,

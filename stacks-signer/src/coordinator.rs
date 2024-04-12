@@ -51,7 +51,7 @@ impl From<PublicKeys> for CoordinatorSelector {
     /// Create a new Coordinator selector from the given list of public keys
     fn from(public_keys: PublicKeys) -> Self {
         let coordinator_ids =
-            CoordinatorSelector::calculate_coordinator_ids(&public_keys, &ConsensusHash::empty());
+            Self::calculate_coordinator_ids(&public_keys, &ConsensusHash::empty());
         let coordinator_id = *coordinator_ids
             .first()
             .expect("FATAL: No registered signers");
@@ -91,17 +91,10 @@ impl CoordinatorSelector {
                 }
             }
             new_index
+        } else if ROTATE_COORDINATORS {
+            self.coordinator_index.saturating_add(1) % self.coordinator_ids.len()
         } else {
-            if ROTATE_COORDINATORS {
-                let mut new_index = self.coordinator_index.saturating_add(1);
-                if new_index == self.coordinator_ids.len() {
-                    // We have exhausted all potential coordinators. Go back to the start
-                    new_index = 0;
-                }
-                new_index
-            } else {
-                self.coordinator_index
-            }
+            self.coordinator_index
         };
         self.coordinator_id = *self
             .coordinator_ids

@@ -17,6 +17,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
   - Signer key authorizations can be added via `set-signer-key-authorization` to omit the need for `signer-key` signatures
   - A `max-amount` field is a field in signer key authorizations and defines the maximum amount of STX that can be locked in a single transaction.
+- Added configuration parameters to customize the burn block at which to start processing Stacks blocks, when running on testnet or regtest.
+  ```
+  [burnchain]
+  first_burn_block_height = 2582526
+  first_burn_block_timestamp = 1710780828
+  first_burn_block_hash = "000000000000001a17c68d43cb577d62074b63a09805e4a07e829ee717507f66"
+  ```
 
 ### Modified
 

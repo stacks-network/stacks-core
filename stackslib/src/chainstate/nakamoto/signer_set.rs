@@ -514,7 +514,7 @@ impl NakamotoSigners {
             return false;
         }
         if origin_nonce < *account_nonce {
-            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}).");
+            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({origin_nonce} < {account_nonce}).");
             return false;
         }
         Self::parse_vote_for_aggregate_public_key(transaction).is_some()

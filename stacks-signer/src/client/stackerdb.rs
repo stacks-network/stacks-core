@@ -48,7 +48,7 @@ pub struct StackerDB {
 
 impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
-        StackerDB::new(
+        Self::new(
             &config.node_host,
             config.stacks_private_key,
             config.mainnet,
@@ -100,7 +100,7 @@ impl StackerDB {
     }
 
     /// Sends message (as a raw msg ID and bytes) to the .signers stacker-db with an
-    ///  exponential backoff retry
+    /// exponential backoff retry
     pub fn send_message_bytes_with_retry(
         &mut self,
         msg_id: &MessageSlotID,
@@ -224,9 +224,7 @@ impl StackerDB {
     }
 
     /// Get this signer's latest transactions from stackerdb
-    pub fn get_current_transactions_with_retry(
-        &mut self,
-    ) -> Result<Vec<StacksTransaction>, ClientError> {
+    pub fn get_current_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
             .get_mut(&MessageSlotID::Transactions)
@@ -237,7 +235,7 @@ impl StackerDB {
     }
 
     /// Get the latest signer transactions from signer ids for the next reward cycle
-    pub fn get_next_transactions_with_retry(
+    pub fn get_next_transactions(
         &mut self,
         signer_ids: &[SignerSlotID],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
@@ -272,7 +270,7 @@ mod tests {
     use crate::config::GlobalConfig;
 
     #[test]
-    fn get_signer_transactions_with_retry_should_succeed() {
+    fn get_signer_transactions_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
@@ -297,7 +295,7 @@ mod tests {
         let message = signer_message.serialize_to_vec();
 
         let signer_slot_ids = vec![SignerSlotID(0), SignerSlotID(1)];
-        let h = spawn(move || stackerdb.get_next_transactions_with_retry(&signer_slot_ids));
+        let h = spawn(move || stackerdb.get_next_transactions(&signer_slot_ids));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let mock_server = mock_server_from_config(&config);
@@ -315,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn send_signer_message_with_retry_should_succeed() {
+    fn send_signer_message_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
