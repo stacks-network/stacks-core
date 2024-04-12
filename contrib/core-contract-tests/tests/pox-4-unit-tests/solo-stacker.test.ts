@@ -7,6 +7,7 @@ import { POX_CONTRACT, getPoxInfo, stackers } from "./helpers";
 
 const accounts = simnet.getAccounts();
 const address1 = accounts.get("wallet_1")!;
+const address2 = accounts.get("wallet_2")!;
 
 const initialSTXBalance = 100_000_000 * 1e6;
 
@@ -109,6 +110,71 @@ describe("pox-4", () => {
         unlocked: Cl.uint(initialSTXBalance - ustxAmount),
         "unlock-height": Cl.uint(11550),
       });
+    });
+
+    it("unlocks stxs after period is ended", async () => {
+      const account = stackers[0];
+      const rewardCycle = 0;
+      const burnBlockHeight = 1;
+      const period = 2;
+      const authId = 1;
+
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+      const ustxAmount = initialSTXBalance * 0.2; // lock 20% of total balance
+
+      const stackStxArgs = [
+        Cl.uint(ustxAmount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(burnBlockHeight),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+
+      const stackStx = simnet.callPublicFn(
+        POX_CONTRACT,
+        "stack-stx",
+        stackStxArgs,
+        address1
+      );
+      expect(stackStx.result).toHaveClarityType(ClarityType.ResponseOk);
+
+      // try to transfer 90% of balance (should fail because 20% is locked)
+      const { result: resultErr } = simnet.transferSTX(
+        initialSTXBalance * 0.9,
+        address2,
+        address1
+      );
+      expect(resultErr).toBeErr(Cl.uint(1));
+
+      simnet.mineEmptyBlocks(4000);
+
+      const stxAccount = simnet.runSnippet(`(stx-account '${address1})`);
+      expect(stxAccount).toBeTuple({
+        locked: Cl.uint(0),
+        unlocked: Cl.uint(initialSTXBalance),
+        "unlock-height": Cl.uint(0),
+      });
+
+      // try to transfer 90% of balance (should succeed because period is ended)
+      const { result: resultOk } = simnet.transferSTX(
+        initialSTXBalance * 0.9,
+        address2,
+        address1
+      );
+      expect(resultOk).toBeOk(Cl.bool(true));
     });
 
     it("can stack stxs from multiple accounts with the same key", () => {
