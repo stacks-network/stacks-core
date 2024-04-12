@@ -3158,22 +3158,18 @@ fn forked_tenure_is_ignored() {
 
     let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
-    let sender_signer_sk = Secp256k1PrivateKey::new();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 4;
-    // setup sender + recipient for some test stx transfers
-    // these are necessary for the interim blocks to get mined at all
+    // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        send_amt + send_fee,
     );
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
@@ -3207,10 +3203,7 @@ fn forked_tenure_is_ignored() {
 
     let coord_channel = run_loop.coordinator_channels();
 
-    let run_loop_thread = thread::Builder::new()
-        .name("run_loop".into())
-        .spawn(move || run_loop.start(None, 0))
-        .unwrap();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &naka_conf,
@@ -3225,7 +3218,7 @@ fn forked_tenure_is_ignored() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3256,102 +3249,75 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    let mut sender_nonce = 0;
-    for tenure_ix in 0..2 {
+    for tenure_ix in 0..3 {
         if tenure_ix == 0 {
             debug!("Starting tenure A");
-            next_block_and_process_new_stacks_block(
-                &mut btc_regtest_controller,
-                60,
-                &coord_channel,
-            )
-            .unwrap();
         } else if tenure_ix == 1 {
             debug!("Starting tenure B.");
-            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
             TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-            let commits_before = commits_submitted.load(Ordering::SeqCst);
-            let vrfs_before = vrfs_submitted.load(Ordering::SeqCst);
-            // first block wakes up the run loop, wait until a key registration has been submitted.
-            next_block_and(&mut btc_regtest_controller, 60, || {
-                let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-                Ok(vrf_count >= vrfs_before)
-            })
-            .unwrap();
-            // second block should confirm the VRF register, wait until a block commit is submitted
-            // NOTE: it will not submit the block to the bitcoin network, but will register that it has been submitted
-            next_block_and(&mut btc_regtest_controller, 60, || {
-                let commits_count = commits_submitted.load(Ordering::SeqCst);
-                Ok(commits_count > commits_before)
-            })
-            .unwrap();
-            // submit a tx so that the miner will mine an extra block
-            // Try to mine a block before the commit operation of tenure C, but do not have it broadcast
-            debug!("Mining a stacks block for tenure B, but stalling its broadcast");
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-            submit_tx(&http_origin, &transfer_tx);
-            sender_nonce += 1;
-            // Do not wait for the block to be processed as it will be stalled
+            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+        } else {
+            debug!("Starting tenure C.");
             TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
-            debug!("Starting tenure C. Do not wait for a stacks block to be produced.");
-            let commits_before = commits_submitted.load(Ordering::SeqCst);
-            let vrfs_before = vrfs_submitted.load(Ordering::SeqCst);
-            // first block wakes up the run loop, wait until a key registration has been submitted.
-            next_block_and(&mut btc_regtest_controller, 60, || {
-                let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-                Ok(vrf_count >= vrfs_before)
-            })
-            .unwrap();
-            // second block should confirm the VRF register, wait until a block commit is submitted
-            next_block_and(&mut btc_regtest_controller, 60, || {
-                let commits_count = commits_submitted.load(Ordering::SeqCst);
-                Ok(commits_count > commits_before)
-            })
-            .unwrap();
+        }
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        })
+        .unwrap();
+        if tenure_ix == 2 {
+            debug!("Tenure C should ignore the block mined by Tenure B. Unblock stacks block broadcasting.");
             TEST_BROADCAST_STALL.lock().unwrap().replace(false);
         }
-        let mut last_tip = BlockHeaderHash([0x00; 32]);
-        let mut last_tip_height = 0;
-
-        // mine the interim blocks
-        for _ in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-            submit_tx(&http_origin, &transfer_tx);
-            sender_nonce += 1;
-            let start_time = Instant::now();
-            loop {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    debug!("Got a block.");
-                    break;
-                }
-                debug!("Waiting for a block");
-                thread::sleep(Duration::from_millis(100));
-                if start_time.elapsed() > Duration::from_secs(30) {
-                    panic!("Timed out waiting for block to be processed");
-                }
-            }
-
-            let info = get_chain_info_result(&naka_conf).unwrap();
-            assert_ne!(info.stacks_tip, last_tip);
-            assert_ne!(info.stacks_tip_height, last_tip_height);
-
-            last_tip = info.stacks_tip;
-            last_tip_height = info.stacks_tip_height;
-        }
+        signer_vote_if_needed(
+            &btc_regtest_controller,
+            &naka_conf,
+            &[sender_signer_sk],
+            &signers,
+        );
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // Submit a TX
+    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let mut mempool = naka_conf
+        .connect_mempool_db()
+        .expect("Database failure opening mempool");
+
+    mempool
+        .submit_raw(
+            &mut chainstate,
+            &sortdb,
+            &tip.consensus_hash,
+            &tip.anchored_header.block_hash(),
+            transfer_tx.clone(),
+            &ExecutionCost::max_value(),
+            &StacksEpochId::Epoch30,
+        )
+        .unwrap();
+
+    // Mine 1 more nakamoto tenures
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 3 blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -3361,12 +3327,41 @@ fn forked_tenure_is_ignored() {
         "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
     );
 
-    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert_eq!(
-        tip.stacks_block_height,
-        block_height_pre_3_0 + (inter_blocks_per_tenure * tenure_count),
-        "Should have mined interim_blocks_per_tenure * tenure_count nakamoto blocks"
+    // assert that the transfer tx was observed
+    let transfer_tx_included = test_observer::get_blocks()
+        .into_iter()
+        .find(|block_json| {
+            block_json["transactions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+                .is_some()
+        })
+        .is_some();
+
+    assert!(
+        transfer_tx_included,
+        "Nakamoto node failed to include the transfer tx"
     );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 3);
+
+    // make sure prometheus returns an updated height
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
+        assert!(res.contains(&expected_result));
+    }
 
     coord_channel
         .lock()

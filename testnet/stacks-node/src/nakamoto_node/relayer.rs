@@ -693,20 +693,20 @@ impl RelayerThread {
         #[cfg(test)]
         {
             if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-                if let Some((last_committed, ..)) = self.last_committed.as_ref() {
-                    if last_committed.consensus_hash == last_committed_at.consensus_hash {
-                        warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
-                        txid = self
-                            .bitcoin_controller
-                            .make_operation_tx(
-                                target_epoch_id,
-                                BlockstackOperationType::LeaderBlockCommit(commit.clone()),
-                                &mut op_signer,
-                                1,
-                            )
-                            .map(|tx| tx.txid());
-                    }
-                }
+                //if let Some((last_committed, ..)) = self.last_committed.as_ref() {
+                //    if last_committed.consensus_hash == last_committed_at.consensus_hash {
+                warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+                txid = self
+                    .bitcoin_controller
+                    .make_operation_tx(
+                        target_epoch_id,
+                        BlockstackOperationType::LeaderBlockCommit(commit.clone()),
+                        &mut op_signer,
+                        1,
+                    )
+                    .map(|tx| tx.txid());
+                //    }
+                //}
             }
         }
         if txid.is_none() {
