@@ -821,6 +821,11 @@ impl NakamotoBootPlan {
             assert_eq!(other_highest_tenure, highest_tenure);
             assert_eq!(other_sort_tip, sort_tip);
         }
+
+        peer.check_nakamoto_migration();
+        for other_peer in other_peers.iter_mut() {
+            other_peer.check_nakamoto_migration();
+        }
         (peer, other_peers)
     }
 
