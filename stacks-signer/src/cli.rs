@@ -64,6 +64,8 @@ pub enum Command {
     GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
     GenerateStackingSignature(GenerateStackingSignatureArgs),
+    /// Check a configuration file and output config information
+    CheckConfig(RunSignerArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
