@@ -696,15 +696,21 @@ impl StacksClient {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
+    use blockstack_lib::burnchains::Address;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
+    use clarity::vm::types::{
+        ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
+        TypeSignature,
+    };
     use rand::thread_rng;
     use rand_core::RngCore;
     use stacks_common::bitvec::BitVec;
@@ -1039,10 +1045,59 @@ mod tests {
     #[test]
     fn parse_valid_signer_slots_should_succeed() {
         let mock = MockServerClient::new();
-        let clarity_value_hex =
-            "0x070b000000050c00000002096e756d2d736c6f7473010000000000000000000000000000000e067369676e6572051a8195196a9a7cf9c37cb13e1ed69a7bc047a84e050c00000002096e756d2d736c6f7473010000000000000000000000000000000e067369676e6572051a6505471146dcf722f0580911183f28bef30a8a890c00000002096e756d2d736c6f7473010000000000000000000000000000000e067369676e6572051a1d7f8e3936e5da5f32982cc47f31d7df9fb1b38a0c00000002096e756d2d736c6f7473010000000000000000000000000000000e067369676e6572051a126d1a814313c952e34c7840acec9211e1727fb80c00000002096e756d2d736c6f7473010000000000000000000000000000000e067369676e6572051a7374ea6bb39f2e8d3d334d62b9f302a977de339a";
 
-        let value = ClarityValue::try_deserialize_hex_untyped(clarity_value_hex).unwrap();
+        let signers = [
+            "ST20SA6BAK9YFKGVWP4Z1XNMTFF04FA2E0M8YRNNQ",
+            "ST1JGAHRH8VEFE8QGB04H261Z52ZF62MAH40CD6ZN",
+            "STEQZ3HS6VJXMQSJK0PC8ZSHTZFSZCDKHA7R60XT",
+            "ST96T6M18C9WJMQ39HW41B7CJ88Y2WKZQ1CK330M",
+            "ST1SQ9TKBPEFJX39X6D6P5EFK0AMQFQHKK9R0MJFC",
+        ];
+
+        let tuple_type_signature: TupleTypeSignature = [
+            (ClarityName::from("num_slots"), TypeSignature::UIntType),
+            (ClarityName::from("signer"), TypeSignature::PrincipalType),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>()
+        .try_into()
+        .unwrap();
+
+        let list_data: Vec<_> = signers
+            .into_iter()
+            .map(|signer| {
+                let principal_data = StacksAddress::from_string(signer).unwrap().into();
+
+                let data_map = [
+                    ("num-slots".into(), ClarityValue::UInt(14)),
+                    (
+                        "signer".into(),
+                        ClarityValue::Principal(PrincipalData::Standard(principal_data)),
+                    ),
+                ]
+                .into_iter()
+                .collect();
+
+                ClarityValue::Tuple(TupleData {
+                    type_signature: tuple_type_signature.clone(),
+                    data_map,
+                })
+            })
+            .collect();
+
+        let list_type_signature =
+            ListTypeData::new_list(TypeSignature::TupleType(tuple_type_signature), 5).unwrap();
+
+        let sequence = ClarityValue::Sequence(SequenceData::List(ListData {
+            data: list_data,
+            type_signature: list_type_signature,
+        }));
+
+        let value = ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(sequence),
+        });
+
         let signer_slots = mock.client.parse_signer_slots(value).unwrap();
         assert_eq!(signer_slots.len(), 5);
         signer_slots
