@@ -19,17 +19,16 @@ pub mod serialization;
 #[allow(clippy::result_large_err)]
 pub mod signatures;
 
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::{char, cmp, fmt, str};
 
-use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
+use crate::vm::ast::traits_resolver::EntryBTreeMapExt;
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -1538,10 +1537,10 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
-            match type_map.entry(name.clone()) {
-                Entry::Vacant(e) => e.insert(type_info),
-                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
-            };
+            type_map
+                .entry(name.clone())
+                .vacant_or(CheckErrors::NameAlreadyUsed(name.clone().into()))?
+                .or_try_insert(|| Ok::<_, CheckErrors>(type_info))?;
             data_map.insert(name, value);
         }
 

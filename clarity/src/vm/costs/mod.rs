@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
 use std::{cmp, fmt};
 
-use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -39,6 +37,7 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use crate::vm::ast::traits_resolver::EntryHashMapExt;
 
 pub mod constants;
 pub mod cost_functions;
@@ -823,43 +822,46 @@ impl TrackerData {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
-            if let Entry::Vacant(e) = cost_contracts.entry(cost_function_ref.contract_id.to_owned())
-            {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
+            cost_contracts
+                .entry(cost_function_ref.contract_id.to_owned())
+                .or_try_insert(|| {
+                    let contract_context =
+                        match clarity_db.get_contract(&cost_function_ref.contract_id) {
+                            Ok(contract) => contract.contract_context,
+                            Err(e) => {
+                                error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
-                e.insert(contract_context);
-            }
-
+                                clarity_db
+                                    .roll_back()
+                                    .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                                return Err(CostErrors::CostContractLoadFailure);
+                            }
+                        };
+                    Ok::<_, CostErrors>(contract_context)
+                })?;
             m.insert(f, cost_function_ref);
         }
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
-            if let Entry::Vacant(e) = cost_contracts.entry(circuit_target.contract_id.to_owned()) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
+            cost_contracts
+                .entry(circuit_target.contract_id.to_owned())
+                .or_try_insert(|| {
+                    let contract_context =
+                        match clarity_db.get_contract(&circuit_target.contract_id) {
+                            Ok(contract) => contract.contract_context,
+                            Err(e) => {
+                                error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
                                "error" => %format!("{:?}", e));
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
-                e.insert(contract_context);
-            }
+                                clarity_db
+                                    .roll_back()
+                                    .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                                return Err(CostErrors::CostContractLoadFailure);
+                            }
+                        };
+                    Ok::<_, CostErrors>(contract_context)
+                })?;
         }
 
         self.cost_function_references = m;

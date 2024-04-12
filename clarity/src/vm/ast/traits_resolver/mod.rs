@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::hash_map::Entry;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::hash_map::{Entry as EntryHashMap, OccupiedEntry as OccupiedEntryHashMap};
+use hashbrown::HashMap;
+use std::collections::btree_map::{Entry as EntryBTreeMap, OccupiedEntry as OccupiedEntryBTreeMap};
+use std::hash::{BuildHasher, Hash};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
@@ -38,6 +40,109 @@ impl BuildASTPass for TraitsResolver {
         let mut command = TraitsResolver::new();
         command.run(contract_ast)?;
         Ok(())
+    }
+}
+
+pub trait EntryHashMapExt<'a, K: 'a, V: 'a, S: 'a>
+where
+    S: BuildHasher,
+    Self: Sized,
+{
+    fn occupied_and_then<T, F, E>(self, f: F) -> Result<Self, E>
+    where
+        F: FnOnce(&OccupiedEntryHashMap<'a, K, V, S>) -> Result<T, E>;
+
+    fn or_try_insert<F, E>(self, default: F) -> Result<&'a mut V, E>
+    where
+        F: FnOnce() -> Result<V, E>;
+
+    fn vacant_or<E>(self, err: E) -> Result<Self, E>;
+}
+
+pub trait EntryBTreeMapExt<'a, K: 'a, V: 'a>
+where
+    // S: BuildHasher,
+    Self: Sized,
+{
+    fn occupied_and_then<T, F, E>(self, f: F) -> Result<Self, E>
+    where
+        F: FnOnce(&OccupiedEntryBTreeMap<'a, K, V>) -> Result<T, E>;
+
+    fn or_try_insert<F, E>(self, default: F) -> Result<&'a mut V, E>
+    where
+        F: FnOnce() -> Result<V, E>;
+
+    fn vacant_or<E>(self, err: E) -> Result<Self, E>;
+}
+
+impl<'a, K: 'a, V: 'a, S: 'a> EntryHashMapExt<'a, K, V, S> for EntryHashMap<'a, K, V, S>
+where
+    S: BuildHasher,
+    K: Hash,
+{
+    fn occupied_and_then<T, F, E>(self, f: F) -> Result<Self, E>
+    where
+        F: FnOnce(&OccupiedEntryHashMap<'a, K, V, S>) -> Result<T, E>,
+    {
+        match self {
+            EntryHashMap::Occupied(ref e) => {
+                f(e)?;
+                Ok(self)
+            }
+            EntryHashMap::Vacant(_) => Ok(self),
+        }
+    }
+
+    fn or_try_insert<F, E>(self, default: F) -> Result<&'a mut V, E>
+    where
+        F: FnOnce() -> Result<V, E>,
+    {
+        match self {
+            EntryHashMap::Occupied(e) => Ok(e.into_mut()),
+            EntryHashMap::Vacant(e) => Ok(e.insert(default()?)),
+        }
+    }
+
+    fn vacant_or<E>(self, err: E) -> Result<Self, E> {
+        match self {
+            EntryHashMap::Occupied(_) => Err(err),
+            EntryHashMap::Vacant(_) => Ok(self),
+        }
+    }
+}
+
+impl<'a, K: 'a, V: 'a> EntryBTreeMapExt<'a, K, V> for EntryBTreeMap<'a, K, V>
+where
+    K: Hash + Ord,
+{
+    fn occupied_and_then<T, F, E>(self, f: F) -> Result<Self, E>
+    where
+        F: FnOnce(&OccupiedEntryBTreeMap<'a, K, V>) -> Result<T, E>,
+    {
+        match self {
+            EntryBTreeMap::Occupied(ref e) => {
+                f(e)?;
+                Ok(self)
+            }
+            EntryBTreeMap::Vacant(_) => Ok(self),
+        }
+    }
+
+    fn or_try_insert<F, E>(self, default: F) -> Result<&'a mut V, E>
+    where
+        F: FnOnce() -> Result<V, E>,
+    {
+        match self {
+            EntryBTreeMap::Occupied(e) => Ok(e.into_mut()),
+            EntryBTreeMap::Vacant(e) => Ok(e.insert(default()?)),
+        }
+    }
+
+    fn vacant_or<E>(self, err: E) -> Result<Self, E> {
+        match self {
+            EntryBTreeMap::Occupied(_) => Err(err),
+            EntryBTreeMap::Vacant(_) => Ok(self),
+        }
     }
 }
 
@@ -64,21 +169,17 @@ impl TraitsResolver {
 
                     match (&args[0].pre_expr, &args[1].pre_expr) {
                         (Atom(trait_name), List(trait_definition)) => {
-                            // Check for collisions
-                            match contract_ast.referenced_traits.entry(trait_name.to_owned()) {
-                                Entry::Occupied(_) => {
-                                    return Err(ParseErrors::NameAlreadyUsed(
-                                        trait_name.to_string(),
-                                    )
-                                    .into());
-                                }
-                                Entry::Vacant(e) => {
-                                    // Traverse and probe for generics nested in the trait definition
+                            contract_ast
+                                .referenced_traits
+                                .entry(trait_name.to_owned())
+                                .vacant_or(ParseErrors::NameAlreadyUsed(trait_name.to_string()))?
+                                .or_try_insert(|| {
                                     self.probe_for_generics(
                                         trait_definition.iter(),
                                         &mut referenced_traits,
                                         true,
-                                    )?;
+                                    )
+                                    .map_err(|e| e.err)?;
 
                                     let trait_id = TraitIdentifier {
                                         name: trait_name.clone(),
@@ -86,9 +187,8 @@ impl TraitsResolver {
                                             .contract_identifier
                                             .clone(),
                                     };
-                                    e.insert(TraitDefinition::Defined(trait_id));
-                                }
-                            }
+                                    Ok::<_, ParseErrors>(TraitDefinition::Defined(trait_id))
+                                })?;
                         }
                         _ => return Err(ParseErrors::DefineTraitBadSignature.into()),
                     }
@@ -99,14 +199,11 @@ impl TraitsResolver {
                     }
 
                     if let Some(trait_name) = args[0].match_atom() {
-                        // Check for collisions
-                        match contract_ast.referenced_traits.entry(trait_name.to_owned()) {
-                            Entry::Occupied(_) => {
-                                return Err(
-                                    ParseErrors::NameAlreadyUsed(trait_name.to_string()).into()
-                                );
-                            }
-                            Entry::Vacant(e) => {
+                        contract_ast
+                            .referenced_traits
+                            .entry(trait_name.to_owned())
+                            .vacant_or(ParseErrors::NameAlreadyUsed(trait_name.to_string()))?
+                            .or_try_insert(|| {
                                 let trait_id = match &args[1].pre_expr {
                                     SugaredFieldIdentifier(contract_name, name) => {
                                         let contract_identifier = QualifiedContractIdentifier::new(
@@ -121,9 +218,8 @@ impl TraitsResolver {
                                     FieldIdentifier(trait_identifier) => trait_identifier.clone(),
                                     _ => return Err(ParseErrors::ImportTraitBadSignature.into()),
                                 };
-                                e.insert(TraitDefinition::Imported(trait_id));
-                            }
-                        }
+                                Ok::<_, ParseErrors>(TraitDefinition::Defined(trait_id))
+                            })?;
                     } else {
                         return Err(ParseErrors::ImportTraitBadSignature.into());
                     }
