@@ -76,7 +76,6 @@ use stacks_common::util::sleep_ms;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
-use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -3253,11 +3252,11 @@ fn forked_tenure_is_ignored() {
 
     // Do not submit the commit op and do not allow stacks blocks to be broadcasted
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
     debug!("Starting tenure B.");
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
+        Ok(commits_count > commits_before)
     })
     .unwrap();
     // Wait a bit for a stacks block to be mined (but not broadcasted)
@@ -3268,13 +3267,12 @@ fn forked_tenure_is_ignored() {
         &[sender_signer_sk],
         &signers,
     );
-
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
     debug!("Starting tenure C.");
     // Submit a block commit op for tenure C
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
+        Ok(commits_count > commits_before)
     })
     .unwrap();
     // Wait a bit for a the block commit to be mined
