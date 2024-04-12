@@ -1292,15 +1292,13 @@ impl Signer {
                     self.approved_aggregate_public_key
                 );
             }
-            if matches!(self.state, State::OperationInProgress(Operation::Dkg)) {
+            if let State::OperationInProgress(Operation::Dkg) = self.state {
                 debug!(
-                    "{self}: DKG has already been set. Aborting DKG operation {}.",
-                    self.coordinator.current_dkg_id
+                    "{self}: DKG has already been set. Aborting DKG operation {self.coordinator.current_dkg_id}."
                 );
                 self.finish_operation();
             }
         } else if should_queue {
-            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
             if self.commands.front() != Some(&Command::Dkg) {
                 info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
                 self.commands.push_front(Command::Dkg);
