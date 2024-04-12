@@ -3270,6 +3270,7 @@ fn forked_tenure_is_ignored() {
             debug!("Starting tenure B.");
             TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
             TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+            let commits_before = commits_submitted.load(Ordering::SeqCst);
             let vrfs_before = vrfs_submitted.load(Ordering::SeqCst);
             // first block wakes up the run loop, wait until a key registration has been submitted.
             next_block_and(&mut btc_regtest_controller, 60, || {
@@ -3277,11 +3278,11 @@ fn forked_tenure_is_ignored() {
                 Ok(vrf_count >= vrfs_before)
             })
             .unwrap();
-
             // second block should confirm the VRF register, wait until a block commit is submitted
+            // NOTE: it will not submit the block to the bitcoin network, but will register that it has been submitted
             next_block_and(&mut btc_regtest_controller, 60, || {
-                // Nothing to wait for since we are not allowing the block commit to be submitted yet.
-                Ok(true)
+                let commits_count = commits_submitted.load(Ordering::SeqCst);
+                Ok(commits_count > commits_before)
             })
             .unwrap();
             // submit a tx so that the miner will mine an extra block

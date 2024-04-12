@@ -688,34 +688,39 @@ impl RelayerThread {
         let (last_committed_at, target_epoch_id, commit) =
             self.make_block_commit(&tenure_start_ch, &tenure_start_bh)?;
 
+        let mut op_signer = self.keychain.generate_op_signer();
+        let mut txid = None;
         #[cfg(test)]
         {
             if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-                warn!("Relayer: not submitting block-commit due to test directive.");
-                return Ok(());
+                if let Some((last_committed, ..)) = self.last_committed.as_ref() {
+                    if last_committed.consensus_hash == last_committed_at.consensus_hash {
+                        warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+                        txid = self
+                            .bitcoin_controller
+                            .make_operation_tx(
+                                target_epoch_id,
+                                BlockstackOperationType::LeaderBlockCommit(commit.clone()),
+                                &mut op_signer,
+                                1,
+                            )
+                            .map(|tx| tx.txid());
+                    }
+                }
             }
-            // if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-            //     if let Some((last_committed, ..)) = self.last_committed.as_ref() {
-            //         if last_committed == &last_committed_at {
-            //             warn!("Relayer: not submitting block-commit due to test directive.");
-            //             return Ok(());
-            //         }
-            //     }
-            // }
         }
-        let mut op_signer = self.keychain.generate_op_signer();
-        let txid = self
-            .bitcoin_controller
-            .submit_operation(
+        if txid.is_none() {
+            txid = self.bitcoin_controller.submit_operation(
                 target_epoch_id,
                 BlockstackOperationType::LeaderBlockCommit(commit),
                 &mut op_signer,
                 1,
-            )
-            .ok_or_else(|| {
-                warn!("Failed to submit block-commit bitcoin transaction");
-                NakamotoNodeError::BurnchainSubmissionFailed
-            })?;
+            );
+        }
+        let txid = txid.ok_or_else(|| {
+            warn!("Failed to submit block-commit bitcoin transaction");
+            NakamotoNodeError::BurnchainSubmissionFailed
+        })?;
         info!(
             "Relayer: Submitted block-commit";
             "parent_consensus_hash" => %tenure_start_ch,
