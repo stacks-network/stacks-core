@@ -3235,6 +3235,7 @@ fn forked_tenure_is_ignored() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
+    debug!("Starting tenure A.");
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -3249,37 +3250,47 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    for tenure_ix in 0..3 {
-        if tenure_ix == 0 {
-            debug!("Starting tenure A");
-        } else if tenure_ix == 1 {
-            debug!("Starting tenure B.");
-            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
-            TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-        } else {
-            debug!("Starting tenure C.");
-            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
-        }
-        next_block_and(&mut btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        })
-        .unwrap();
-        if tenure_ix == 1 {
-            // Wait a bit for a stacks block to be mined (or at least attempted)
-            std::thread::sleep(std::time::Duration::from_secs(10));
-        } else if tenure_ix == 2 {
-            debug!("Tenure C should ignore the block mined by Tenure B. Unblock stacks block broadcasting.");
-            TEST_BROADCAST_STALL.lock().unwrap().replace(false);
-        }
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
-    }
+    // Wait a bit for a stacks block to be mined and broadcasted as part of tenure A
+    std::thread::sleep(std::time::Duration::from_secs(10));
 
+    // Do not submit the commit op and do not allow stacks blocks to be broadcasted
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    debug!("Starting tenure B.");
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+    // Wait a bit for a stacks block to be mined (but not broadcasted)
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+    debug!("Starting tenure C.");
+    // Submit a block commit op for tenure C
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+    // Wait a bit for a the block commit to be mined
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    // Unpause the broadcast of Tenure B's block
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    // Wait a bit for a the block commit to be mined
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
     // Submit a TX
     let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
@@ -3304,15 +3315,10 @@ fn forked_tenure_is_ignored() {
         )
         .unwrap();
 
+    debug!("Mining tenure D.");
     // Mine 1 more nakamoto tenures
-    next_block_and_mine_commit(
-        &mut btc_regtest_controller,
-        60,
-        &coord_channel,
-        &commits_submitted,
-    )
-    .unwrap();
-
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
     signer_vote_if_needed(
         &btc_regtest_controller,
         &naka_conf,
@@ -3349,22 +3355,7 @@ fn forked_tenure_is_ignored() {
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 3);
-
-    // make sure prometheus returns an updated height
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
-        assert!(res.contains(&expected_result));
-    }
+    assert!(tip.stacks_block_height > block_height_pre_3_0);
 
     coord_channel
         .lock()

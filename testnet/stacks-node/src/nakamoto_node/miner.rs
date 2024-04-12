@@ -548,13 +548,17 @@ impl BlockMinerThread {
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
         {
-            if TEST_BROADCAST_STALL.lock().unwrap().is_some() {
-                warn!("Broadcasting is stalled due to testing directive.";
+            if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                debug!("Broadcasting is stalled due to testing directive.";
                     "block_id" => %block.block_id()
                 );
                 while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
+                debug!("Broadcasting is no longer stalled due to testing directive.";
+                    "block_id" => %block.block_id()
+                );
             }
         }
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
