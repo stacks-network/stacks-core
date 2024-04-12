@@ -1238,8 +1238,9 @@ impl Signer {
 
     /// Persist signer state in both SignerDB and StackerDB
     fn save_signer_state(&mut self) -> [Result<(), PersistenceError>; 2] {
-        let signerdb_result = self.save_signer_state_in_signerdb();
-        let stackerdb_result = self.save_signer_state_in_stackerdb();
+        let rng = &mut OsRng;
+        let signerdb_result = self.save_signer_state_in_signerdb(rng);
+        let stackerdb_result = self.save_signer_state_in_stackerdb(rng);
 
         if let Err(err) = &signerdb_result {
             warn!("{self}: Failed to persist state in SignerDB: {err}");
@@ -1253,11 +1254,18 @@ impl Signer {
     }
 
     /// Persist signer state in SignerDB
-    fn save_signer_state_in_signerdb(&self) -> Result<(), PersistenceError> {
+    fn save_signer_state_in_signerdb(
+        &self,
+        rng: &mut impl rand_core::CryptoRngCore,
+    ) -> Result<(), PersistenceError> {
         let state = self.state_machine.signer.save();
         let serialized_state = serde_json::to_vec(&state)?;
 
-        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state)?;
+        let encrypted_state = encrypt(
+            &self.state_machine.network_private_key,
+            &serialized_state,
+            rng,
+        )?;
         self.signer_db
             .insert_encrypted_signer_state(self.reward_cycle, &encrypted_state)?;
 
@@ -1265,11 +1273,18 @@ impl Signer {
     }
 
     /// Persist signer state in StackerDB
-    fn save_signer_state_in_stackerdb(&mut self) -> Result<(), PersistenceError> {
+    fn save_signer_state_in_stackerdb(
+        &mut self,
+        rng: &mut impl rand_core::CryptoRngCore,
+    ) -> Result<(), PersistenceError> {
         let state = self.state_machine.signer.save();
         let serialized_state = serde_json::to_vec(&state)?;
 
-        let encrypted_state = encrypt(&self.state_machine.network_private_key, &serialized_state)?;
+        let encrypted_state = encrypt(
+            &self.state_machine.network_private_key,
+            &serialized_state,
+            rng,
+        )?;
 
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
 
@@ -1537,13 +1552,13 @@ impl SignerStateStorage for &SignerDb {
     }
 }
 
-fn encrypt(private_key: &Scalar, msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-    wsts::util::encrypt(
-        derive_encryption_key(private_key).as_bytes(),
-        msg,
-        &mut OsRng,
-    )
-    .map_err(|_| EncryptionError::Encrypt)
+fn encrypt(
+    private_key: &Scalar,
+    msg: &[u8],
+    rng: &mut impl rand_core::CryptoRngCore,
+) -> Result<Vec<u8>, EncryptionError> {
+    wsts::util::encrypt(derive_encryption_key(private_key).as_bytes(), msg, rng)
+        .map_err(|_| EncryptionError::Encrypt)
 }
 
 fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
@@ -1595,7 +1610,7 @@ mod tests {
         let msg = "Nobody's gonna know".as_bytes();
         let key = Scalar::random(&mut OsRng);
 
-        let encrypted = encrypt(&key, msg).unwrap();
+        let encrypted = encrypt(&key, msg, &mut OsRng).unwrap();
 
         assert_ne!(encrypted, msg);
 
