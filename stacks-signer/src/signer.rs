@@ -31,7 +31,6 @@ use libsigner::{
 };
 use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
@@ -1539,22 +1538,24 @@ impl SignerStateStorage for &SignerDb {
 }
 
 fn encrypt(private_key: &Scalar, msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-    wsts::util::encrypt(&derive_encryption_key(private_key), msg, &mut OsRng)
-        .map_err(|_| EncryptionError::Encrypt)
+    wsts::util::encrypt(
+        derive_encryption_key(private_key).as_bytes(),
+        msg,
+        &mut OsRng,
+    )
+    .map_err(|_| EncryptionError::Encrypt)
 }
 
 fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-    wsts::util::decrypt(&derive_encryption_key(private_key), encrypted_msg)
+    wsts::util::decrypt(derive_encryption_key(private_key).as_bytes(), encrypted_msg)
         .map_err(|_| EncryptionError::Decrypt)
 }
 
-fn derive_encryption_key(private_key: &Scalar) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+fn derive_encryption_key(private_key: &Scalar) -> Sha512Trunc256Sum {
+    let mut prefixed_key = "SIGNER_STATE_ENCRYPTION_KEY/".as_bytes().to_vec();
+    prefixed_key.extend_from_slice(&private_key.to_bytes());
 
-    hasher.update("SIGNER_STATE_ENCRYPTION_KEY/".as_bytes());
-    hasher.update(private_key.to_bytes());
-
-    hasher.finalize().into()
+    Sha512Trunc256Sum::from_data(&prefixed_key)
 }
 
 /// Error stemming from a persistence operation
