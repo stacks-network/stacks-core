@@ -3254,8 +3254,8 @@ fn forked_tenure_is_ignored() {
             debug!("Starting tenure A");
         } else if tenure_ix == 1 {
             debug!("Starting tenure B.");
-            TEST_BROADCAST_STALL.lock().unwrap().replace(true);
             TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+            TEST_BROADCAST_STALL.lock().unwrap().replace(true);
         } else {
             debug!("Starting tenure C.");
             TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
@@ -3265,7 +3265,10 @@ fn forked_tenure_is_ignored() {
             Ok(commits_count >= 1)
         })
         .unwrap();
-        if tenure_ix == 2 {
+        if tenure_ix == 1 {
+            // Wait a bit for a stacks block to be mined (or at least attempted)
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        } else if tenure_ix == 2 {
             debug!("Tenure C should ignore the block mined by Tenure B. Unblock stacks block broadcasting.");
             TEST_BROADCAST_STALL.lock().unwrap().replace(false);
         }
