@@ -690,15 +690,18 @@ impl RelayerThread {
 
         #[cfg(test)]
         {
-            let guard = TEST_SKIP_COMMIT_OP.lock().unwrap();
-            if guard.unwrap_or(false) {
-                if let Some((last_committed, ..)) = self.last_committed.as_ref() {
-                    if last_committed_at.consensus_hash == last_committed.consensus_hash {
-                        warn!("Relayer: not submitting block-commit due to test directive.");
-                        return Ok(());
-                    }
-                }
+            if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
+                warn!("Relayer: not submitting block-commit due to test directive.");
+                return Ok(());
             }
+            // if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
+            //     if let Some((last_committed, ..)) = self.last_committed.as_ref() {
+            //         if last_committed == &last_committed_at {
+            //             warn!("Relayer: not submitting block-commit due to test directive.");
+            //             return Ok(());
+            //         }
+            //     }
+            // }
         }
         let mut op_signer = self.keychain.generate_op_signer();
         let txid = self
