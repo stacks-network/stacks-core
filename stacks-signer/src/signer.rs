@@ -283,7 +283,13 @@ impl From<SignerConfig> for Signer {
             &mut stackerdb,
             signer_config.signer_slot_id.into(),
             &state_machine.network_private_key,
-        ).or_else(|err| {warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}"); load_encrypted_signer_state(&signer_db, signer_config.reward_cycle, &state_machine.network_private_key)}).expect("Failed to load encrypted signer state from both StackerDB and SignerDB") {
+        ).or_else(|err| {
+                warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
+                load_encrypted_signer_state(
+                    &signer_db,
+                    signer_config.reward_cycle,
+                    &state_machine.network_private_key)
+            }).expect("Failed to load encrypted signer state from both StackerDB and SignerDB") {
             state_machine.signer = state;
         };
 
