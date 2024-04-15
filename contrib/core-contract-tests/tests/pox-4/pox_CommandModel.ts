@@ -15,16 +15,19 @@ export type CommandTag = string;
 export class Stub {
   readonly wallets: Map<StxAddress, Wallet>;
   readonly statistics: Map<string, number>;
+  readonly stackers: Map<StxAddress, Stacker>;
   stackingMinimum: number;
   nextRewardSetIndex: number;
   lastRefreshedCycle: number;
 
   constructor(
     wallets: Map<StxAddress, Wallet>,
+    stackers: Map<StxAddress, Stacker>,
     statistics: Map<CommandTag, number>,
   ) {
     this.wallets = wallets;
     this.statistics = statistics;
+    this.stackers = stackers;
     this.stackingMinimum = 0;
     this.nextRewardSetIndex = 0;
     this.lastRefreshedCycle = 0;
@@ -51,14 +54,15 @@ export class Stub {
     if (lastRefreshedCycle < currentRewCycle) {
       this.nextRewardSetIndex = 0;
 
-      this.wallets.forEach((wallet) => {
+      this.wallets.forEach((w) => {
+        const wallet = this.stackers.get(w.stxAddress)!;
         const expiredDelegators = wallet.poolMembers.filter((stackerAddress) =>
-          this.wallets.get(stackerAddress)!.delegatedUntilBurnHt + 1 <
+          this.stackers.get(stackerAddress)!.delegatedUntilBurnHt + 1 <
             burnBlockHeight
         );
         const expiredStackers = wallet.lockedAddresses.filter(
           (stackerAddress) =>
-            this.wallets.get(stackerAddress)!.unlockHeight + 1 <=
+            this.stackers.get(stackerAddress)!.unlockHeight + 1 <=
               burnBlockHeight,
         );
 
@@ -68,7 +72,7 @@ export class Stub {
         });
 
         expiredStackers.forEach((expStacker) => {
-          const expStackerWallet = this.wallets.get(expStacker)!;
+          const expStackerWallet = this.stackers.get(expStacker)!;
           const expStackerIndex = wallet.lockedAddresses.indexOf(expStacker);
           wallet.lockedAddresses.splice(expStackerIndex, 1);
           wallet.amountToCommit -= expStackerWallet.amountLocked;
@@ -101,6 +105,9 @@ export type Wallet = {
   signerPrvKey: StacksPrivateKey;
   signerPubKey: string;
   stackingClient: StackingClient;
+};
+
+export type Stacker = {
   ustxBalance: number;
   isStacking: boolean;
   hasDelegated: boolean;

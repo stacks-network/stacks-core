@@ -73,12 +73,12 @@ export class AllowContractCallerCommand implements PoxCommand {
     expect(allowContractCaller.result).toBeOk(boolCV(true));
 
     // Get the wallets involved from the model and update it with the new state.
-    const wallet = model.wallets.get(this.wallet.stxAddress)!;
-    const callerToAllow = model.wallets.get(this.allowanceTo.stxAddress)!;
+    const wallet = model.stackers.get(this.wallet.stxAddress)!;
+    const callerToAllow = model.stackers.get(this.allowanceTo.stxAddress)!;
     // Update model so that we know this wallet has authorized a contract-caller.
 
     wallet.allowedContractCaller = this.allowanceTo.stxAddress;
-    callerToAllow.callerAllowedBy.push(wallet.stxAddress);
+    callerToAllow.callerAllowedBy.push(this.wallet.stxAddress);
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.

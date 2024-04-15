@@ -81,8 +81,8 @@ export class DelegateStackStxCommand implements PoxCommand {
     // - The Operator has to currently be delegated by the Stacker.
     // - The Period has to fit the last delegation burn block height.
 
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     return (
       model.stackingMinimum > 0 &&
@@ -91,7 +91,7 @@ export class DelegateStackStxCommand implements PoxCommand {
       stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
       Number(this.amountUstx) <= stackerWallet.ustxBalance &&
       Number(this.amountUstx) >= model.stackingMinimum &&
-      operatorWallet.poolMembers.includes(stackerWallet.stxAddress) &&
+      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
       this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
     );
   }
@@ -143,8 +143,8 @@ export class DelegateStackStxCommand implements PoxCommand {
     );
 
     // Get the Stacker's wallet from the model and update it with the new state.
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     // Update model so that we know this wallet is stacking. This is important
     // in order to prevent the test from stacking multiple times with the same
     // address.
@@ -157,7 +157,7 @@ export class DelegateStackStxCommand implements PoxCommand {
     // Add stacker to the operators lock list. This will help knowing that
     // the stacker's funds are locked when calling delegate-stack-extend
     // and delegate-stack-increase.
-    operatorWallet.lockedAddresses.push(stackerWallet.stxAddress);
+    operatorWallet.lockedAddresses.push(this.stacker.stxAddress);
     operatorWallet.amountToCommit += Number(this.amountUstx);
 
     // Log to console for debugging purposes. This is not necessary for the
@@ -168,7 +168,7 @@ export class DelegateStackStxCommand implements PoxCommand {
       "lock-amount",
       this.amountUstx.toString(),
       "until",
-      this.stacker.unlockHeight.toString(),
+      stackerWallet.unlockHeight.toString(),
     );
 
     // Refresh the model's state if the network gets to the next reward cycle.

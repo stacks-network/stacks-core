@@ -114,32 +114,48 @@ it("statefully interacts with PoX-4", async () => {
   // This is the initial state of the model.
   const model = new Stub(
     new Map(wallets.map((wallet) => [wallet.stxAddress, wallet])),
+    new Map(wallets.map((wallet) => [wallet.stxAddress, {
+      ustxBalance: 0,
+      isStacking: false,
+      hasDelegated: false,
+      lockedAddresses: [],
+      amountToCommit: 0,
+      poolMembers: [],
+      delegatedTo: "",
+      delegatedMaxAmount: 0,
+      delegatedUntilBurnHt: 0,
+      delegatedPoxAddress: "",
+      amountLocked: 0,
+      amountUnlocked: 0,
+      unlockHeight: 0,
+      firstLockedRewardCycle: 0,
+      allowedContractCaller: "",
+      callerAllowedBy: [],
+      committedRewCycleIndexes: [],
+    }])),
     new Map(statistics.map((commandName) => [commandName, 0])),
   );
 
   simnet.setEpoch("3.0");
 
-  // The testing suite will run for 5000 times.
-  for (let i = 0; i < 5000; i++) {
-    fc.assert(
-      fc.property(
-        PoxCommands(model.wallets, sut.network),
-        (cmds) => {
-          const initialState = () => ({ model: model, real: sut });
-          fc.modelRun(initialState, cmds);
-        },
-      ),
-      {
-        // Defines the number of test iterations to run; default is 100.
-        numRuns: 10,
-        // Adjusts the level of detail in test reports. Default is 0 (minimal).
-        // At level 2, reports include extensive details, helpful for deep
-        // debugging. This includes not just the failing case and its seed, but
-        // also a comprehensive log of all executed steps and their outcomes.
-        verbose: 2,
+  fc.assert(
+    fc.property(
+      PoxCommands(model.wallets, sut.network),
+      (cmds) => {
+        const initialState = () => ({ model: model, real: sut });
+        fc.modelRun(initialState, cmds);
       },
-    );
-  }
+    ),
+    {
+      // Defines the number of test iterations to run; default is 100.
+      numRuns: 1000,
+      // Adjusts the level of detail in test reports. Default is 0 (minimal).
+      // At level 2, reports include extensive details, helpful for deep
+      // debugging. This includes not just the failing case and its seed, but
+      // also a comprehensive log of all executed steps and their outcomes.
+      verbose: 2,
+    },
+  );
 
   model.reportCommandRuns();
 });

@@ -33,8 +33,8 @@ export class GetStxAccountCommand implements PoxCommand {
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
 
-    const actual = model.wallets.get(this.wallet.stxAddress)!;
-    expect(real.network.runSnippet(`(stx-account '${actual.stxAddress})`))
+    const actual = model.stackers.get(this.wallet.stxAddress)!;
+    expect(real.network.runSnippet(`(stx-account '${this.wallet.stxAddress})`))
       .toBeTuple({
         "locked": Cl.uint(actual.amountLocked),
         "unlocked": Cl.uint(actual.amountUnlocked),

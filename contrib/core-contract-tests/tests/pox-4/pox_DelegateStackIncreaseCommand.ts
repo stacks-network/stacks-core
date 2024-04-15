@@ -57,26 +57,27 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     //   to the final locked amount.
     // - The Operator must have locked the Stacker's previously locked funds.
 
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     return (
       stackerWallet.amountLocked > 0 &&
       stackerWallet.hasDelegated === true &&
       stackerWallet.isStacking === true &&
       this.increaseBy > 0 &&
-      operatorWallet.poolMembers.includes(stackerWallet.stxAddress) &&
+      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
       stackerWallet.amountUnlocked >= this.increaseBy &&
       stackerWallet.delegatedMaxAmount >=
         this.increaseBy + stackerWallet.amountLocked &&
-      operatorWallet.lockedAddresses.indexOf(stackerWallet.stxAddress) > -1
+      operatorWallet.lockedAddresses.indexOf(this.stacker.stxAddress) > -1
     );
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
 
-    const prevLocked = this.stacker.amountLocked;
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
+    const prevLocked = stackerWallet.amountLocked;
     const newTotalLocked = prevLocked + this.increaseBy;
     // Act
     const delegateStackIncrease = real.network.callPublicFn(
@@ -86,7 +87,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
         // (stacker principal)
         Cl.principal(this.stacker.stxAddress),
         // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-        poxAddressToTuple(this.stacker.delegatedPoxAddress),
+        poxAddressToTuple(stackerWallet.delegatedPoxAddress),
         // (increase-by uint)
         Cl.uint(this.increaseBy),
       ],
@@ -102,8 +103,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     );
 
     // Get the Stacker's wallet from the model and update it with the new state.
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     // Update model so that we know this stacker has increased the stacked amount.
     // Update locked and unlocked fields in the model.
     stackerWallet.amountLocked = newTotalLocked;

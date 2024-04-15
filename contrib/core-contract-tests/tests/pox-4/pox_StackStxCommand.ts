@@ -58,10 +58,9 @@ export class StackStxCommand implements PoxCommand {
     // - The Stacker cannot currently be engaged in another stacking operation.
     // - The Stacker cannot currently be delegating STX to a delegatee.
 
+    const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
-      model.stackingMinimum > 0 &&
-      !model.wallets.get(this.wallet.stxAddress)?.isStacking &&
-      !model.wallets.get(this.wallet.stxAddress)?.hasDelegated
+      model.stackingMinimum > 0 && !stacker.isStacking && !stacker.hasDelegated
     );
   }
 
@@ -155,7 +154,7 @@ export class StackStxCommand implements PoxCommand {
     );
 
     // Get the wallet from the model and update it with the new state.
-    const wallet = model.wallets.get(this.wallet.stxAddress)!;
+    const wallet = model.stackers.get(this.wallet.stxAddress)!;
     // Update model so that we know this wallet is stacking. This is important
     // in order to prevent the test from stacking multiple times with the same
     // address.

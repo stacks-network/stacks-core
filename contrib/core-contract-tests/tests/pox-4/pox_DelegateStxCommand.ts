@@ -52,7 +52,7 @@ export class DelegateStxCommand implements PoxCommand {
 
     return (
       model.stackingMinimum > 0 &&
-      !model.wallets.get(this.wallet.stxAddress)?.hasDelegated
+      !model.stackers.get(this.wallet.stxAddress)?.hasDelegated
     );
   }
 
@@ -85,8 +85,8 @@ export class DelegateStxCommand implements PoxCommand {
     expect(delegateStx.result).toBeOk(boolCV(true));
 
     // Get the wallet from the model and update it with the new state.
-    const wallet = model.wallets.get(this.wallet.stxAddress)!;
-    const delegatedWallet = model.wallets.get(this.delegateTo.stxAddress)!;
+    const wallet = model.stackers.get(this.wallet.stxAddress)!;
+    const delegatedWallet = model.stackers.get(this.delegateTo.stxAddress)!;
     // Update model so that we know this wallet has delegated. This is important
     // in order to prevent the test from delegating multiple times with the same
     // address.
@@ -96,7 +96,7 @@ export class DelegateStxCommand implements PoxCommand {
     wallet.delegatedUntilBurnHt = this.untilBurnHt;
     wallet.delegatedPoxAddress = this.delegateTo.btcAddress;
 
-    delegatedWallet.poolMembers.push(wallet.stxAddress);
+    delegatedWallet.poolMembers.push(this.wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(

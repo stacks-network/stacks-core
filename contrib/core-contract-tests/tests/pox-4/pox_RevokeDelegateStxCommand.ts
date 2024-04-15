@@ -34,14 +34,15 @@ export class RevokeDelegateStxCommand implements PoxCommand {
 
     return (
       model.stackingMinimum > 0 &&
-      model.wallets.get(this.wallet.stxAddress)!.hasDelegated === true
+      model.stackers.get(this.wallet.stxAddress)!.hasDelegated === true
     );
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
 
-    const operatorWallet = model.wallets.get(this.wallet.delegatedTo)!;
+    const wallet = model.stackers.get(this.wallet.stxAddress)!;
+    const operatorWallet = model.stackers.get(wallet.delegatedTo)!;
 
     // Act
     const revokeDelegateStx = real.network.callPublicFn(
@@ -55,21 +56,20 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     expect(revokeDelegateStx.result).toBeOk(
       someCV(
         tupleCV({
-          "amount-ustx": Cl.uint(this.wallet.delegatedMaxAmount),
+          "amount-ustx": Cl.uint(wallet.delegatedMaxAmount),
           "delegated-to": Cl.principal(
-            operatorWallet.stxAddress || "",
+            this.wallet.stxAddress /*operatorWallet.stxAddress*/ || "",
           ),
           "pox-addr": Cl.some(
-            poxAddressToTuple(this.wallet.delegatedPoxAddress || ""),
+            poxAddressToTuple(wallet.delegatedPoxAddress || ""),
           ),
-          "until-burn-ht": Cl.some(Cl.uint(this.wallet.delegatedUntilBurnHt)),
+          "until-burn-ht": Cl.some(Cl.uint(wallet.delegatedUntilBurnHt)),
         }),
       ),
     );
 
     // Get the Stacker's wallet from the model and update the two wallets
     // involved with the new state.
-    const wallet = model.wallets.get(this.wallet.stxAddress)!;
     // Update model so that we know this wallet is not delegating anymore.
     // This is important in order to prevent the test from revoking the
     // delegation multiple times with the same address.
@@ -80,7 +80,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
 
     // Remove the Stacker from the Pool Operator's pool members list.
     const walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(
-      wallet.stxAddress,
+      this.wallet.stxAddress,
     );
     expect(walletIndexInDelegatorsList).toBeGreaterThan(-1);
     operatorWallet.poolMembers.splice(walletIndexInDelegatorsList, 1);

@@ -53,14 +53,16 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
     // - The total amount previously locked by the Operator on behalf of the
     //   stackers has to be greater than the uSTX threshold.
 
-    return this.operator.lockedAddresses.length > 0 &&
-      this.operator.amountToCommit >= model.stackingMinimum;
+    const operator = model.stackers.get(this.operator.stxAddress)!;
+    return operator.lockedAddresses.length > 0 &&
+      operator.amountToCommit >= model.stackingMinimum;
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
 
-    const committedAmount = this.operator.amountToCommit;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+    const committedAmount = operatorWallet.amountToCommit;
 
     const signerSig = this.operator.stackingClient.signPoxSignature({
       // The signer key being authorized.
@@ -110,7 +112,6 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
     // Assert
     expect(stackAggregationCommit.result).toBeOk(Cl.bool(true));
 
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     operatorWallet.amountToCommit -= committedAmount;
     operatorWallet.committedRewCycleIndexes.push(model.nextRewardSetIndex);
     model.nextRewardSetIndex++;

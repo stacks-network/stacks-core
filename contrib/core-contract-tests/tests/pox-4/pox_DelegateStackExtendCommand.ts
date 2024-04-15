@@ -60,15 +60,15 @@ export class DelegateStackExtendCommand implements PoxCommand {
     // - The Operator has to currently be delegated by the Stacker.
     // - The new lock period must be less than or equal to 12.
 
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     const firstRewardCycle =
-      this.currentCycle > this.stacker.firstLockedRewardCycle
+      this.currentCycle > stackerWallet.firstLockedRewardCycle
         ? this.currentCycle
-        : this.stacker.firstLockedRewardCycle;
+        : stackerWallet.firstLockedRewardCycle;
     const firstExtendCycle = Math.floor(
-      (this.stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+      (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
         REWARD_CYCLE_LENGTH,
     );
     const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
@@ -78,14 +78,16 @@ export class DelegateStackExtendCommand implements PoxCommand {
       stackerWallet.amountLocked > 0 &&
       stackerWallet.hasDelegated === true &&
       stackerWallet.isStacking === true &&
-      operatorWallet.poolMembers.includes(stackerWallet.stxAddress) &&
-      operatorWallet.lockedAddresses.includes(stackerWallet.stxAddress) &&
+      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+      operatorWallet.lockedAddresses.includes(this.stacker.stxAddress) &&
       totalPeriod <= 12
     );
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+
+    const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     // Act
     const delegateStackExtend = real.network.callPublicFn(
@@ -95,7 +97,7 @@ export class DelegateStackExtendCommand implements PoxCommand {
         // (stacker principal)
         Cl.principal(this.stacker.stxAddress),
         // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-        poxAddressToTuple(this.stacker.delegatedPoxAddress),
+        poxAddressToTuple(stackerWallet.delegatedPoxAddress),
         // (extend-count uint)
         Cl.uint(this.extendCount),
       ],
@@ -105,7 +107,7 @@ export class DelegateStackExtendCommand implements PoxCommand {
     const { result: firstExtendCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
-      [Cl.uint(this.stacker.unlockHeight)],
+      [Cl.uint(stackerWallet.unlockHeight)],
       this.operator.stxAddress,
     );
     assert(isClarityType(firstExtendCycle, ClarityType.UInt));
@@ -131,7 +133,6 @@ export class DelegateStackExtendCommand implements PoxCommand {
     );
 
     // Get the Stacker's wallet from the model and update it with the new state.
-    const stackerWallet = model.wallets.get(this.stacker.stxAddress)!;
     // Update model so that we know this wallet's unlock height was extended.
     stackerWallet.unlockHeight = Number(newUnlockHeight);
 
@@ -143,7 +144,7 @@ export class DelegateStackExtendCommand implements PoxCommand {
       "extend count",
       this.extendCount.toString(),
       "new unlock height",
-      this.stacker.unlockHeight.toString(),
+      stackerWallet.unlockHeight.toString(),
     );
 
     // Refresh the model's state if the network gets to the next reward cycle.
@@ -154,6 +155,6 @@ export class DelegateStackExtendCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.operator.label} delegate-stack-extend extend count ${this.extendCount} previous unlock height ${this.stacker.unlockHeight}`;
+    return `${this.operator.label} delegate-stack-extend extend count ${this.extendCount}`;
   }
 }

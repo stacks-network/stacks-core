@@ -47,23 +47,25 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     this.rewardCycleIndex = rewardCycleIndex;
   }
 
-  check(_model: Readonly<Stub>): boolean {
+  check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Operator must have locked STX on behalf of at least one stacker.
     // - The PoX address must have partial committed STX.
     // - The Reward Cycle Index must be positive.
 
+    const operator = model.stackers.get(this.operator.stxAddress)!;
     return (
-      this.operator.lockedAddresses.length > 0 &&
+      operator.lockedAddresses.length > 0 &&
       this.rewardCycleIndex >= 0 &&
-      this.operator.amountToCommit > 0
+      operator.amountToCommit > 0
     );
   }
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
 
-    const committedAmount = this.operator.amountToCommit;
+    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+    const committedAmount = operatorWallet.amountToCommit;
 
     // Act
     const stackAggregationIncrease = real.network.callPublicFn(
@@ -83,7 +85,6 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     // Assert
     expect(stackAggregationIncrease.result).toBeOk(Cl.bool(true));
 
-    const operatorWallet = model.wallets.get(this.operator.stxAddress)!;
     operatorWallet.amountToCommit -= committedAmount;
 
     // Log to console for debugging purposes. This is not necessary for the
