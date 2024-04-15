@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::path::Path;
-use std::time::Duration;
 
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
@@ -27,6 +26,9 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use wsts::traits::SignerState;
 
 use crate::signer::BlockInfo;
+
+/// How many reward cycles to keep data for
+const REWARD_CYLE_RENTENTION_LIMIT: u64 = 1;
 
 /// This struct manages a SQLite database connection
 /// for the signer.
@@ -41,7 +43,6 @@ CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
-    insertion_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
@@ -138,8 +139,6 @@ impl SignerDb {
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
         let signed_over = &block_info.signed_over;
-        let insertion_time = chrono::Utc::now();
-        debug!("Insertion time: {insertion_time:?}");
         debug!(
             "Inserting block_info: reward_cycle = {reward_cycle}, sighash = {hash}, block_id = {block_id}, signed = {signed_over} vote = {:?}",
             block_info.vote.as_ref().map(|v| {
@@ -153,18 +152,26 @@ impl SignerDb {
         self.db
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
-                params![&u64_to_sql(reward_cycle)?, hash.to_string(), &block_json],
+                params![u64_to_sql(reward_cycle)?, hash.to_string(), &block_json],
             )?;
 
         Ok(())
     }
 
-    /// Delete blocks from the database that were inserted longer than the given duration ago
-    pub fn garbage_collect_blocks(&self, duration: Duration) -> Result<(), DBError> {
-        let threshold_time = chrono::Utc::now() - duration;
+    /// Delete all stale reward cycles relative to the current reward cycle
+    pub fn cleanup_stale_reward_cycles(
+        &mut self,
+        current_reward_cycle: u64,
+    ) -> Result<(), DBError> {
+        let threshold_reward_cycle =
+            current_reward_cycle.saturating_sub(REWARD_CYLE_RENTENTION_LIMIT);
         self.db.execute(
-            "DELETE FROM blocks WHERE datetime(insertion_time) < datetime(?)",
-            params![threshold_time],
+            "DELETE FROM blocks WHERE reward_cycle < ?",
+            params![u64_to_sql(threshold_reward_cycle)?],
+        )?;
+        self.db.execute(
+            "DELETE FROM signer_states WHERE reward_cycle < ?",
+            params![u64_to_sql(threshold_reward_cycle)?],
         )?;
         Ok(())
     }
@@ -388,85 +395,118 @@ mod tests {
     }
 
     #[test]
-    fn garbage_collect_blocks() {
+    fn garbage_collection() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let reward_cycle = 42;
-        // Create three different blocks
-        let (block_info_1, block_1) = create_block();
-        let (block_info_2, block_2) = create_block_override(|b| {
+        let reward_cycle_1 = 42;
+        let reward_cycle_2 = 43;
+        let reward_cycle_3 = 44;
+        let (block_info_1, block_1) = create_block_override(|b| {
             b.header.consensus_hash = ConsensusHash([0x10; 20]);
         });
-        let (block_info_3, block_3) = create_block_override(|b| {
+        let (block_info_2, block_2) = create_block_override(|b| {
             b.header.consensus_hash = ConsensusHash([0x11; 20]);
         });
+        let (block_info_3, block_3) = create_block_override(|b| {
+            b.header.consensus_hash = ConsensusHash([0x12; 20]);
+        });
+        let (block_info_4, block_4) = create_block_override(|b| {
+            b.header.consensus_hash = ConsensusHash([0x13; 20]);
+        });
+        let state_1 = create_signer_state(1);
+        let state_2 = create_signer_state(2);
+        let state_3 = create_signer_state(3);
 
-        // Insert the three blocks at clearly different times
-        db.insert_block(reward_cycle, &block_info_1)
+        // Insert at least one block for each reward cycle
+        db.insert_block(reward_cycle_1, &block_info_1)
             .expect("Unable to insert block into db");
-        std::thread::sleep(Duration::from_secs(3));
-        db.insert_block(reward_cycle, &block_info_2)
+        db.insert_block(reward_cycle_2, &block_info_2)
             .expect("Unable to insert block into db");
-        std::thread::sleep(Duration::from_secs(3));
-        db.insert_block(reward_cycle, &block_info_3)
+        db.insert_block(reward_cycle_2, &block_info_3)
+            .expect("Unable to insert block into db");
+        db.insert_block(reward_cycle_3, &block_info_4)
             .expect("Unable to insert block into db");
 
-        // Assert that all of the blocks are there
-        assert!(db
-            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
-            .unwrap()
-            .is_some());
-        assert!(db
-            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
-            .unwrap()
-            .is_some());
-        assert!(db
-            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
-            .unwrap()
-            .is_some());
+        // Insert a signer state per reward cycle
+        db.insert_signer_state(reward_cycle_1, &state_1)
+            .expect("Unable to insert signer state into db");
+        db.insert_signer_state(reward_cycle_2, &state_2)
+            .expect("Unable to insert signer state into db");
+        db.insert_signer_state(reward_cycle_3, &state_3)
+            .expect("Unable to insert signer state into db");
 
-        // garbage collection for 20 second old blocks, should delete nothing
-        db.garbage_collect_blocks(Duration::from_secs(20))
+        // garbage collection for a reward cycle equal to or less than the second oldest reward cycle, should result in zero change
+        db.cleanup_stale_reward_cycles(reward_cycle_1.saturating_sub(1))
+            .expect("Failed to garbage collect blocks");
+        db.cleanup_stale_reward_cycles(reward_cycle_1)
+            .expect("Failed to garbage collect blocks");
+        db.cleanup_stale_reward_cycles(reward_cycle_2)
             .expect("Failed to garbage collect blocks");
         assert!(db
-            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
+            .block_lookup(reward_cycle_1, &block_1.header.signer_signature_hash())
             .unwrap()
             .is_some());
         assert!(db
-            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .block_lookup(reward_cycle_2, &block_2.header.signer_signature_hash())
             .unwrap()
             .is_some());
         assert!(db
-            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .block_lookup(reward_cycle_2, &block_3.header.signer_signature_hash())
             .unwrap()
             .is_some());
+        assert!(db
+            .block_lookup(reward_cycle_3, &block_4.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_some());
+        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_some());
+        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_some());
 
-        // garbage collection for 3 second old blocks, should delete the first block
-        db.garbage_collect_blocks(Duration::from_secs(3))
+        // garbage collection where the current reward cycle is reward_cycle_3 should remove all reward cyles less than reward_cycle_2;
+        db.cleanup_stale_reward_cycles(reward_cycle_3)
             .expect("Failed to garbage collect blocks");
         assert!(db
-            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
+            .block_lookup(reward_cycle_1, &block_1.header.signer_signature_hash())
             .unwrap()
             .is_none());
         assert!(db
-            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .block_lookup(reward_cycle_2, &block_2.header.signer_signature_hash())
             .unwrap()
             .is_some());
         assert!(db
-            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .block_lookup(reward_cycle_2, &block_3.header.signer_signature_hash())
             .unwrap()
             .is_some());
+        assert!(db
+            .block_lookup(reward_cycle_3, &block_4.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_none());
+        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_some());
+        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_some());
 
-        // garbage collection all blocks
-        db.garbage_collect_blocks(Duration::from_secs(0))
+        // garbage collection where the current reward cycle is greater than reward_cycle_3 + 1 should flush the rest of the database
+        db.cleanup_stale_reward_cycles(reward_cycle_3.wrapping_add(2))
             .expect("Failed to garbage collect blocks");
         assert!(db
-            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .block_lookup(reward_cycle_1, &block_1.header.signer_signature_hash())
             .unwrap()
             .is_none());
         assert!(db
-            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .block_lookup(reward_cycle_2, &block_2.header.signer_signature_hash())
             .unwrap()
-            .is_some());
+            .is_none());
+        assert!(db
+            .block_lookup(reward_cycle_2, &block_3.header.signer_signature_hash())
+            .unwrap()
+            .is_none());
+        assert!(db
+            .block_lookup(reward_cycle_3, &block_4.header.signer_signature_hash())
+            .unwrap()
+            .is_none());
+
+        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_none());
+        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_none());
+        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_none());
     }
 }

@@ -20,6 +20,7 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::util_lib::db::Error as DBError;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -30,6 +31,7 @@ use wsts::state_machine::OperationResult;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
+use crate::signerdb::SignerDb;
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -294,6 +296,9 @@ impl RunLoop {
             }
         }
         self.cleanup_stale_signers(current_reward_cycle);
+        if let Err(e) = self.cleanup_stale_data(current_reward_cycle) {
+            error!("Failed to cleanup stale signer data: {e}");
+        }
         if self.stacks_signers.is_empty() {
             self.state = State::NoRegisteredSigners;
         } else {
@@ -314,6 +319,14 @@ impl RunLoop {
         for idx in to_delete {
             self.stacks_signers.remove(&idx);
         }
+    }
+
+    fn cleanup_stale_data(&self, current_reward_cycle: u64) -> Result<(), DBError> {
+        // Open a new db connection to delete data as we may call this when no signer exists
+        // for the current reward cycle, but we still need to cleanup stale data.
+        let mut db = SignerDb::new(&self.config.db_path)?;
+        db.cleanup_stale_reward_cycles(current_reward_cycle)?;
+        Ok(())
     }
 }
 
