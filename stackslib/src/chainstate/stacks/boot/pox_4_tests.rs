@@ -6311,6 +6311,7 @@ fn delegate_stack_increase() {
 pub fn pox_4_scenario_test_setup<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
+    initial_balances: Vec<(PrincipalData, u64)>
 ) -> (
     TestPeer<'a>,
     usize,
@@ -6340,6 +6341,7 @@ pub fn pox_4_scenario_test_setup<'a>(
         .push(boot_code_id(MINERS_NAME, false));
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); 
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.initial_balances.append(&mut initial_balances.clone());
     peer_config.burnchain.pox_constants.v2_unlock_height = 81;
     peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
     peer_config.burnchain.pox_constants.v3_unlock_height = 102;
@@ -6399,62 +6401,7 @@ fn test_scenario_one() {
     ];
 
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_one", &observer);
-    // let test_signers = TestSigners::default();
-    // let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    // let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    // let private_key = peer_config.private_key.clone();
-    // let addr = StacksAddress::from_public_keys(
-    //     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    //     &AddressHashMode::SerializeP2PKH,
-    //     1,
-    //     &vec![StacksPublicKey::from_private(&private_key)],
-    // )
-    // .unwrap();
-
-    // // reward cycles are 5 blocks long
-    // // first 25 blocks are boot-up
-    // // reward cycle 6 instantiates pox-3
-    // // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
-    // peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    // peer_config
-    //     .stacker_dbs
-    //     .push(boot_code_id(MINERS_NAME, false));
-    // peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    // peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    // peer_config.initial_balances.append(&mut initial_balances);
-    // peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    // peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    // peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    // peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    // peer_config.test_signers = Some(test_signers.clone());
-    // peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    // peer_config.burnchain.pox_constants.prepare_length = 5;
-
-    // let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
-    // let mut peer_nonce = 0;
-    // // Set constants
-    // let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    // let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
-
-    // // Advance into pox4
-    // let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
-    // let mut latest_block = None;
-    // // Produce blocks until the first reward phase that everyone should be in
-    // while peer.get_burn_block_height() < u64::from(target_height) {
-    //     latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-    //     observer.get_blocks();
-    // }
-    // let latest_block = latest_block.expect("Failed to get tip");
-    // // Current reward cycle: 5 (starts at burn block 101)
-    // let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    // // Next reward cycle: 6
-    // let next_reward_cycle = reward_cycle.wrapping_add(1);
-    // // Current burn block height: 105
-    // let burn_block_height = peer.get_burn_block_height();
-    // // Current stack block height: 25
-    // let current_block_height = peer.config.current_block;
-    // let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_one", &observer, initial_balances);
 
     // Alice Signatures
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -6584,11 +6531,6 @@ fn test_scenario_one() {
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
-    // Loop through & print the transaction receipt for every transction in tx_block
-    for i in 0..tx_block.receipts.len() {
-        let receipt = &tx_block.receipts.get(i).unwrap().result;
-        println!("First active block receipt: {:?}", receipt);
-    }
     // Verify Alice stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
         get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find alice initial stack-stx");
@@ -6851,64 +6793,14 @@ fn test_scenario_two() {
     let mut dave = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let observer = TestEventObserver::new();
-    let test_signers = TestSigners::default();
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
         (dave.principal.clone(), default_initial_balances),
     ];
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
-
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
-
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
-    let mut peer_nonce = 0;
-    // Set constants
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
-
-    // Advance into pox4
-    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = None;
-    // Produce blocks until the first reward phase that everyone should be in
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-        observer.get_blocks();
-    }
-    let latest_block = latest_block.expect("Failed to get tip");
-    // Current reward cycle: 5 (starts at burn block 101)
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    // Next reward cycle: 6
-    let next_reward_cycle = reward_cycle.wrapping_add(1);
-    // Current burn block height: 105
-    let burn_block_height = peer.get_burn_block_height();
-    // Current stack block height: 25
-    let current_block_height = peer.config.current_block;
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let observer = TestEventObserver::new();
+    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_two", &observer, initial_balances);
 
     // Alice Signature For Carl
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7010,7 +6902,7 @@ fn test_scenario_two() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
@@ -7128,7 +7020,7 @@ fn test_scenario_two() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7138,7 +7030,7 @@ fn test_scenario_two() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7148,7 +7040,7 @@ fn test_scenario_two() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         3,
         next_reward_cycle,
     );
@@ -7158,7 +7050,7 @@ fn test_scenario_two() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7244,9 +7136,7 @@ fn test_scenario_three() {
     let mut grace = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let observer = TestEventObserver::new();
-    let mut test_signers = TestSigners::default();
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
@@ -7255,53 +7145,10 @@ fn test_scenario_three() {
         (frank.principal.clone(), default_initial_balances),
         (grace.principal.clone(), default_initial_balances),
     ];
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
+    let observer = TestEventObserver::new();
+    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_three", &observer, initial_balances);
 
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
-
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
-    let mut peer_nonce = 0;
-
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
-
-    // Advance into pox4
-    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = None;
-    // produce blocks until the first reward phase that everyone should be in
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-        observer.get_blocks();
-    }
-    let latest_block = latest_block.expect("Failed to get tip");
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    let next_reward_cycle = reward_cycle.wrapping_add(1);
-    let burn_block_height = peer.get_burn_block_height();
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let lock_period = 2;
-
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
     let alice_signature_for_alice_err = make_signer_key_signature(
         &alice.pox_address,
@@ -7539,7 +7386,7 @@ fn test_scenario_three() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
@@ -7746,59 +7593,12 @@ fn test_scenario_four() {
     let mut bob = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let observer = TestEventObserver::new();
-    let test_signers = TestSigners::default();
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
-
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
-
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
-    let mut peer_nonce = 0;
-    // Set constants
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
-
-    // Advance into pox4
-    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = None;
-    // Produce blocks until the first reward phase that everyone should be in
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-        observer.get_blocks();
-    }
-    let latest_block = latest_block.expect("Failed to get tip");
-    // Current reward cycle: 5 (starts at burn block 101)
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    let next_reward_cycle = reward_cycle.wrapping_add(1);
-    // Current burn block height: 105
-    let burn_block_height = peer.get_burn_block_height();
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let observer = TestEventObserver::new();
+    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_four", &observer, initial_balances);
 
     // Initial Alice Signature
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7878,7 +7678,7 @@ fn test_scenario_four() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
@@ -7914,7 +7714,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7924,7 +7724,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7934,7 +7734,7 @@ fn test_scenario_four() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7989,7 +7789,7 @@ fn test_scenario_four() {
 
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, test_signers.aggregate_public_key);
+    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 
     // Alice stack-extend err tx
     let alice_extend_err = make_pox_4_extend(
@@ -8023,7 +7823,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         7,
     );
@@ -8724,8 +8524,6 @@ fn test_scenario_five() {
     let mut mallory = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let observer = TestEventObserver::new();
-    let mut test_signers = TestSigners::default();
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
@@ -8739,51 +8537,8 @@ fn test_scenario_five() {
         (jude.principal.clone(), default_initial_balances),
         (mallory.principal.clone(), default_initial_balances),
     ];
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
-
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
-
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
-    let mut peer_nonce = 0;
-
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
-
-    // Advance into pox4
-    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = None;
-    // produce blocks until the first reward phase that everyone should be in
-    while peer.get_burn_block_height() < u64::from(target_height) {
-        latest_block = Some(peer.tenure_with_txs(&[], &mut peer_nonce));
-        observer.get_blocks();
-    }
-    let latest_block = latest_block.expect("Failed to get tip");
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
-    let next_reward_cycle = reward_cycle.wrapping_add(1);
-    let burn_block_height = peer.get_burn_block_height();
-    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let observer = TestEventObserver::new();
+    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, mut peer_config) = pox_4_scenario_test_setup("test_scenario_five", &observer, initial_balances);
 
     // Lock periods for each stacker
     let carl_lock_period = 3;
@@ -9033,7 +8788,7 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
@@ -9083,7 +8838,7 @@ fn test_scenario_five() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9091,7 +8846,7 @@ fn test_scenario_five() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9099,7 +8854,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9135,7 +8890,7 @@ fn test_scenario_five() {
     }
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, test_signers.aggregate_public_key);
+    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 
     // Stack for following reward cycle again and then advance to epoch 3.0 activation boundary
     let reward_cycle = peer.get_reward_cycle() as u128;
@@ -9215,7 +8970,7 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
@@ -9262,12 +9017,13 @@ fn test_scenario_five() {
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
     let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
 
-    test_signers.generate_aggregate_key(cycle_id as u64);
+    peer_config.aggregate_public_key = Some(peer_config.test_signers.unwrap().generate_aggregate_key(cycle_id as u64));
+    //test_signers.generate_aggregate_key(cycle_id as u64);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9275,7 +9031,7 @@ fn test_scenario_five() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9283,7 +9039,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &test_signers.aggregate_public_key,
+        &peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9319,7 +9075,7 @@ fn test_scenario_five() {
     }
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, test_signers.aggregate_public_key);
+    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 
     // Let us start stacking for the following reward cycle
     let current_reward_cycle = peer.get_reward_cycle() as u128;
@@ -9402,7 +9158,7 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(prepare_phase_len as u64)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     // This assertion just makes testing logic a bit easier
     let davids_stackers = &[
