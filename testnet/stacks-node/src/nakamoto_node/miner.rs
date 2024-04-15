@@ -550,13 +550,13 @@ impl BlockMinerThread {
         {
             if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                 // Do an extra check just so we don't log EVERY time.
-                debug!("Broadcasting is stalled due to testing directive.";
+                warn!("Broadcasting is stalled due to testing directive.";
                     "block_id" => %block.block_id()
                 );
                 while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                debug!("Broadcasting is no longer stalled due to testing directive.";
+                info!("Broadcasting is no longer stalled due to testing directive.";
                     "block_id" => %block.block_id()
                 );
             }

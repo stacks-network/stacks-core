@@ -3195,6 +3195,7 @@ fn forked_tenure_is_ignored() {
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
+        naka_mined_blocks: mined_blocks,
         ..
     } = run_loop.counters();
 
@@ -3232,7 +3233,7 @@ fn forked_tenure_is_ignored() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    debug!("Starting tenure A.");
+    info!("Starting tenure A.");
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -3241,33 +3242,43 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     // second block should confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
-
-    // Wait a bit for a stacks block to be mined and broadcasted as part of tenure A
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
-    // Do not submit the commit op and do not allow stacks blocks to be broadcasted
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    debug!("Starting tenure B.");
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count > commits_before)
     })
     .unwrap();
-    // Wait a bit for a stacks block to be mined (but not broadcasted)
-    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // In the next block, the miner should win the tenure and submit a stacks block
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        Ok(commits_count > commits_before && blocks_count > blocks_before)
+    })
+    .unwrap();
+
+    // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    info!("Starting tenure B.");
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count > commits_before)
+    })
+    .unwrap();
     signer_vote_if_needed(
         &btc_regtest_controller,
         &naka_conf,
         &[sender_signer_sk],
         &signers,
     );
-    debug!("Starting tenure C.");
+
+    // Wait a bit for a stacks block to be mined (but not broadcasted)
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    info!("Starting tenure C.");
     // Submit a block commit op for tenure C
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -3275,19 +3286,19 @@ fn forked_tenure_is_ignored() {
         Ok(commits_count > commits_before)
     })
     .unwrap();
-    // Wait a bit for a the block commit to be mined
-    std::thread::sleep(std::time::Duration::from_secs(10));
-    // Unpause the broadcast of Tenure B's block
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
-    // Wait a bit for a the block commit to be mined
-    std::thread::sleep(std::time::Duration::from_secs(10));
     signer_vote_if_needed(
         &btc_regtest_controller,
         &naka_conf,
         &[sender_signer_sk],
         &signers,
     );
+
     // Submit a TX
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+
+    // Unpause the broadcast of Tenure B's block
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
     let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
@@ -3310,6 +3321,10 @@ fn forked_tenure_is_ignored() {
             &StacksEpochId::Epoch30,
         )
         .unwrap();
+
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
 
     debug!("Mining tenure D.");
     // Mine 1 more nakamoto tenures
