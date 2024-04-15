@@ -6311,7 +6311,7 @@ fn delegate_stack_increase() {
 pub fn pox_4_scenario_test_setup<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
-    initial_balances: Vec<(PrincipalData, u64)>
+    initial_balances: Vec<(PrincipalData, u64)>,
 ) -> (
     TestPeer<'a>,
     usize,
@@ -6320,7 +6320,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     u128,
     u128,
     u128,
-    TestPeerConfig
+    TestPeerConfig,
 ) {
     // Setup code extracted from your original test
     let test_signers = TestSigners::default();
@@ -6339,9 +6339,11 @@ pub fn pox_4_scenario_test_setup<'a>(
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); 
+    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances.clone());
+    peer_config
+        .initial_balances
+        .append(&mut initial_balances.clone());
     peer_config.burnchain.pox_constants.v2_unlock_height = 81;
     peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
     peer_config.burnchain.pox_constants.v3_unlock_height = 102;
@@ -6380,7 +6382,7 @@ pub fn pox_4_scenario_test_setup<'a>(
         reward_cycle as u128,
         next_reward_cycle as u128,
         min_ustx as u128,
-        peer_config.clone()
+        peer_config.clone(),
     )
 }
 
@@ -6394,14 +6396,23 @@ fn test_scenario_one() {
     let mut alice = StackerSignerInfo::new();
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
-    let default_initial_balances:u64 = 1_000_000_000_000_000_000;
+    let default_initial_balances: u64 = 1_000_000_000_000_000_000;
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
 
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_one", &observer, initial_balances);
+    let (
+        mut peer,
+        mut peer_nonce,
+        burn_block_height,
+        target_height,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
+        peer_config,
+    ) = pox_4_scenario_test_setup("test_scenario_one", &observer, initial_balances);
 
     // Alice Signatures
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -6533,13 +6544,15 @@ fn test_scenario_one() {
 
     // Verify Alice stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
-        get_stacker_info_pox_4(&mut peer, &alice.principal).expect("Failed to find alice initial stack-stx");
+        get_stacker_info_pox_4(&mut peer, &alice.principal)
+            .expect("Failed to find alice initial stack-stx");
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, alice.pox_address);
 
     // Verify Bob stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
-        get_stacker_info_pox_4(&mut peer, &bob.principal).expect("Failed to find bob initial stack-stx");
+        get_stacker_info_pox_4(&mut peer, &bob.principal)
+            .expect("Failed to find bob initial stack-stx");
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, bob.pox_address);
 
@@ -6800,7 +6813,16 @@ fn test_scenario_two() {
         (dave.principal.clone(), default_initial_balances),
     ];
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_two", &observer, initial_balances);
+    let (
+        mut peer,
+        mut peer_nonce,
+        burn_block_height,
+        target_height,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
+        peer_config,
+    ) = pox_4_scenario_test_setup("test_scenario_two", &observer, initial_balances);
 
     // Alice Signature For Carl
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7146,7 +7168,16 @@ fn test_scenario_three() {
         (grace.principal.clone(), default_initial_balances),
     ];
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_three", &observer, initial_balances);
+    let (
+        mut peer,
+        mut peer_nonce,
+        burn_block_height,
+        target_height,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
+        peer_config,
+    ) = pox_4_scenario_test_setup("test_scenario_three", &observer, initial_balances);
 
     let lock_period = 2;
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7598,7 +7629,16 @@ fn test_scenario_four() {
         (bob.principal.clone(), default_initial_balances),
     ];
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, peer_config) = pox_4_scenario_test_setup("test_scenario_four", &observer, initial_balances);
+    let (
+        mut peer,
+        mut peer_nonce,
+        burn_block_height,
+        target_height,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
+        peer_config,
+    ) = pox_4_scenario_test_setup("test_scenario_four", &observer, initial_balances);
 
     // Initial Alice Signature
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -8538,7 +8578,16 @@ fn test_scenario_five() {
         (mallory.principal.clone(), default_initial_balances),
     ];
     let observer = TestEventObserver::new();
-    let (mut peer, mut peer_nonce, burn_block_height, target_height, reward_cycle, next_reward_cycle, min_ustx, mut peer_config) = pox_4_scenario_test_setup("test_scenario_five", &observer, initial_balances);
+    let (
+        mut peer,
+        mut peer_nonce,
+        burn_block_height,
+        target_height,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
+        mut peer_config,
+    ) = pox_4_scenario_test_setup("test_scenario_five", &observer, initial_balances);
 
     // Lock periods for each stacker
     let carl_lock_period = 3;
@@ -9017,7 +9066,12 @@ fn test_scenario_five() {
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
     let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
 
-    peer_config.aggregate_public_key = Some(peer_config.test_signers.unwrap().generate_aggregate_key(cycle_id as u64));
+    peer_config.aggregate_public_key = Some(
+        peer_config
+            .test_signers
+            .unwrap()
+            .generate_aggregate_key(cycle_id as u64),
+    );
     //test_signers.generate_aggregate_key(cycle_id as u64);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,

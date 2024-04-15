@@ -525,7 +525,6 @@ pub fn get_signer_index(
     .expect_list()
     .unwrap();
 
-    debug!("Here is the list of signers: {signers:?}");
     signers
         .iter()
         .position(|value| {

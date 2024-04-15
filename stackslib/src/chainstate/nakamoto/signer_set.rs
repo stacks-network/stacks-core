@@ -292,8 +292,6 @@ impl NakamotoSigners {
                 .collect()
         };
 
-        debug!("PRINTING THE SIGNER LIST: {signers_list:?}");
-
         if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
             panic!(
                 "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
