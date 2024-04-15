@@ -58,7 +58,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
         tupleCV({
           "amount-ustx": Cl.uint(wallet.delegatedMaxAmount),
           "delegated-to": Cl.principal(
-            this.wallet.stxAddress /*operatorWallet.stxAddress*/ || "",
+            model.stackers.get(this.wallet.stxAddress)!.delegatedTo /*operatorWallet.stxAddress*/ || "",
           ),
           "pox-addr": Cl.some(
             poxAddressToTuple(wallet.delegatedPoxAddress || ""),

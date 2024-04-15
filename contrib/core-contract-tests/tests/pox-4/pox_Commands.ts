@@ -1,5 +1,5 @@
 import fc from "fast-check";
-import { Real, Stub, StxAddress, Wallet } from "./pox_CommandModel";
+import { Real, Stacker, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxCommand } from "./pox_StackStxCommand";
@@ -20,6 +20,7 @@ import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerComma
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
+  stackers: Map<StxAddress, Stacker>,
   network: Simnet,
 ): fc.Arbitrary<Iterable<fc.Command<Stub, Real>>> {
   const cmds = [
@@ -157,9 +158,10 @@ export function PoxCommands(
       wallet: fc.constantFrom(...wallets.values()),
       currentCycle: fc.constant(currentCycle(network)),
     }).chain((r) => {
+      const operator = stackers.get(r.wallet.stxAddress)!
       const committedRewCycleIndexesOrFallback =
-        r.wallet.committedRewCycleIndexes.length > 0
-          ? r.wallet.committedRewCycleIndexes
+        operator.committedRewCycleIndexes.length > 0
+          ? operator.committedRewCycleIndexes
           : [-1];
       return fc.record({
         rewardCycleIndex: fc.constantFrom(
@@ -200,9 +202,10 @@ export function PoxCommands(
       }),
       period: fc.integer({ min: 1, max: 12 }),
     }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!
       // Determine available stackers based on the operator
-      const availableStackers = r.operator.poolMembers.length > 0
-        ? r.operator.poolMembers
+      const availableStackers = operator.poolMembers.length > 0
+        ? operator.poolMembers
         : [r.operator.stxAddress];
 
       return fc.record({
@@ -224,7 +227,7 @@ export function PoxCommands(
         return fc.record({
           amount: fc.bigInt({
             min: 0n,
-            max: BigInt(resultWithUnlockHeight.stacker.delegatedMaxAmount),
+            max: BigInt(stackers.get(resultWithUnlockHeight.stacker.stxAddress)!.delegatedMaxAmount),
           }),
         }).map((amountProps) => ({
           ...resultWithUnlockHeight,
@@ -247,10 +250,11 @@ export function PoxCommands(
       increaseBy: fc.nat(),
     })
       .chain((r) => {
-        const delegatorsList = r.operator.poolMembers;
+        const operator = stackers.get(r.operator.stxAddress)!
+        const delegatorsList = operator.poolMembers;
 
         const availableStackers = delegatorsList.filter((delegator) => {
-          const delegatorWallet = wallets.get(delegator)!;
+          const delegatorWallet = stackers.get(delegator)!;
           return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
         });
 
@@ -279,9 +283,10 @@ export function PoxCommands(
       operator: fc.constantFrom(...wallets.values()),
       extendCount: fc.integer({ min: 1, max: 11 }),
     }).chain((r) => {
-      const delegatorsList = r.operator.poolMembers;
+      const operator = stackers.get(r.operator.stxAddress)!
+      const delegatorsList = operator.poolMembers;
       const availableStackers = delegatorsList.filter((delegator) => {
-        const delegatorWallet = wallets.get(delegator)!;
+        const delegatorWallet = stackers.get(delegator)!;
         return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
       });
 

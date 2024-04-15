@@ -115,7 +115,7 @@ it("statefully interacts with PoX-4", async () => {
   const model = new Stub(
     new Map(wallets.map((wallet) => [wallet.stxAddress, wallet])),
     new Map(wallets.map((wallet) => [wallet.stxAddress, {
-      ustxBalance: 0,
+      ustxBalance: 100_000_000_000_000,
       isStacking: false,
       hasDelegated: false,
       lockedAddresses: [],
@@ -126,7 +126,7 @@ it("statefully interacts with PoX-4", async () => {
       delegatedUntilBurnHt: 0,
       delegatedPoxAddress: "",
       amountLocked: 0,
-      amountUnlocked: 0,
+      amountUnlocked: 100_000_000_000_000,
       unlockHeight: 0,
       firstLockedRewardCycle: 0,
       allowedContractCaller: "",
@@ -140,7 +140,7 @@ it("statefully interacts with PoX-4", async () => {
 
   fc.assert(
     fc.property(
-      PoxCommands(model.wallets, sut.network),
+      PoxCommands(model.wallets, model.stackers, sut.network),
       (cmds) => {
         const initialState = () => ({ model: model, real: sut });
         fc.modelRun(initialState, cmds);
