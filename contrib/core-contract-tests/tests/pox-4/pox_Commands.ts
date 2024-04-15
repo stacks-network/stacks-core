@@ -156,6 +156,7 @@ export function PoxCommands(
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       currentCycle: fc.constant(currentCycle(network)),
+      authId: fc.nat(),
     }).chain((r) => {
       const committedRewCycleIndexesOrFallback =
         r.wallet.committedRewCycleIndexes.length > 0
@@ -171,12 +172,14 @@ export function PoxCommands(
         wallet: Wallet;
         currentCycle: number;
         rewardCycleIndex: number;
+        authId: number;
       },
     ) =>
       new StackAggregationIncreaseCommand(
         r.wallet,
         r.currentCycle,
         r.rewardCycleIndex,
+        r.authId,
       )
     ),
     // RevokeDelegateStxCommand
