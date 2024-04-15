@@ -8738,6 +8738,8 @@ fn test_scenario_five() {
         (jude.clone(), jude_lock_period),
         (mallory.clone(), mallory_lock_period),
     ];
+
+    // David calls 'delegate-stack-stx' for each of his stackers
     let davids_delegate_stack_stx_txs: Vec<_> = davids_stackers
         .iter()
         .map(|(stacker, lock_period)| {
@@ -8755,6 +8757,7 @@ fn test_scenario_five() {
         })
         .collect();
 
+    // Eve calls 'delegate-stack-stx' for each of her stackers
     let eves_delegate_stack_stx_txs: Vec<_> = eves_stackers
         .iter()
         .map(|(stacker, lock_period)| {
@@ -8771,7 +8774,8 @@ fn test_scenario_five() {
             tx
         })
         .collect();
-
+    
+    // Alice's authorization for David to aggregate commit
     let alice_authorization_for_david = make_signer_key_signature(
         &david.pox_address,
         &alice.private_key,
@@ -8782,6 +8786,7 @@ fn test_scenario_five() {
         1,
     );
 
+    // David aggregate commits
     let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
         &david.private_key,
         david.nonce,
@@ -8794,6 +8799,7 @@ fn test_scenario_five() {
     );
     david.nonce += 1;
 
+    // Bob's authorization for Eve to aggregate commit
     let bob_authorization_for_eve = make_signer_key_signature(
         &eve.pox_address,
         &bob.private_key,
@@ -8804,6 +8810,7 @@ fn test_scenario_five() {
         1,
     );
 
+    // Eve aggregate commits
     let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
         &eve.private_key,
         eve.nonce,
@@ -8841,6 +8848,8 @@ fn test_scenario_five() {
         .wrapping_add(2);
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+
+    // Check that all of David's stackers have been added to the reward set
     for (stacker, stacker_lock_period) in davids_stackers {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
@@ -8849,6 +8858,7 @@ fn test_scenario_five() {
         assert_eq!(lock_period, *stacker_lock_period);
     }
 
+    // Check that all of Eve's stackers have been added to the reward set
     for (stacker, stacker_lock_period) in eves_stackers {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
@@ -8856,6 +8866,7 @@ fn test_scenario_five() {
         assert_eq!(pox_address, eve.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
     }
+    // Check that Carl's stacker has been added to the reward set
     let (pox_address, first_reward_cycle, lock_period, _indices) =
         get_stacker_info_pox_4(&mut peer, &carl.principal).expect("Failed to find stacker");
     assert_eq!(first_reward_cycle, next_reward_cycle);
@@ -8878,11 +8889,10 @@ fn test_scenario_five() {
     }
 
     let cycle_id = next_reward_cycle;
-    // create vote txs
+    // Create vote txs for each signer
     let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
     let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
-
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -8912,6 +8922,7 @@ fn test_scenario_five() {
     bob.nonce += 1;
     carl.nonce += 1;
 
+    // Mine vote txs & advance to the reward set calculation of the next reward cycle
     let target_height = peer
         .config
         .burnchain
@@ -8954,6 +8965,7 @@ fn test_scenario_five() {
         u128::MAX,
         2,
     );
+    // Carl extends his lock period by 3 cycles
     let carl_extend_tx = make_pox_4_extend(
         &carl.private_key,
         carl.nonce,
@@ -8974,7 +8986,7 @@ fn test_scenario_five() {
         u128::MAX,
         2,
     );
-
+    // David commits his aggregate for the next reward cycle
     let davids_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
         &david.private_key,
         david.nonce,
@@ -8996,7 +9008,7 @@ fn test_scenario_five() {
         u128::MAX,
         2,
     );
-
+    // Eve commits her aggregate for the next reward cycle
     let eves_aggregate_commit_index_tx = make_pox_4_aggregation_commit_indexed(
         &eve.private_key,
         eve.nonce,
@@ -9024,6 +9036,7 @@ fn test_scenario_five() {
     let (latest_block, tx_block) =
         advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
 
+    // Check that all of David's stackers are stacked
     for (stacker, stacker_lock_period) in davids_stackers {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
@@ -9031,7 +9044,7 @@ fn test_scenario_five() {
         assert_eq!(pox_address, david.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
     }
-
+    // Check that all of Eve's stackers are stacked
     for (stacker, stacker_lock_period) in eves_stackers {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
@@ -9061,18 +9074,17 @@ fn test_scenario_five() {
     }
 
     let cycle_id = next_reward_cycle;
-    // create vote txs
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
-
+    // Generate next cycle aggregate public key
     peer_config.aggregate_public_key = Some(
         peer_config
             .test_signers
             .unwrap()
             .generate_aggregate_key(cycle_id as u64),
     );
-    //test_signers.generate_aggregate_key(cycle_id as u64);
+    // create vote txs
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
+    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -9106,6 +9118,7 @@ fn test_scenario_five() {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
+    // Submit vote transactions
     let (latest_block, tx_block) = advance_to_block_height(
         &mut peer,
         &observer,
