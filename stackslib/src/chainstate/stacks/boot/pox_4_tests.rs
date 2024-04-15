@@ -8774,7 +8774,7 @@ fn test_scenario_five() {
             tx
         })
         .collect();
-    
+
     // Alice's authorization for David to aggregate commit
     let alice_authorization_for_david = make_signer_key_signature(
         &david.pox_address,
