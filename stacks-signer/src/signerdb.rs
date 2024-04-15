@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::path::Path;
+use std::time::Duration;
 
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
+    insertion_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
@@ -136,6 +138,8 @@ impl SignerDb {
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
         let signed_over = &block_info.signed_over;
+        let insertion_time = chrono::Utc::now();
+        debug!("Insertion time: {insertion_time:?}");
         debug!(
             "Inserting block_info: reward_cycle = {reward_cycle}, sighash = {hash}, block_id = {block_id}, signed = {signed_over} vote = {:?}",
             block_info.vote.as_ref().map(|v| {
@@ -152,6 +156,16 @@ impl SignerDb {
                 params![&u64_to_sql(reward_cycle)?, hash.to_string(), &block_json],
             )?;
 
+        Ok(())
+    }
+
+    /// Delete blocks from the database that were inserted longer than the given duration ago
+    pub fn garbage_collect_blocks(&self, duration: Duration) -> Result<(), DBError> {
+        let threshold_time = chrono::Utc::now() - duration;
+        self.db.execute(
+            "DELETE FROM blocks WHERE datetime(insertion_time) < datetime(?)",
+            params![threshold_time],
+        )?;
         Ok(())
     }
 }
@@ -371,5 +385,88 @@ mod tests {
             .get_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
+    }
+
+    #[test]
+    fn garbage_collect_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle = 42;
+        // Create three different blocks
+        let (block_info_1, block_1) = create_block();
+        let (block_info_2, block_2) = create_block_override(|b| {
+            b.header.consensus_hash = ConsensusHash([0x10; 20]);
+        });
+        let (block_info_3, block_3) = create_block_override(|b| {
+            b.header.consensus_hash = ConsensusHash([0x11; 20]);
+        });
+
+        // Insert the three blocks at clearly different times
+        db.insert_block(reward_cycle, &block_info_1)
+            .expect("Unable to insert block into db");
+        std::thread::sleep(Duration::from_secs(3));
+        db.insert_block(reward_cycle, &block_info_2)
+            .expect("Unable to insert block into db");
+        std::thread::sleep(Duration::from_secs(3));
+        db.insert_block(reward_cycle, &block_info_3)
+            .expect("Unable to insert block into db");
+
+        // Assert that all of the blocks are there
+        assert!(db
+            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db
+            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db
+            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+
+        // garbage collection for 20 second old blocks, should delete nothing
+        db.garbage_collect_blocks(Duration::from_secs(20))
+            .expect("Failed to garbage collect blocks");
+        assert!(db
+            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db
+            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db
+            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+
+        // garbage collection for 3 second old blocks, should delete the first block
+        db.garbage_collect_blocks(Duration::from_secs(3))
+            .expect("Failed to garbage collect blocks");
+        assert!(db
+            .block_lookup(reward_cycle, &block_1.header.signer_signature_hash())
+            .unwrap()
+            .is_none());
+        assert!(db
+            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+        assert!(db
+            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
+
+        // garbage collection all blocks
+        db.garbage_collect_blocks(Duration::from_secs(0))
+            .expect("Failed to garbage collect blocks");
+        assert!(db
+            .block_lookup(reward_cycle, &block_2.header.signer_signature_hash())
+            .unwrap()
+            .is_none());
+        assert!(db
+            .block_lookup(reward_cycle, &block_3.header.signer_signature_hash())
+            .unwrap()
+            .is_some());
     }
 }

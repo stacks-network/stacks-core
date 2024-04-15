@@ -21,6 +21,7 @@ path = "src/main.rs"
 
 [dependencies]
 backoff = "0.4"
+chrono = "0.4.19"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = { workspace = true }
@@ -51,7 +52,7 @@ num-traits = "0.2.18"
 
 [dependencies.rusqlite]
 version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "chrono"]
 
 [dependencies.serde_json]
 version = "1.0"
