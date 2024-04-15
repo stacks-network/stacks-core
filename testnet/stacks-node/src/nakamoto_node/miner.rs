@@ -830,7 +830,7 @@ impl BlockMinerThread {
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
-            signer_bitvec_len.unwrap_or(1),
+            signer_bitvec_len.unwrap_or(0),
         )
         .map_err(|e| {
             if !matches!(

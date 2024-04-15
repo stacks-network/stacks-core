@@ -3515,15 +3515,14 @@ impl SortitionDB {
         let Some(reward_set) = reward_info.known_selected_anchor_block() else {
             return None;
         };
-        Some(
-            reward_set
-                .signers
-                .clone()
-                .map(|x| x.len())
-                .unwrap_or(0)
-                .try_into()
-                .expect("FATAL: size of reward set is larger than u16"),
-        )
+
+        reward_set
+            .signers
+            .clone()
+            .map(|x| x.len())
+            .unwrap_or(0)
+            .try_into()
+            .ok()
     }
 }
 
