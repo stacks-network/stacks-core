@@ -7,7 +7,7 @@ import {
 } from "./pox_CommandModel.ts";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
-import { Cl, ClarityType, ClarityValue, cvToJSON, cvToValue, isClarityType } from "@stacks/transactions";
+import { Cl, ClarityType, ClarityValue, cvToValue, isClarityType } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
 
 /**
