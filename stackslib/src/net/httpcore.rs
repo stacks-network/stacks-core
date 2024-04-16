@@ -552,6 +552,11 @@ impl StacksHttpRequest {
         self.send(&mut ret)?;
         Ok(ret)
     }
+
+    #[cfg(test)]
+    pub fn get_response_handler_index(&self) -> Option<usize> {
+        self.response_handler_index
+    }
 }
 
 /// A received HTTP response (fully decoded in RAM)
