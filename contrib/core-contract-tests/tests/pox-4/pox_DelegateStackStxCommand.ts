@@ -7,7 +7,7 @@ import {
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
-import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
+import { Cl, ClarityType, ClarityValue, cvToValue, isClarityType } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
 
 /**
@@ -32,7 +32,6 @@ import { currentCycle } from "./pox_Commands.ts";
 export class DelegateStackStxCommand implements PoxCommand {
   readonly operator: Wallet;
   readonly stacker: Wallet;
-  readonly startBurnHt: number;
   readonly period: number;
   readonly amountUstx: bigint;
   readonly unlockBurnHt: number;
@@ -43,7 +42,6 @@ export class DelegateStackStxCommand implements PoxCommand {
    *
    * @param operator - Represents the Pool Operator's wallet.
    * @param stacker - Represents the STacker's wallet.
-   * @param startBurnHt - A burn height inside the current reward cycle.
    * @param period - Number of reward cycles to lock uSTX.
    * @param amountUstx - The uSTX amount stacked by the Operator on behalf
    *                     of the Stacker.
@@ -52,14 +50,12 @@ export class DelegateStackStxCommand implements PoxCommand {
   constructor(
     operator: Wallet,
     stacker: Wallet,
-    startBurnHt: number,
     period: number,
     amountUstx: bigint,
     unlockBurnHt: number,
   ) {
     this.operator = operator;
     this.stacker = stacker;
-    this.startBurnHt = startBurnHt;
     this.period = period;
     this.amountUstx = amountUstx;
     this.unlockBurnHt = unlockBurnHt;
@@ -98,6 +94,8 @@ export class DelegateStackStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+    const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
+    const burnBlockHeight = Number(cvToValue(burnBlockHeightCV as ClarityValue));
 
     // Act
     const delegateStackStx = real.network.callPublicFn(
@@ -111,7 +109,7 @@ export class DelegateStackStxCommand implements PoxCommand {
         // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
         poxAddressToTuple(this.operator.btcAddress),
         // (start-burn-ht uint)
-        Cl.uint(this.startBurnHt),
+        Cl.uint(burnBlockHeight),
         // (lock-period uint)
         Cl.uint(this.period),
       ],
@@ -120,7 +118,7 @@ export class DelegateStackStxCommand implements PoxCommand {
     const { result: rewardCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
-      [Cl.uint(real.network.blockHeight)],
+      [Cl.uint(burnBlockHeight)],
       this.operator.stxAddress,
     );
     assert(isClarityType(rewardCycle, ClarityType.UInt));
@@ -179,6 +177,6 @@ export class DelegateStackStxCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.operator.label} delegate-stack-stx period ${this.period}`;
+    return `${this.operator.label} delegate-stack-stx stacker ${this.stacker.label} period ${this.period}`;
   }
 }

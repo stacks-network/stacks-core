@@ -47,7 +47,9 @@ export class Stub {
 
   refreshStateForNextRewardCycle(real: Real) {
     const burnBlockHeightResult = real.network.runSnippet("burn-block-height");
-    const burnBlockHeight = cvToValue(burnBlockHeightResult as ClarityValue);
+    const burnBlockHeight = Number(
+      cvToValue(burnBlockHeightResult as ClarityValue),
+    );
     const lastRefreshedCycle = this.lastRefreshedCycle;
     const currentRewCycle = Math.floor((Number(burnBlockHeight) - 0) / 1050);
 
@@ -57,13 +59,13 @@ export class Stub {
       this.wallets.forEach((w) => {
         const wallet = this.stackers.get(w.stxAddress)!;
         const expiredDelegators = wallet.poolMembers.filter((stackerAddress) =>
-          this.stackers.get(stackerAddress)!.delegatedUntilBurnHt + 1 <
-            burnBlockHeight
+          this.stackers.get(stackerAddress)!.delegatedUntilBurnHt <
+            burnBlockHeight + 1
         );
         const expiredStackers = wallet.lockedAddresses.filter(
           (stackerAddress) =>
-            this.stackers.get(stackerAddress)!.unlockHeight + 1 <=
-              burnBlockHeight,
+            this.stackers.get(stackerAddress)!.unlockHeight <=
+              burnBlockHeight + 1,
         );
 
         expiredDelegators.forEach((expDelegator) => {
@@ -79,7 +81,7 @@ export class Stub {
         });
 
         if (
-          wallet.unlockHeight > 0 && wallet.unlockHeight + 1 <= burnBlockHeight
+          wallet.unlockHeight > 0 && wallet.unlockHeight <= burnBlockHeight + 1
         ) {
           wallet.isStacking = false;
           wallet.amountUnlocked += wallet.amountLocked;
@@ -89,8 +91,12 @@ export class Stub {
         }
         wallet.committedRewCycleIndexes = [];
       });
+      this.stackers.forEach((stacker) =>
+        process.stdout.write(`${JSON.stringify(stacker)}\n`)
+      );
+
+      this.lastRefreshedCycle = currentRewCycle;
     }
-    this.lastRefreshedCycle = currentRewCycle;
   }
 }
 
