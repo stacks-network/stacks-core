@@ -402,10 +402,10 @@ impl StacksMessageCodec for SignerMessage {
                 }
             }
             SignerMessageTypePrefix::EncryptedSignerState => {
-                // Typically the size of the signer state is much smaller, but in the fully degenerate case the size of dkg shares is
-                // (2800 + 2800) * 32 (threshold * shares * 32).
-                // The signer state holds some additional information, so we're adding a factor 4 to have some margin
-                let max_encrypted_state_size = (2800 + 2800) * 32 * 4;
+                // Typically the size of the signer state is much smaller, but in the fully degenerate case the size of the persisted state is
+                // 2800 * 32 * 4 + C for some small constant C.
+                // To have some margin, we're expanding the left term with an additional factor 4
+                let max_encrypted_state_size = 2800 * 32 * 4 * 4;
                 let mut bound_reader = BoundReader::from_reader(fd, max_encrypted_state_size);
                 let encrypted_state = read_next::<_, _>(&mut bound_reader)?;
                 SignerMessage::EncryptedSignerState(encrypted_state)
