@@ -44,6 +44,7 @@ use wsts::v2::Aggregator;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
+use crate::neon::Counters;
 use crate::Config;
 
 /// How long should the coordinator poll on the event receiver before
@@ -332,6 +333,7 @@ impl SignCoordinator {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
+        counters: &Counters,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -366,8 +368,18 @@ impl SignCoordinator {
             &mut self.miners_session,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
-
-        //self.globals.counters.bump_naka_proposed_blocks();
+        counters.bump_naka_proposed_blocks();
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if let Some(signature) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
+                return Ok(signature);
+            }
+        }
 
         let Some(ref mut receiver) = self.receiver else {
             return Err(NakamotoNodeError::SigningCoordinatorFailure(

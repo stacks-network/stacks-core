@@ -295,18 +295,6 @@ impl BlockMinerThread {
             ));
         };
 
-        #[cfg(test)]
-        {
-            // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
-            //  channel has been created. This allows integration tests for the stacks-node
-            //  independent of the stacks-signer.
-            if let Some(signature) =
-                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
-            {
-                return Ok((aggregate_public_key, signature));
-            }
-        }
-
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
             &reward_set,
@@ -331,6 +319,7 @@ impl BlockMinerThread {
             &self.burnchain,
             &sort_db,
             &stackerdbs,
+            &self.globals.counters,
         )?;
 
         Ok((aggregate_public_key, signature))
