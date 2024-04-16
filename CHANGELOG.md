@@ -7,7 +7,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.5.0.0.0]
 
-This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `839,444`: primarily the instantiation
+This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `840,360`: primarily the instantiation
 of the pox-4 contract. For more details see SIP-021.
 
 This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
