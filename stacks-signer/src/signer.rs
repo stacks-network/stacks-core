@@ -713,9 +713,8 @@ impl Signer {
             _ => false,
         }) {
             debug!("{self}: Saving signer state");
-            for result in self.save_signer_state() {
-                result.expect(&format!("{self}: Failed to save signer state"))
-            }
+            self.save_signer_state()
+                .expect(&format!("{self}: Failed to save signer state"));
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -1243,10 +1242,20 @@ impl Signer {
     }
 
     /// Persist signer state in both SignerDB and StackerDB
-    fn save_signer_state(&mut self) -> [Result<(), PersistenceError>; 2] {
+    fn save_signer_state(&mut self) -> Result<(), PersistenceError> {
         let rng = &mut OsRng;
-        let signerdb_result = self.save_signer_state_in_signerdb(rng);
-        let stackerdb_result = self.save_signer_state_in_stackerdb(rng);
+
+        let state = self.state_machine.signer.save();
+        let serialized_state = serde_json::to_vec(&state)?;
+
+        let encrypted_state = encrypt(
+            &self.state_machine.network_private_key,
+            &serialized_state,
+            rng,
+        )?;
+
+        let signerdb_result = self.save_signer_state_in_signerdb(&encrypted_state);
+        let stackerdb_result = self.save_signer_state_in_stackerdb(encrypted_state);
 
         if let Err(err) = &signerdb_result {
             warn!("{self}: Failed to persist state in SignerDB: {err}");
@@ -1254,26 +1263,20 @@ impl Signer {
 
         if let Err(err) = &stackerdb_result {
             warn!("{self}: Failed to persist state in StackerDB: {err}");
-        }
 
-        [signerdb_result, stackerdb_result]
+            stackerdb_result
+        } else {
+            signerdb_result
+        }
     }
 
     /// Persist signer state in SignerDB
     fn save_signer_state_in_signerdb(
         &self,
-        rng: &mut impl rand_core::CryptoRngCore,
+        encrypted_state: &[u8],
     ) -> Result<(), PersistenceError> {
-        let state = self.state_machine.signer.save();
-        let serialized_state = serde_json::to_vec(&state)?;
-
-        let encrypted_state = encrypt(
-            &self.state_machine.network_private_key,
-            &serialized_state,
-            rng,
-        )?;
         self.signer_db
-            .insert_encrypted_signer_state(self.reward_cycle, &encrypted_state)?;
+            .insert_encrypted_signer_state(self.reward_cycle, encrypted_state)?;
 
         Ok(())
     }
@@ -1281,17 +1284,8 @@ impl Signer {
     /// Persist signer state in StackerDB
     fn save_signer_state_in_stackerdb(
         &mut self,
-        rng: &mut impl rand_core::CryptoRngCore,
+        encrypted_state: Vec<u8>,
     ) -> Result<(), PersistenceError> {
-        let state = self.state_machine.signer.save();
-        let serialized_state = serde_json::to_vec(&state)?;
-
-        let encrypted_state = encrypt(
-            &self.state_machine.network_private_key,
-            &serialized_state,
-            rng,
-        )?;
-
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
 
         self.stackerdb.send_message_with_retry(message)?;
