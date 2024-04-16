@@ -1085,7 +1085,10 @@ impl StacksHttp {
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
-        let Some(response_handler_index) = request.response_handler_index.or_else(|| self.find_response_handler(&request.preamble().verb, &decoded_path)) else {
+        let Some(response_handler_index) = request
+            .response_handler_index
+            .or_else(|| self.find_response_handler(&request.preamble().verb, &decoded_path))
+        else {
             // method not found
             return StacksHttpResponse::new_error(
                 &request.preamble,
@@ -1248,7 +1251,8 @@ impl StacksHttp {
             return "<err-url-decode>";
         };
 
-        let Some(response_handler_index) = req.response_handler_index
+        let Some(response_handler_index) = req
+            .response_handler_index
             .or_else(|| self.find_response_handler(&req.preamble().verb, &decoded_path))
         else {
             return "<err-handler-not-found>";
