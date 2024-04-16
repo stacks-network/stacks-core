@@ -293,7 +293,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
             match StacksChainState::get_stacks_block_header_info_by_consensus_hash(
                 chain_state.db(),
                 &sn.consensus_hash,
-            ){
+            ) {
                 Ok(Some(x)) => return Some(Ok(x)),
                 Err(e) => return Some(Err(e)),
                 Ok(None) => {

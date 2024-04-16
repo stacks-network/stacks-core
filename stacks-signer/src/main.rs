@@ -38,12 +38,12 @@ use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_error};
+use slog::{slog_debug, slog_error, slog_info};
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks_common::{debug, error};
+use stacks_common::{debug, error, info};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
     GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
@@ -85,6 +85,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
+    info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
@@ -351,6 +352,11 @@ fn handle_generate_stacking_signature(
     signature
 }
 
+fn handle_check_config(args: RunSignerArgs) {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    println!("Config: {}", config);
+}
+
 /// Helper function for writing the given contents to filename in the given directory
 fn write_file(dir: &Path, filename: &str, contents: &str) {
     let file_path = dir.join(filename);
@@ -398,6 +404,9 @@ fn main() {
         }
         Command::GenerateStackingSignature(args) => {
             handle_generate_stacking_signature(args, true);
+        }
+        Command::CheckConfig(args) => {
+            handle_check_config(args);
         }
     }
 }
