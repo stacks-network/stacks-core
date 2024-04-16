@@ -1431,10 +1431,14 @@ impl StacksEpochExtension for StacksEpoch {
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        assert!(
-            max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
-            "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
-        );
+        if max_epoch.epoch_id == StacksEpochId::Epoch30 {
+            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_2_5));
+        } else {
+            assert!(
+                max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
+                "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
+            );
+        }
 
         assert!(
             StacksEpochId::latest() >= max_epoch.epoch_id,
