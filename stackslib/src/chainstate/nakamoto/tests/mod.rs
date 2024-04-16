@@ -2020,7 +2020,7 @@ fn test_make_miners_stackerdb_config() {
         };
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         if sortition {
-            let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
+            let chunk = NakamotoBlockBuilder::write_stackerdb_message(
                 &sort_db,
                 &tip,
                 &stackerdbs,
@@ -2034,7 +2034,7 @@ fn test_make_miners_stackerdb_config() {
             assert_eq!(chunk.data, block.serialize_to_vec());
             stackerdb_chunks.push(chunk);
         } else {
-            assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
+            assert!(NakamotoBlockBuilder::write_stackerdb_message(
                 &sort_db,
                 &tip,
                 &stackerdbs,

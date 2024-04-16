@@ -296,7 +296,9 @@ impl RunLoop {
             }
         }
         self.cleanup_stale_signers(current_reward_cycle);
-        if let Err(e) = self.cleanup_stale_data(current_reward_cycle) {
+        // Cleanup stale signer state (reward cycle states that are older than the prev reward cycle
+        // and blocks that are older than a full reward cycle length)
+        if let Err(e) = self.cleanup_stale_data(current_reward_cycle, current_burn_block_height) {
             error!("Failed to cleanup stale signer data: {e}");
         }
         if self.stacks_signers.is_empty() {
@@ -321,11 +323,16 @@ impl RunLoop {
         }
     }
 
-    fn cleanup_stale_data(&self, current_reward_cycle: u64) -> Result<(), DBError> {
+    fn cleanup_stale_data(
+        &self,
+        current_reward_cycle: u64,
+        current_burn_block_height: u64,
+    ) -> Result<(), DBError> {
         // Open a new db connection to delete data as we may call this when no signer exists
-        // for the current reward cycle, but we still need to cleanup stale data.
+        // for the current or next reward cycles, but we still need to cleanup stale data from a prior cycle
         let mut db = SignerDb::new(&self.config.db_path)?;
-        db.cleanup_stale_reward_cycles(current_reward_cycle)?;
+        db.cleanup_stale_state(current_reward_cycle)?;
+        db.cleanup_stale_blocks(current_burn_block_height)?;
         Ok(())
     }
 }

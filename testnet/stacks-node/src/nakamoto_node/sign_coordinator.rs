@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
-    MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession, StackerDBSession,
+    BlockProposalSigners, MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession,
+    StackerDBSession,
 };
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -291,8 +292,8 @@ impl SignCoordinator {
         else {
             return Err("No slot for miner".into());
         };
-        let target_slot = 1;
-        let slot_id = slot_range.start + target_slot;
+        // We only have one slot per miner
+        let slot_id = slot_range.start;
         if !slot_range.contains(&slot_id) {
             return Err("Not enough slots for miner messages".into());
         }
@@ -325,6 +326,7 @@ impl SignCoordinator {
     pub fn begin_sign(
         &mut self,
         block: &NakamotoBlock,
+        burn_block_height: u64,
         block_attempt: u64,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
@@ -339,7 +341,13 @@ impl SignCoordinator {
         self.coordinator.current_sign_id = sign_id;
         self.coordinator.current_sign_iter_id = sign_iter_id;
 
-        let block_bytes = block.serialize_to_vec();
+        let proposal_msg = BlockProposalSigners {
+            block: block.clone(),
+            burn_height: burn_block_height,
+            reward_cycle: reward_cycle_id,
+        };
+
+        let block_bytes = proposal_msg.serialize_to_vec();
         let nonce_req_msg = self
             .coordinator
             .start_signing_round(&block_bytes, false, None)
@@ -358,6 +366,8 @@ impl SignCoordinator {
             &mut self.miners_session,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
+
+        //self.globals.counters.bump_naka_proposed_blocks();
 
         let Some(ref mut receiver) = self.receiver else {
             return Err(NakamotoNodeError::SigningCoordinatorFailure(
