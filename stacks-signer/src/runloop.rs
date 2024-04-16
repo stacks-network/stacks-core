@@ -383,10 +383,9 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if event_parity == Some(other_signer_parity) {
                 continue;
             }
-
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = signer.update_dkg(&self.stacks_client) {
-                    error!("{signer}: failed to update DKG: {e}");
+                if let Err(e) = signer.refresh_dkg(&self.stacks_client) {
+                    error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
             signer.refresh_coordinator();
