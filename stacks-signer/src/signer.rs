@@ -580,7 +580,7 @@ impl Signer {
             .filter_map(|msg| match msg {
                 SignerMessage::DkgResults { .. }
                 | SignerMessage::BlockResponse(_)
-                | SignerMessage::EncryptedSignerState { .. }
+                | SignerMessage::EncryptedSignerState(_)
                 | SignerMessage::Transactions(_) => None,
                 // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {

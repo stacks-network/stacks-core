@@ -147,9 +147,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
             SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
-            SignerMessage::EncryptedSignerState { .. } => {
-                SignerMessageTypePrefix::EncryptedSignerState
-            }
+            SignerMessage::EncryptedSignerState(_) => SignerMessageTypePrefix::EncryptedSignerState,
         }
     }
 }
