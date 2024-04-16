@@ -82,72 +82,60 @@ export function PoxCommands(
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
-      currentCycle: fc.constant(currentCycle(network)),
     }).map((
       r: {
         wallet: Wallet;
         authId: number;
-        currentCycle: number;
       },
     ) =>
       new StackAggregationCommitAuthCommand(
         r.wallet,
         r.authId,
-        r.currentCycle,
       )
     ),
     // StackAggregationCommitSigCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
-      currentCycle: fc.constant(currentCycle(network)),
     }).map((
       r: {
         wallet: Wallet;
         authId: number;
-        currentCycle: number;
       },
     ) =>
       new StackAggregationCommitSigCommand(
         r.wallet,
         r.authId,
-        r.currentCycle,
       )
     ),
     // StackAggregationCommitIndexedAuthCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
-      currentCycle: fc.constant(currentCycle(network)),
     }).map((
       r: {
         wallet: Wallet;
         authId: number;
-        currentCycle: number;
       },
     ) =>
       new StackAggregationCommitIndexedAuthCommand(
         r.wallet,
         r.authId,
-        r.currentCycle,
       )
     ),
     // StackAggregationCommitIndexedSigCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
-      currentCycle: fc.constant(currentCycle(network)),
     }).map((
       r: {
         wallet: Wallet;
         authId: number;
-        currentCycle: number;
       },
     ) =>
       new StackAggregationCommitIndexedSigCommand(
         r.wallet,
         r.authId,
-        r.currentCycle,
       )
     ),
     // StackAggregationIncreaseCommand

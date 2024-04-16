@@ -9,6 +9,7 @@ import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 import { bufferFromHex } from "@stacks/transactions/dist/cl";
+import { currentCycle } from "./pox_Commands.ts";
 
 /**
  * The `StackAggregationCommitIndexedSigCommand` allows an operator to
@@ -30,7 +31,6 @@ import { bufferFromHex } from "@stacks/transactions/dist/cl";
 export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
   readonly operator: Wallet;
   readonly authId: number;
-  readonly currentCycle: number;
 
   /**
    * Constructs a `StackAggregationCommitIndexedSigCommand` to lock uSTX
@@ -38,12 +38,13 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.
-   * @param currentCycle - The current reward cycle.
    */
-  constructor(operator: Wallet, authId: number, currentCycle: number) {
+  constructor(
+    operator: Wallet,
+    authId: number,
+  ) {
     this.operator = operator;
     this.authId = authId;
-    this.currentCycle = currentCycle;
   }
 
   check(model: Readonly<Stub>): boolean {
@@ -61,7 +62,7 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
-
+    const currentRewCycle = currentCycle(real.network);
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const committedAmount = operatorWallet.amountToCommit;
 
@@ -72,7 +73,7 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
       // For stack-stx and stack-extend, this refers to the reward cycle
       // where the transaction is confirmed. For stack-aggregation-commit,
       // this refers to the reward cycle argument in that function.
-      rewardCycle: this.currentCycle + 1,
+      rewardCycle: currentRewCycle + 1,
       // For stack-stx, this refers to lock-period. For stack-extend,
       // this refers to extend-count. For stack-aggregation-commit, this is
       // u1.
@@ -97,7 +98,7 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
         // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         poxAddressToTuple(this.operator.btcAddress),
         // (reward-cycle uint)
-        Cl.uint(this.currentCycle + 1),
+        Cl.uint(currentRewCycle + 1),
         // (signer-sig (optional (buff 65)))
         Cl.some(bufferFromHex(signerSig)),
         // (signer-key (buff 33))
@@ -138,8 +139,6 @@ export class StackAggregationCommitIndexedSigCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.operator.label} stack-aggregation-commit-indexed auth-id ${this.authId} for reward cycle ${
-      this.currentCycle + 1
-    }`;
+    return `${this.operator.label} stack-aggregation-commit-indexed auth-id ${this.authId}`;
   }
 }
