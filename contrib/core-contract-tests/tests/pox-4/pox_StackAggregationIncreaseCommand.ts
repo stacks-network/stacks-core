@@ -9,6 +9,7 @@ import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl, cvToJSON } from "@stacks/transactions";
 import { bufferFromHex } from "@stacks/transactions/dist/cl";
+import { currentCycle } from "./pox_Commands.ts";
 
 /**
  * The `StackAggregationIncreaseCommand` allows an operator to commit
@@ -27,7 +28,6 @@ import { bufferFromHex } from "@stacks/transactions/dist/cl";
  */
 export class StackAggregationIncreaseCommand implements PoxCommand {
   readonly operator: Wallet;
-  readonly currentCycle: number;
   readonly rewardCycleIndex: number;
   readonly authId: number;
 
@@ -36,18 +36,15 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
    * stacked STX to a PoX address which has already received some STX.
    *
    * @param operator - Represents the `Operator`'s wallet.
-   * @param currentCycle - The current reward cycle.
    * @param rewardCycleIndex - The cycle index to increase the commit for.
    * @param authId - Unique `auth-id` for the authorization.
    */
   constructor(
     operator: Wallet,
-    currentCycle: number,
     rewardCycleIndex: number,
     authId: number,
   ) {
     this.operator = operator;
-    this.currentCycle = currentCycle;
     this.rewardCycleIndex = rewardCycleIndex;
     this.authId = authId;
   }
@@ -57,7 +54,6 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     // - The Operator must have locked STX on behalf of at least one stacker.
     // - The PoX address must have partial committed STX.
     // - The Reward Cycle Index must be positive.
-
     const operator = model.stackers.get(this.operator.stxAddress)!;
     return (
       operator.lockedAddresses.length > 0 &&
@@ -68,6 +64,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
+    const currentRewCycle = currentCycle(real.network)
 
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const committedAmount = operatorWallet.amountToCommit;
@@ -77,7 +74,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       "reward-cycle-pox-address-list",
       Cl.tuple({
         "index": Cl.uint(this.rewardCycleIndex),
-        "reward-cycle": Cl.uint(this.currentCycle + 1),
+        "reward-cycle": Cl.uint(currentRewCycle + 1),
       }),
     );
 
@@ -92,7 +89,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       // For stack-stx and stack-extend, this refers to the reward cycle
       // where the transaction is confirmed. For stack-aggregation-commit,
       // this refers to the reward cycle argument in that function.
-      rewardCycle: this.currentCycle + 1,
+      rewardCycle: currentRewCycle + 1,
       // For stack-stx, this refers to lock-period. For stack-extend,
       // this refers to extend-count. For stack-aggregation-commit, this is
       // u1.
@@ -117,7 +114,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
         // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
         poxAddressToTuple(this.operator.btcAddress),
         // (reward-cycle uint)
-        Cl.uint(this.currentCycle + 1),
+        Cl.uint(currentRewCycle + 1),
         // (reward-cycle-index uint))
         Cl.uint(this.rewardCycleIndex),
         // (signer-sig (optional (buff 65)))
@@ -131,6 +128,8 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       ],
       this.operator.stxAddress,
     );
+    process.stdout.write(`stack-agg-increase result: ${JSON.stringify(cvToJSON(stackAggregationIncrease.result))}\n`)
+
 
     // Assert
     expect(stackAggregationIncrease.result).toBeOk(Cl.bool(true));
@@ -156,8 +155,6 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.operator.label} stack-aggregation-increase for reward cycle ${
-      this.currentCycle + 1
-    } index ${this.rewardCycleIndex}`;
+    return `${this.operator.label} stack-aggregation-increase for index ${this.rewardCycleIndex}`;
   }
 }

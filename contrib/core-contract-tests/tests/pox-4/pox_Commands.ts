@@ -141,7 +141,6 @@ export function PoxCommands(
     // StackAggregationIncreaseCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
-      currentCycle: fc.constant(currentCycle(network)),
       authId: fc.nat(),
     }).chain((r) => {
       const operator = stackers.get(r.wallet.stxAddress)!
@@ -157,14 +156,12 @@ export function PoxCommands(
     }).map((
       r: {
         wallet: Wallet;
-        currentCycle: number;
         rewardCycleIndex: number;
         authId: number;
       },
     ) =>
       new StackAggregationIncreaseCommand(
         r.wallet,
-        r.currentCycle,
         r.rewardCycleIndex,
         r.authId,
       )
