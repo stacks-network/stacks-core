@@ -36,7 +36,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -2170,14 +2170,24 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .expect("Unable to get miner slot")
         .expect("No miner slot exists");
 
-    let proposed_block: NakamotoBlock = {
+    let proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb =
             StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
+        let message: SignerMessage = miners_stackerdb
             .get_latest(slot_id.start)
             .expect("Failed to get latest chunk from the miner slot ID")
-            .expect("No chunk found")
+            .expect("No chunk found");
+        let SignerMessage::Packet(packet) = message else {
+            panic!("Expected a signer message packet. Got {message:?}");
+        };
+        let Message::NonceRequest(nonce_request) = packet.msg else {
+            panic!("Expected a nonce request. Got {:?}", packet.msg);
+        };
+        let block_proposal =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice())
+                .expect("Failed to deserialize block proposal");
+        block_proposal.block
     };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
