@@ -3260,7 +3260,7 @@ impl NakamotoChainState {
         let signers = miner_key_hash160s
             .into_iter()
             .map(|hash160|
-                // each miner gets two slots
+                // each miner gets one slots
                 (
                     StacksAddress {
                         version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
