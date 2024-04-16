@@ -53,6 +53,8 @@ export class Stub {
     const lastRefreshedCycle = this.lastRefreshedCycle;
     const currentRewCycle = Math.floor((Number(burnBlockHeight) - 0) / 1050);
 
+    process.stdout.write(`₿: ${(burnBlockHeight).toString().padStart(6, ' ')}  `)
+
     if (lastRefreshedCycle < currentRewCycle) {
       this.nextRewardSetIndex = 0;
 
