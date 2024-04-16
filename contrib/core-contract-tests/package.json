@@ -6,13 +6,14 @@
   "type": "module",
   "scripts": {
     "test": "vitest run -- --coverage",
+    "unittest": "vitest run tests/pox-4-unit-tests/*.test.ts -- --coverage",
     "genhtml": "genhtml lcov.info --branch-coverage -o coverage/"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@hirosystems/clarinet-sdk": "^2.4.1",
-    "@stacks/clarunit": "0.0.1",
+    "@hirosystems/clarinet-sdk": "^2.5.0",
+    "@stacks/clarunit": "^0.0.2",
     "@stacks/encryption": "^6.13.0",
     "@stacks/network": "^6.13.0",
     "@stacks/stacking": "^6.13.0",

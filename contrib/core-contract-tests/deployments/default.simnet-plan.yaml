@@ -50,43 +50,8 @@ plan:
     - id: 0
       transactions:
         - emulated-contract-publish:
-            contract-name: bns
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "../../stackslib/src/chainstate/stacks/boot/bns.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: bns_test
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "./tests/bns_test.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
             contract-name: indirect
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: "./tests/pox-4-unit-tests/indirect.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: pox-4
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: pox-mainnet
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "../../stackslib/src/chainstate/stacks/boot/pox-mainnet.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: pox_4_test
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "./tests/pox_4_test.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: signers
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "../../stackslib/src/chainstate/stacks/boot/signers.clar"
-            clarity-version: 2
-        - emulated-contract-publish:
-            contract-name: signers-voting
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: "../../stackslib/src/chainstate/stacks/boot/signers-voting.clar"
             clarity-version: 2
       epoch: "2.4"

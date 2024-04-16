@@ -36,6 +36,8 @@ export default defineConfig({
     environmentOptions: {
       clarinet: {
         ...getClarinetVitestsArgv(),
+        includeBootContracts: true,
+        bootContractsPath: `${process.cwd()}/boot_contracts`,
         // add or override options
       },
     },
