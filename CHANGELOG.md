@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.5.0.0.2]
+
+This release fixes two bugs in `2.5.0.0.0`, correctly setting the activation height for 2.5, and the network peer version.
+
 ## [2.5.0.0.0]
 
 This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `840,360`: primarily the instantiation
