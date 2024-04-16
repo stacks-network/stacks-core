@@ -534,11 +534,8 @@ impl ConversationHttp {
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);
 
         for _i in 0..num_inbound {
-            let msg = match self.connection.next_inbox_message() {
-                None => {
-                    continue;
-                }
-                Some(m) => m,
+            let Some(msg) = self.connection.next_inbox_message() else {
+                continue;
             };
 
             match msg {
@@ -661,7 +658,7 @@ impl ConversationHttp {
         self.peer_host.clone()
     }
 
-    pub fn metrics_identifier(&self, req: &StacksHttpRequest) -> &str {
+    pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
         self.connection.protocol.metrics_identifier(req)
     }
 }

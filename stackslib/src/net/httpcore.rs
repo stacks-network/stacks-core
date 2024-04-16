@@ -438,6 +438,8 @@ pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
     start_time: u128,
+    /// Cache result of `StacksHttp::find_response_handler` so we don't have to do the regex matching twice
+    response_handler_index: Option<usize>,
 }
 
 impl StacksHttpRequest {
@@ -446,6 +448,7 @@ impl StacksHttpRequest {
             preamble,
             contents,
             start_time: get_epoch_time_ms(),
+            response_handler_index: None,
         }
     }
 
@@ -481,6 +484,7 @@ impl StacksHttpRequest {
             preamble,
             contents,
             start_time: get_epoch_time_ms(),
+            response_handler_index: None,
         })
     }
 
@@ -912,9 +916,7 @@ impl StacksHttp {
             if request_verb != verb {
                 continue;
             }
-            let _captures = if let Some(caps) = regex.captures(request_path) {
-                caps
-            } else {
+            let Some(_captures) = regex.captures(request_path) else {
                 continue;
             };
 
@@ -985,9 +987,7 @@ impl StacksHttp {
             if &preamble.verb != verb {
                 continue;
             }
-            let captures = if let Some(caps) = regex.captures(&decoded_path) {
-                caps
-            } else {
+            let Some(captures) = regex.captures(&decoded_path) else {
                 continue;
             };
 
@@ -1085,21 +1085,18 @@ impl StacksHttp {
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
-        let response_handler_index =
-            if let Some(i) = self.find_response_handler(&request.preamble().verb, &decoded_path) {
-                i
-            } else {
-                // method not found
-                return StacksHttpResponse::new_error(
-                    &request.preamble,
-                    &HttpNotFound::new(format!(
-                        "No such API endpoint '{} {}'",
-                        &request.preamble().verb,
-                        &decoded_path
-                    )),
-                )
-                .try_into_contents();
-            };
+        let Some(response_handler_index) = request.response_handler_index.or_else(|| self.find_response_handler(&request.preamble().verb, &decoded_path)) else {
+            // method not found
+            return StacksHttpResponse::new_error(
+                &request.preamble,
+                &HttpNotFound::new(format!(
+                    "No such API endpoint '{} {}'",
+                    &request.preamble().verb,
+                    &decoded_path
+                )),
+            )
+            .try_into_contents();
+        };
 
         let (_, _, request_handler) = self
             .request_handlers
@@ -1246,15 +1243,17 @@ impl StacksHttp {
     /// Get a unique `&str` identifier for each request type
     /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
     /// For details see https://github.com/stacks-network/stacks-core/issues/4574
-    pub fn metrics_identifier(&self, req: &StacksHttpRequest) -> &str {
+    pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
         let Ok((decoded_path, _)) = decode_request_path(&req.request_path()) else {
             return "<err-url-decode>";
         };
-        let Some(response_handler_index) =
-            self.find_response_handler(&req.preamble().verb, &decoded_path)
+
+        let Some(response_handler_index) = req.response_handler_index
+            .or_else(|| self.find_response_handler(&req.preamble().verb, &decoded_path))
         else {
             return "<err-handler-not-found>";
         };
+        req.response_handler_index = Some(response_handler_index);
 
         let (_, _, request_handler) = self
             .request_handlers
