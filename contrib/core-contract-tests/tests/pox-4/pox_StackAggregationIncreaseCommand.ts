@@ -5,7 +5,7 @@ import {
   Stub,
   Wallet,
 } from "./pox_CommandModel.ts";
-import { poxAddressToTuple } from "@stacks/stacking";
+import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl, cvToJSON } from "@stacks/transactions";
 import { bufferFromHex } from "@stacks/transactions/dist/cl";
@@ -99,7 +99,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       period: 1,
       // A string representing the function where this authorization is valid.
       // Either stack-stx, stack-extend, stack-increase, agg-commit or agg-increase.
-      topic: "agg-increase",
+      topic: Pox4SignatureTopic.AggregateIncrease,
       // The PoX address that can be used with this signer key.
       poxAddress: this.operator.btcAddress,
       // The unique auth-id for this authorization.
