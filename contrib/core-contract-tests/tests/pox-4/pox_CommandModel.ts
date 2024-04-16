@@ -91,10 +91,6 @@ export class Stub {
         }
         wallet.committedRewCycleIndexes = [];
       });
-      this.stackers.forEach((stacker) =>
-        process.stdout.write(`${JSON.stringify(stacker)}\n`)
-      );
-
       this.lastRefreshedCycle = currentRewCycle;
     }
   }
