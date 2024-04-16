@@ -128,8 +128,6 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       ],
       this.operator.stxAddress,
     );
-    process.stdout.write(`stack-agg-increase result: ${JSON.stringify(cvToJSON(stackAggregationIncrease.result))}\n`)
-
 
     // Assert
     expect(stackAggregationIncrease.result).toBeOk(Cl.bool(true));
