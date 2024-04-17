@@ -71,11 +71,13 @@ fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> Stack
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
-        let bytes = io::stdout().write(chunk).unwrap();
-        if bytes < chunk.len() {
+        let hexed_string = to_hex(chunk);
+        let hexed_chunk = hexed_string.as_bytes();
+        let bytes = io::stdout().write(&hexed_chunk).unwrap();
+        if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
-                chunk.len() - bytes
+                hexed_chunk.len() - bytes
             );
         }
     }
@@ -176,7 +178,9 @@ fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
     let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
-    println!("{}", serde_json::to_string(&chunk_list).unwrap());
+    let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
+    let hexed_json = to_hex(chunk_list_json.as_bytes());
+    println!("{}", hexed_json);
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
