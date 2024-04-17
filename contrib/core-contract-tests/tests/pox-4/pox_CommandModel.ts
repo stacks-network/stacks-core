@@ -19,6 +19,7 @@ export class Stub {
   stackingMinimum: number;
   nextRewardSetIndex: number;
   lastRefreshedCycle: number;
+  burnBlockHeight: number;
 
   constructor(
     wallets: Map<StxAddress, Wallet>,
@@ -31,6 +32,7 @@ export class Stub {
     this.stackingMinimum = 0;
     this.nextRewardSetIndex = 0;
     this.lastRefreshedCycle = 0;
+    this.burnBlockHeight = 0;
   }
 
   trackCommandRun(commandName: string) {
@@ -53,7 +55,10 @@ export class Stub {
     const lastRefreshedCycle = this.lastRefreshedCycle;
     const currentRewCycle = Math.floor((Number(burnBlockHeight) - 0) / 1050);
 
-    process.stdout.write(`₿: ${burnBlockHeight.toString().padStart(6, " ")}  `);
+    // The `this.burnBlockHeight` instance member is used for logging purposes.
+    // However, it's not used in the actual implementation of the model and all
+    // usages below use the `burnBlockHeight` local variable.
+    this.burnBlockHeight = burnBlockHeight;
 
     if (lastRefreshedCycle < currentRewCycle) {
       this.nextRewardSetIndex = 0;
@@ -136,10 +141,15 @@ export type PoxCommand = fc.Command<Stub, Real>;
 export const logCommand = (...items: (string | undefined)[]) => {
   // Ensure we only render up to the first 10 items for brevity.
   const renderItems = items.slice(0, 10);
-  const columnWidth = 23;
-  // Pad each column to the same width.
-  const prettyPrint = renderItems.map((content) =>
-    content ? content.padEnd(columnWidth) : "".padEnd(columnWidth)
+  const columnWidth = 23; // Standard width for each column after the first two.
+  const halfColumns = Math.floor(columnWidth / 2);
+
+  // Pad columns to their widths: half for the first two, full for the rest.
+  const prettyPrint = renderItems.map((content, index) =>
+    // Check if the index is less than 2 (i.e., first two items).
+    content
+      ? (index < 2 ? content.padEnd(halfColumns) : content.padEnd(columnWidth))
+      : (index < 2 ? "".padEnd(halfColumns) : "".padEnd(columnWidth))
   );
   prettyPrint.push("\n");
 

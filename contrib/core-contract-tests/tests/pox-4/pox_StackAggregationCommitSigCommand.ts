@@ -116,6 +116,7 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
+      `₿ ${model.burnBlockHeight}`,
       `✓ ${this.operator.label}`,
       "stack-agg-commit",
       "amount committed",
