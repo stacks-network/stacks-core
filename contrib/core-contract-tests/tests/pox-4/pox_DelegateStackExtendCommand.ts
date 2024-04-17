@@ -73,7 +73,8 @@ export class DelegateStackExtendCommand implements PoxCommand {
     );
     const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
     const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
-    const newUnlockHeight = (REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) + 0);
+    const newUnlockHeight =
+      REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) + 0;
     const stackedAmount = stackerWallet.amountLocked;
 
     return (

@@ -143,7 +143,7 @@ export function PoxCommands(
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
     }).chain((r) => {
-      const operator = stackers.get(r.wallet.stxAddress)!
+      const operator = stackers.get(r.wallet.stxAddress)!;
       const committedRewCycleIndexesOrFallback =
         operator.committedRewCycleIndexes.length > 0
           ? operator.committedRewCycleIndexes
@@ -187,7 +187,7 @@ export function PoxCommands(
       }),
       period: fc.integer({ min: 1, max: 12 }),
     }).chain((r) => {
-      const operator = stackers.get(r.operator.stxAddress)!
+      const operator = stackers.get(r.operator.stxAddress)!;
       // Determine available stackers based on the operator
       const availableStackers = operator.poolMembers.length > 0
         ? operator.poolMembers
@@ -212,7 +212,10 @@ export function PoxCommands(
         return fc.record({
           amount: fc.bigInt({
             min: 0n,
-            max: BigInt(stackers.get(resultWithUnlockHeight.stacker.stxAddress)!.delegatedMaxAmount),
+            max: BigInt(
+              stackers.get(resultWithUnlockHeight.stacker.stxAddress)!
+                .delegatedMaxAmount,
+            ),
           }),
         }).map((amountProps) => ({
           ...resultWithUnlockHeight,
@@ -234,7 +237,7 @@ export function PoxCommands(
       increaseBy: fc.nat(),
     })
       .chain((r) => {
-        const operator = stackers.get(r.operator.stxAddress)!
+        const operator = stackers.get(r.operator.stxAddress)!;
         const delegatorsList = operator.poolMembers;
 
         const availableStackers = delegatorsList.filter((delegator) => {
@@ -267,7 +270,7 @@ export function PoxCommands(
       operator: fc.constantFrom(...wallets.values()),
       extendCount: fc.integer({ min: 1, max: 11 }),
     }).chain((r) => {
-      const operator = stackers.get(r.operator.stxAddress)!
+      const operator = stackers.get(r.operator.stxAddress)!;
       const delegatorsList = operator.poolMembers;
       const availableStackers = delegatorsList.filter((delegator) => {
         const delegatorWallet = stackers.get(delegator)!;

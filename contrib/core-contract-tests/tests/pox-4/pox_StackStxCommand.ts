@@ -7,7 +7,13 @@ import {
 } from "./pox_CommandModel.ts";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
-import { Cl, ClarityType, ClarityValue, cvToValue, isClarityType } from "@stacks/transactions";
+import {
+  Cl,
+  ClarityType,
+  ClarityValue,
+  cvToValue,
+  isClarityType,
+} from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
 
 /**
@@ -65,8 +71,10 @@ export class StackStxCommand implements PoxCommand {
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
     const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
-    const burnBlockHeight = Number(cvToValue(burnBlockHeightCV as ClarityValue));
-    const currentRewCycle = currentCycle(real.network)
+    const burnBlockHeight = Number(
+      cvToValue(burnBlockHeightCV as ClarityValue),
+    );
+    const currentRewCycle = currentCycle(real.network);
 
     // The maximum amount of uSTX that can be used (per tx) with this signer
     // key. For our tests, we will use the minimum amount of uSTX to be stacked

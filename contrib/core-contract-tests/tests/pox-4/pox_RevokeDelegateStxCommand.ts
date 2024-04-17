@@ -58,7 +58,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
         tupleCV({
           "amount-ustx": Cl.uint(wallet.delegatedMaxAmount),
           "delegated-to": Cl.principal(
-            model.stackers.get(this.wallet.stxAddress)!.delegatedTo /*operatorWallet.stxAddress*/ || "",
+            model.stackers.get(this.wallet.stxAddress)!.delegatedTo || "",
           ),
           "pox-addr": Cl.some(
             poxAddressToTuple(wallet.delegatedPoxAddress || ""),
@@ -77,7 +77,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     wallet.delegatedTo = "";
     wallet.delegatedUntilBurnHt = 0;
     wallet.delegatedMaxAmount = 0;
-    wallet.delegatedPoxAddress = '';
+    wallet.delegatedPoxAddress = "";
 
     // Remove the Stacker from the Pool Operator's pool members list.
     const walletIndexInDelegatorsList = operatorWallet.poolMembers.indexOf(

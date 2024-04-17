@@ -64,7 +64,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
-    const currentRewCycle = currentCycle(real.network)
+    const currentRewCycle = currentCycle(real.network);
 
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const committedAmount = operatorWallet.amountToCommit;

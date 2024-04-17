@@ -7,7 +7,13 @@ import {
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
-import { Cl, ClarityType, ClarityValue, cvToValue, isClarityType } from "@stacks/transactions";
+import {
+  Cl,
+  ClarityType,
+  ClarityValue,
+  cvToValue,
+  isClarityType,
+} from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
 
 /**
@@ -95,7 +101,9 @@ export class DelegateStackStxCommand implements PoxCommand {
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
     const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
-    const burnBlockHeight = Number(cvToValue(burnBlockHeightCV as ClarityValue));
+    const burnBlockHeight = Number(
+      cvToValue(burnBlockHeightCV as ClarityValue),
+    );
 
     // Act
     const delegateStackStx = real.network.callPublicFn(
