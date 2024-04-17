@@ -3171,7 +3171,6 @@ fn forked_tenure_is_ignored() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -3224,12 +3223,6 @@ fn forked_tenure_is_ignored() {
     )
     .unwrap();
 
-    let block_height_pre_3_0 =
-        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap()
-            .stacks_block_height;
-
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
@@ -3258,6 +3251,10 @@ fn forked_tenure_is_ignored() {
         Ok(commits_count > commits_before && blocks_count > blocks_before)
     })
     .unwrap();
+
+    let block_tenure_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
@@ -3293,80 +3290,75 @@ fn forked_tenure_is_ignored() {
         &signers,
     );
 
-    // Submit a TX
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    // Wait a bit for a stacks block to be mined (but not broadcasted)
+    std::thread::sleep(std::time::Duration::from_secs(10));
 
     // Unpause the broadcast of Tenure B's block
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
-    let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
-
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-
-    let mut mempool = naka_conf
-        .connect_mempool_db()
-        .expect("Database failure opening mempool");
-
-    mempool
-        .submit_raw(
-            &mut chainstate,
-            &sortdb,
-            &tip.consensus_hash,
-            &tip.anchored_header.block_hash(),
-            transfer_tx.clone(),
-            &ExecutionCost::max_value(),
-            &StacksEpochId::Epoch30,
-        )
-        .unwrap();
-
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+    // Wait for the two stalled blocks to be processed
+    let start = Instant::now();
+    while mined_blocks.load(Ordering::SeqCst) <= (blocks_before + 1) {
+        if start.elapsed() > Duration::from_secs(60) {
+            panic!("Timed out waiting for blocks to be processed.");
+        }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    debug!("Mining tenure D.");
-    // Mine 1 more nakamoto tenures
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
-    // load the chain tip, and assert that it is a nakamoto block and at least 3 blocks have advanced in epoch 3
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+    let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
-    info!(
-        "Latest tip";
-        "height" => tip.stacks_block_height,
-        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    assert_eq!(
+        block_tenure_c.stacks_block_height,
+        block_tenure_a.stacks_block_height + 1
+    );
+    let parent = block_tenure_c
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .parent_block_id;
+    assert_eq!(
+        parent,
+        block_tenure_a
+            .anchored_header
+            .as_stacks_nakamoto()
+            .unwrap()
+            .block_id()
     );
 
-    // assert that the transfer tx was observed
-    let transfer_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
-                .is_some()
-        })
-        .is_some();
+    info!("Starting tenure D.");
 
-    assert!(
-        transfer_tx_included,
-        "Nakamoto node failed to include the transfer tx"
+    // Wait for the next block to be mined and block commit to be submitted.
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        Ok(commits_count > commits_before && blocks_count > blocks_before)
+    })
+    .unwrap();
+
+    let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        block_tenure_d.stacks_block_height,
+        block_tenure_c.stacks_block_height + 1
     );
-
-    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height > block_height_pre_3_0);
+    let parent = block_tenure_d
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .parent_block_id;
+    assert_eq!(
+        parent,
+        block_tenure_c
+            .anchored_header
+            .as_stacks_nakamoto()
+            .unwrap()
+            .block_id()
+    );
 
     coord_channel
         .lock()
