@@ -2825,6 +2825,73 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn check_and_update_epochs(&mut self, set_epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        let set_epochs = StacksEpoch::validate_epochs(set_epochs);
+        let old_epochs = Self::get_stacks_epochs(&tx.deref())?;
+        let mut needs_update = false;
+        let mut first_updated_epoch_index = None;
+        if set_epochs.len() > old_epochs.len() {
+            needs_update = true;
+            first_updated_epoch_index = Some(old_epochs.len());
+        } else if set_epochs.len() < old_epochs.len() {
+            needs_update = true;
+            first_updated_epoch_index = Some(set_epochs.len());
+        }
+        let iter_end = std::cmp::min(set_epochs.len(), old_epochs.len());
+        for i in 0..iter_end {
+            if set_epochs[i] != old_epochs[i] {
+                needs_update = true;
+                first_updated_epoch_index = Some(i);
+                break;
+            }
+        }
+        if !needs_update {
+            return Ok(());
+        }
+
+        let first_updated_epoch_index = first_updated_epoch_index.ok_or_else(|| {
+            error!("Epochs need to be updated, but did not set the first epoch index to update");
+            db_error::Corruption
+        })?;
+
+        let old_epochs_updated_block_height = old_epochs
+            .get(first_updated_epoch_index)
+            .map(|e| e.start_height);
+        let new_epochs_updated_block_height = set_epochs
+            .get(first_updated_epoch_index)
+            .map(|e| e.start_height);
+        let first_updated_block_height = match (
+            old_epochs_updated_block_height,
+            new_epochs_updated_block_height,
+        ) {
+            (Some(x), None) | (None, Some(x)) => x,
+            (Some(x), Some(y)) => std::cmp::min(x, y),
+            (None, None) => {
+                error!("Epochs need to be updated, but the first epoch index to update was not found in old epochs or new epochs");
+                return Err(db_error::Corruption);
+            }
+        };
+
+        let current_block_height = Self::get_canonical_burn_chain_tip(tx.tx())?.block_height;
+
+        if current_block_height >= first_updated_block_height {
+            error!(
+                "Cannot set the Stacks epoch definitions in this stacks-node version. Updated epochs have already reached the changed height";
+                "current_db_height" => current_block_height,
+                "changed_epoch_height" => first_updated_block_height,
+                "old_epochs" => ?old_epochs,
+                "new_epochs" => ?set_epochs,
+            );
+            return Err(db_error::Corruption);
+        }
+
+        info!("Setting new stacks epoch definitions in sortition db");
+
+        tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        Self::validate_and_insert_epochs(&tx, &set_epochs)
+    }
+
     /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
     ///  inserts them into the SortitionDB's epochs table.
     fn validate_and_insert_epochs(
@@ -3322,7 +3389,7 @@ impl SortitionDB {
 
                         self.apply_schema_8_migration(migrator.take())?;
                     } else if version == expected_version {
-                        return Ok(());
+                        break;
                     } else {
                         panic!("The schema version of the sortition DB is invalid.")
                     }
@@ -3331,6 +3398,8 @@ impl SortitionDB {
                 Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
             }
         }
+        self.check_and_update_epochs(epochs)?;
+        Ok(())
     }
 
     /// Open and migrate the sortition DB if it exists.
