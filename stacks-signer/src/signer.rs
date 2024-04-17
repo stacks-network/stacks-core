@@ -124,7 +124,7 @@ pub enum Command {
     Dkg,
     /// Sign a message
     Sign {
-        /// The block we wish to sign over
+        /// The block to sign over
         block_proposal: BlockProposalSigners,
         /// Whether to make a taproot signature
         is_taproot: bool,
