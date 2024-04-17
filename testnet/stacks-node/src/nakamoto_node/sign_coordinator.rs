@@ -45,6 +45,7 @@ use wsts::v2::Aggregator;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
 use crate::neon::Counters;
+use crate::tests::nakamoto_integrations::TEST_SIGNING;
 use crate::Config;
 
 /// How long should the coordinator poll on the event receiver before
@@ -240,6 +241,32 @@ impl SignCoordinator {
         };
 
         let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if TEST_SIGNING.lock().unwrap().is_some() {
+                debug!("Short-circuiting spinning up coordinator from signer commitments. Using test signers channel.");
+                let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
+                if replaced_other {
+                    warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
+                }
+                let mut sign_coordinator = Self {
+                    coordinator,
+                    message_key,
+                    receiver: Some(receiver),
+                    wsts_public_keys,
+                    is_mainnet,
+                    miners_session,
+                    signing_round_timeout: config.miner.wait_on_signers.clone(),
+                };
+                sign_coordinator
+                    .coordinator
+                    .set_aggregate_public_key(Some(aggregate_public_key));
+                return Ok(sign_coordinator);
+            }
+        }
         let party_polynomials = get_signer_commitments(
             is_mainnet,
             reward_set_signers.as_slice(),
@@ -377,6 +404,7 @@ impl SignCoordinator {
             if let Some(signature) =
                 crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
             {
+                debug!("Short-circuiting waiting for signers, using test signature");
                 return Ok(signature);
             }
         }
