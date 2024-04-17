@@ -351,6 +351,7 @@ impl SignCoordinator {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn begin_sign(
         &mut self,
         block: &NakamotoBlock,
@@ -457,6 +458,7 @@ impl SignCoordinator {
                 .filter_map(|msg| match msg {
                     SignerMessage::DkgResults { .. }
                     | SignerMessage::BlockResponse(_)
+                    | SignerMessage::EncryptedSignerState(_)
                     | SignerMessage::Transactions(_) => None,
                     SignerMessage::Packet(packet) => {
                         debug!("Received signers packet: {packet:?}");

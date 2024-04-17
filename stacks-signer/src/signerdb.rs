@@ -24,7 +24,6 @@ use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::traits::SignerState;
 
 use crate::signer::BlockInfo;
 
@@ -51,7 +50,7 @@ CREATE TABLE IF NOT EXISTS blocks (
 const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
-    state TEXT NOT NULL
+    encrypted_state BLOB NOT NULL
 )";
 
 impl SignerDb {
@@ -89,26 +88,26 @@ impl SignerDb {
     }
 
     /// Get the signer state for the provided reward cycle if it exists in the database
-    pub fn get_signer_state(&self, reward_cycle: u64) -> Result<Option<SignerState>, DBError> {
-        let result: Option<String> = query_row(
+    pub fn get_encrypted_signer_state(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<Vec<u8>>, DBError> {
+        query_row(
             &self.db,
-            "SELECT state FROM signer_states WHERE reward_cycle = ?",
+            "SELECT encrypted_state FROM signer_states WHERE reward_cycle = ?",
             [u64_to_sql(reward_cycle)?],
-        )?;
-
-        try_deserialize(result)
+        )
     }
 
     /// Insert the given state in the `signer_states` table for the given reward cycle
-    pub fn insert_signer_state(
+    pub fn insert_encrypted_signer_state(
         &self,
         reward_cycle: u64,
-        signer_state: &SignerState,
+        encrypted_signer_state: &[u8],
     ) -> Result<(), DBError> {
-        let serialized_state = serde_json::to_string(signer_state)?;
         self.db.execute(
-            "INSERT OR REPLACE INTO signer_states (reward_cycle, state) VALUES (?1, ?2)",
-            params![&u64_to_sql(reward_cycle)?, &serialized_state],
+            "INSERT OR REPLACE INTO signer_states (reward_cycle, encrypted_state) VALUES (?1, ?2)",
+            params![&u64_to_sql(reward_cycle)?, &encrypted_signer_state],
         )?;
         Ok(())
     }
@@ -212,15 +211,9 @@ mod tests {
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use libsigner::BlockProposalSigners;
-    use num_traits::identities::Zero;
-    use polynomial::Polynomial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::secp256k1::MessageSignature;
-    use wsts::common::Nonce;
-    use wsts::curve::point::Point;
-    use wsts::curve::scalar::Scalar;
-    use wsts::traits::PartyState;
 
     use super::*;
 
@@ -256,30 +249,6 @@ mod tests {
         };
         overrides(&mut block_proposal);
         (BlockInfo::from(block_proposal.clone()), block_proposal)
-    }
-
-    fn create_signer_state(id: u32) -> SignerState {
-        let ps1 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        let ps2 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        SignerState {
-            id,
-            key_ids: vec![2, 4],
-            num_keys: 12,
-            num_parties: 10,
-            threshold: 7,
-            group_key: Point::from(Scalar::from(42)),
-            parties: vec![(2, ps1), (4, ps2)],
-        }
     }
 
     fn create_block() -> (BlockInfo, BlockProposalSigners) {
@@ -384,35 +353,33 @@ mod tests {
     fn test_write_signer_state() {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let state_0 = create_signer_state(0);
-        let state_1 = create_signer_state(1);
+        let state_0 = vec![0];
+        let state_1 = vec![1; 1024];
 
-        db.insert_signer_state(10, &state_0)
+        db.insert_encrypted_signer_state(10, &state_0)
             .expect("Failed to insert signer state");
 
-        db.insert_signer_state(11, &state_1)
+        db.insert_encrypted_signer_state(11, &state_1)
             .expect("Failed to insert signer state");
 
         assert_eq!(
-            db.get_signer_state(10)
+            db.get_encrypted_signer_state(10)
                 .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_0.id
+                .unwrap(),
+            state_0
         );
         assert_eq!(
-            db.get_signer_state(11)
+            db.get_encrypted_signer_state(11)
                 .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_1.id
+                .unwrap(),
+            state_1
         );
         assert!(db
-            .get_signer_state(12)
+            .get_encrypted_signer_state(12)
             .expect("Failed to get signer state")
             .is_none());
         assert!(db
-            .get_signer_state(9)
+            .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
     }
@@ -425,17 +392,19 @@ mod tests {
         let reward_cycle_2 = 43;
         let reward_cycle_3 = 44;
 
-        let state_1 = create_signer_state(1);
-        let state_2 = create_signer_state(2);
-        let state_3 = create_signer_state(3);
+        let state_1 = vec![0];
+        let state_2 = vec![1; 1024];
+        let state_3 = vec![2; 1024];
 
         // Insert a signer state per reward cycle
-        db.insert_signer_state(reward_cycle_1, &state_1)
-            .expect("Unable to insert signer state into db");
-        db.insert_signer_state(reward_cycle_2, &state_2)
-            .expect("Unable to insert signer state into db");
-        db.insert_signer_state(reward_cycle_3, &state_3)
-            .expect("Unable to insert signer state into db");
+        db.insert_encrypted_signer_state(reward_cycle_1, &state_1)
+            .expect("Failed to insert signer state");
+
+        db.insert_encrypted_signer_state(reward_cycle_2, &state_2)
+            .expect("Failed to insert signer state");
+
+        db.insert_encrypted_signer_state(reward_cycle_3, &state_3)
+            .expect("Failed to insert signer state");
 
         // garbage collection for a reward cycle equal to or less than the second oldest reward cycle, should result in zero change
         db.cleanup_stale_state(reward_cycle_1.saturating_sub(1))
@@ -444,23 +413,49 @@ mod tests {
             .expect("Failed to garbage collect blocks");
         db.cleanup_stale_state(reward_cycle_2)
             .expect("Failed to garbage collect blocks");
-        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_some());
-        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_some());
-        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_some());
-
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_1)
+            .unwrap()
+            .is_some());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_2)
+            .unwrap()
+            .is_some());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_3)
+            .unwrap()
+            .is_some());
         // garbage collection where the current reward cycle is reward_cycle_3 should remove all reward cyles less than reward_cycle_2;
         db.cleanup_stale_state(reward_cycle_3)
             .expect("Failed to garbage collect blocks");
-        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_none());
-        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_some());
-        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_some());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_1)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_2)
+            .unwrap()
+            .is_some());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_3)
+            .unwrap()
+            .is_some());
 
         // garbage collection where the current reward cycle is greater than reward_cycle_3 + 1 should flush the rest of the database
         db.cleanup_stale_state(reward_cycle_3.wrapping_add(2))
             .expect("Failed to garbage collect blocks");
-        assert!(db.get_signer_state(reward_cycle_1).unwrap().is_none());
-        assert!(db.get_signer_state(reward_cycle_2).unwrap().is_none());
-        assert!(db.get_signer_state(reward_cycle_3).unwrap().is_none());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_1)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_2)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_encrypted_signer_state(reward_cycle_3)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
