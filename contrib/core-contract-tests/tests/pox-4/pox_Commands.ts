@@ -349,7 +349,7 @@ export function PoxCommands(
 
   // More on size: https://github.com/dubzzz/fast-check/discussions/2978
   // More on cmds: https://github.com/dubzzz/fast-check/discussions/3026
-  return fc.commands(cmds, { size: "xsmall" });
+  return fc.commands(cmds, { size: "small" });
 }
 
 export const REWARD_CYCLE_LENGTH = 1050;
