@@ -3061,6 +3061,7 @@ mod test {
             get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             burnchain.pox_constants.clone(),
+            None,
             true,
         )
         .unwrap();

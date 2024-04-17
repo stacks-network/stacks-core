@@ -367,14 +367,6 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             return None;
         }
         for signer in self.stacks_signers.values_mut() {
-            signer.refresh_coordinator();
-            if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) =
-                    signer.update_dkg(&self.stacks_client, res.clone(), current_reward_cycle)
-                {
-                    error!("{signer}: failed to update DKG: {e}");
-                }
-            }
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -391,6 +383,12 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if event_parity == Some(other_signer_parity) {
                 continue;
             }
+            if signer.approved_aggregate_public_key.is_none() {
+                if let Err(e) = signer.refresh_dkg(&self.stacks_client) {
+                    error!("{signer}: failed to refresh DKG: {e}");
+                }
+            }
+            signer.refresh_coordinator();
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),

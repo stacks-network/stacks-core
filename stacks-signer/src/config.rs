@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -336,6 +337,39 @@ impl GlobalConfig {
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         Self::try_from(&PathBuf::from(path))
     }
+
+    /// Return a string with non-sensitive configuration
+    /// information for logging purposes
+    pub fn config_to_log_string(&self) -> String {
+        let tx_fee = match self.tx_fee_ustx {
+            0 => "default".to_string(),
+            _ => (self.tx_fee_ustx as f64 / 1_000_000.0).to_string(),
+        };
+        format!(
+            r#"
+Stacks node host: {node_host}
+Signer endpoint: {endpoint}
+Stacks address: {stacks_address}
+Public key: {public_key}
+Network: {network}
+Database path: {db_path}
+DKG transaction fee: {tx_fee} uSTX
+"#,
+            node_host = self.node_host,
+            endpoint = self.endpoint,
+            stacks_address = self.stacks_address,
+            public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
+            network = self.network,
+            db_path = self.db_path.to_str().unwrap_or_default(),
+            tx_fee = tx_fee
+        )
+    }
+}
+
+impl Display for GlobalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.config_to_log_string())
+    }
 }
 
 /// Helper function for building a signer config for each provided signer private key
@@ -547,5 +581,25 @@ mod tests {
         let config = GlobalConfig::try_from(config).expect("Failed to parse config");
         assert!(config.max_tx_fee_ustx.is_none());
         assert_eq!(Some(config.tx_fee_ustx), tx_fee_ustx);
+    }
+
+    #[test]
+    fn test_config_to_string() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config_str = config.config_to_log_string();
+        assert_eq!(
+            config_str,
+            format!(
+                r#"
+Stacks node host: 127.0.0.1:20443
+Signer endpoint: [::1]:30000
+Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
+Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
+Network: testnet
+Database path: :memory:
+DKG transaction fee: 0.01 uSTX
+"#
+            )
+        );
     }
 }
