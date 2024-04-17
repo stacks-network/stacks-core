@@ -2863,19 +2863,28 @@ impl SortitionDB {
         let tip = SortitionDB::get_canonical_burn_chain_tip(db_tx)?;
         let existing_epoch_idx = StacksEpoch::find_epoch(&existing_epochs, tip.block_height)
             .unwrap_or_else(|| {
-                panic!("FATAL: Sortition tip {} has no epoch in its existing epochs table", tip.block_height);
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in its existing epochs table",
+                    tip.block_height
+                );
             });
 
-        let new_epoch_idx = StacksEpoch::find_epoch(&epochs, tip.block_height)
-            .unwrap_or_else(|| {
-                panic!("FATAL: Sortition tip {} has no epoch in the configured epochs list", tip.block_height);
+        let new_epoch_idx =
+            StacksEpoch::find_epoch(&epochs, tip.block_height).unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in the configured epochs list",
+                    tip.block_height
+                );
             });
 
         // can't retcon epochs -- all epochs up to (but excluding) the tip's epoch in both epoch
         // lists must be the same.
         for i in 0..existing_epoch_idx.min(new_epoch_idx) {
             if existing_epochs[i] != epochs[i] {
-                panic!("FATAL: tried to retcon epoch {:?} into epoch {:?}", &existing_epochs[i], &epochs[i]);
+                panic!(
+                    "FATAL: tried to retcon epoch {:?} into epoch {:?}",
+                    &existing_epochs[i], &epochs[i]
+                );
             }
         }
 
@@ -2885,7 +2894,10 @@ impl SortitionDB {
         diff_epoch.end_height = epochs[new_epoch_idx].end_height;
 
         if diff_epoch != epochs[new_epoch_idx] {
-            panic!("FATAL: tried to change current epoch {:?} into {:?}", &existing_epochs[existing_epoch_idx], &epochs[new_epoch_idx]);
+            panic!(
+                "FATAL: tried to change current epoch {:?} into {:?}",
+                &existing_epochs[existing_epoch_idx], &epochs[new_epoch_idx]
+            );
         }
 
         if tip.block_height >= epochs[new_epoch_idx].end_height {
