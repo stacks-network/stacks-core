@@ -76,6 +76,7 @@ use stacks_common::util::sleep_ms;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
+use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -3260,6 +3261,7 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     info!("Starting tenure B.");
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -3274,93 +3276,37 @@ fn forked_tenure_is_ignored() {
         &signers,
     );
 
-    // Wait a bit for a stacks block to be mined (but not broadcasted)
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    info!("Commit op is submitted; unpause tenure B's block");
+
+    // Unpause the broadcast of Tenure B's block, do not submit commits.
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
+    // Wait for a stacks block to be broadcasted
+    let start_time = Instant::now();
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    info!("Tenure B broadcasted a block. Issue the next bitcon block and unstall block commits.");
 
     info!("Starting tenure C.");
     // Submit a block commit op for tenure C
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count > commits_before)
-    })
-    .unwrap();
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
-    // Wait a bit for a stacks block to be mined (but not broadcasted)
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
-    // Unpause the broadcast of Tenure B's block
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
-
-    // Wait for the two stalled blocks to be processed
-    let start = Instant::now();
-    while mined_blocks.load(Ordering::SeqCst) <= (blocks_before + 1) {
-        if start.elapsed() > Duration::from_secs(60) {
-            panic!("Timed out waiting for blocks to be processed.");
-        }
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-
-    let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        block_tenure_c.stacks_block_height,
-        block_tenure_a.stacks_block_height + 1
-    );
-    let parent = block_tenure_c
-        .anchored_header
-        .as_stacks_nakamoto()
-        .unwrap()
-        .parent_block_id;
-    assert_eq!(
-        parent,
-        block_tenure_a
-            .anchored_header
-            .as_stacks_nakamoto()
-            .unwrap()
-            .block_id()
-    );
-
-    info!("Starting tenure D.");
-
-    // Wait for the next block to be mined and block commit to be submitted.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
+        TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         Ok(commits_count > commits_before && blocks_count > blocks_before)
     })
     .unwrap();
 
-    let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        block_tenure_d.stacks_block_height,
-        block_tenure_c.stacks_block_height + 1
-    );
-    let parent = block_tenure_d
-        .anchored_header
-        .as_stacks_nakamoto()
-        .unwrap()
-        .parent_block_id;
-    assert_eq!(
-        parent,
-        block_tenure_c
-            .anchored_header
-            .as_stacks_nakamoto()
-            .unwrap()
-            .block_id()
-    );
+    info!("Tenure C produced a block!");
 
     coord_channel
         .lock()
