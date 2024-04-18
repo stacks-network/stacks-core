@@ -6532,7 +6532,7 @@ fn test_scenario_one() {
         bob_stack,
     ];
 
-    // Commit tx & advance to the very end of reward cycle 5 (burnchain block 118)
+    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase)
     let target_height = peer
         .config
         .burnchain
@@ -6919,7 +6919,7 @@ fn test_scenario_two() {
         dave_stack,
     ];
 
-    // Commit tx & advance to the very end of reward cycle 5 (burnchain block 118)
+    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
     let target_height = peer
         .config
         .burnchain
@@ -7713,7 +7713,7 @@ fn test_scenario_four() {
 
     let txs = vec![alice_stack.clone(), bob_stack.clone()];
 
-    // Commit tx & advance to the very end of reward cycle 5 (burnchain block 118)
+    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
     let target_height = peer
         .config
         .burnchain
