@@ -26,7 +26,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{BlockProposalSigners, SignerMessage, SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -36,7 +36,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -72,6 +72,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
+use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -309,13 +310,23 @@ pub fn read_and_sign_block_proposal(
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
 
-    let mut proposed_block: NakamotoBlock = {
+    let mut proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
+        let message: SignerMessage = miners_stackerdb
             .get_latest(miner_slot_id.start)
-            .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
-            .ok_or("No chunk found")?
+            .expect("Failed to get latest chunk from the miner slot ID")
+            .expect("No chunk found");
+        let SignerMessage::Packet(packet) = message else {
+            panic!("Expected a signer message packet. Got {message:?}");
+        };
+        let Message::NonceRequest(nonce_request) = packet.msg else {
+            panic!("Expected a nonce request. Got {:?}", packet.msg);
+        };
+        let block_proposal =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice())
+                .expect("Failed to deserialize block proposal");
+        block_proposal.block
     };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
     let signer_sig_hash = proposed_block.header.signer_signature_hash();
@@ -2159,14 +2170,24 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .expect("Unable to get miner slot")
         .expect("No miner slot exists");
 
-    let proposed_block: NakamotoBlock = {
+    let proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb =
             StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
+        let message: SignerMessage = miners_stackerdb
             .get_latest(slot_id.start)
             .expect("Failed to get latest chunk from the miner slot ID")
-            .expect("No chunk found")
+            .expect("No chunk found");
+        let SignerMessage::Packet(packet) = message else {
+            panic!("Expected a signer message packet. Got {message:?}");
+        };
+        let Message::NonceRequest(nonce_request) = packet.msg else {
+            panic!("Expected a nonce request. Got {:?}", packet.msg);
+        };
+        let block_proposal =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice())
+                .expect("Failed to deserialize block proposal");
+        block_proposal.block
     };
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 

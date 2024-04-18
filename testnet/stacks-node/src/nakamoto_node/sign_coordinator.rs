@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
-    MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession, StackerDBSession,
+    BlockProposalSigners, MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession,
+    StackerDBSession,
 };
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -43,6 +44,7 @@ use wsts::v2::Aggregator;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
+use crate::neon::Counters;
 use crate::Config;
 
 /// How long should the coordinator poll on the event receiver before
@@ -238,6 +240,33 @@ impl SignCoordinator {
         };
 
         let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            use crate::tests::nakamoto_integrations::TEST_SIGNING;
+            if TEST_SIGNING.lock().unwrap().is_some() {
+                debug!("Short-circuiting spinning up coordinator from signer commitments. Using test signers channel.");
+                let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
+                if replaced_other {
+                    warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
+                }
+                let mut sign_coordinator = Self {
+                    coordinator,
+                    message_key,
+                    receiver: Some(receiver),
+                    wsts_public_keys,
+                    is_mainnet,
+                    miners_session,
+                    signing_round_timeout: config.miner.wait_on_signers.clone(),
+                };
+                sign_coordinator
+                    .coordinator
+                    .set_aggregate_public_key(Some(aggregate_public_key));
+                return Ok(sign_coordinator);
+            }
+        }
         let party_polynomials = get_signer_commitments(
             is_mainnet,
             reward_set_signers.as_slice(),
@@ -291,8 +320,8 @@ impl SignCoordinator {
         else {
             return Err("No slot for miner".into());
         };
-        let target_slot = 1;
-        let slot_id = slot_range.start + target_slot;
+        // We only have one slot per miner
+        let slot_id = slot_range.start;
         if !slot_range.contains(&slot_id) {
             return Err("Not enough slots for miner messages".into());
         }
@@ -326,11 +355,13 @@ impl SignCoordinator {
     pub fn begin_sign(
         &mut self,
         block: &NakamotoBlock,
+        burn_block_height: u64,
         block_attempt: u64,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
+        counters: &Counters,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -340,7 +371,13 @@ impl SignCoordinator {
         self.coordinator.current_sign_id = sign_id;
         self.coordinator.current_sign_iter_id = sign_iter_id;
 
-        let block_bytes = block.serialize_to_vec();
+        let proposal_msg = BlockProposalSigners {
+            block: block.clone(),
+            burn_height: burn_block_height,
+            reward_cycle: reward_cycle_id,
+        };
+
+        let block_bytes = proposal_msg.serialize_to_vec();
         let nonce_req_msg = self
             .coordinator
             .start_signing_round(&block_bytes, false, None)
@@ -359,6 +396,19 @@ impl SignCoordinator {
             &mut self.miners_session,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
+        counters.bump_naka_proposed_blocks();
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if let Some(signature) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
+                debug!("Short-circuiting waiting for signers, using test signature");
+                return Ok(signature);
+            }
+        }
 
         let Some(ref mut receiver) = self.receiver else {
             return Err(NakamotoNodeError::SigningCoordinatorFailure(

@@ -68,14 +68,9 @@ pub struct BlockProposalSigners {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
     /// A miner sent a message over .miners
-    /// The `Vec<BlockProposalSigners>` will contain any block proposals made by the miner during this StackerDB event.
     /// The `Vec<SignerMessage>` will contain any signer WSTS messages made by the miner while acting as a coordinator.
-    /// The `Option<StacksPublicKey>` will contain the message sender's public key if either of the vecs is non-empty.
-    MinerMessages(
-        Vec<BlockProposalSigners>,
-        Vec<SignerMessage>,
-        Option<StacksPublicKey>,
-    ),
+    /// The `Option<StacksPublicKey>` will contain the message sender's public key if the vec is non-empty.
+    MinerMessages(Vec<SignerMessage>, Option<StacksPublicKey>),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<SignerMessage>),
@@ -417,7 +412,6 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
         let signer_event = if event.contract_id.name.as_str() == MINERS_NAME
             && event.contract_id.is_boot()
         {
-            let mut blocks = vec![];
             let mut messages = vec![];
             let mut miner_pk = None;
             for chunk in event.modified_slots {
@@ -426,28 +420,13 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                         "Failed to recover PK from StackerDB chunk: {e}"
                     ))
                 })?);
-                if chunk.slot_id % MINER_SLOT_COUNT == 0 {
-                    // block
-                    let Ok(block) =
-                        BlockProposalSigners::consensus_deserialize(&mut chunk.data.as_slice())
-                    else {
-                        continue;
-                    };
-                    blocks.push(block);
-                } else if chunk.slot_id % MINER_SLOT_COUNT == 1 {
-                    // message
-                    let Ok(msg) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    else {
-                        continue;
-                    };
-                    messages.push(msg);
-                } else {
-                    return Err(EventError::UnrecognizedEvent(
-                        "Unrecognized slot_id for miners contract".into(),
-                    ));
+                let Ok(msg) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    continue;
                 };
+                messages.push(msg);
             }
-            SignerEvent::MinerMessages(blocks, messages, miner_pk)
+            SignerEvent::MinerMessages(messages, miner_pk)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
             let Some((signer_set, _)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
