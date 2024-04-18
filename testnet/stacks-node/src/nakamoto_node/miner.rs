@@ -686,50 +686,14 @@ impl BlockMinerThread {
         // 1. The highest block in the miner's current tenure
         // 2. The highest block in the current tenure's parent tenure
         // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
-        // let stacks_block_id = if let Some(block) = self.mined_blocks.last() {
-        //     block.block_id()
-        // } else {
-        //     self.parent_tenure_id
-        // };
-        // let Some(mut stacks_tip_header) =
-        //     NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
-        //         .expect("FATAL: could not query prior stacks block id")
-        // else {
-        //     debug!("No Stacks chain tip known, will return a genesis block");
-        //     let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
-
-        //     let chain_tip = ChainTip::genesis(
-        //         &burnchain_params.first_block_hash,
-        //         burnchain_params.first_block_height.into(),
-        //         burnchain_params.first_block_timestamp.into(),
-        //     );
-
-        //     return Ok(ParentStacksBlockInfo {
-        //         parent_tenure: Some(ParentTenureInfo {
-        //             parent_tenure_consensus_hash: chain_tip.metadata.consensus_hash,
-        //             parent_tenure_blocks: 0,
-        //         }),
-        //         stacks_parent_header: chain_tip.metadata,
-        //         coinbase_nonce: 0,
-        //     });
-        // };
-
-        // if self.mined_blocks.is_empty() {
-        //     // We could call this even if self.mined_blocks was not empty, but would return the same value, so save the effort and only do it when necessary.
-        //     // If we are starting a new tenure, then make sure we are building off of the last block of our parent tenure
-        //     if let Some(last_tenure_finish_block_header) =
-        //         NakamotoChainState::get_nakamoto_tenure_finish_block_header(
-        //             chain_state.db(),
-        //             &stacks_tip_header.consensus_hash,
-        //         )
-        //         .expect("FATAL: could not query parent tenure finish block")
-        //     {
-        //         stacks_tip_header = last_tenure_finish_block_header;
-        //     }
-        // }
-        let Some(stacks_tip_header) =
-            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
-                .expect("FATAL: could not query chain tip")
+        let stacks_block_id = if let Some(block) = self.mined_blocks.last() {
+            block.block_id()
+        } else {
+            self.parent_tenure_id
+        };
+        let Some(mut stacks_tip_header) =
+            NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
+                .expect("FATAL: could not query prior stacks block id")
         else {
             debug!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
@@ -749,6 +713,20 @@ impl BlockMinerThread {
                 coinbase_nonce: 0,
             });
         };
+
+        if self.mined_blocks.is_empty() {
+            // We could call this even if self.mined_blocks was not empty, but would return the same value, so save the effort and only do it when necessary.
+            // If we are starting a new tenure, then make sure we are building off of the last block of our parent tenure
+            if let Some(last_tenure_finish_block_header) =
+                NakamotoChainState::get_nakamoto_tenure_finish_block_header(
+                    chain_state.db(),
+                    &stacks_tip_header.consensus_hash,
+                )
+                .expect("FATAL: could not query parent tenure finish block")
+            {
+                stacks_tip_header = last_tenure_finish_block_header;
+            }
+        }
         let miner_address = self
             .keychain
             .origin_address(self.config.is_mainnet())

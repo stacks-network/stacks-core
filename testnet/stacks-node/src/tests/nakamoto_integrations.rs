@@ -3218,7 +3218,7 @@ fn forked_tenure_is_ignored() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3255,7 +3255,7 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    let block_tenure_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+    let _block_tenure_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
 
