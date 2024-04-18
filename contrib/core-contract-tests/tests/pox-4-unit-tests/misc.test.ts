@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Cl, ClarityType } from "@stacks/transactions";
-import { poxAddressToTuple } from "@stacks/stacking";
+import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
   POX_CONTRACT,
@@ -1030,5 +1030,301 @@ describe("test `minimal-can-stack-stx`", () => {
     expect(response.result).toBeErr(
       Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
     );
+  });
+});
+
+describe("test `verify-signer-key-sig`", () => {
+  it("returns `(ok true)` for a valid signature", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns `(ok true)` for a valid prior authorization", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+
+    simnet.callPublicFn(
+      POX_CONTRACT,
+      "set-signer-key-authorization",
+      [
+        poxAddr,
+        Cl.uint(period),
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.bool(true),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      account.stxAddress
+    );
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.none(),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns an error if the amount is too high", () => {
+    const account = stackers[0];
+    const maxAmount = getStackingMinimum();
+    const amount = maxAmount * 1.2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH)
+    );
+  });
+
+  it("returns an error for a used authorization", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+
+    simnet.callPrivateFn(
+      POX_CONTRACT,
+      "consume-signer-key-authorization",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_SIGNER_AUTH_USED));
+  });
+
+  it("returns an error for an invalid signature", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const invalidSignature = signerSignature.slice(0, -2);
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(invalidSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_INVALID_SIGNATURE_RECOVER)
+    );
+  });
+
+  it("returns an error for a signature that does not match", () => {
+    const account = stackers[0];
+    const account2 = stackers[1];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account2.signerPrivKey,
+    };
+    const signerSignature = account2.client.signPoxSignature(sigArgs);
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_INVALID_SIGNATURE_PUBKEY)
+    );
+  });
+
+  it("returns an error if not signature is passed and there is no prior authorization", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "verify-signer-key-sig",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.none(),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
   });
 });
