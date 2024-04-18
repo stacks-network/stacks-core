@@ -64,37 +64,83 @@ export class Stub {
       this.nextRewardSetIndex = 0;
 
       this.wallets.forEach((w) => {
+        let updatedAmountToCommit = 0;
         const wallet = this.stackers.get(w.stxAddress)!;
+
+        // Get the wallet's ex-delegators by comparing their delegatedUntilBurnHt
+        // to the current burn block height (only if the wallet is a delegatee).
         const expiredDelegators = wallet.poolMembers.filter((stackerAddress) =>
           this.stackers.get(stackerAddress)!.delegatedUntilBurnHt <
-            burnBlockHeight + 1
+            burnBlockHeight
         );
+
+        // Get the operator's pool stackers that no longer have partially commited
+        // STX for the next reward cycle by comparing their unlock height to
+        // the next reward cycle's first block (only if the wallet is an operator).
+        const stackersToRemoveAmountToCommit = wallet.lockedAddresses.filter((
+          stackerAddress,
+        ) =>
+          this.stackers.get(stackerAddress)!.unlockHeight <=
+            burnBlockHeight + 1050
+        );
+
+        // Get the operator's ex-pool stackers by comparing their unlockHeight to
+        // the current burn block height (only if the wallet is an operator).
         const expiredStackers = wallet.lockedAddresses.filter(
           (stackerAddress) =>
             this.stackers.get(stackerAddress)!.unlockHeight <=
-              burnBlockHeight + 1,
+              burnBlockHeight,
         );
 
+        // For each remaining pool stacker (if any), increase the operator's
+        // amountToCommit (partial-stacked) for the next cycle by the
+        // stacker's amountLocked.
+        wallet.lockedAddresses.forEach((stacker) => {
+          const stackerWallet = this.stackers.get(stacker)!;
+          updatedAmountToCommit += stackerWallet?.amountLocked;
+        });
+
+        // Update the operator's amountToCommit (partial-stacked).
+        wallet.amountToCommit = updatedAmountToCommit;
+
+        // Remove the expired delegators from the delegatee's poolMembers list.
         expiredDelegators.forEach((expDelegator) => {
           const expDelegatorIndex = wallet.poolMembers.indexOf(expDelegator);
           wallet.poolMembers.splice(expDelegatorIndex, 1);
         });
 
+        // Remove the expired stackers from the operator's lockedAddresses list.
         expiredStackers.forEach((expStacker) => {
-          const expStackerWallet = this.stackers.get(expStacker)!;
           const expStackerIndex = wallet.lockedAddresses.indexOf(expStacker);
           wallet.lockedAddresses.splice(expStackerIndex, 1);
+        });
+
+        // For each pool stacker that no longer have partially commited STX for
+        // the next reward cycle, decrement the operator's amountToCommit
+        // (partial-stacked) by the stacker's amountLocked
+        stackersToRemoveAmountToCommit.forEach((expStacker) => {
+          const expStackerWallet = this.stackers.get(expStacker)!;
           wallet.amountToCommit -= expStackerWallet.amountLocked;
         });
 
+        // Check the wallet's stack expiry and update the state accordingly.
         if (
-          wallet.unlockHeight > 0 && wallet.unlockHeight <= burnBlockHeight + 1
+          wallet.unlockHeight > 0 && wallet.unlockHeight <= burnBlockHeight
         ) {
           wallet.isStacking = false;
+          wallet.isStackingSolo = false;
           wallet.amountUnlocked += wallet.amountLocked;
           wallet.amountLocked = 0;
           wallet.unlockHeight = 0;
           wallet.firstLockedRewardCycle = 0;
+        } // If the wallet is solo stacking and its stack won't expire in the
+        // next reward cycle, increment the model's nextRewardSetIndex (the
+        // next empty reward slot)
+        else if (
+          wallet.unlockHeight > 0 &&
+          wallet.unlockHeight > burnBlockHeight + 1050 && wallet.isStackingSolo
+        ) {
+          this.nextRewardSetIndex++;
         }
         wallet.committedRewCycleIndexes = [];
       });
@@ -119,6 +165,7 @@ export type Wallet = {
 export type Stacker = {
   ustxBalance: number;
   isStacking: boolean;
+  isStackingSolo: boolean;
   hasDelegated: boolean;
   lockedAddresses: StxAddress[];
   amountToCommit: number;

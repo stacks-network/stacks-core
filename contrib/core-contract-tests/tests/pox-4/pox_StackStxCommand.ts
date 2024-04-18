@@ -168,6 +168,7 @@ export class StackStxCommand implements PoxCommand {
     // in order to prevent the test from stacking multiple times with the same
     // address.
     wallet.isStacking = true;
+    wallet.isStackingSolo = true;
     // Update locked, unlocked, and unlock-height fields in the model.
     wallet.amountLocked = amountUstx;
     wallet.unlockHeight = Number(unlockBurnHeight.value);

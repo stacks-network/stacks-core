@@ -117,6 +117,7 @@ it("statefully interacts with PoX-4", async () => {
     new Map(wallets.map((wallet) => [wallet.stxAddress, {
       ustxBalance: 100_000_000_000_000,
       isStacking: false,
+      isStackingSolo: false,
       hasDelegated: false,
       lockedAddresses: [],
       amountToCommit: 0,
