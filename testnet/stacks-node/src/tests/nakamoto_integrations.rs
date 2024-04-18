@@ -3253,7 +3253,7 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    let _block_tenure_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+    let block_tenure_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
 
@@ -3279,6 +3279,9 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits.
     TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    let block_tenure_b = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
 
     // Wait for a stacks block to be broadcasted
     let start_time = Instant::now();
@@ -3305,6 +3308,22 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     info!("Tenure C produced a block!");
+    let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(block_tenure_b, block_tenure_c);
+    // TODO: I don't understand this. Shouldn't it be also one block past block tenure a's block height? Why is it the same as block tenure A's height?
+    assert_eq!(
+        block_tenure_b.stacks_block_height,
+        block_tenure_a.stacks_block_height
+    );
+    // Block C was built AFTER block A, but before block B, so it should be built off of block A
+    // therefore it will be one ahead of its block height
+    assert_eq!(
+        block_tenure_c.stacks_block_height,
+        block_tenure_a.stacks_block_height + 1
+    );
 
     coord_channel
         .lock()
