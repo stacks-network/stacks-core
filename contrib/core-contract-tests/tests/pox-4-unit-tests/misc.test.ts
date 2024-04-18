@@ -1328,3 +1328,100 @@ describe("test `verify-signer-key-sig`", () => {
     expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
   });
 });
+
+describe("test `consume-signer-key-authorization`", () => {
+  it("returns `(ok true)` for a valid signature", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+
+    const response = simnet.callPrivateFn(
+      POX_CONTRACT,
+      "consume-signer-key-authorization",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns an error for a used authorization", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+
+    simnet.callPrivateFn(
+      POX_CONTRACT,
+      "consume-signer-key-authorization",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+
+    const response = simnet.callPrivateFn(
+      POX_CONTRACT,
+      "consume-signer-key-authorization",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.stringAscii(topic),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        Cl.bufferFromHex(account.signerPubKey),
+        Cl.uint(amount),
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address1
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_SIGNER_AUTH_USED));
+  });
+});
