@@ -143,9 +143,31 @@ describe("delegate-stx", () => {
     expect(delegateResponse.result).toBeOk(Cl.bool(true));
   });
 
-  it("fails if the pox address is invalid", () => {
+  it("fails if the pox address version is invalid", () => {
     let poxAddr = poxAddressToTuple(stackers[0].btcAddr);
     poxAddr.data["version"] = Cl.bufferFromHex("0a");
+    const delegateStxArgs = [
+      Cl.uint(amount),
+      Cl.principal(address2),
+      Cl.none(),
+      Cl.some(poxAddr),
+    ];
+
+    const delegateResponse = simnet.callPublicFn(
+      POX_CONTRACT,
+      "delegate-stx",
+      delegateStxArgs,
+      address1
+    );
+
+    expect(delegateResponse.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
+    );
+  });
+
+  it("fails if the pox address hashbytes is invalid", () => {
+    let poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    poxAddr.data["hashbytes"] = Cl.bufferFromHex("deadbeef");
     const delegateStxArgs = [
       Cl.uint(amount),
       Cl.principal(address2),

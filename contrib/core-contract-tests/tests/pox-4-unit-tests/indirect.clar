@@ -16,3 +16,7 @@
 (define-public (disallow-contract-caller (caller principal))
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 disallow-contract-caller caller)
 )
+
+(define-read-only (check-caller-allowed)
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 check-caller-allowed)
+)

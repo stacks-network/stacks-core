@@ -5,12 +5,15 @@ import {
   ERRORS,
   POX_CONTRACT,
   StackerInfo,
+  allowContractCaller,
   getStackingMinimum,
   stackStx,
   stackers,
 } from "./helpers";
+import { bufferFromHex } from "@stacks/transactions/dist/cl";
 
 const accounts = simnet.getAccounts();
+const deployer = accounts.get("deployer")!;
 const address1 = accounts.get("wallet_1")!;
 
 beforeEach(() => {
@@ -358,6 +361,54 @@ describe("test `check-caller-allowed`", () => {
       address1
     );
     expect(response.result).toBeBool(true);
+  });
+
+  it("returns false when called indirectly by unapproved caller", () => {
+    const response = simnet.callReadOnlyFn(
+      "indirect",
+      "check-caller-allowed",
+      [],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+
+  it("returns true when called indirectly by approved caller", () => {
+    allowContractCaller(`${deployer}.indirect`, null, address1);
+    const response = simnet.callReadOnlyFn(
+      "indirect",
+      "check-caller-allowed",
+      [],
+      address1
+    );
+
+    expect(response.result).toBeBool(true);
+  });
+
+  it("returns false when called indirectly by approved caller which has expired", () => {
+    allowContractCaller(`${deployer}.indirect`, 10n, address1);
+
+    let response = simnet.callReadOnlyFn(
+      "indirect",
+      "check-caller-allowed",
+      [],
+      address1
+    );
+
+    expect(response.result).toBeBool(true);
+
+    // mine 11 blocks to expire the caller
+    simnet.mineEmptyBlocks(11);
+
+    response = simnet.callReadOnlyFn(
+      "indirect",
+      "check-caller-allowed",
+      [],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
   });
 });
 
@@ -813,6 +864,170 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       address1
     );
     expect(resultWrongVersion).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
+    );
+  });
+});
+
+describe("test `check-pox-addr-hashbytes`", () => {
+  it("returns true for a valid address", () => {
+    let poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [poxAddr.data.version, poxAddr.data.hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(true);
+  });
+
+  it("returns false when a 20 byte hash is too short", () => {
+    let version = Cl.bufferFromHex("01");
+    let hashbytes = Cl.bufferFromHex("deadbeef");
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [version, hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+
+  it("returns false when a 20 byte hash is too long", () => {
+    let version = Cl.bufferFromHex("04");
+    let hashbytes = Cl.bufferFromHex("deadbeefdeadbeefdeadbeef");
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [version, hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+
+  it("returns false when a 32 byte hash is too short", () => {
+    let version = Cl.bufferFromHex("05");
+    let hashbytes = Cl.bufferFromHex("deadbeefdeadbeefdead");
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [version, hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+
+  it("returns false when a 32 byte hash is too long", () => {
+    let version = Cl.bufferFromHex("06");
+    let hashbytes = Cl.bufferFromHex("deadbeefdeadbeefdeadbeefdeadbeef01");
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [version, hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+
+  it("returns false when the version is too high", () => {
+    let version = Cl.bufferFromHex("07");
+    let hashbytes = Cl.bufferFromHex("deadbeefdeadbeefdeadbeefdeadbeef");
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "check-pox-addr-hashbytes",
+      [version, hashbytes],
+      address1
+    );
+
+    expect(response.result).toBeBool(false);
+  });
+});
+
+describe("test `minimal-can-stack-stx`", () => {
+  it("returns true for valid args", () => {
+    const poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    const amount = 1000n;
+    const firstCycle = 1n;
+    const lockPeriod = 6n;
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "minimal-can-stack-stx",
+      [poxAddr, Cl.uint(amount), Cl.uint(firstCycle), Cl.uint(lockPeriod)],
+      address1
+    );
+
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns false for a 0 amount", () => {
+    const poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    const amount = 0n;
+    const firstCycle = 1n;
+    const lockPeriod = 6n;
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "minimal-can-stack-stx",
+      [poxAddr, Cl.uint(amount), Cl.uint(firstCycle), Cl.uint(lockPeriod)],
+      address1
+    );
+
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_AMOUNT));
+  });
+
+  it("returns false for an invalid lock period", () => {
+    const poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    const amount = 1000n;
+    const firstCycle = 1n;
+    const lockPeriod = 13n;
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "minimal-can-stack-stx",
+      [poxAddr, Cl.uint(amount), Cl.uint(firstCycle), Cl.uint(lockPeriod)],
+      address1
+    );
+
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+  });
+
+  it("returns false for a bad address version", () => {
+    const poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    poxAddr.data["version"] = Cl.bufferFromHex("0a");
+    const amount = 1000n;
+    const firstCycle = 1n;
+    const lockPeriod = 6n;
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "minimal-can-stack-stx",
+      [poxAddr, Cl.uint(amount), Cl.uint(firstCycle), Cl.uint(lockPeriod)],
+      address1
+    );
+
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
+    );
+  });
+
+  it("returns false for a bad address hashbytes", () => {
+    const poxAddr = poxAddressToTuple(stackers[0].btcAddr);
+    poxAddr.data["hashbytes"] = Cl.bufferFromHex("deadbeef");
+    const amount = 1000n;
+    const firstCycle = 1n;
+    const lockPeriod = 6n;
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "minimal-can-stack-stx",
+      [poxAddr, Cl.uint(amount), Cl.uint(firstCycle), Cl.uint(lockPeriod)],
+      address1
+    );
+
+    expect(response.result).toBeErr(
       Cl.int(ERRORS.ERR_STACKING_INVALID_POX_ADDRESS)
     );
   });

@@ -1,7 +1,7 @@
 import { assert, beforeEach, describe, expect, it } from "vitest";
 
 import { Cl } from "@stacks/transactions";
-import { poxAddressToTuple } from "@stacks/stacking";
+import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
   POX_CONTRACT,
@@ -146,5 +146,59 @@ describe("test `delegate-stack-stx`", () => {
         "unlock-burn-height": Cl.uint(7350),
       })
     );
+  });
+});
+
+describe("test `stack-aggregation-commit-indexed`", () => {
+  it("returns `(ok uint)` on success", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    const { result } = delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeOk(
+      Cl.tuple({
+        "lock-amount": Cl.uint(amount),
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-commit-indexed",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeOk(Cl.uint(0));
   });
 });
