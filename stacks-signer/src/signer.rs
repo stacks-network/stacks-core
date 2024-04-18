@@ -241,7 +241,7 @@ impl Signer {
         if self.state != State::Uninitialized {
             // We should only read stackerdb if we are uninitialized
             return Ok(());
-        };
+        }
         let ordered_packets = self
             .stackerdb
             .get_dkg_packets(&self.signer_slot_ids)?
@@ -1403,14 +1403,44 @@ impl Signer {
         }
     }
 
-    /// Refresh DKG value and queue DKG command if necessary
-    pub fn refresh_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
-        // First check if we should queue DKG based on contract vote state and stackerdb transactions
-        let should_queue = self.should_queue_dkg(stacks_client)?;
-        // Before queueing the command, check one last time if DKG has been
-        // approved. It could have happened after the last call to
-        // `get_approved_aggregate_key` but before the theshold check in
-        // `should_queue_dkg`.
+    /// Refresh DKG and queue it if required
+    pub fn refresh_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        // First attempt to retrieve the aggregate key from the contract.
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        // Check stackerdb for any missed DKG messages to catch up our state.
+        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        // Check if we should still queue DKG
+        if !self.should_queue_dkg(stacks_client)? {
+            return Ok(());
+        }
+        // Because there could be a slight delay in reading pending transactions and a key being approved by the contract,
+        // check one last time if the approved key was set since we finished the should queue dkg call
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        if self.commands.front() != Some(&Command::Dkg) {
+            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
+            self.commands.push_front(Command::Dkg);
+        } else {
+            debug!("{self}: DKG command already queued...");
+        }
+        Ok(())
+    }
+
+    /// Overwrites the approved aggregate key to the value in the contract, updating state accordingly
+    pub fn update_approved_aggregate_key(
+        &mut self,
+        stacks_client: &StacksClient,
+    ) -> Result<(), ClientError> {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
@@ -1430,22 +1460,21 @@ impl Signer {
                     self.approved_aggregate_public_key
                 );
             }
-            if let State::OperationInProgress(Operation::Dkg) = self.state {
-                debug!(
-                    "{self}: DKG has already been set. Aborting DKG operation {}.",
-                    self.coordinator.current_dkg_id
-                );
-                self.finish_operation();
-            } else if self.state == State::Uninitialized {
-                // If we successfully load the DKG value, we are fully initialized
-                self.state = State::Idle;
-            }
-        } else if should_queue {
-            if self.commands.front() != Some(&Command::Dkg) {
-                info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-                self.commands.push_front(Command::Dkg);
-            } else {
-                debug!("{self}: DKG command already queued...");
+            match self.state {
+                State::OperationInProgress(Operation::Dkg) => {
+                    debug!(
+                        "{self}: DKG has already been set. Aborting DKG operation {}.",
+                        self.coordinator.current_dkg_id
+                    );
+                    self.finish_operation();
+                }
+                State::Uninitialized => {
+                    // If we successfully load the DKG value, we are fully initialized
+                    self.state = State::Idle;
+                }
+                _ => {
+                    // do nothing
+                }
             }
         }
         Ok(())

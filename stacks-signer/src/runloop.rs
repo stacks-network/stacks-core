@@ -384,7 +384,9 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 continue;
             }
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = signer.refresh_dkg(&self.stacks_client) {
+                if let Err(e) =
+                    signer.refresh_dkg(&self.stacks_client, res.clone(), current_reward_cycle)
+                {
                     error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
@@ -414,16 +416,6 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     );
                     signer.commands.push_back(command.command);
                 }
-            }
-            // Check if we missed any DKG messages due to a restart or being late to the party
-            // Note: We currently only check for DKG specific messages as we cannot rejoin a sign
-            // round due to a miner overwriting its own message slots (impossible to recover without every message)
-            if let Err(e) = signer.read_dkg_stackerdb_messages(
-                &self.stacks_client,
-                res.clone(),
-                current_reward_cycle,
-            ) {
-                error!("{signer}: failed to read stackerdb messages: {e}");
             }
             // After processing event, run the next command for each signer
             signer.process_next_command(&self.stacks_client, current_reward_cycle);
