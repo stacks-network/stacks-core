@@ -20,3 +20,12 @@
 (define-read-only (check-caller-allowed)
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 check-caller-allowed)
 )
+
+(define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                 (reward-cycle uint)
+                                                 (signer-sig (optional (buff 65)))
+                                                 (signer-key (buff 33))
+                                                 (max-amount uint)
+                                                 (auth-id uint))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-aggregation-commit-indexed pox-addr reward-cycle signer-sig signer-key max-amount auth-id)
+)
