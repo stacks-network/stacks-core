@@ -417,3 +417,270 @@ describe("test `stack-aggregation-commit-indexed`", () => {
     );
   });
 });
+
+describe("test `stack-aggregation-commit`", () => {
+  it("returns `(ok uint)` on success", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    const { result } = delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeOk(
+      Cl.tuple({
+        "lock-amount": Cl.uint(amount),
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns an error when there is no partially stacked STX", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL)
+    );
+  });
+
+  it("returns an error when not called by an authorized caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      "indirect",
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("can be called indirectly by an authorized caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    allowContractCaller(`${deployer}.indirect`, null, address2);
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      "indirect",
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns an error when called with no signature or prior authorization", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const maxAmount = amount * 2;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const authId = 1;
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    const response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.none(),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
+  });
+
+  it("returns an error when the stacking threshold is not met", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 0.5;
+    const maxAmount = amount * 4;
+    delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    const poxAddr = poxAddressToTuple(account.btcAddr);
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle,
+      period,
+      topic: Pox4SignatureTopic.AggregateCommit,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+    let response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-commit",
+      [
+        poxAddr,
+        Cl.uint(rewardCycle),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ],
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_THRESHOLD_NOT_MET)
+    );
+  });
+});
