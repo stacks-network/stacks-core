@@ -1418,11 +1418,15 @@ impl Signer {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
+            let internal_dkg = self.coordinator.aggregate_public_key;
+            if internal_dkg != self.approved_aggregate_public_key {
+                warn!("{self}: we do not support changing the internal DKG key yet. Expected {internal_dkg:?} got {:?}", self.approved_aggregate_public_key);
+            }
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             if old_dkg != self.approved_aggregate_public_key {
                 warn!(
-                    "{self}: updated DKG value to {:?}.",
+                    "{self}: updated DKG value from {old_dkg:?} to {:?}.",
                     self.approved_aggregate_public_key
                 );
             }
@@ -1432,6 +1436,9 @@ impl Signer {
                     self.coordinator.current_dkg_id
                 );
                 self.finish_operation();
+            } else if self.state == State::Uninitialized {
+                // If we successfully load the DKG value, we are fully initialized
+                self.state = State::Idle;
             }
         } else if should_queue {
             if self.commands.front() != Some(&Command::Dkg) {

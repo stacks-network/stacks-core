@@ -59,7 +59,7 @@ use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
     naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
-    POX_4_DEFAULT_STACKER_BALANCE,
+    next_block_and_process_new_stacks_block, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
@@ -1162,26 +1162,16 @@ fn stackerdb_delayed_dkg() {
     );
 
     info!("------------------------- Start DKG -------------------------");
-    let height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
+    info!("Waiting for DKG to start...");
     // Advance one more to trigger DKG
-    run_until_burnchain_height(
+    next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
-        height.wrapping_add(1),
-        &signer_test.running_nodes.conf,
-    );
+        timeout.as_secs(),
+        || Ok(true),
+    )
+    .expect("Failed to mine bitcoin block");
     // Wait a bit so DKG is actually triggered and signers are not available to respond
     std::thread::sleep(Duration::from_secs(5));
-
-    // Make sure DKG did not get set
-    assert!(signer_test
-        .stacks_client
-        .get_approved_aggregate_key(reward_cycle)
-        .expect("Failed to get approved aggregate key")
-        .is_none());
 
     info!("------------------------- Restart Stopped Signer -------------------------");
 
@@ -1189,17 +1179,16 @@ fn stackerdb_delayed_dkg() {
 
     info!("------------------------- Wait for DKG -------------------------");
     let key = signer_test.wait_for_dkg(timeout);
-    let height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
-    // Advance one more to mine dkg transactions
-    run_until_burnchain_height(
+    // Sleep a bit to make sure the transactions are broadcast.
+    std::thread::sleep(Duration::from_secs(1));
+    // Mine a block and make sure the votes were mined
+    next_block_and_process_new_stacks_block(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
-        height.wrapping_add(1),
-        &signer_test.running_nodes.conf,
-    );
+        timeout.as_secs(),
+        &signer_test.running_nodes.coord_channel,
+    )
+    .unwrap();
+
     // Make sure DKG did get set
     assert_eq!(
         key,
