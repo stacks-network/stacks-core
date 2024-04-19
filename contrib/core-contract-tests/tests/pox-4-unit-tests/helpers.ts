@@ -137,7 +137,7 @@ export const getStackingMinimum = () => {
     [],
     simnet.deployer
   );
-  return Number((response.result as UIntCV).value);
+  return (response.result as UIntCV).value;
 };
 
 export const burnHeightToRewardCycle = (burnHeight: bigint | number) => {
@@ -315,7 +315,6 @@ export const stackAggregationCommitIndexed = (
     Cl.uint(maxAmount),
     Cl.uint(authId),
   ];
-  console.log(args);
   return simnet.callPublicFn(
     POX_CONTRACT,
     "stack-aggregation-commit-indexed",

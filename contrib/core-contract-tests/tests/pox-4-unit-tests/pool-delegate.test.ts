@@ -37,7 +37,7 @@ describe("test `get-check-delegation`", () => {
   });
 
   it("returns info after delegation", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     const untilBurnHeight = 10;
     const delegateResponse = delegateStx(
@@ -69,7 +69,7 @@ describe("test `get-check-delegation`", () => {
   });
 
   it("does not expire if no burn height limit is set", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
 
@@ -94,7 +94,7 @@ describe("test `get-check-delegation`", () => {
   });
 
   it("returns none after burn height expiration", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     simnet.mineEmptyBlock();
 
     const untilBurnHeight = 10;
@@ -122,7 +122,7 @@ describe("test `get-check-delegation`", () => {
 
 describe("test `delegate-stack-stx`", () => {
   it("does not delegate if principal is not delegated", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const { result } = delegateStackStx(
       address2,
       amount,
@@ -135,7 +135,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("can call delegate-stack-stx", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
     const { result } = delegateStackStx(
       address1,
@@ -155,7 +155,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error for stacking too early", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const startBurnHeight = 3000;
     const lockPeriod = 6;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
@@ -171,7 +171,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("cannot be called indirectly by an unapproved caller", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const startBurnHeight = 1000;
     const lockPeriod = 6;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
@@ -195,7 +195,7 @@ describe("test `delegate-stack-stx`", () => {
 
   it("can be called indirectly by an approved caller", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const startBurnHeight = 1000;
     const lockPeriod = 6;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
@@ -223,7 +223,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error if not delegated", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const { result } = delegateStackStx(
       address1,
       amount,
@@ -236,7 +236,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error if delegated to someone else", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
     const { result } = delegateStackStx(
       address1,
@@ -250,11 +250,11 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error if stacking more than delegated", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
     const { result } = delegateStackStx(
       address1,
-      amount + 1,
+      amount + 1n,
       stackers[0].btcAddr,
       1000,
       6,
@@ -264,7 +264,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error if stacking to a different pox address", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
     const { result } = delegateStackStx(
       address1,
@@ -278,7 +278,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("can call delegate-stack-stx when no pox address was set", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, null, null, address1);
     const { result } = delegateStackStx(
       address1,
@@ -298,7 +298,7 @@ describe("test `delegate-stack-stx`", () => {
   });
 
   it("returns an error if stacking beyond the delegation height", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     delegateStx(amount, address2, 2000, stackers[0].btcAddr, address1);
     const { result } = delegateStackStx(
       address1,
@@ -313,7 +313,7 @@ describe("test `delegate-stack-stx`", () => {
 
   it("returns an error if stacker is already stacked", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const startBurnHeight = 1000;
     const lockPeriod = 6;
 
@@ -378,8 +378,8 @@ describe("test `delegate-stack-stx`", () => {
 describe("test `stack-aggregation-commit-indexed`", () => {
   it("returns `(ok uint)` on success", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     const { result } = delegateStackStx(
       account.stxAddress,
@@ -430,8 +430,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 
   it("returns an error when there is no partially stacked STX", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
 
     const poxAddr = poxAddressToTuple(account.btcAddr);
@@ -469,8 +469,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 
   it("returns an error when not called by an authorized caller", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
@@ -516,8 +516,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 
   it("can be called indirectly by an authorized caller", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     allowContractCaller(`${deployer}.indirect`, null, address2);
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
@@ -562,8 +562,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 
   it("returns an error when called with no signature or prior authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
@@ -596,8 +596,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 
   it("returns an error when the stacking threshold is not met", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 0.5;
-    const maxAmount = amount * 4;
+    const amount = getStackingMinimum() / 2n;
+    const maxAmount = amount * 4n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
@@ -645,8 +645,8 @@ describe("test `stack-aggregation-commit-indexed`", () => {
 describe("test `stack-aggregation-commit`", () => {
   it("returns `(ok uint)` on success", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     const { result } = delegateStackStx(
       account.stxAddress,
@@ -697,8 +697,8 @@ describe("test `stack-aggregation-commit`", () => {
 
   it("returns an error when there is no partially stacked STX", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
 
     const poxAddr = poxAddressToTuple(account.btcAddr);
@@ -736,8 +736,8 @@ describe("test `stack-aggregation-commit`", () => {
 
   it("returns an error when not called by an authorized caller", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
@@ -783,8 +783,8 @@ describe("test `stack-aggregation-commit`", () => {
 
   it("can be called indirectly by an authorized caller", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     allowContractCaller(`${deployer}.indirect`, null, address2);
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
@@ -829,8 +829,8 @@ describe("test `stack-aggregation-commit`", () => {
 
   it("returns an error when called with no signature or prior authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
@@ -863,8 +863,8 @@ describe("test `stack-aggregation-commit`", () => {
 
   it("returns an error when the stacking threshold is not met", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 0.5;
-    const maxAmount = amount * 4;
+    const amount = getStackingMinimum() / 2n;
+    const maxAmount = amount * 4n;
     delegateStx(amount, address2, null, account.btcAddr, account.stxAddress);
     delegateStackStx(
       account.stxAddress,
