@@ -133,7 +133,8 @@ export class Stub {
           wallet.amountLocked = 0;
           wallet.unlockHeight = 0;
           wallet.firstLockedRewardCycle = 0;
-        } // If the wallet is solo stacking and its stack won't expire in the
+        } 
+        // If the wallet is solo stacking and its stack won't expire in the
         // next reward cycle, increment the model's nextRewardSetIndex (the
         // next empty reward slot)
         else if (
