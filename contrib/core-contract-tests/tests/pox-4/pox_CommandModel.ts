@@ -117,7 +117,7 @@ export class Stub {
 
         // For each pool stacker that no longer have partially commited STX for
         // the next reward cycle, decrement the operator's amountToCommit
-        // (partial-stacked) by the stacker's amountLocked
+        // (partial-stacked) by the stacker's amountLocked.
         stackersToRemoveAmountToCommit.forEach((expStacker) => {
           const expStackerWallet = this.stackers.get(expStacker)!;
           wallet.amountToCommit -= expStackerWallet.amountLocked;
