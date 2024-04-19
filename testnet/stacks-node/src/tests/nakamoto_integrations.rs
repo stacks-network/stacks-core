@@ -3158,7 +3158,7 @@ fn forked_tenure_is_ignored() {
 
     let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(10);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -3327,11 +3327,11 @@ fn forked_tenure_is_ignored() {
     let sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    submit_tx(&http_origin, &transfer_tx);
-    info!("Tenure C is mining a second block");
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in Tenure C to mine a second block");
     while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
         assert!(
-            start_time.elapsed() < Duration::from_secs(45),
+            start_time.elapsed() < Duration::from_secs(30),
             "FAIL: Test timed out while waiting for block production",
         );
         thread::sleep(Duration::from_secs(1));
