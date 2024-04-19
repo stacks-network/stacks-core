@@ -3178,7 +3178,7 @@ fn forked_tenure_is_ignored() {
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -3290,11 +3290,12 @@ fn forked_tenure_is_ignored() {
         thread::sleep(Duration::from_secs(1));
     }
 
+    info!("Tenure B broadcasted a block. Issue the next bitcon block and unstall block commits.");
     let block_tenure_b = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
-
-    info!("Tenure B broadcasted a block. Issue the next bitcon block and unstall block commits.");
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_b = blocks.last().unwrap();
 
     info!("Starting tenure C.");
     // Submit a block commit op for tenure C
@@ -3312,18 +3313,92 @@ fn forked_tenure_is_ignored() {
     let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_c = blocks.last().unwrap();
 
+    // Now let's produce a second block for tenure C and ensure it builds off of block C.
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        Ok(blocks_count > blocks_before)
+    })
+    .unwrap();
+
+    info!("Tenure C produced a second block!");
+
+    let block_2_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_2_c = blocks.last().unwrap();
+
+    info!("Starting tenure D.");
+    // Submit a block commit op for tenure D
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count > commits_before)
+    })
+    .unwrap();
+
+    // Wait for a stacks block to be broadcasted
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        Ok(blocks_count > blocks_before)
+    })
+    .unwrap();
+    let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_d = blocks.last().unwrap();
     assert_ne!(block_tenure_b, block_tenure_a);
     assert_ne!(block_tenure_b, block_tenure_c);
+    assert_ne!(block_tenure_c, block_tenure_a);
+
     // Block B was built atop block A
     assert_eq!(
         block_tenure_b.stacks_block_height,
         block_tenure_a.stacks_block_height + 1
     );
+    assert_eq!(
+        block_b.parent_block_id,
+        block_tenure_a.index_block_hash().to_string()
+    );
+
     // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
     assert_eq!(
         block_tenure_c.stacks_block_height,
         block_tenure_a.stacks_block_height + 1
+    );
+    assert_eq!(
+        block_c.parent_block_id,
+        block_tenure_a.index_block_hash().to_string()
+    );
+
+    assert_ne!(block_tenure_c, block_2_tenure_c);
+    assert_ne!(block_2_tenure_c, block_tenure_d);
+    assert_ne!(block_tenure_c, block_tenure_d);
+
+    // Second block of tenure C builds off of block C
+    assert_eq!(
+        block_2_tenure_c.stacks_block_height,
+        block_tenure_c.stacks_block_height + 1,
+    );
+    assert_eq!(
+        block_2_c.parent_block_id,
+        block_tenure_c.index_block_hash().to_string()
+    );
+
+    // Tenure D builds off of the second block of tenure C
+    assert_eq!(
+        block_tenure_d.stacks_block_height,
+        block_2_tenure_c.stacks_block_height + 1,
+    );
+    assert_eq!(
+        block_d.parent_block_id,
+        block_2_tenure_c.index_block_hash().to_string()
     );
 
     coord_channel

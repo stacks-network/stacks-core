@@ -2989,6 +2989,7 @@ impl NakamotoChainState {
         debug!(
             "Append nakamoto block";
             "block" => format!("{}/{block_hash}", block.header.consensus_hash),
+            "block_id" => %block.header.block_id(),
             "parent_block" => %block.header.parent_block_id,
             "stacks_height" => next_block_height,
             "total_burns" => block.header.burn_spent,
