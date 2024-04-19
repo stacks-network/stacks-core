@@ -1095,7 +1095,7 @@ fn test_metrics_identifiers() {
     for (input, output) in fixtures {
         // Destructure fixture data
         let (verb, path_and_query_string) = input;
-        let (metrics_identifier_expected, should_have_hadler) = output;
+        let (metrics_identifier_expected, should_have_handler) = output;
 
         // Create request from data
         let preamble = HttpRequestPreamble::new(
@@ -1114,6 +1114,6 @@ fn test_metrics_identifiers() {
 
         // Check that we get expected metrics identifier and request handler
         assert_eq!(metrics_identifier, metrics_identifier_expected);
-        assert_eq!(response_handler_index.is_some(), should_have_hadler);
+        assert_eq!(response_handler_index.is_some(), should_have_handler);
     }
 }
