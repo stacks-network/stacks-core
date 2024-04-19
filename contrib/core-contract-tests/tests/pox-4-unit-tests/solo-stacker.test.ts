@@ -3,9 +3,19 @@ import { describe, expect, it, beforeEach, assert } from "vitest";
 
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { Simnet } from "@hirosystems/clarinet-sdk";
-import { POX_CONTRACT, getPoxInfo, stackers } from "./helpers";
+import {
+  ERRORS,
+  POX_CONTRACT,
+  allowContractCaller,
+  delegateStx,
+  getPoxInfo,
+  stackStx,
+  stackers,
+} from "./helpers";
+import { address } from "@stacks/transactions/dist/cl";
 
 const accounts = simnet.getAccounts();
+const deployer = accounts.get("deployer")!;
 const address1 = accounts.get("wallet_1")!;
 const address2 = accounts.get("wallet_2")!;
 
@@ -88,14 +98,14 @@ describe("pox-4", () => {
         Cl.uint(authId),
       ];
 
-      const stackStx = simnet.callPublicFn(
+      const response = simnet.callPublicFn(
         POX_CONTRACT,
         "stack-stx",
         stackStxArgs,
         address1
       );
 
-      expect(stackStx.result).toBeOk(
+      expect(response.result).toBeOk(
         Cl.tuple({
           "lock-amount": Cl.uint(187500000000),
           "signer-key": Cl.bufferFromHex(account.signerPubKey),
@@ -143,13 +153,13 @@ describe("pox-4", () => {
         Cl.uint(authId),
       ];
 
-      const stackStx = simnet.callPublicFn(
+      const response = simnet.callPublicFn(
         POX_CONTRACT,
         "stack-stx",
         stackStxArgs,
         address1
       );
-      expect(stackStx.result).toHaveClarityType(ClarityType.ResponseOk);
+      expect(response.result).toHaveClarityType(ClarityType.ResponseOk);
 
       // try to transfer 90% of balance (should fail because 20% is locked)
       const { result: resultErr } = simnet.transferSTX(
@@ -212,14 +222,14 @@ describe("pox-4", () => {
           Cl.uint(authId),
         ];
 
-        const stackStx = simnet.callPublicFn(
+        const response = simnet.callPublicFn(
           POX_CONTRACT,
           "stack-stx",
           stackStxArgs,
           account.stxAddress
         );
 
-        expect(stackStx.result).toBeOk(
+        expect(response.result).toBeOk(
           Cl.tuple({
             "lock-amount": Cl.uint(187500000000),
             "signer-key": Cl.bufferFromHex(signerAccount.signerPubKey),
@@ -237,6 +247,263 @@ describe("pox-4", () => {
           "unlock-height": Cl.uint(11550),
         });
       }
+    });
+
+    it("returns an error for an invalid start height", async () => {
+      const account = stackers[0];
+      const burnBlockHeight = 2000;
+      const period = 10;
+      const authId = 1;
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      const response = stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        ustxAmount,
+        authId,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_INVALID_START_BURN_HEIGHT)
+      );
+    });
+
+    it("cannot be called indirectly by an unapproved caller", async () => {
+      const account = stackers[0];
+      const rewardCycle = 0;
+      const burnBlockHeight = 1;
+      const period = 10;
+      const authId = 1;
+
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      const stackStxArgs = [
+        Cl.uint(ustxAmount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(burnBlockHeight),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+
+      const response = simnet.callPublicFn(
+        "indirect",
+        "stack-stx",
+        stackStxArgs,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+      );
+    });
+
+    it("can be called indirectly by an approved caller", async () => {
+      const account = stackers[0];
+      const rewardCycle = 0;
+      const burnBlockHeight = 1;
+      const period = 10;
+      const authId = 1;
+
+      allowContractCaller(`${deployer}.indirect`, null, address1);
+
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      const stackStxArgs = [
+        Cl.uint(ustxAmount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(burnBlockHeight),
+        Cl.uint(period),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+
+      const response = simnet.callPublicFn(
+        "indirect",
+        "stack-stx",
+        stackStxArgs,
+        address1
+      );
+
+      expect(response.result).toBeOk(
+        Cl.tuple({
+          "lock-amount": Cl.uint(187500000000),
+          "signer-key": Cl.bufferFromHex(account.signerPubKey),
+          stacker: Cl.principal(account.stxAddress),
+          "unlock-burn-height": Cl.uint(11550),
+        })
+      );
+
+      const stxAccount = simnet.runSnippet(
+        `(stx-account '${account.stxAddress})`
+      );
+      expect(stxAccount).toBeTuple({
+        locked: Cl.uint(ustxAmount),
+        unlocked: Cl.uint(initialSTXBalance - ustxAmount),
+        "unlock-height": Cl.uint(11550),
+      });
+    });
+
+    it("returns an error if the stacker is already stacked", async () => {
+      const account = stackers[0];
+      const burnBlockHeight = 0;
+      const period = 10;
+      const authId = 1;
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        ustxAmount,
+        authId,
+        address1
+      );
+
+      const response = stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        ustxAmount,
+        authId,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_STACKING_ALREADY_STACKED)
+      );
+    });
+
+    it("returns an error if the stacker is already delegated", async () => {
+      const account = stackers[0];
+      const burnBlockHeight = 0;
+      const period = 10;
+      const authId = 1;
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      delegateStx(
+        ustxAmount,
+        address2,
+        burnBlockHeight,
+        account.btcAddr,
+        address1
+      );
+
+      const response = stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        ustxAmount,
+        authId,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_STACKING_ALREADY_DELEGATED)
+      );
+    });
+
+    it("returns an error if the stacker has an insufficient balance", async () => {
+      const account = stackers[0];
+      const burnBlockHeight = 0;
+      const period = 10;
+      const authId = 1;
+      const ustxAmount = simnet.getAssetsMap().get("STX")?.get(address1)! + 10n;
+
+      const response = stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        ustxAmount,
+        authId,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS)
+      );
+    });
+
+    it("returns an error if the signature is already used", async () => {
+      const account = stackers[0];
+      const burnBlockHeight = 0;
+      const period = 10;
+      const authId = 1;
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+      const rewardCycle = 0;
+
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+
+      simnet.callPrivateFn(
+        POX_CONTRACT,
+        "consume-signer-key-authorization",
+        [
+          poxAddressToTuple(account.btcAddr),
+          Cl.uint(rewardCycle),
+          Cl.stringAscii(Pox4SignatureTopic.StackStx),
+          Cl.uint(period),
+          Cl.some(Cl.bufferFromHex(signerSignature)),
+          Cl.bufferFromHex(account.signerPubKey),
+          Cl.uint(ustxAmount),
+          Cl.uint(maxAmount),
+          Cl.uint(authId),
+        ],
+        address1
+      );
+
+      const response = stackStx(
+        account,
+        ustxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        address1
+      );
+
+      expect(response.result).toBeErr(Cl.int(ERRORS.ERR_SIGNER_AUTH_USED));
     });
   });
 
@@ -271,13 +538,13 @@ describe("pox-4", () => {
         Cl.uint(maxAmount),
         Cl.uint(authId),
       ];
-      const stackStx = simnet.callPublicFn(
+      const response = simnet.callPublicFn(
         POX_CONTRACT,
         "stack-stx",
         stackStxArgs,
         address1
       );
-      expect(stackStx.result).toHaveClarityType(ClarityType.ResponseOk);
+      expect(response.result).toHaveClarityType(ClarityType.ResponseOk);
 
       // advance to cycle 1
       simnet.mineEmptyBlocks(cycleLength);
@@ -361,13 +628,13 @@ describe("pox-4", () => {
         Cl.uint(maxAmount),
         Cl.uint(authId),
       ];
-      const stackStx = simnet.callPublicFn(
+      const response = simnet.callPublicFn(
         POX_CONTRACT,
         "stack-stx",
         stackStxArgs,
         address1
       );
-      expect(stackStx.result).toHaveClarityType(ClarityType.ResponseOk);
+      expect(response.result).toHaveClarityType(ClarityType.ResponseOk);
 
       // advance to cycle 1
       simnet.mineEmptyBlocks(cycleLength);
@@ -453,13 +720,13 @@ describe("pox-4", () => {
         Cl.uint(maxAmount),
         Cl.uint(authId),
       ];
-      const stackStx = simnet.callPublicFn(
+      const response = simnet.callPublicFn(
         POX_CONTRACT,
         "stack-stx",
         stackStxArgs,
         address1
       );
-      expect(stackStx.result).toHaveClarityType(ClarityType.ResponseOk);
+      expect(response.result).toHaveClarityType(ClarityType.ResponseOk);
 
       // advance to cycle 3
       simnet.mineEmptyBlocks(cycleLength * 3);
