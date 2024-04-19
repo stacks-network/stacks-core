@@ -21,6 +21,14 @@
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 check-caller-allowed)
 )
 
+(define-public (delegate-stack-stx (stacker principal)
+                                   (amount-ustx uint)
+                                   (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                   (start-burn-ht uint)
+                                   (lock-period uint))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stack-stx stacker amount-ustx pox-addr start-burn-ht lock-period)
+)
+
 (define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                  (reward-cycle uint)
                                                  (signer-sig (optional (buff 65)))

@@ -1,6 +1,6 @@
 import { assert, beforeEach, describe, expect, it } from "vitest";
 
-import { Cl } from "@stacks/transactions";
+import { Cl, ResponseCV, UIntCV, cvToString } from "@stacks/transactions";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
@@ -9,6 +9,9 @@ import {
   delegateStackStx,
   delegateStx,
   getStackingMinimum,
+  stackAggregationCommitIndexed,
+  stackAggregationIncrease,
+  stackStx,
   stackers,
 } from "./helpers";
 
@@ -16,6 +19,7 @@ const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
 const address1 = accounts.get("wallet_1")!;
 const address2 = accounts.get("wallet_2")!;
+const address3 = accounts.get("wallet_3")!;
 
 beforeEach(() => {
   simnet.setEpoch("3.0");
@@ -148,6 +152,226 @@ describe("test `delegate-stack-stx`", () => {
         "unlock-burn-height": Cl.uint(7350),
       })
     );
+  });
+
+  it("returns an error for stacking too early", () => {
+    const amount = getStackingMinimum() * 1.2;
+    const startBurnHeight = 3000;
+    const lockPeriod = 6;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[0].btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_INVALID_START_BURN_HEIGHT));
+  });
+
+  it("cannot be called indirectly by an unapproved caller", () => {
+    const amount = getStackingMinimum() * 1.2;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+
+    const response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-stx",
+      [
+        Cl.principal(address1),
+        Cl.uint(amount),
+        poxAddressToTuple(stackers[0].btcAddr),
+        Cl.uint(startBurnHeight),
+        Cl.uint(lockPeriod),
+      ],
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("can be called indirectly by an approved caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    allowContractCaller(`${deployer}.indirect`, null, address2);
+
+    const response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-stx",
+      [
+        Cl.principal(address1),
+        Cl.uint(amount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(startBurnHeight),
+        Cl.uint(lockPeriod),
+      ],
+      address2
+    );
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        "lock-amount": Cl.uint(amount),
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+  });
+
+  it("returns an error if not delegated", () => {
+    const amount = getStackingMinimum() * 1.2;
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[0].btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED));
+  });
+
+  it("returns an error if delegated to someone else", () => {
+    const amount = getStackingMinimum() * 1.2;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[0].btcAddr,
+      1000,
+      6,
+      address3
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED));
+  });
+
+  it("returns an error if stacking more than delegated", () => {
+    const amount = getStackingMinimum() * 1.2;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount + 1,
+      stackers[0].btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_DELEGATION_TOO_MUCH_LOCKED));
+  });
+
+  it("returns an error if stacking to a different pox address", () => {
+    const amount = getStackingMinimum() * 1.2;
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[1].btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_DELEGATION_POX_ADDR_REQUIRED));
+  });
+
+  it("can call delegate-stack-stx when no pox address was set", () => {
+    const amount = getStackingMinimum() * 1.2;
+    delegateStx(amount, address2, null, null, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[0].btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeOk(
+      Cl.tuple({
+        "lock-amount": Cl.uint(amount),
+        stacker: Cl.principal(address1),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+  });
+
+  it("returns an error if stacking beyond the delegation height", () => {
+    const amount = getStackingMinimum() * 1.2;
+    delegateStx(amount, address2, 2000, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stackers[0].btcAddr,
+      1000,
+      6,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_DELEGATION_EXPIRES_DURING_LOCK));
+  });
+
+  it("returns an error if stacker is already stacked", () => {
+    const stacker = stackers[0];
+    const amount = getStackingMinimum() * 1.2;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    delegateStackStx(
+      address1,
+      amount,
+      stacker.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stacker.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_ALREADY_STACKED));
+  });
+
+  it("returns an error if stacker does not have enough unlocked stacks", () => {
+    const stacker = stackers[0];
+    const amount =
+      simnet.getAssetsMap().get("STX")?.get(stacker.stxAddress)! + 10n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stacker.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS));
+  });
+
+  it("returns an error if amount is 0", () => {
+    const stacker = stackers[0];
+    const amount = 0;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(amount, address2, null, stackers[0].btcAddr, address1);
+    const { result } = delegateStackStx(
+      address1,
+      amount,
+      stacker.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+    expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_AMOUNT));
   });
 });
 

@@ -140,7 +140,7 @@ export const getStackingMinimum = () => {
   return Number((response.result as UIntCV).value);
 };
 
-export const burnHeightToRewardCycle = (burnHeight: number) => {
+export const burnHeightToRewardCycle = (burnHeight: bigint | number) => {
   const poxInfo = getPoxInfo();
   return Number(
     (BigInt(burnHeight) - poxInfo.firstBurnchainBlockHeight) /
@@ -150,11 +150,11 @@ export const burnHeightToRewardCycle = (burnHeight: number) => {
 
 export const stackStx = (
   stacker: StackerInfo,
-  amount: number,
-  startBurnHeight: number,
-  lockPeriod: number,
-  maxAmount: number,
-  authId: number,
+  amount: bigint | number,
+  startBurnHeight: bigint | number,
+  lockPeriod: bigint | number,
+  maxAmount: bigint | number,
+  authId: bigint | number,
   sender: string
 ) => {
   const rewardCycle = burnHeightToRewardCycle(startBurnHeight);
@@ -185,9 +185,9 @@ export const stackStx = (
 };
 
 export const delegateStx = (
-  amount: number,
+  amount: bigint | number,
   delegateTo: string,
-  untilBurnHeight: number | null,
+  untilBurnHeight: bigint | number | null,
   poxAddr: string | null,
   sender: string
 ) => {
@@ -212,10 +212,10 @@ export const revokeDelegateStx = (sender: string) => {
 
 export const delegateStackStx = (
   stacker: string,
-  amount: number,
+  amount: bigint | number,
   poxAddr: string,
-  startBurnHeight: number,
-  lockPeriod: number,
+  startBurnHeight: bigint | number,
+  lockPeriod: bigint | number,
   sender: string
 ) => {
   const delegateStackStxArgs = [
@@ -293,6 +293,32 @@ export const disallowContractCaller = (caller: string, sender: string) => {
   return simnet.callPublicFn(
     POX_CONTRACT,
     "disallow-contract-caller",
+    args,
+    sender
+  );
+};
+
+export const stackAggregationCommitIndexed = (
+  poxAddr: string,
+  rewardCycle: bigint | number,
+  signerSignature: string | null,
+  signerKey: string,
+  maxAmount: bigint | number,
+  authId: bigint | number,
+  sender: string
+) => {
+  const args = [
+    poxAddressToTuple(poxAddr),
+    Cl.uint(rewardCycle),
+    signerSignature ? Cl.some(Cl.bufferFromHex(signerSignature)) : Cl.none(),
+    Cl.bufferFromHex(signerKey),
+    Cl.uint(maxAmount),
+    Cl.uint(authId),
+  ];
+  console.log(args);
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "stack-aggregation-commit-indexed",
     args,
     sender
   );
