@@ -1269,8 +1269,23 @@ impl Signer {
     fn save_signer_state(&mut self) -> Result<(), PersistenceError> {
         let rng = &mut OsRng;
 
-        let state = self.state_machine.signer.save();
-        let serialized_state = serde_json::to_vec(&state)?;
+        let previous_dkg_state = self
+            .load_saved_state_for_dkg_round(self.state_machine.dkg_id.wrapping_sub(1))
+            .unwrap_or_else(|err| {
+                warn!("{self}: Failed to load previous dkg state: {err}");
+                None
+            })
+            .map(|state| state.save());
+
+        let current_dkg_state = self.state_machine.signer.save();
+
+        let both_states = if self.state_machine.dkg_id % 2 == 0 {
+            [Some(current_dkg_state), previous_dkg_state]
+        } else {
+            [previous_dkg_state, Some(current_dkg_state)]
+        };
+
+        let serialized_state = serde_json::to_vec(&both_states)?;
 
         let encrypted_state = encrypt(
             &self.state_machine.network_private_key,
@@ -1317,9 +1332,24 @@ impl Signer {
         Ok(())
     }
 
-    /// Load the saved signer state
+    /// Load the saved signer state for the current dkg round
     pub fn load_saved_state(&mut self) -> Result<(), PersistenceError> {
-        if let Some(state) = load_encrypted_signer_state(
+        let dkg_id = self.state_machine.dkg_id;
+        if let Some(state) = self.load_saved_state_for_dkg_round(dkg_id)? {
+            self.state_machine.signer = state;
+        } else {
+            warn!("{self}: Signer unable to load state for dkg round {dkg_id}");
+        };
+
+        Ok(())
+    }
+
+    /// Get the saved state for a particular dkg round.
+    fn load_saved_state_for_dkg_round(
+        &mut self,
+        dkg_id: u64,
+    ) -> Result<Option<v2::Signer>, PersistenceError> {
+        let loaded_signers = load_encrypted_signer_state(
             &mut self.stackerdb,
             self.signer_slot_id.into(),
             &self.state_machine.network_private_key,
@@ -1329,11 +1359,9 @@ impl Signer {
                     &self.signer_db,
                     self.reward_cycle,
                     &self.state_machine.network_private_key)
-            })? {
-            self.state_machine.signer = state;
-        };
+        })?;
 
-        Ok(())
+        Ok(get_signer(loaded_signers, dkg_id))
     }
 
     /// Send any operation results across the provided channel
@@ -1617,14 +1645,25 @@ fn load_encrypted_signer_state<S: SignerStateStorage>(
     storage: S,
     id: S::IdType,
     private_key: &Scalar,
-) -> Result<Option<v2::Signer>, PersistenceError> {
-    if let Some(encrypted_state) = storage.get_encrypted_signer_state(id)? {
-        let serialized_state = decrypt(private_key, &encrypted_state)?;
-        let state = serde_json::from_slice(&serialized_state)
-            .expect("Failed to deserialize decryoted state");
-        Ok(Some(v2::Signer::load(&state)))
+) -> Result<LoadedSigners, PersistenceError> {
+    let Some(encrypted_state) = storage.get_encrypted_signer_state(id)? else {
+        return Ok([None, None]);
+    };
+    let serialized_state = decrypt(private_key, &encrypted_state)?;
+    let state: [Option<_>; 2] =
+        serde_json::from_slice(&serialized_state).expect("Failed to deserialize decryoted state");
+    Ok(state.map(|state| state.as_ref().map(v2::Signer::load)))
+}
+
+type LoadedSigners = [Option<v2::Signer>; 2];
+
+fn get_signer(loaded_signers: LoadedSigners, dkg_id: u64) -> Option<v2::Signer> {
+    let loaded_signers: (_, _) = loaded_signers.into();
+
+    if dkg_id % 2 == 0 {
+        loaded_signers.0
     } else {
-        Ok(None)
+        loaded_signers.1
     }
 }
 

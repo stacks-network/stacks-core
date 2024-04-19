@@ -22,6 +22,7 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
+use rand_core::OsRng;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
@@ -236,6 +237,12 @@ impl RunLoop {
                 }
             }
             let mut new_signer = Signer::from(new_signer_config);
+            let dkg_id = self
+                .stacks_client
+                .get_last_round(reward_cycle)
+                .expect("Failed to get last DKG round")
+                .unwrap_or(0);
+            new_signer.state_machine.reset(dkg_id, &mut OsRng);
             new_signer
                 .load_saved_state()
                 .expect("Failed to load signer state");
