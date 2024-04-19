@@ -169,6 +169,8 @@ pub struct Signer {
     pub mainnet: bool,
     /// The signer id
     pub signer_id: u32,
+    /// The signer slot id for the current signer
+    pub signer_slot_id: SignerSlotID,
     /// The signer slot ids for the signers in the reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The addresses of other signers
@@ -277,7 +279,7 @@ impl Signer {
 
 impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
-        let mut stackerdb = StackerDB::from(&signer_config);
+        let stackerdb = StackerDB::from(&signer_config);
 
         let num_signers = signer_config
             .signer_entries
@@ -324,7 +326,7 @@ impl From<SignerConfig> for Signer {
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
 
-        let mut state_machine = SignerStateMachine::new(
+        let state_machine = SignerStateMachine::new(
             threshold,
             num_signers,
             num_keys,
@@ -333,20 +335,6 @@ impl From<SignerConfig> for Signer {
             signer_config.ecdsa_private_key,
             signer_config.signer_entries.public_keys,
         );
-
-        if let Some(state) = load_encrypted_signer_state(
-            &mut stackerdb,
-            signer_config.signer_slot_id,
-            &state_machine.network_private_key,
-        ).or_else(|err| {
-                warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
-                load_encrypted_signer_state(
-                    &signer_db,
-                    signer_config.reward_cycle,
-                    &state_machine.network_private_key)
-            }).expect("Failed to load encrypted signer state from both StackerDB and SignerDB") {
-            state_machine.signer = state;
-        };
 
         Self {
             coordinator,
@@ -361,6 +349,7 @@ impl From<SignerConfig> for Signer {
                 .signer_ids
                 .into_keys()
                 .collect(),
+            signer_slot_id: signer_config.signer_slot_id,
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             next_signer_slot_ids: vec![],
             next_signer_addresses: vec![],
@@ -1324,6 +1313,25 @@ impl Signer {
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
 
         self.stackerdb.send_message_with_retry(message)?;
+
+        Ok(())
+    }
+
+    /// Load the saved signer state
+    pub fn load_saved_state(&mut self) -> Result<(), PersistenceError> {
+        if let Some(state) = load_encrypted_signer_state(
+            &mut self.stackerdb,
+            self.signer_slot_id.into(),
+            &self.state_machine.network_private_key,
+        ).or_else(|err| {
+                warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
+                load_encrypted_signer_state(
+                    &self.signer_db,
+                    self.reward_cycle,
+                    &self.state_machine.network_private_key)
+            })? {
+            self.state_machine.signer = state;
+        };
 
         Ok(())
     }

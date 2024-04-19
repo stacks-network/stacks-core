@@ -235,7 +235,10 @@ impl RunLoop {
                     }
                 }
             }
-            let new_signer = Signer::from(new_signer_config);
+            let mut new_signer = Signer::from(new_signer_config);
+            new_signer
+                .load_saved_state()
+                .expect("Failed to load signer state");
             info!("{new_signer} initialized.");
             self.stacks_signers.insert(reward_index, new_signer);
         } else {
