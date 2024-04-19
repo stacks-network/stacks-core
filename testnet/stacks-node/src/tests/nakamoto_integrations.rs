@@ -945,7 +945,7 @@ fn simple_neon_integration() {
     let send_fee = 100;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt + send_fee,
+        send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -3168,11 +3168,13 @@ fn forked_tenure_is_ignored() {
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
     let stacker_sk = setup_stacker(&mut naka_conf);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -3318,11 +3320,20 @@ fn forked_tenure_is_ignored() {
 
     // Now let's produce a second block for tenure C and ensure it builds off of block C.
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let blocks_count = mined_blocks.load(Ordering::SeqCst);
-        Ok(blocks_count > blocks_before)
-    })
-    .unwrap();
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+    info!("Tenure C is mining a second block");
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(45),
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
 
     info!("Tenure C produced a second block!");
 
@@ -3333,21 +3344,16 @@ fn forked_tenure_is_ignored() {
     let block_2_c = blocks.last().unwrap();
 
     info!("Starting tenure D.");
-    // Submit a block commit op for tenure D
+    // Submit a block commit op for tenure D and mine a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count > commits_before)
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        Ok(commits_count > commits_before && blocks_count > blocks_before)
     })
     .unwrap();
 
-    // Wait for a stacks block to be broadcasted
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let blocks_count = mined_blocks.load(Ordering::SeqCst);
-        Ok(blocks_count > blocks_before)
-    })
-    .unwrap();
     let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
