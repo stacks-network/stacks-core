@@ -2126,7 +2126,7 @@ mod test {
     }
 
     /// Test the stx-transfer consolidation tx invalidation
-    ///  bug from 2.4.0.1.0
+    ///  bug from 2.4.0.1.0-rc1
     #[apply(test_epochs)]
     fn stx_transfer_consolidate_regr_24010(
         epoch: StacksEpochId,
