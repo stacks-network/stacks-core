@@ -7,6 +7,10 @@ import {
   StacksPrivateKey,
 } from "@stacks/transactions";
 import { StackingClient } from "@stacks/stacking";
+import {
+  FIRST_BURNCHAIN_BLOCK_HEIGHT,
+  REWARD_CYCLE_LENGTH,
+} from "./pox_Commands";
 
 export type StxAddress = string;
 export type BtcAddress = string;
@@ -53,7 +57,10 @@ export class Stub {
       cvToValue(burnBlockHeightResult as ClarityValue),
     );
     const lastRefreshedCycle = this.lastRefreshedCycle;
-    const currentRewCycle = Math.floor((Number(burnBlockHeight) - 0) / 1050);
+    const currentRewCycle = Math.floor(
+      (Number(burnBlockHeight) - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+        REWARD_CYCLE_LENGTH,
+    );
 
     // The `this.burnBlockHeight` instance member is used for logging purposes.
     // However, it's not used in the actual implementation of the model and all
@@ -81,7 +88,7 @@ export class Stub {
           stackerAddress,
         ) =>
           this.stackers.get(stackerAddress)!.unlockHeight <=
-            burnBlockHeight + 1050
+            burnBlockHeight + REWARD_CYCLE_LENGTH
         );
 
         // Get the operator's ex-pool stackers by comparing their unlockHeight to
@@ -138,7 +145,8 @@ export class Stub {
         // next empty reward slot)
         else if (
           wallet.unlockHeight > 0 &&
-          wallet.unlockHeight > burnBlockHeight + 1050 && wallet.isStackingSolo
+          wallet.unlockHeight > burnBlockHeight + REWARD_CYCLE_LENGTH &&
+          wallet.isStackingSolo
         ) {
           this.nextRewardSetIndex++;
         }
