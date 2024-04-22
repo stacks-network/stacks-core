@@ -12,7 +12,6 @@ import {
   stackStx,
   stackers,
 } from "./helpers";
-import { address } from "@stacks/transactions/dist/cl";
 
 const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;

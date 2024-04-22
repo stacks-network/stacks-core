@@ -26,7 +26,6 @@ export default defineConfig({
     environment: "clarinet", // use vitest-environment-clarinet
     pool: "forks",
     poolOptions: {
-      threads: { singleThread: true },
       forks: { singleFork: true },
     },
     setupFiles: [
@@ -36,6 +35,8 @@ export default defineConfig({
     environmentOptions: {
       clarinet: {
         ...getClarinetVitestsArgv(),
+        includeBootContracts: true,
+        bootContractsPath: `${process.cwd()}/boot_contracts`,
         // add or override options
       },
     },

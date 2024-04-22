@@ -1,6 +1,6 @@
 import { assert, beforeEach, describe, expect, it } from "vitest";
 
-import { Cl, ResponseCV, UIntCV, cvToString } from "@stacks/transactions";
+import { Cl } from "@stacks/transactions";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
@@ -9,9 +9,6 @@ import {
   delegateStackStx,
   delegateStx,
   getStackingMinimum,
-  stackAggregationCommitIndexed,
-  stackAggregationIncrease,
-  stackStx,
   stackers,
 } from "./helpers";
 

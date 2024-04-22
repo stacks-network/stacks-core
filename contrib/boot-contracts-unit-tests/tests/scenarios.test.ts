@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe("switching delegates`", () => {
   it("is allowed while stacked", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     // Delegate to address2
     let delegateResponse = delegateStx(
@@ -79,7 +79,7 @@ describe("switching delegates`", () => {
 
   it("revoked delegate cannot extend or increase", () => {
     const stackingMinimum = getStackingMinimum();
-    const amount = stackingMinimum * 1.2;
+    const amount = stackingMinimum * 2n;
 
     // Delegate to address2
     let delegateResponse = delegateStx(
@@ -156,7 +156,7 @@ describe("switching delegates`", () => {
 
   it("new delegate cannot lock before previous delegation unlocks", () => {
     const stackingMinimum = getStackingMinimum();
-    const amount = stackingMinimum * 1.2;
+    const amount = stackingMinimum * 2n;
     const poxInfo = getPoxInfo();
     let unlockHeight = poxInfo.rewardCycleLength * 3n;
 
@@ -229,7 +229,7 @@ describe("switching delegates`", () => {
 
     delegateStackStxResponse = delegateStackStx(
       address1,
-      stackingMinimum + 2,
+      stackingMinimum + 2n,
       stackers[1].btcAddr,
       simnet.blockHeight,
       2,
@@ -237,7 +237,7 @@ describe("switching delegates`", () => {
     );
     expect(delegateStackStxResponse.result).toBeOk(
       Cl.tuple({
-        "lock-amount": Cl.uint(stackingMinimum + 2),
+        "lock-amount": Cl.uint(stackingMinimum + 2n),
         stacker: Cl.principal(address1),
         "unlock-burn-height": Cl.uint(unlockHeight),
       })
@@ -246,7 +246,7 @@ describe("switching delegates`", () => {
 
   it("New delegate cannot extend or increase", () => {
     const stackingMinimum = getStackingMinimum();
-    const amount = stackingMinimum * 1.2;
+    const amount = stackingMinimum * 2n;
 
     // Delegate to address2
     let delegateResponse = delegateStx(

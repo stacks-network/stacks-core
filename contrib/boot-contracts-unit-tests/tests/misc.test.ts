@@ -10,7 +10,6 @@ import {
   stackStx,
   stackers,
 } from "./helpers";
-import { bufferFromHex } from "@stacks/transactions/dist/cl";
 
 const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
@@ -255,7 +254,7 @@ describe("test `get-stacker-info`", () => {
 
   it("returns info before stacked", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     let stackResponse = stackStx(
       stacker,
       amount,
@@ -292,7 +291,7 @@ describe("test `get-stacker-info`", () => {
 
   it("returns info while stacked", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     let stackResponse = stackStx(
       stacker,
       amount,
@@ -330,7 +329,7 @@ describe("test `get-stacker-info`", () => {
 
   it("returns none after stacking expired", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     let stackResponse = stackStx(
       stacker,
       amount,
@@ -424,7 +423,7 @@ describe("test `get-reward-set-size`", () => {
   });
 
   it("returns number of stackers", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((stacker) => {
       const { result } = stackStx(
@@ -457,7 +456,7 @@ describe("test `get-reward-set-size`", () => {
   });
 
   it("returns number of uniq pox address", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((_stacker) => {
       const stacker: StackerInfo = {
@@ -498,7 +497,7 @@ describe("test `get-total-ustx-stacked`", () => {
   });
 
   it("returns total amount stacked", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((stacker) => {
       const { result } = stackStx(
@@ -519,11 +518,11 @@ describe("test `get-total-ustx-stacked`", () => {
       [Cl.uint(1)],
       address1
     );
-    expect(responseCycle1.result).toBeUint(amount * 3);
+    expect(responseCycle1.result).toBeUint(amount * 3n);
   });
 
   it("returns 0 in the cycle before stacking starts", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     // stacking txs sent in cycle 0, so stackers will be start in cycle 1
     stackers.forEach((stacker) => {
@@ -548,7 +547,7 @@ describe("test `get-total-ustx-stacked`", () => {
   });
 
   it("returns total amount stacked", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((stacker) => {
       stackStx(
@@ -568,11 +567,11 @@ describe("test `get-total-ustx-stacked`", () => {
       [Cl.uint(1)],
       address1
     );
-    expect(response.result).toBeUint(amount * 3);
+    expect(response.result).toBeUint(amount * 3n);
   });
 
   it("expires stacking after the stacking duration has finsihed", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((stacker, i) => {
       const { result } = stackStx(
@@ -594,7 +593,7 @@ describe("test `get-total-ustx-stacked`", () => {
       [Cl.uint(3)],
       address1
     );
-    expect(responseCycle3.result).toBeUint(amount * 2);
+    expect(responseCycle3.result).toBeUint(amount * 2n);
 
     const responseCycle5 = simnet.callReadOnlyFn(
       POX_CONTRACT,
@@ -602,7 +601,7 @@ describe("test `get-total-ustx-stacked`", () => {
       [Cl.uint(5)],
       address1
     );
-    expect(responseCycle5.result).toBeUint(amount * 1);
+    expect(responseCycle5.result).toBeUint(amount * 1n);
 
     const responseCycle7 = simnet.callReadOnlyFn(
       POX_CONTRACT,
@@ -626,7 +625,7 @@ describe("test `get-reward-set-pox-address`", () => {
   });
 
   it("returns pox address for a stacker", () => {
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     stackers.forEach((stacker) => {
       stackStx(
         stacker,
@@ -769,7 +768,7 @@ describe("test `check-pox-lock-period`", () => {
 describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
   it("returns true for a valid stacker", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const canStackArgs = [
       poxAddressToTuple(stacker.btcAddr),
       Cl.uint(amount),
@@ -788,7 +787,7 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
 
   it("returns error if amount is too low", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() / 2;
+    const amount = getStackingMinimum() / 2n;
     const canStackArgs = [
       poxAddressToTuple(stacker.btcAddr),
       Cl.uint(amount),
@@ -807,7 +806,7 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
 
   it("returns error if period is too low or to high", () => {
     const stacker = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const canStackArgsTooLow = [
       poxAddressToTuple(stacker.btcAddr),
       Cl.uint(amount),
@@ -850,7 +849,7 @@ describe("test `can-stack-stx` and `minimal-can-stack-stx`", () => {
       ),
       version: Cl.buffer(Buffer.from([7])),
     });
-    const amount = getStackingMinimum() * 1.2;
+    const amount = getStackingMinimum() * 2n;
     const canStackArgs = [
       addressTupleWrongVersion,
       Cl.uint(amount),
@@ -1036,8 +1035,8 @@ describe("test `minimal-can-stack-stx`", () => {
 describe("test `verify-signer-key-sig`", () => {
   it("returns `(ok true)` for a valid signature", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1075,8 +1074,8 @@ describe("test `verify-signer-key-sig`", () => {
 
   it("returns `(ok true)` for a valid prior authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1121,7 +1120,7 @@ describe("test `verify-signer-key-sig`", () => {
   it("returns an error if the amount is too high", () => {
     const account = stackers[0];
     const maxAmount = getStackingMinimum();
-    const amount = maxAmount * 1.2;
+    const amount = maxAmount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1161,8 +1160,8 @@ describe("test `verify-signer-key-sig`", () => {
 
   it("returns an error for a used authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1217,8 +1216,8 @@ describe("test `verify-signer-key-sig`", () => {
 
   it("returns an error for an invalid signature", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1260,8 +1259,8 @@ describe("test `verify-signer-key-sig`", () => {
   it("returns an error for a signature that does not match", () => {
     const account = stackers[0];
     const account2 = stackers[1];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1301,8 +1300,8 @@ describe("test `verify-signer-key-sig`", () => {
 
   it("returns an error if not signature is passed and there is no prior authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1332,8 +1331,8 @@ describe("test `verify-signer-key-sig`", () => {
 describe("test `consume-signer-key-authorization`", () => {
   it("returns `(ok true)` for a valid signature", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;
@@ -1371,8 +1370,8 @@ describe("test `consume-signer-key-authorization`", () => {
 
   it("returns an error for a used authorization", () => {
     const account = stackers[0];
-    const amount = getStackingMinimum() * 1.2;
-    const maxAmount = amount * 2;
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
     const poxAddr = poxAddressToTuple(account.btcAddr);
     const rewardCycle = 1;
     const period = 1;

@@ -159,10 +159,10 @@ export const stackStx = (
 ) => {
   const rewardCycle = burnHeightToRewardCycle(startBurnHeight);
   const sigArgs = {
-    authId,
-    maxAmount,
+    authId: authId,
+    maxAmount: maxAmount,
     rewardCycle,
-    period: lockPeriod,
+    period: Number(lockPeriod),
     topic: Pox4SignatureTopic.StackStx,
     poxAddress: stacker.btcAddr,
     signerPrivateKey: stacker.signerPrivKey,
