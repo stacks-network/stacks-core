@@ -120,6 +120,8 @@ impl SignerTest {
             password,
             run_stamp,
             3000,
+            Some(100_000),
+            None,
         );
 
         let mut running_signers = Vec::new();
@@ -549,7 +551,7 @@ impl SignerTest {
                 None,
             ),
         };
-        let invalid_contract_address = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_address = StacksClient::build_unsigned_contract_call_transaction(
             &StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key)),
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -558,11 +560,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_contract_name = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_name = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             "bad-signers-contract-name".into(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -571,11 +572,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_signers_vote_function = StacksClient::build_signed_contract_call_transaction(
+        let invalid_signers_vote_function = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             "some-other-function".into(),
@@ -584,12 +584,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_signer_index =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -603,11 +602,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_function_arg_key = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_key = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -621,11 +619,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_function_arg_round = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_round = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -639,12 +636,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_reward_cycle =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -658,11 +654,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_nonce = StacksClient::build_signed_contract_call_transaction(
+        let invalid_nonce = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -671,7 +666,6 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             0, // Old nonce
-            10,
         )
         .unwrap();
 
@@ -682,10 +676,10 @@ impl SignerTest {
             false,
         );
         let invalid_signer_tx = invalid_stacks_client
-            .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
+            .build_unsigned_vote_for_aggregate_public_key(0, round, point, reward_cycle, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
 
-        vec![
+        let unsigned_txs = vec![
             invalid_nonce,
             invalid_not_contract_call,
             invalid_contract_name,
@@ -696,7 +690,15 @@ impl SignerTest {
             invalid_function_arg_round,
             invalid_function_arg_signer_index,
             invalid_signer_tx,
-        ]
+        ];
+        unsigned_txs
+            .into_iter()
+            .map(|unsigned| {
+                invalid_stacks_client
+                    .sign_transaction(unsigned)
+                    .expect("Failed to sign transaction")
+            })
+            .collect()
     }
 
     /// Kills the signer runloop at index `signer_idx`
@@ -724,6 +726,8 @@ impl SignerTest {
             "12345", // It worked sir, we have the combination! -Great, what's the combination?
             self.run_stamp,
             3000 + signer_idx,
+            Some(100_000),
+            None,
         )
         .pop()
         .unwrap();

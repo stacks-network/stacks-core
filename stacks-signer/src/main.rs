@@ -38,12 +38,12 @@ use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_error};
+use slog::{slog_debug, slog_error, slog_info};
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks_common::{debug, error};
+use stacks_common::{debug, error, info};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
     GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
@@ -71,11 +71,13 @@ fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> Stack
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
-        let bytes = io::stdout().write(chunk).unwrap();
-        if bytes < chunk.len() {
+        let hexed_string = to_hex(chunk);
+        let hexed_chunk = hexed_string.as_bytes();
+        let bytes = io::stdout().write(&hexed_chunk).unwrap();
+        if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
-                chunk.len() - bytes
+                hexed_chunk.len() - bytes
             );
         }
     }
@@ -85,6 +87,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
+    info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
@@ -175,7 +178,9 @@ fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
     let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
-    println!("{}", serde_json::to_string(&chunk_list).unwrap());
+    let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
+    let hexed_json = to_hex(chunk_list_json.as_bytes());
+    println!("{}", hexed_json);
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
@@ -294,6 +299,8 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.password,
         rand::random(),
         3000,
+        None,
+        None,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -349,6 +356,11 @@ fn handle_generate_stacking_signature(
     signature
 }
 
+fn handle_check_config(args: RunSignerArgs) {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    println!("Config: {}", config);
+}
+
 /// Helper function for writing the given contents to filename in the given directory
 fn write_file(dir: &Path, filename: &str, contents: &str) {
     let file_path = dir.join(filename);
@@ -397,6 +409,9 @@ fn main() {
         Command::GenerateStackingSignature(args) => {
             handle_generate_stacking_signature(args, true);
         }
+        Command::CheckConfig(args) => {
+            handle_check_config(args);
+        }
     }
 }
 
@@ -416,6 +431,7 @@ pub mod tests {
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
 
+    #[allow(clippy::too_many_arguments)]
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,
         reward_cycle: u128,
