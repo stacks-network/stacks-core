@@ -242,7 +242,13 @@ impl RunLoop {
                 .get_last_round(reward_cycle)
                 .expect("Failed to get last DKG round")
                 .unwrap_or(0);
+            let approved_aggregate_key = self
+                .stacks_client
+                .get_approved_aggregate_key(reward_cycle)
+                .expect("Failed to get approved aggregate key");
+
             new_signer.state_machine.reset(dkg_id, &mut OsRng);
+            new_signer.approved_aggregate_public_key = approved_aggregate_key;
             new_signer
                 .load_saved_state()
                 .expect("Failed to load signer state");
