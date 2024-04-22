@@ -11,10 +11,6 @@ path = 'contracts/indirect.clar'
 clarity_version = 2
 epoch = 2.4
 
-[repl]
-clarity_wasm_mode = false
-show_timings = false
-
 [repl.analysis]
 passes = ['check_checker']
 

@@ -597,6 +597,135 @@ describe("pox-4", () => {
       expect(totalCycle5).toBe(0n);
     });
 
+    it("can extend stacking up to 11 cycles", () => {
+      const poxInfo = getPoxInfo();
+      const cycleLength = Number(poxInfo.rewardCycleLength);
+
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+
+      const stackSignature = account.client.signPoxSignature({
+        authId,
+        maxAmount,
+        rewardCycle: 0,
+        period: 2,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      });
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      const stackStxArgs = [
+        Cl.uint(ustxAmount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(burnBlockHeight),
+        Cl.uint(2),
+        Cl.some(Cl.bufferFromHex(stackSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      simnet.callPublicFn(POX_CONTRACT, "stack-stx", stackStxArgs, address1);
+
+      // advance to cycle 1
+      simnet.mineEmptyBlocks(cycleLength * 2);
+
+      // call stack-extend for 11 more cycles
+      const extendSignature = account.client.signPoxSignature({
+        authId,
+        maxAmount,
+        rewardCycle: 2,
+        period: 11,
+        topic: Pox4SignatureTopic.StackExtend,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      });
+      const extendArgs = [
+        Cl.uint(11),
+        poxAddressToTuple(account.btcAddr),
+        Cl.some(Cl.bufferFromHex(extendSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      const { result } = simnet.callPublicFn(
+        POX_CONTRACT,
+        "stack-extend",
+        extendArgs,
+        address1
+      );
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(address1),
+          "unlock-burn-height": Cl.uint(cycleLength * (11 + 2 + 1)),
+        })
+      );
+    });
+
+    it("can not extend stacking for more than 11 cycles", () => {
+      const poxInfo = getPoxInfo();
+      const cycleLength = Number(poxInfo.rewardCycleLength);
+
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+
+      const stackSignature = account.client.signPoxSignature({
+        authId,
+        maxAmount,
+        rewardCycle: 0,
+        period: 2,
+        topic: Pox4SignatureTopic.StackStx,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      });
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+      const ustxAmount = Math.floor(stackingThreshold * 1.5);
+
+      const stackStxArgs = [
+        Cl.uint(ustxAmount),
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(burnBlockHeight),
+        Cl.uint(2),
+        Cl.some(Cl.bufferFromHex(stackSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      simnet.callPublicFn(POX_CONTRACT, "stack-stx", stackStxArgs, address1);
+
+      // advance to cycle 1
+      simnet.mineEmptyBlocks(cycleLength * 2);
+
+      // call stack-extend for 12 more cycles
+      const extendSignature = account.client.signPoxSignature({
+        authId,
+        maxAmount,
+        rewardCycle: 2,
+        period: 12,
+        topic: Pox4SignatureTopic.StackExtend,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      });
+      const extendArgs = [
+        Cl.uint(12),
+        poxAddressToTuple(account.btcAddr),
+        Cl.some(Cl.bufferFromHex(extendSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      const { result } = simnet.callPublicFn(
+        POX_CONTRACT,
+        "stack-extend",
+        extendArgs,
+        address1
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD));
+    });
+
     it("can extend stacking during any stacking cycle", () => {
       const poxInfo = getPoxInfo();
       const cycleLength = Number(poxInfo.rewardCycleLength);
