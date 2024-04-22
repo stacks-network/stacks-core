@@ -1054,6 +1054,21 @@ impl Signer {
 
     /// Process a dkg result by broadcasting a vote to the stacks node
     fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
+        // Abort if an aggregate key has already been set for the current rewards cycle
+        if let Some(aggregate_key) = stacks_client
+            .get_approved_aggregate_key(self.reward_cycle)
+            .map_err(|e| error!("{self}: Unable to get approved aggregate key: {e}"))
+            .unwrap_or_default()
+        {
+            self.approved_aggregate_public_key = Some(aggregate_key);
+            match self.load_saved_state() {
+                Err(e) => error!("{self}: Failed to load saved state: {e}"),
+                Ok(()) => (),
+            };
+
+            return;
+        }
+
         let mut dkg_results_bytes = vec![];
         debug!(
             "{self}: Received DKG result. Broadcasting vote to the stacks node...";
@@ -1452,9 +1467,6 @@ impl Signer {
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
         if self.approved_aggregate_public_key.is_some() {
-            // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
-            // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
-            // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
             let internal_dkg = self.coordinator.aggregate_public_key;
             if internal_dkg != self.approved_aggregate_public_key {
                 warn!("{self}: we do not support changing the internal DKG key yet. Expected {internal_dkg:?} got {:?}", self.approved_aggregate_public_key);
