@@ -1,14 +1,24 @@
 import { assert, beforeEach, describe, expect, it } from "vitest";
 
-import { Cl } from "@stacks/transactions";
+import {
+  Cl,
+  ClarityType,
+  ResponseCV,
+  SomeCV,
+  TupleCV,
+  UIntCV,
+} from "@stacks/transactions";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
   POX_CONTRACT,
   allowContractCaller,
+  delegateStackIncrease,
   delegateStackStx,
   delegateStx,
   getStackingMinimum,
+  stackAggregationCommitIndexed,
+  stackAggregationIncrease,
   stackers,
 } from "./helpers";
 
@@ -903,5 +913,76 @@ describe("test `stack-aggregation-commit`", () => {
     expect(response.result).toBeErr(
       Cl.int(ERRORS.ERR_STACKING_THRESHOLD_NOT_MET)
     );
+  });
+});
+
+describe("test `stack-aggregation-increase`", () => {
+  it("returns `(ok uint)` on success", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    // check the amount in the reward set
+    let info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    let tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+
+    response = stackAggregationIncrease(
+      account,
+      rewardCycle,
+      index,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+
+    // check that the amount was increased
+    info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(maxAmount);
   });
 });

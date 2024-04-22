@@ -299,25 +299,74 @@ export const disallowContractCaller = (caller: string, sender: string) => {
 };
 
 export const stackAggregationCommitIndexed = (
-  poxAddr: string,
+  stacker: StackerInfo,
   rewardCycle: bigint | number,
-  signerSignature: string | null,
-  signerKey: string,
+  period: bigint | number,
   maxAmount: bigint | number,
   authId: bigint | number,
   sender: string
 ) => {
+  const sigArgs = {
+    authId,
+    maxAmount,
+    rewardCycle: Number(rewardCycle),
+    period: Number(period),
+    topic: Pox4SignatureTopic.AggregateCommit,
+    poxAddress: stacker.btcAddr,
+    signerPrivateKey: stacker.signerPrivKey,
+  };
+  const signerSignature = stacker.client.signPoxSignature(sigArgs);
+  const signerKey = Cl.bufferFromHex(stacker.signerPubKey);
+
   const args = [
-    poxAddressToTuple(poxAddr),
+    poxAddressToTuple(stacker.btcAddr),
     Cl.uint(rewardCycle),
     signerSignature ? Cl.some(Cl.bufferFromHex(signerSignature)) : Cl.none(),
-    Cl.bufferFromHex(signerKey),
+    signerKey,
     Cl.uint(maxAmount),
     Cl.uint(authId),
   ];
   return simnet.callPublicFn(
     POX_CONTRACT,
     "stack-aggregation-commit-indexed",
+    args,
+    sender
+  );
+};
+
+export const stackAggregationIncrease = (
+  stacker: StackerInfo,
+  rewardCycle: bigint | number,
+  rewardCycleIndex: bigint | number,
+  period: bigint | number,
+  maxAmount: bigint | number,
+  authId: bigint | number,
+  sender: string
+) => {
+  const sigArgs = {
+    authId,
+    maxAmount,
+    rewardCycle: Number(rewardCycle),
+    period: Number(period),
+    topic: Pox4SignatureTopic.AggregateIncrease,
+    poxAddress: stacker.btcAddr,
+    signerPrivateKey: stacker.signerPrivKey,
+  };
+  const signerSignature = stacker.client.signPoxSignature(sigArgs);
+  const signerKey = Cl.bufferFromHex(stacker.signerPubKey);
+
+  const args = [
+    poxAddressToTuple(stacker.btcAddr),
+    Cl.uint(rewardCycle),
+    Cl.uint(rewardCycleIndex),
+    signerSignature ? Cl.some(Cl.bufferFromHex(signerSignature)) : Cl.none(),
+    signerKey,
+    Cl.uint(maxAmount),
+    Cl.uint(authId),
+  ];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "stack-aggregation-increase",
     args,
     sender
   );
