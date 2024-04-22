@@ -2332,7 +2332,7 @@ impl StacksBlockBuilder {
                                         // if we have an invalid transaction that was quietly ignored, don't warn here either
                                     }
                                     e => {
-                                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                                        info!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
                                         return Ok(Some(result_event));
                                     }
                                 }
