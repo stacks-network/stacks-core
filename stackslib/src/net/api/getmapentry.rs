@@ -92,6 +92,10 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/map_entry/:principal/:contract_name/:map_name"
+    }
+
     /// Try to decode this request.
     /// The body must be a hex string, encoded as a JSON string.
     /// So, something like `"123abc"`.  It encodes the map key as a serialized Clarity value.
