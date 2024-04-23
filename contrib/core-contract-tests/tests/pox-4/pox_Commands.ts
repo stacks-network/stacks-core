@@ -2,7 +2,8 @@ import fc from "fast-check";
 import { Real, Stacker, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
-import { StackStxCommand } from "./pox_StackStxCommand";
+import { StackStxSigCommand } from "./pox_StackStxSigCommand";
+import { StackStxAuthCommand } from "./pox_StackStxAuthCommand";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
@@ -36,7 +37,7 @@ export function PoxCommands(
         r.wallet,
       )
     ),
-    // StackStxCommand
+    // StackStxSigCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
@@ -50,7 +51,28 @@ export function PoxCommands(
         margin: number;
       },
     ) =>
-      new StackStxCommand(
+      new StackStxSigCommand(
+        r.wallet,
+        r.authId,
+        r.period,
+        r.margin,
+      )
+    ),
+    // StackStxAuthCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      period: fc.integer({ min: 1, max: 12 }),
+      margin: fc.integer({ min: 1, max: 9 }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        authId: number;
+        period: number;
+        margin: number;
+      },
+    ) =>
+      new StackStxAuthCommand(
         r.wallet,
         r.authId,
         r.period,

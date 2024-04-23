@@ -5,7 +5,7 @@ import {
   Stub,
   Wallet,
 } from "./pox_CommandModel.ts";
-import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
+import { poxAddressToTuple } from "@stacks/stacking";
 import { assert, expect } from "vitest";
 import {
   Cl,
@@ -17,9 +17,11 @@ import {
 import { currentCycle } from "./pox_Commands.ts";
 
 /**
- * The `StackStxCommand` locks STX for stacking within PoX-4. This self-service
+ * The `StackStxAuthCommand` locks STX for stacking within PoX-4. This self-service
  * operation allows the `tx-sender` (the `wallet` in this case) to participate
  * as a Stacker.
+ *
+ * This command calls `stack-stx` using an `authorization`.
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be engaged in another stacking operation.
@@ -28,14 +30,14 @@ import { currentCycle } from "./pox_Commands.ts";
  * - The amount of uSTX locked may need to be increased in future reward cycles
  *   if the minimum threshold rises.
  */
-export class StackStxCommand implements PoxCommand {
+export class StackStxAuthCommand implements PoxCommand {
   readonly wallet: Wallet;
   readonly authId: number;
   readonly period: number;
   readonly margin: number;
 
   /**
-   * Constructs a `StackStxCommand` to lock uSTX for stacking.
+   * Constructs a `StackStxAuthCommand` to lock uSTX for stacking.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param authId - Unique auth-id for the authorization.
@@ -70,10 +72,6 @@ export class StackStxCommand implements PoxCommand {
 
   run(model: Stub, real: Real): void {
     model.trackCommandRun(this.constructor.name);
-    const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
-    const burnBlockHeight = Number(
-      cvToValue(burnBlockHeightCV as ClarityValue),
-    );
     const currentRewCycle = currentCycle(real.network);
 
     // The maximum amount of uSTX that can be used (per tx) with this signer
@@ -82,29 +80,35 @@ export class StackStxCommand implements PoxCommand {
     // generated number passed to the constructor of this class.
     const maxAmount = model.stackingMinimum * this.margin;
 
-    const signerSig = this.wallet.stackingClient.signPoxSignature({
-      // The signer key being authorized.
-      signerPrivateKey: this.wallet.signerPrvKey,
-      // The reward cycle for which the authorization is valid.
-      // For `stack-stx` and `stack-extend`, this refers to the reward cycle
-      // where the transaction is confirmed. For `stack-aggregation-commit`,
-      // this refers to the reward cycle argument in that function.
-      rewardCycle: currentRewCycle,
-      // For `stack-stx`, this refers to `lock-period`. For `stack-extend`,
-      // this refers to `extend-count`. For `stack-aggregation-commit`, this is
-      // `u1`.
-      period: this.period,
-      // A string representing the function where this authorization is valid.
-      // Either `stack-stx`, `stack-extend`, `stack-increase` or `agg-commit`.
-      topic: Pox4SignatureTopic.StackStx,
-      // The PoX address that can be used with this signer key.
-      poxAddress: this.wallet.btcAddress,
-      // The unique auth-id for this authorization.
-      authId: this.authId,
-      // The maximum amount of uSTX that can be used (per tx) with this signer
-      // key.
-      maxAmount: maxAmount,
-    });
+    const { result: setAuthorization } = real.network.callPublicFn(
+      "ST000000000000000000002AMW42H.pox-4",
+      "set-signer-key-authorization",
+      [
+        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+        poxAddressToTuple(this.wallet.btcAddress),
+        // (period uint)
+        Cl.uint(this.period),
+        // (reward-cycle uint)
+        Cl.uint(currentRewCycle),
+        // (topic (string-ascii 14))
+        Cl.stringAscii("stack-stx"),
+        // (signer-key (buff 33))
+        Cl.bufferFromHex(this.wallet.signerPubKey),
+        // (allowed bool)
+        Cl.bool(true),
+        // (max-amount uint)
+        Cl.uint(maxAmount),
+        // (auth-id uint)
+        Cl.uint(this.authId),
+      ],
+      this.wallet.stxAddress,
+    );
+
+    expect(setAuthorization).toBeOk(Cl.bool(true));
+    const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
+    const burnBlockHeight = Number(
+      cvToValue(burnBlockHeightCV as ClarityValue),
+    );
 
     // The amount of uSTX to be locked in the reward cycle. For this test, we
     // will use the maximum amount of uSTX that can be used (per tx) with this
@@ -125,7 +129,7 @@ export class StackStxCommand implements PoxCommand {
         // (lock-period uint)
         Cl.uint(this.period),
         // (signer-sig (optional (buff 65)))
-        Cl.some(Cl.bufferFromHex(signerSig)),
+        Cl.none(),
         // (signer-key (buff 33))
         Cl.bufferFromHex(this.wallet.signerPubKey),
         // (max-amount uint)
@@ -180,7 +184,7 @@ export class StackStxCommand implements PoxCommand {
     logCommand(
       `₿ ${model.burnBlockHeight}`,
       `✓ ${this.wallet.label}`,
-      "stack-stx",
+      "stack-stx-auth",
       "lock-amount",
       amountUstx.toString(),
     );
@@ -193,6 +197,6 @@ export class StackStxCommand implements PoxCommand {
     // fast-check will call toString() in case of errors, e.g. property failed.
     // It will then make a minimal counterexample, a process called 'shrinking'
     // https://github.com/dubzzz/fast-check/issues/2864#issuecomment-1098002642
-    return `${this.wallet.label} stack-stx auth-id ${this.authId} and period ${this.period}`;
+    return `${this.wallet.label} stack-stx auth auth-id ${this.authId} and period ${this.period}`;
   }
 }
