@@ -55,11 +55,3 @@ plan:
             path: contracts/indirect.clar
             clarity-version: 2
       epoch: "2.4"
-    - id: 1
-      transactions:
-        - emulated-contract-publish:
-            contract-name: pox-4
-            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: contracts/pox-4.clar
-            clarity-version: 2
-      epoch: "2.5"
