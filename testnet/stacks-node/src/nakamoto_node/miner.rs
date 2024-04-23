@@ -802,10 +802,6 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let block_num = u64::try_from(self.mined_blocks.len())
-            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?
-            .saturating_add(1);
-
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
@@ -821,11 +817,8 @@ impl BlockMinerThread {
             &self.burn_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config.make_block_builder_settings(
-                block_num,
-                false,
-                self.globals.get_miner_status(),
-            ),
+            self.config
+                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
