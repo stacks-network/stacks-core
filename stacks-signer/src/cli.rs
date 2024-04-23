@@ -44,11 +44,11 @@ pub struct Cli {
 /// Subcommands for the stacks signer binary
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
-    /// Get a chunk from the stacker-db instance
+    /// Get a chunk from the stacker-db instance in hex encoding
     GetChunk(GetChunkArgs),
-    /// Get the latest chunk from the stacker-db instance
+    /// Get the latest chunk from the stacker-db instance in hex encoding
     GetLatestChunk(GetLatestChunkArgs),
-    /// List chunks from the stacker-db instance
+    /// List chunks from the stacker-db instance in hex encoding
     ListChunks(StackerDBArgs),
     /// Upload a chunk to the stacker-db instance
     PutChunk(PutChunkArgs),
@@ -64,6 +64,8 @@ pub enum Command {
     GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
     GenerateStackingSignature(GenerateStackingSignatureArgs),
+    /// Check a configuration file and output config information
+    CheckConfig(RunSignerArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality

@@ -19,10 +19,10 @@ use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use hashbrown::HashMap;
 use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_warn};
+use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::{debug, warn};
+use stacks_common::{debug, error, warn};
 
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
@@ -130,7 +130,7 @@ impl StackerDB {
             };
 
             debug!(
-                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} to contract {:?}!\n{chunk:?}",
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} and message ID {msg_id} to contract {:?}!\n{chunk:?}",
                 &session.stackerdb_contract_id
             );
 
@@ -241,6 +241,51 @@ impl StackerDB {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
         Self::get_transactions(&mut self.next_transaction_session, signer_ids)
+    }
+
+    /// Get the encrypted state for the given signer
+    pub fn get_encrypted_signer_state(
+        &mut self,
+        signer_id: SignerSlotID,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        debug!("Getting the persisted encrypted state for signer {signer_id}");
+        let Some(state_session) = self
+            .signers_message_stackerdb_sessions
+            .get_mut(&MessageSlotID::EncryptedSignerState)
+        else {
+            return Err(ClientError::NotConnected);
+        };
+
+        let send_request = || {
+            state_session
+                .get_latest_chunks(&[signer_id.0])
+                .map_err(backoff::Error::transient)
+        };
+
+        let Some(chunk) = retry_with_exponential_backoff(send_request)?.pop().ok_or(
+            ClientError::UnexpectedResponseFormat(format!(
+                "Missing response for state session request for signer {}",
+                signer_id
+            )),
+        )?
+        else {
+            debug!("No persisted state for signer {signer_id}");
+            return Ok(None);
+        };
+
+        if chunk.is_empty() {
+            debug!("Empty persisted state for signer {signer_id}");
+            return Ok(None);
+        }
+
+        let SignerMessage::EncryptedSignerState(state) =
+            read_next::<SignerMessage, _>(&mut chunk.as_slice())?
+        else {
+            error!("Wrong message type stored in signer state slot for signer {signer_id}");
+            return Ok(None);
+        };
+
+        Ok(Some(state))
     }
 
     /// Retrieve the signer set this stackerdb client is attached to
