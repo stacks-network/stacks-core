@@ -1296,7 +1296,18 @@ impl Signer {
         });
 
         let current_dkg_state = self.state_machine.signer.save();
-        saved_states.push_back(current_dkg_state);
+        let group_key = current_dkg_state.group_key;
+
+        info!("{self}: Saving state for key {group_key}");
+
+        // Ensure we don't save the same state multiple times
+        if saved_states
+            .iter()
+            .find(|state| state.group_key == group_key)
+            .is_none()
+        {
+            saved_states.push_back(current_dkg_state);
+        }
 
         if saved_states.len() > NUM_STORED_DKG_SHARES {
             saved_states.pop_front();
@@ -1355,7 +1366,32 @@ impl Signer {
             return Ok(());
         };
 
+        info!("{self}: Loading saved state for key: {aggregate_key}");
         if let Some(state) = self.load_saved_state_for_aggregate_key(aggregate_key)? {
+            let party_id = state.party_id;
+            let poly_commitment = state.get_poly_commitment(&mut OsRng);
+
+            let party_polynomials = poly_commitment
+                .as_ref()
+                .map(|poly_commitment| (&party_id, poly_commitment));
+
+            let mut dkg_results_bytes = vec![];
+
+            if let Err(e) = SignerMessage::serialize_dkg_result(
+                &mut dkg_results_bytes,
+                &aggregate_key,
+                party_polynomials.into_iter(),
+            ) {
+                error!(
+                    "{self}: Failed to serialize DKGResults message after loading saved state: {e}"
+                );
+            } else if let Err(e) = self
+                .stackerdb
+                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+            {
+                error!("{self}: Failed to send DKGResults message to StackerDB after loading: {e}");
+            };
+
             self.state_machine.signer = state;
         } else {
             warn!("{self}: Signer unable to load state for key {aggregate_key}");

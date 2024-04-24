@@ -84,6 +84,7 @@ jobs:
           - tests::nakamoto_integrations::forked_tenure_is_ignored
           - tests::signer::stackerdb_dkg
           - tests::signer::stackerdb_sign_request_rejected
+          - tests::signer::stackerdb_recover_old_dkg_key
           - tests::signer::stackerdb_block_proposal
           - tests::signer::stackerdb_filter_bad_transactions
           - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles

@@ -133,6 +133,8 @@ fn get_signer_commitments(
         MessageSlotID::DkgResults.stacker_db_contract(is_mainnet, reward_cycle);
     let signer_set_len = u32::try_from(reward_set.len())
         .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set length exceeds u32".into()))?;
+
+    let mut all_party_polynomials = HashMap::new();
     for signer_id in 0..signer_set_len {
         let Some(signer_data) = stackerdbs.get_latest_chunk(&commitment_contract, signer_id)?
         else {
@@ -153,6 +155,10 @@ fn get_signer_commitments(
             );
             continue;
         };
+
+        for (party_id, poly_commitment) in party_polynomials.iter() {
+            all_party_polynomials.insert(*party_id, poly_commitment.clone());
+        }
 
         if &aggregate_key != expected_aggregate_key {
             warn!(
@@ -177,6 +183,16 @@ fn get_signer_commitments(
 
         return Ok(party_polynomials);
     }
+
+    let computed_key = all_party_polynomials
+        .iter()
+        .fold(Point::default(), |s, (_, comm)| s + comm.poly[0]);
+
+    if &computed_key == expected_aggregate_key {
+        debug!("Aggregate key computed from combined DKG results match expected. Using this one");
+        return Ok(all_party_polynomials.into_iter().collect());
+    }
+
     error!(
         "No valid DKG results found for the active signing set, cannot coordinate a group signature";
         "reward_cycle" => reward_cycle,
