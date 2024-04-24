@@ -19,6 +19,7 @@ import { StackAggregationCommitIndexedAuthCommand } from "./pox_StackAggregation
 import { StackAggregationIncreaseCommand } from "./pox_StackAggregationIncreaseCommand";
 import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerCommand";
 import { StackExtendAuthCommand } from "./pox_StackExtendAuthCommand";
+import { StackExtendSigCommand } from "./pox_StackExtendSigCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -96,6 +97,28 @@ export function PoxCommands(
           currentCycle: number;
         }) =>
           new StackExtendAuthCommand(
+            r.wallet,
+            r.extendCount,
+            r.authId,
+            r.currentCycle,
+          ),
+      ),
+    // StackExtendSigCommand
+    fc
+      .record({
+        wallet: fc.constantFrom(...wallets.values()),
+        authId: fc.nat(),
+        extendCount: fc.integer({ min: 1, max: 12 }),
+        currentCycle: fc.constant(currentCycle(network)),
+      })
+      .map(
+        (r: {
+          wallet: Wallet;
+          extendCount: number;
+          authId: number;
+          currentCycle: number;
+        }) =>
+          new StackExtendSigCommand(
             r.wallet,
             r.extendCount,
             r.authId,
