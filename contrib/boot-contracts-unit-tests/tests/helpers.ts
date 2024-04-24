@@ -372,6 +372,33 @@ export const stackAggregationIncrease = (
   );
 };
 
+export const setSignerKeyAuthorization = (
+  stacker: StackerInfo,
+  period: bigint | number,
+  rewardCycle: bigint | number,
+  topic: Pox4SignatureTopic,
+  allowed: boolean,
+  maxAmount: bigint | number,
+  authId: bigint | number,
+) => {
+  const args = [
+    poxAddressToTuple(stacker.btcAddr),
+    Cl.uint(period),
+    Cl.uint(rewardCycle),
+    Cl.stringAscii(topic),
+    Cl.bufferFromHex(stacker.signerPubKey),
+    Cl.bool(allowed),
+    Cl.uint(maxAmount),
+    Cl.uint(authId),
+  ];
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "set-signer-key-authorization",
+    args,
+    stacker.stxAddress
+  );
+};
+
 // Validate a pox-4 event and return the value of the event.
 export const checkPox4Event = (event: ClarityEvent): TupleCV => {
   expect(event.event).toEqual("print_event");

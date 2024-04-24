@@ -7,6 +7,7 @@ import {
   StackerInfo,
   allowContractCaller,
   getStackingMinimum,
+  setSignerKeyAuthorization,
   stackStx,
   stackers,
 } from "./helpers";
@@ -14,6 +15,7 @@ import {
 const accounts = simnet.getAccounts();
 const deployer = accounts.get("deployer")!;
 const address1 = accounts.get("wallet_1")!;
+const address3 = accounts.get("wallet_3")!;
 
 beforeEach(() => {
   simnet.setEpoch("3.0");
@@ -1422,5 +1424,181 @@ describe("test `consume-signer-key-authorization`", () => {
       address1
     );
     expect(response.result).toBeErr(Cl.int(ERRORS.ERR_SIGNER_AUTH_USED));
+  });
+});
+
+describe("test `set-signer-key-authorization`", () => {
+  it("returns `(ok true)` for a valid authorization", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = true;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    const response = setSignerKeyAuthorization(
+      stacker,
+      period,
+      rewardCycle,
+      topic,
+      allowed,
+      maxAmount,
+      authId
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("returns `(ok false)` for a valid deauthorization", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = false;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    const response = setSignerKeyAuthorization(
+      stacker,
+      period,
+      rewardCycle,
+      topic,
+      allowed,
+      maxAmount,
+      authId
+    );
+    expect(response.result).toBeOk(Cl.bool(false));
+  });
+
+  it("cannot be called indirectly by an unauthorized caller", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = false;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    const args = [
+      poxAddressToTuple(stacker.btcAddr),
+      Cl.uint(period),
+      Cl.uint(rewardCycle),
+      Cl.stringAscii(topic),
+      Cl.bufferFromHex(stacker.signerPubKey),
+      Cl.bool(allowed),
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+    const response = simnet.callPublicFn(
+      "indirect",
+      "set-signer-key-authorization",
+      args,
+      stacker.stxAddress
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
+  });
+
+  it("can be called indirectly by an authorized caller", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = true;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    allowContractCaller(`${deployer}.indirect`, null, stacker.stxAddress);
+
+    const args = [
+      poxAddressToTuple(stacker.btcAddr),
+      Cl.uint(period),
+      Cl.uint(rewardCycle),
+      Cl.stringAscii(topic),
+      Cl.bufferFromHex(stacker.signerPubKey),
+      Cl.bool(allowed),
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+    const response = simnet.callPublicFn(
+      "indirect",
+      "set-signer-key-authorization",
+      args,
+      stacker.stxAddress
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+  });
+
+  it("cannot be called by a different principal", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = true;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    const args = [
+      poxAddressToTuple(stacker.btcAddr),
+      Cl.uint(period),
+      Cl.uint(rewardCycle),
+      Cl.stringAscii(topic),
+      Cl.bufferFromHex(stacker.signerPubKey),
+      Cl.bool(allowed),
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+    const response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "set-signer-key-authorization",
+      args,
+      address3
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_NOT_ALLOWED));
+  });
+
+  it("returns an error for a period of 0", () => {
+    const stacker = stackers[0];
+    const period = 0;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = true;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    const response = setSignerKeyAuthorization(
+      stacker,
+      period,
+      rewardCycle,
+      topic,
+      allowed,
+      maxAmount,
+      authId
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+  });
+
+  it("returns an error for a reward cycle in the past", () => {
+    const stacker = stackers[0];
+    const period = 1;
+    const rewardCycle = 1;
+    const topic = Pox4SignatureTopic.AggregateCommit;
+    const allowed = true;
+    const maxAmount = getStackingMinimum() * 2n;
+    const authId = 1;
+
+    simnet.mineEmptyBlocks(1050 * 2);
+
+    const response = setSignerKeyAuthorization(
+      stacker,
+      period,
+      rewardCycle,
+      topic,
+      allowed,
+      maxAmount,
+      authId
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_INVALID_REWARD_CYCLE));
   });
 });
