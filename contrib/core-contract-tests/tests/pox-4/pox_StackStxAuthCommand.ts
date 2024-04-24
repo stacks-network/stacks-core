@@ -143,7 +143,7 @@ export class StackStxAuthCommand implements PoxCommand {
     const { result: rewardCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
-      [Cl.uint(real.network.blockHeight)],
+      [Cl.uint(burnBlockHeight)],
       this.wallet.stxAddress,
     );
     assert(isClarityType(rewardCycle, ClarityType.UInt));
