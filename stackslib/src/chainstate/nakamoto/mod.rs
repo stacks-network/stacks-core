@@ -503,6 +503,7 @@ impl NakamotoBlockHeader {
         burn_spent: u64,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
+        bitvec_len: u16,
     ) -> NakamotoBlockHeader {
         NakamotoBlockHeader {
             version: NAKAMOTO_BLOCK_VERSION,
@@ -514,7 +515,8 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            signer_bitvec: BitVec::ones(bitvec_len)
+                .expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 

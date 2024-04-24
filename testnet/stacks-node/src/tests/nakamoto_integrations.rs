@@ -292,6 +292,27 @@ pub fn blind_signer(
     })
 }
 
+pub fn get_latest_block_proposal(
+    conf: &Config,
+    sortdb: &SortitionDB,
+) -> Result<NakamotoBlock, String> {
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let miner_pubkey = StacksPublicKey::from_private(&conf.get_miner_config().mining_key.unwrap());
+    let miner_slot_id = NakamotoChainState::get_miner_slot(&sortdb, &tip, &miner_pubkey)
+        .map_err(|_| "Unable to get miner slot")?
+        .ok_or("No miner slot exists")?;
+
+    let proposed_block: NakamotoBlock = {
+        let miner_contract_id = boot_code_id(MINERS_NAME, false);
+        let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
+        miners_stackerdb
+            .get_latest(miner_slot_id.start)
+            .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
+            .ok_or("No chunk found")?
+    };
+    Ok(proposed_block)
+}
+
 pub fn read_and_sign_block_proposal(
     conf: &Config,
     signers: &TestSigners,
@@ -301,22 +322,11 @@ pub fn read_and_sign_block_proposal(
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let miner_pubkey = StacksPublicKey::from_private(&conf.get_miner_config().mining_key.unwrap());
-    let miner_slot_id = NakamotoChainState::get_miner_slot(&sortdb, &tip, &miner_pubkey)
-        .map_err(|_| "Unable to get miner slot")?
-        .ok_or("No miner slot exists")?;
     let reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
 
-    let mut proposed_block: NakamotoBlock = {
-        let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
-            .get_latest(miner_slot_id.start)
-            .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
-            .ok_or("No chunk found")?
-    };
+    let mut proposed_block = get_latest_block_proposal(conf, &sortdb)?;
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
     let signer_sig_hash = proposed_block.header.signer_signature_hash();
 
@@ -1852,6 +1862,7 @@ fn block_proposal_api_endpoint() {
             total_burn,
             tenure_change,
             coinbase,
+            1,
         )
         .expect("Failed to build Nakamoto block");
 
@@ -2152,22 +2163,9 @@ fn miner_writes_proposed_block_to_stackerdb() {
     .unwrap();
 
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let miner_pubkey =
-        StacksPublicKey::from_private(&naka_conf.get_miner_config().mining_key.unwrap());
-    let slot_id = NakamotoChainState::get_miner_slot(&sortdb, &tip, &miner_pubkey)
-        .expect("Unable to get miner slot")
-        .expect("No miner slot exists");
 
-    let proposed_block: NakamotoBlock = {
-        let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb =
-            StackerDBSession::new(&naka_conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
-            .get_latest(slot_id.start)
-            .expect("Failed to get latest chunk from the miner slot ID")
-            .expect("No chunk found")
-    };
+    let proposed_block = get_latest_block_proposal(&naka_conf, &sortdb)
+        .expect("Expected to find a proposed block in the StackerDB");
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
