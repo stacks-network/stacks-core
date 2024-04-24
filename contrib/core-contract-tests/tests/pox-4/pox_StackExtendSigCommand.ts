@@ -5,7 +5,7 @@ import {
   FIRST_BURNCHAIN_BLOCK_HEIGHT,
   REWARD_CYCLE_LENGTH,
 } from "./pox_Commands";
-import { Cl, ClarityType, cvToJSON, isClarityType } from "@stacks/transactions";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 import { assert, expect } from "vitest";
 
 export class StackExtendSigCommand implements PoxCommand {

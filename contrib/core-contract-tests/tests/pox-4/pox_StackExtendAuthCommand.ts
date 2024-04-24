@@ -94,7 +94,7 @@ export class StackExtendAuthCommand implements PoxCommand {
         // (allowed bool)
         Cl.bool(true),
         // (max-amount uint)
-        Cl.uint(0),
+        Cl.uint(stacker.amountLocked),
         // (auth-id uint)
         Cl.uint(this.authId),
       ],
@@ -115,7 +115,7 @@ export class StackExtendAuthCommand implements PoxCommand {
         // (signer-key (buff 33))
         Cl.bufferFromHex(this.wallet.signerPubKey),
         // (max-amount uint)
-        Cl.uint(0),
+        Cl.uint(stacker.amountLocked),
         // (auth-id uint)
         Cl.uint(this.authId),
       ],
