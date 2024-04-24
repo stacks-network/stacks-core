@@ -175,6 +175,8 @@ export class StackStxSigCommand implements PoxCommand {
     wallet.amountLocked = amountUstx;
     wallet.unlockHeight = Number(unlockBurnHeight.value);
     wallet.amountUnlocked -= amountUstx;
+    wallet.firstLockedRewardCycle = Number(rewardCycle.value) + 1;
+
     model.nextRewardSetIndex++;
 
     // Log to console for debugging purposes. This is not necessary for the
