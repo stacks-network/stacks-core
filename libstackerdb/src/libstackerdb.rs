@@ -35,6 +35,8 @@ use stacks_common::util::secp256k1::MessageSignature;
 
 /// maximum chunk size (16 MB; same as MAX_PAYLOAD_SIZE)
 pub const STACKERDB_MAX_CHUNK_SIZE: u32 = 16 * 1024 * 1024;
+/// CHUNK_SIZE constant for signers StackerDBs (2MB)
+pub const SIGNERS_STACKERDB_CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
 #[cfg(test)]
 mod tests;

@@ -190,7 +190,7 @@ impl BlockMinerThread {
                 }
 
                 let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
-                    &new_block,
+                    &mut new_block,
                     &mut stackerdbs,
                     &mut attempts,
                 ) {
@@ -243,7 +243,7 @@ impl BlockMinerThread {
 
     fn coordinate_signature(
         &mut self,
-        new_block: &NakamotoBlock,
+        new_block: &mut NakamotoBlock,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(Point, ThresholdSignature), NakamotoNodeError> {
@@ -846,12 +846,11 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let block_num = u64::try_from(self.mined_blocks.len())
-            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?
-            .saturating_add(1);
-
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
+
+        let signer_bitvec_len =
+            &burn_db.get_preprocessed_reward_set_size(&self.burn_block.sortition_id);
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
@@ -862,15 +861,13 @@ impl BlockMinerThread {
             &self.burn_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config.make_block_builder_settings(
-                block_num,
-                false,
-                self.globals.get_miner_status(),
-            ),
+            self.config
+                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
+            signer_bitvec_len.unwrap_or(0),
         )
         .map_err(|e| {
             if !matches!(
