@@ -13,7 +13,8 @@
   "dependencies": {
     "@hirosystems/clarinet-sdk": "^2.4.1",
     "@stacks/clarunit": "0.0.1",
-    "@stacks/transactions": "^6.12.0",
+    "@stacks/stacking": "^6.13.2",
+    "@stacks/transactions": "^6.13.0",
     "chokidar-cli": "^3.0.0",
     "fast-check": "^3.15.1",
     "typescript": "^5.4.2",
