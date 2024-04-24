@@ -7,18 +7,22 @@ import {
   SomeCV,
   TupleCV,
   UIntCV,
+  cvToString,
 } from "@stacks/transactions";
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import {
   ERRORS,
   POX_CONTRACT,
   allowContractCaller,
+  delegateStackExtend,
   delegateStackIncrease,
   delegateStackStx,
   delegateStx,
+  getStackerInfo,
   getStackingMinimum,
   stackAggregationCommitIndexed,
   stackAggregationIncrease,
+  stackStx,
   stackers,
 } from "./helpers";
 
@@ -1438,5 +1442,693 @@ describe("test `stack-aggregation-increase`", () => {
     );
     const tuple = (info.result as SomeCV).value as TupleCV;
     expect(tuple.data["total-ustx"]).toBeUint(amount);
+  });
+});
+
+describe("test `delegate-stack-extend`", () => {
+  it("returns `(ok <lockup-info>)` on success", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(8400),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(7);
+  });
+
+  it("can extend after commit", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(8400),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(7);
+  });
+
+  it("can extend after lock has started", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+
+    simnet.mineEmptyBlocks(1100);
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(8400),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(7);
+  });
+
+  it("can extend multiple times", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      2,
+      address2
+    );
+    // unlock height should be cycle 4: 4 * 1050 = 4200
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(4200),
+      })
+    );
+
+    response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      3,
+      address2
+    );
+    // unlock height should be cycle 7: 7 * 1050 = 7350
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(6);
+  });
+
+  it("can extend multiple times while locked", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    simnet.mineEmptyBlocks(1100);
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      2,
+      address2
+    );
+    // unlock height should be cycle 4: 4 * 1050 = 4200
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(4200),
+      })
+    );
+
+    simnet.mineEmptyBlocks(3000);
+
+    response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      3,
+      address2
+    );
+    // unlock height should be cycle 7: 7 * 1050 = 7350
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(7350),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(3);
+    expect(tuple.data["lock-period"]).toBeUint(4);
+  });
+
+  it("cannot extend 0 cycles", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      0,
+      address2
+    );
+
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("cannot extend beyond 12 cycles", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      12,
+      address2
+    );
+
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("cannot be called indirectly by an unauthorized caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    const delegateStackExtendArgs = [
+      Cl.principal(account.stxAddress),
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(6),
+    ];
+    let response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-extend",
+      delegateStackExtendArgs,
+      address2
+    );
+
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("can be called indirectly by an authorized caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    allowContractCaller(`${deployer}.indirect`, null, address2);
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    const delegateStackExtendArgs = [
+      Cl.principal(account.stxAddress),
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(6),
+    ];
+    let response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-extend",
+      delegateStackExtendArgs,
+      address2
+    );
+
+    // unlock height should be cycle 8: 8 * 1050 = 84000
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(8400),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(7);
+  });
+
+  it("cannot extend if not locked", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACK_EXTEND_NOT_LOCKED));
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalNone);
+  });
+
+  it("cannot extend after lock has expired", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      period,
+      address2
+    );
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+
+    simnet.mineEmptyBlocks(2200);
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACK_EXTEND_NOT_LOCKED));
+
+    const info = getStackerInfo(account.stxAddress);
+    console.log("INFO", cvToString(info.result));
+    expect(info.result).toBeNone();
+  });
+
+  it("cannot extend after lock has expired", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      period,
+      address2
+    );
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+
+    // mine until the unlock height
+    simnet.mineEmptyBlocks(2100 - simnet.blockHeight);
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACK_EXTEND_NOT_LOCKED));
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result).toBeNone();
+  });
+
+  it("cannot extend a solo-stacked stacker", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const period = 1;
+    const authId = 1;
+
+    stackStx(
+      account,
+      amount,
+      1000,
+      period,
+      maxAmount,
+      authId,
+      account.stxAddress
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      account.stxAddress
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACKING_NOT_DELEGATED));
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("cannot extend a stacker not delegated to the caller", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      6,
+      address3
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("cannot extend to a different pox addr", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      stackers[1].btcAddr,
+      6,
+      address2
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_POX_ADDR_REQUIRED)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
+  });
+
+  it("can extend to a different pox addr if one was not specified", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, null, null, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      stackers[1].btcAddr,
+      6,
+      address2
+    );
+    // unlock height should be cycle 8: 8 * 1050 = 8400
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(8400),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(7);
+  });
+
+  it("can extend within the delegation window", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, 5250, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      3,
+      address2
+    );
+    // unlock height should be cycle 5: 5 * 1050 = 5250
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "unlock-burn-height": Cl.uint(5250),
+      })
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(4);
+  });
+
+  it("cannot extend outside the delegation window", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+
+    delegateStx(maxAmount, address2, 5249, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let response = delegateStackExtend(
+      account.stxAddress,
+      account.btcAddr,
+      3,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_EXPIRES_DURING_LOCK)
+    );
+
+    const info = getStackerInfo(account.stxAddress);
+    expect(info.result.type).toBe(ClarityType.OptionalSome);
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["first-reward-cycle"]).toBeUint(1);
+    expect(tuple.data["lock-period"]).toBeUint(1);
   });
 });

@@ -236,7 +236,7 @@ export const delegateStackStx = (
 export const delegateStackExtend = (
   stacker: string,
   poxAddr: string,
-  extendCount: bigint,
+  extendCount: bigint | number,
   sender: string
 ) => {
   const delegateStackExtendArgs = [
@@ -434,4 +434,14 @@ export const checkDelegateStxEvent = (
   } else {
     expect(data["unlock-burn-height"]).toBeNone();
   }
+};
+
+// Get the stacking state for a stacker.
+export const getStackerInfo = (stacker: string) => {
+  return simnet.callReadOnlyFn(
+    POX_CONTRACT,
+    "get-stacker-info",
+    [Cl.principal(stacker)],
+    simnet.deployer
+  );
 };

@@ -67,3 +67,10 @@
                                            (auth-id uint))
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-aggregation-increase pox-addr reward-cycle reward-cycle-index signer-sig signer-key max-amount auth-id)
 )
+
+(define-public (delegate-stack-extend
+                    (stacker principal)
+                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                    (extend-count uint))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stack-extend stacker pox-addr extend-count)
+)
