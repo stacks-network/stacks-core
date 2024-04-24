@@ -917,7 +917,7 @@ describe("test `stack-aggregation-commit`", () => {
 });
 
 describe("test `stack-aggregation-increase`", () => {
-  it("returns `(ok uint)` on success", () => {
+  it("returns `(ok uint)` and increases stacked amount on success", () => {
     const account = stackers[0];
     const minAmount = getStackingMinimum();
     const amount = minAmount * 2n;
@@ -984,5 +984,459 @@ describe("test `stack-aggregation-increase`", () => {
     );
     tuple = (info.result as SomeCV).value as TupleCV;
     expect(tuple.data["total-ustx"]).toBeUint(maxAmount);
+  });
+
+  it("cannot be called indirectly from unauthorized caller", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle: Number(rewardCycle),
+      period: Number(period),
+      topic: Pox4SignatureTopic.AggregateIncrease,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+    const args = [
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(rewardCycle),
+      Cl.uint(index),
+      Cl.some(Cl.bufferFromHex(signerSignature)),
+      signerKey,
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+
+    response = simnet.callPublicFn(
+      "indirect",
+      "stack-aggregation-increase",
+      args,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+
+    // check that the amount was not increased
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+  });
+
+  it("can be called indirectly from an authorized caller", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    allowContractCaller(`${deployer}.indirect`, null, address2);
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle: Number(rewardCycle),
+      period: Number(period),
+      topic: Pox4SignatureTopic.AggregateIncrease,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+    const args = [
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(rewardCycle),
+      Cl.uint(index),
+      Cl.some(Cl.bufferFromHex(signerSignature)),
+      signerKey,
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+
+    response = simnet.callPublicFn(
+      "indirect",
+      "stack-aggregation-increase",
+      args,
+      address2
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+
+    // check that the amount was increased
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(maxAmount);
+  });
+
+  it("returns an error for current reward cycle", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    simnet.mineEmptyBlocks(1100);
+
+    response = stackAggregationIncrease(
+      account,
+      rewardCycle,
+      index,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+
+    // check that the amount was not increased
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+  });
+
+  it("returns an error for switching pox address", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle: Number(rewardCycle),
+      period: Number(period),
+      topic: Pox4SignatureTopic.AggregateIncrease,
+      poxAddress: stackers[1].btcAddr,
+      signerPrivateKey: account.signerPrivKey,
+    };
+    const signerSignature = account.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+    const args = [
+      poxAddressToTuple(stackers[1].btcAddr),
+      Cl.uint(rewardCycle),
+      Cl.uint(index),
+      Cl.some(Cl.bufferFromHex(signerSignature)),
+      signerKey,
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+    response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-increase",
+      args,
+      address2
+    );
+    // Note: I don't think it is possible to reach the `ERR_DELEGATION_WRONG_REWARD_SLOT` error
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL)
+    );
+
+    // check that the amount was not increased
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+  });
+
+  it("cannot increase more than the authorized amount", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const authAmount = minAmount * 3n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      authAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    // check the amount in the reward set
+    let info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    let tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+
+    response = stackAggregationIncrease(
+      account,
+      rewardCycle,
+      index,
+      period,
+      authAmount,
+      authId,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH)
+    );
+
+    // check that the amount was not increased
+    info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+  });
+
+  it("cannot change signers", () => {
+    const account = stackers[0];
+    const account1 = stackers[1];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const authAmount = minAmount * 3n;
+    const maxAmount = minAmount * 4n;
+    const rewardCycle = 1;
+    const period = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      period,
+      authAmount,
+      authId,
+      address2
+    );
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+
+    const sigArgs = {
+      authId,
+      maxAmount,
+      rewardCycle: Number(rewardCycle),
+      period: Number(period),
+      topic: Pox4SignatureTopic.AggregateIncrease,
+      poxAddress: account.btcAddr,
+      signerPrivateKey: account1.signerPrivKey,
+    };
+    const signerSignature = account1.client.signPoxSignature(sigArgs);
+    const signerKey = Cl.bufferFromHex(account1.signerPubKey);
+
+    const args = [
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(rewardCycle),
+      Cl.uint(index),
+      Cl.some(Cl.bufferFromHex(signerSignature)),
+      signerKey,
+      Cl.uint(maxAmount),
+      Cl.uint(authId),
+    ];
+    response = simnet.callPublicFn(
+      POX_CONTRACT,
+      "stack-aggregation-increase",
+      args,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_INVALID_SIGNER_KEY));
+
+    // check that the amount was not increased
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    const tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
   });
 });

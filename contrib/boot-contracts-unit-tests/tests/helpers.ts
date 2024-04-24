@@ -321,7 +321,7 @@ export const stackAggregationCommitIndexed = (
   const args = [
     poxAddressToTuple(stacker.btcAddr),
     Cl.uint(rewardCycle),
-    signerSignature ? Cl.some(Cl.bufferFromHex(signerSignature)) : Cl.none(),
+    Cl.some(Cl.bufferFromHex(signerSignature)),
     signerKey,
     Cl.uint(maxAmount),
     Cl.uint(authId),
@@ -359,7 +359,7 @@ export const stackAggregationIncrease = (
     poxAddressToTuple(stacker.btcAddr),
     Cl.uint(rewardCycle),
     Cl.uint(rewardCycleIndex),
-    signerSignature ? Cl.some(Cl.bufferFromHex(signerSignature)) : Cl.none(),
+    Cl.some(Cl.bufferFromHex(signerSignature)),
     signerKey,
     Cl.uint(maxAmount),
     Cl.uint(authId),
