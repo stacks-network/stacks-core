@@ -60,7 +60,7 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError, TransactionEvent,
     TransactionProblematic, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
@@ -406,7 +406,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_transactions: Vec<StacksTransaction>,
-    ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> {
+    ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -485,16 +485,6 @@ impl NakamotoBlockBuilder {
 
         let ts_end = get_epoch_time_ms();
 
-        if let Some(observer) = event_observer {
-            observer.mined_nakamoto_block_event(
-                SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height + 1,
-                &block,
-                size,
-                &consumed,
-                tx_events,
-            );
-        }
-
         set_last_mined_block_transaction_count(block.txs.len() as u64);
         set_last_mined_execution_cost_observed(&consumed, &block_limit);
 
@@ -511,7 +501,7 @@ impl NakamotoBlockBuilder {
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
         );
 
-        Ok((block, consumed, size))
+        Ok((block, consumed, size, tx_events))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -524,19 +514,22 @@ impl NakamotoBlockBuilder {
     /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
     /// Returns None if not
     /// Returns an error on signing or DB error
-    pub fn make_stackerdb_block_proposal(
+    pub fn make_stackerdb_block_proposal<T: StacksMessageCodec>(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
-        block: &NakamotoBlock,
+        block: &T,
         miner_privkey: &StacksPrivateKey,
         miners_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<StackerDBChunkData>, Error> {
         let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
-        let Some(slot_id) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)? else {
+        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)?
+        else {
             // No slot exists for this miner
             return Ok(None);
         };
+        // proposal slot is the first slot.
+        let slot_id = slot_range.start;
         // Get the LAST slot version number written to the DB. If not found, use 0.
         // Add 1 to get the NEXT version number
         // Note: we already check above for the slot's existence

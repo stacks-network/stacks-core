@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use hashbrown::{HashMap, HashSet};
+use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -28,15 +28,12 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
-use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::PublicKeys;
 
 use crate::signer::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-// Default transaction fee in microstacks (if unspecificed in the config file)
-// TODO: Use the fee estimation endpoint to get the default fee.
+// Default transaction fee to use in microstacks (if unspecificed in the config file)
 const TX_FEE_USTX: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
@@ -56,7 +53,7 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 /// The Stacks network to use.
 pub enum Network {
@@ -80,7 +77,7 @@ impl std::fmt::Display for Network {
 
 impl Network {
     /// Converts a Network enum variant to a corresponding chain id
-    pub fn to_chain_id(&self) -> u32 {
+    pub const fn to_chain_id(&self) -> u32 {
         match self {
             Self::Mainnet => CHAIN_ID_MAINNET,
             Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
@@ -88,7 +85,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a corresponding address version
-    pub fn to_address_version(&self) -> u8 {
+    pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -96,7 +93,7 @@ impl Network {
     }
 
     /// Convert a Network enum variant to a Transaction Version
-    pub fn to_transaction_version(&self) -> TransactionVersion {
+    pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
             Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
@@ -104,28 +101,12 @@ impl Network {
     }
 
     /// Check if the network is Mainnet or not
-    pub fn is_mainnet(&self) -> bool {
+    pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
             Self::Testnet | Self::Mocknet => false,
         }
     }
-}
-
-/// Parsed Reward Set
-#[derive(Debug, Clone)]
-pub struct ParsedSignerEntries {
-    /// The signer addresses mapped to signer id
-    pub signer_ids: HashMap<StacksAddress, u32>,
-    /// The signer ids mapped to public key and key ids mapped to public keys
-    pub public_keys: PublicKeys,
-    /// The signer ids mapped to key ids
-    pub signer_key_ids: HashMap<u32, Vec<u32>>,
-    /// The signer ids mapped to wsts public keys
-    pub signer_public_keys: HashMap<u32, Point>,
-    /// The signer ids mapped to a hash set of key ids
-    /// The wsts coordinator uses a hash set for each signer since it needs to do lots of lookups
-    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
 }
 
 /// The Configuration info needed for an individual signer per reward cycle
@@ -140,7 +121,7 @@ pub struct SignerConfig {
     /// This signer's key ids
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
-    pub signer_entries: ParsedSignerEntries,
+    pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The Scalar representation of the private key for signer communication
@@ -161,8 +142,10 @@ pub struct SignerConfig {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX.
     pub tx_fee_ustx: u64,
+    /// If set, will use the estimated fee up to this amount.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
 }
@@ -194,8 +177,10 @@ pub struct GlobalConfig {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX.
     pub tx_fee_ustx: u64,
+    /// the max STX tx fee to use in uSTX when estimating fees
+    pub max_tx_fee_ustx: Option<u64>,
     /// the authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file
@@ -226,8 +211,11 @@ struct RawConfigFile {
     pub nonce_timeout_ms: Option<u64>,
     /// timeout in (millisecs) to gather signature shares
     pub sign_timeout_ms: Option<u64>,
-    /// the STX tx fee to use in uSTX
+    /// the STX tx fee to use in uSTX. If not set, will default to TX_FEE_USTX
     pub tx_fee_ustx: Option<u64>,
+    /// the max STX tx fee to use in uSTX when estimating fees.
+    /// If not set, will use tx_fee_ustx.
+    pub max_tx_fee_ustx: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
@@ -237,7 +225,7 @@ struct RawConfigFile {
 impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
-        let config: RawConfigFile =
+        let config: Self =
             toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
         Ok(config)
     }
@@ -252,7 +240,7 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     type Error = ConfigError;
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
+        Self::load_from_str(&fs::read_to_string(path).map_err(|e| {
             ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
         })?)
     }
@@ -273,10 +261,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .to_socket_addrs()
             .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
-            .ok_or(ConfigError::BadField(
-                "endpoint".to_string(),
-                raw_data.endpoint.clone(),
-            ))?;
+            .ok_or_else(|| {
+                ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
+            })?;
 
         let stacks_private_key =
             StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
@@ -324,6 +311,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             nonce_timeout,
             sign_timeout,
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
+            max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
         })
@@ -351,19 +339,31 @@ impl GlobalConfig {
 }
 
 /// Helper function for building a signer config for each provided signer private key
+#[allow(clippy::too_many_arguments)]
 pub fn build_signer_config_tomls(
     stacks_private_keys: &[StacksPrivateKey],
     node_host: &str,
     timeout: Option<Duration>,
     network: &Network,
     password: &str,
+    run_stamp: u16,
+    mut port_start: usize,
+    max_tx_fee_ustx: Option<u64>,
+    tx_fee_ustx: Option<u64>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
-    let mut port = 30000;
     for stacks_private_key in stacks_private_keys {
-        let endpoint = format!("localhost:{}", port);
-        port += 1;
+        let endpoint = format!("localhost:{}", port_start);
+        port_start += 1;
+
+        let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
+        let db_dir = format!(
+            "/tmp/stacks-node-tests/integrations-signers/{run_stamp}/signer_{stacks_public_key}"
+        );
+        let db_path = format!("{db_dir}/signerdb.sqlite");
+        fs::create_dir_all(&db_dir).unwrap();
+
         let stacks_private_key = stacks_private_key.to_hex();
         let mut signer_config_toml = format!(
             r#"
@@ -372,7 +372,7 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "{network}"
 auth_password = "{password}"
-db_path = ":memory:"
+db_path = "{db_path}"
 "#
         );
 
@@ -381,7 +381,25 @@ db_path = ":memory:"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}   
+event_timeout = {event_timeout_ms}
+"#
+            )
+        }
+
+        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+max_tx_fee_ustx = {max_tx_fee_ustx}
+"#
+            )
+        }
+
+        if let Some(tx_fee_ustx) = tx_fee_ustx {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+tx_fee_ustx = {tx_fee_ustx}
 "#
             )
         }
@@ -407,11 +425,127 @@ mod tests {
         let network = Network::Testnet;
         let password = "melon";
 
-        let config_tomls = build_signer_config_tomls(&[pk], node_host, None, &network, password);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            None,
+        );
 
         let config =
             RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
 
         assert_eq!(config.auth_password, "melon");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert!(config.tx_fee_ustx.is_none());
+    }
+
+    #[test]
+    fn fee_options_should_deserialize_correctly() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let node_host = "localhost";
+        let network = Network::Testnet;
+        let password = "melon";
+
+        // Test both max_tx_fee_ustx and tx_fee_ustx are unspecified
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            None,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert!(config.tx_fee_ustx.is_none());
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
+
+        // Test both max_tx_fee_ustx and tx_fee_ustx are specified
+        let max_tx_fee_ustx = Some(1000);
+        let tx_fee_ustx = Some(2000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            max_tx_fee_ustx,
+            tx_fee_ustx,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
+
+        // Test only max_tx_fee_ustx is specified
+        let max_tx_fee_ustx = Some(1000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            max_tx_fee_ustx,
+            None,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert!(config.tx_fee_ustx.is_none());
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
+        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
+
+        // Test only tx_fee_ustx is specified
+        let tx_fee_ustx = Some(1000);
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            tx_fee_ustx,
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
+
+        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
+        assert!(config.max_tx_fee_ustx.is_none());
+        assert_eq!(Some(config.tx_fee_ustx), tx_fee_ustx);
     }
 }

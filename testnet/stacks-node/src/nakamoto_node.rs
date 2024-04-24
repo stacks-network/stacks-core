@@ -39,6 +39,7 @@ use crate::run_loop::RegisteredKey;
 pub mod miner;
 pub mod peer;
 pub mod relayer;
+pub mod sign_coordinator;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
@@ -94,7 +95,11 @@ pub enum Error {
     CannotSelfSign,
     MiningFailure(ChainstateError),
     MinerSignatureError(&'static str),
-    SignerSignatureError(&'static str),
+    SignerSignatureError(String),
+    /// A failure occurred while configuring the miner thread
+    MinerConfigurationFailed(&'static str),
+    /// An error occurred while operating as the signing coordinator
+    SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }

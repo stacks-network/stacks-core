@@ -14,12 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Messages in the signer-miner interaction have a multi-level hierarchy.
+//! Signers send messages to each other through Packet messages. These messages,
+//! as well as `BlockResponse`, `Transactions`, and `DkgResults` messages are stored
+//! StackerDBs based on the `MessageSlotID` for the particular message type. This is a
+//! shared identifier space between the four message kinds and their subtypes.
+//!
+//! These four message kinds are differentiated with a `SignerMessageTypePrefix`
+//! and the `SignerMessage` enum.
+
+use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
@@ -54,27 +65,66 @@ use wsts::state_machine::{signer, SignError};
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-// The slot IDS for each message type
-const DKG_BEGIN_MSG_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_MSG_ID: u32 = 1;
-const DKG_END_BEGIN_MSG_ID: u32 = 2;
-const DKG_END_MSG_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_MSG_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_MSG_ID: u32 = 5;
-const NONCE_REQUEST_MSG_ID: u32 = 6;
-const NONCE_RESPONSE_MSG_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_MSG_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_MSG_ID: u32 = 9;
-/// The slot ID for the block response for miners to observe
-pub const BLOCK_MSG_ID: u32 = 10;
-/// The slot ID for the transactions list for miners and signers to observe
-pub const TRANSACTIONS_MSG_ID: u32 = 11;
+define_u8_enum!(
+/// Enum representing the stackerdb message identifier: this is
+///  the contract index in the signers contracts (i.e., X in signers-0-X)
+MessageSlotID {
+    /// DkgBegin message
+    DkgBegin = 0,
+    /// DkgPrivateBegin
+    DkgPrivateBegin = 1,
+    /// DkgEndBegin
+    DkgEndBegin = 2,
+    /// DkgEnd
+    DkgEnd = 3,
+    /// DkgPublicshares
+    DkgPublicShares = 4,
+    /// DkgPrivateShares
+    DkgPrivateShares = 5,
+    /// NonceRequest
+    NonceRequest = 6,
+    /// NonceResponse
+    NonceResponse = 7,
+    /// SignatureShareRequest
+    SignatureShareRequest = 8,
+    /// SignatureShareResponse
+    SignatureShareResponse = 9,
+    /// Block proposal responses for miners to observe
+    BlockResponse = 10,
+    /// Transactions list for miners and signers to observe
+    Transactions = 11,
+    /// DKG Results
+    DkgResults = 12
+});
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
-    Transactions = 2
+    Transactions = 2,
+    DkgResults = 3
 });
+
+impl MessageSlotID {
+    /// Return the StackerDB contract corresponding to messages of this type
+    pub fn stacker_db_contract(
+        &self,
+        mainnet: bool,
+        reward_cycle: u64,
+    ) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+
+    /// Return the u32 identifier for the message slot (used to index the contract that stores it)
+    pub fn to_u32(&self) -> u32 {
+        self.to_u8().into()
+    }
+}
+
+impl Display for MessageSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}({})", self, self.to_u8())
+    }
+}
 
 impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
@@ -91,6 +141,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
+            SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
         }
     }
 }
@@ -168,7 +219,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
 }
 
 /// The messages being sent through the stacker db contracts
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
     /// The signed/validated Nakamoto block for miners to observe
     BlockResponse(BlockResponse),
@@ -176,27 +227,98 @@ pub enum SignerMessage {
     Packet(Packet),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
+    /// The results of a successful DKG
+    DkgResults {
+        /// The aggregate key from the DKG round
+        aggregate_key: Point,
+        /// The polynomial commits used to construct the aggregate key
+        party_polynomials: Vec<(u32, PolyCommitment)>,
+    },
+}
+
+impl Debug for SignerMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BlockResponse(b) => Debug::fmt(b, f),
+            Self::Packet(p) => Debug::fmt(p, f),
+            Self::Transactions(t) => f.debug_tuple("Transactions").field(t).finish(),
+            Self::DkgResults {
+                aggregate_key,
+                party_polynomials,
+            } => {
+                let party_polynomials: Vec<_> = party_polynomials
+                    .iter()
+                    .map(|(ix, commit)| (ix, commit.to_string()))
+                    .collect();
+                f.debug_struct("DkgResults")
+                    .field("aggregate_key", &aggregate_key.to_string())
+                    .field("party_polynomials", &party_polynomials)
+                    .finish()
+            }
+        }
+    }
 }
 
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn msg_id(&self) -> u32 {
+    pub fn msg_id(&self) -> MessageSlotID {
         match self {
             Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_MSG_ID,
-                Message::DkgEnd(_) => DKG_END_MSG_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_MSG_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_MSG_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_MSG_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_MSG_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_MSG_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_MSG_ID,
+                Message::DkgBegin(_) => MessageSlotID::DkgBegin,
+                Message::DkgPrivateBegin(_) => MessageSlotID::DkgPrivateBegin,
+                Message::DkgEndBegin(_) => MessageSlotID::DkgEndBegin,
+                Message::DkgEnd(_) => MessageSlotID::DkgEnd,
+                Message::DkgPublicShares(_) => MessageSlotID::DkgPublicShares,
+                Message::DkgPrivateShares(_) => MessageSlotID::DkgPrivateShares,
+                Message::NonceRequest(_) => MessageSlotID::NonceRequest,
+                Message::NonceResponse(_) => MessageSlotID::NonceResponse,
+                Message::SignatureShareRequest(_) => MessageSlotID::SignatureShareRequest,
+                Message::SignatureShareResponse(_) => MessageSlotID::SignatureShareResponse,
             },
-            Self::BlockResponse(_) => BLOCK_MSG_ID,
-            Self::Transactions(_) => TRANSACTIONS_MSG_ID,
+            Self::BlockResponse(_) => MessageSlotID::BlockResponse,
+            Self::Transactions(_) => MessageSlotID::Transactions,
+            Self::DkgResults { .. } => MessageSlotID::DkgResults,
         }
+    }
+}
+
+impl SignerMessage {
+    /// Provide an interface for consensus serializing a DkgResults `SignerMessage`
+    ///  without constructing the DkgResults struct (this eliminates a clone)
+    pub fn serialize_dkg_result<'a, W: Write, I>(
+        fd: &mut W,
+        aggregate_key: &Point,
+        party_polynomials: I,
+    ) -> Result<(), CodecError>
+    where
+        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
+    {
+        SignerMessageTypePrefix::DkgResults
+            .to_u8()
+            .consensus_serialize(fd)?;
+        Self::serialize_dkg_result_components(fd, aggregate_key, party_polynomials)
+    }
+
+    /// Serialize the internal components of DkgResults (this eliminates a clone)
+    fn serialize_dkg_result_components<'a, W: Write, I>(
+        fd: &mut W,
+        aggregate_key: &Point,
+        party_polynomials: I,
+    ) -> Result<(), CodecError>
+    where
+        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
+    {
+        aggregate_key.inner_consensus_serialize(fd)?;
+        let polynomials_len: u32 = party_polynomials
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::ArrayTooLong)?;
+        polynomials_len.consensus_serialize(fd)?;
+        for (party_id, polynomial) in party_polynomials {
+            party_id.consensus_serialize(fd)?;
+            polynomial.inner_consensus_serialize(fd)?;
+        }
+        Ok(())
     }
 }
 
@@ -212,6 +334,16 @@ impl StacksMessageCodec for SignerMessage {
             }
             SignerMessage::Transactions(transactions) => {
                 write_next(fd, transactions)?;
+            }
+            SignerMessage::DkgResults {
+                aggregate_key,
+                party_polynomials,
+            } => {
+                Self::serialize_dkg_result_components(
+                    fd,
+                    aggregate_key,
+                    party_polynomials.iter().map(|(a, b)| (a, b)),
+                )?;
             }
         };
         Ok(())
@@ -233,6 +365,24 @@ impl StacksMessageCodec for SignerMessage {
                 let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
                 SignerMessage::Transactions(transactions)
             }
+            SignerMessageTypePrefix::DkgResults => {
+                let aggregate_key = Point::inner_consensus_deserialize(fd)?;
+                let party_polynomial_len = u32::consensus_deserialize(fd)?;
+                let mut party_polynomials = Vec::with_capacity(
+                    party_polynomial_len
+                        .try_into()
+                        .expect("FATAL: u32 could not fit in usize"),
+                );
+                for _ in 0..party_polynomial_len {
+                    let party_id = u32::consensus_deserialize(fd)?;
+                    let polynomial = PolyCommitment::inner_consensus_deserialize(fd)?;
+                    party_polynomials.push((party_id, polynomial));
+                }
+                Self::DkgResults {
+                    aggregate_key,
+                    party_polynomials,
+                }
+            }
         };
         Ok(message)
     }
@@ -249,7 +399,7 @@ impl StacksMessageCodecExtensions for Scalar {
         write_next(fd, &self.to_bytes())
     }
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let scalar_bytes = read_next::<[u8; 32], _>(fd)?;
+        let scalar_bytes: [u8; 32] = read_next(fd)?;
         Ok(Scalar::from(scalar_bytes))
     }
 }
@@ -263,6 +413,51 @@ impl StacksMessageCodecExtensions for Point {
         let compressed = Compressed::try_from(compressed_bytes.as_slice())
             .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
         Point::try_from(&compressed).map_err(|e| CodecError::DeserializeError(e.to_string()))
+    }
+}
+
+impl StacksMessageCodecExtensions for PolyCommitment {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.id.inner_consensus_serialize(fd)?;
+        let commit_len: u32 = self
+            .poly
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::ArrayTooLong)?;
+        commit_len.consensus_serialize(fd)?;
+        for poly in self.poly.iter() {
+            poly.inner_consensus_serialize(fd)?;
+        }
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let id = ID::inner_consensus_deserialize(fd)?;
+        let commit_len = u32::consensus_deserialize(fd)?;
+        let mut poly = Vec::with_capacity(
+            commit_len
+                .try_into()
+                .expect("FATAL: u32 could not fit in usize"),
+        );
+        for _ in 0..commit_len {
+            poly.push(Point::inner_consensus_deserialize(fd)?);
+        }
+        Ok(Self { id, poly })
+    }
+}
+
+impl StacksMessageCodecExtensions for ID {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.id.inner_consensus_serialize(fd)?;
+        self.kG.inner_consensus_serialize(fd)?;
+        self.kca.inner_consensus_serialize(fd)
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let id = Scalar::inner_consensus_deserialize(fd)?;
+        let k_g = Point::inner_consensus_deserialize(fd)?;
+        let kca = Scalar::inner_consensus_deserialize(fd)?;
+        Ok(Self { id, kG: k_g, kca })
     }
 }
 
@@ -823,6 +1018,27 @@ pub enum BlockResponse {
     Rejected(BlockRejection),
 }
 
+impl std::fmt::Display for BlockResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockResponse::Accepted(a) => {
+                write!(
+                    f,
+                    "BlockAccepted: signer_sighash = {}, signature = {}",
+                    a.0, a.1
+                )
+            }
+            BlockResponse::Rejected(r) => {
+                write!(
+                    f,
+                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}",
+                    r.reason_code, r.reason, r.signer_signature_hash
+                )
+            }
+        }
+    }
+}
+
 impl BlockResponse {
     /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
     pub fn accepted(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
@@ -1082,7 +1298,6 @@ impl From<BlockValidateReject> for SignerMessage {
 
 #[cfg(test)]
 mod test {
-
     use blockstack_lib::chainstate::stacks::{
         TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
         TransactionSmartContract, TransactionVersion,
@@ -1095,6 +1310,18 @@ mod test {
     use wsts::common::Signature;
 
     use super::{StacksMessageCodecExtensions, *};
+
+    #[test]
+    fn signer_slots_count_is_sane() {
+        let slot_identifiers_len = MessageSlotID::ALL.len();
+        assert!(
+            SIGNER_SLOTS_PER_USER as usize >= slot_identifiers_len,
+            "stacks_common::SIGNER_SLOTS_PER_USER ({}) must be >= slot identifiers ({})",
+            SIGNER_SLOTS_PER_USER,
+            slot_identifiers_len,
+        );
+    }
+
     #[test]
     fn serde_reject_code() {
         let code = RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock);

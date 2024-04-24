@@ -469,8 +469,8 @@ impl PoxConstants {
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,
-            1,
-            1,
+            3,
+            2,
             3333333333333333,
             1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
@@ -532,6 +532,11 @@ impl PoxConstants {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
+    }
+
+    pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {
+        let effective_height = burn_height.checked_sub(first_block_height)?;
+        Some(effective_height % u64::from(self.reward_cycle_length))
     }
 
     pub fn block_height_to_reward_cycle(

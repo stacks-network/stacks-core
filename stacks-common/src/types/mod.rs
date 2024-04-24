@@ -80,6 +80,21 @@ impl StacksEpochId {
     }
 
     /// Returns whether or not this Epoch should perform
+    ///  memory checks during analysis
+    pub fn analysis_memory(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => false,
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+        }
+    }
+
+    /// Returns whether or not this Epoch should perform
     ///  Clarity value sanitization
     pub fn value_sanitizing(&self) -> bool {
         match self {
@@ -91,6 +106,16 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23 => false,
             StacksEpochId::Epoch24 | StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
         }
+    }
+
+    /// Does this epoch support unlocking PoX contributors that miss a slot?
+    ///
+    /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,
+    ///  the behavior never activates in those epochs because the Pox1 contract does not provide
+    ///  `contibuted_stackers` information. This check maintains that exact semantics by returning
+    ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
+    pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
+        self < &StacksEpochId::Epoch25
     }
 }
 

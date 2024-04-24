@@ -152,7 +152,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
-use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, PoxConstants, Txid};
+use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
@@ -204,7 +204,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
-    addr2str, BitcoinRegtestController, OngoingBlockCommit,
+    addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
 use crate::chain_data::MinerStats;
@@ -1503,10 +1503,7 @@ impl BlockMinerThread {
             (parent_info, canonical)
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = self.config.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&self.config.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
+            let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
                 &burnchain_params.first_block_hash,
@@ -1547,7 +1544,7 @@ impl BlockMinerThread {
 
         // has the tip changed from our previously-mined block for this epoch?
         let should_unconditionally_mine = last_mined_blocks.is_empty()
-            || (last_mined_blocks.len() == 1 && self.failed_to_submit_last_attempt);
+            || (last_mined_blocks.len() == 1 && !self.failed_to_submit_last_attempt);
         let (attempt, max_txs) = if should_unconditionally_mine {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we
@@ -2276,16 +2273,34 @@ impl BlockMinerThread {
         let coinbase_tx =
             self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce, target_epoch_id);
 
-        // find the longest microblock tail we can build off of.
-        // target it to the microblock tail in parent_block_info
-        let microblocks_opt = self.load_and_vet_parent_microblocks(
+        // find the longest microblock tail we can build off of and vet microblocks for forks
+        self.load_and_vet_parent_microblocks(
             &mut chain_state,
             &burn_db,
             &mut mem_pool,
             &mut parent_block_info,
         );
 
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+            .expect("FATAL: failed to read current burnchain tip");
+        let microblocks_disabled =
+            SortitionDB::are_microblocks_disabled(burn_db.conn(), burn_tip.block_height)
+                .expect("FATAL: failed to query epoch's microblock status");
+
         // build the block itself
+        let mut builder_settings = self.config.make_block_builder_settings(
+            attempt,
+            false,
+            self.globals.get_miner_status(),
+        );
+        if microblocks_disabled {
+            builder_settings.confirm_microblocks = false;
+            if cfg!(test)
+                && std::env::var("STACKS_TEST_CONFIRM_MICROBLOCKS_POST_25").as_deref() == Ok("1")
+            {
+                builder_settings.confirm_microblocks = true;
+            }
+        }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &burn_db.index_conn(),
@@ -2295,39 +2310,25 @@ impl BlockMinerThread {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            self.config.make_block_builder_settings(
-                attempt,
-                false,
-                self.globals.get_miner_status(),
-            ),
+            builder_settings,
             Some(&self.event_dispatcher),
+            &self.burnchain,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
                 // part of the parent microblock stream is invalid, so try again
-                info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
+                info!(
+                    "Parent microblock stream is invalid; trying again without microblocks";
+                    "microblock_offender" => %mblock_header_hash,
+                    "error" => &msg
+                );
 
-                // truncate the stream
-                parent_block_info.stacks_parent_header.microblock_tail = match microblocks_opt {
-                    Some(microblocks) => {
-                        let mut tail = None;
-                        for mblock in microblocks.into_iter() {
-                            if mblock.block_hash() == mblock_header_hash {
-                                break;
-                            }
-                            tail = Some(mblock);
-                        }
-                        if let Some(ref t) = &tail {
-                            debug!(
-                                "New parent microblock stream tail is {} (seq {})",
-                                t.block_hash(),
-                                t.header.sequence
-                            );
-                        }
-                        tail.map(|t| t.header)
-                    }
-                    None => None,
-                };
+                let mut builder_settings = self.config.make_block_builder_settings(
+                    attempt,
+                    false,
+                    self.globals.get_miner_status(),
+                );
+                builder_settings.confirm_microblocks = false;
 
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
@@ -2339,12 +2340,9 @@ impl BlockMinerThread {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    self.config.make_block_builder_settings(
-                        attempt,
-                        false,
-                        self.globals.get_miner_status(),
-                    ),
+                    builder_settings,
                     Some(&self.event_dispatcher),
+                    &self.burnchain,
                 ) {
                     Ok(block) => block,
                     Err(e) => {
@@ -3067,6 +3065,9 @@ impl RelayerThread {
         // one.  ProcessTenure(..) messages can get lost.
         let burn_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
             .expect("FATAL: failed to read current burnchain tip");
+        let mut microblocks_disabled =
+            SortitionDB::are_microblocks_disabled(self.sortdb_ref().conn(), burn_tip.block_height)
+                .expect("FATAL: failed to query epoch's microblock status");
 
         let tenures = if let Some(last_ch) = self.last_tenure_consensus_hash.as_ref() {
             let mut tenures = vec![];
@@ -3202,11 +3203,18 @@ impl RelayerThread {
         // update state for microblock mining
         self.setup_microblock_mining_state(miner_tip);
 
+        if cfg!(test)
+            && std::env::var("STACKS_TEST_FORCE_MICROBLOCKS_POST_25").as_deref() == Ok("1")
+        {
+            debug!("Allowing miner to mine microblocks because STACKS_TEST_FORCE_MICROBLOCKS_POST_25 = 1");
+            microblocks_disabled = false;
+        }
+
         // resume mining if we blocked it
         if num_tenures > 0 || num_sortitions > 0 {
             if self.miner_tip.is_some() {
                 // we won the highest tenure
-                if self.config.node.mine_microblocks {
+                if self.config.node.mine_microblocks && !microblocks_disabled {
                     // mine a microblock first
                     self.mined_stacks_block = true;
                 } else {
@@ -3501,6 +3509,23 @@ impl RelayerThread {
             test_debug!("Relayer: not configured to mine microblocks");
             return false;
         }
+
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
+            .expect("FATAL: failed to read current burnchain tip");
+        let microblocks_disabled =
+            SortitionDB::are_microblocks_disabled(self.sortdb_ref().conn(), burn_tip.block_height)
+                .expect("FATAL: failed to query epoch's microblock status");
+
+        if microblocks_disabled {
+            if cfg!(test)
+                && std::env::var("STACKS_TEST_FORCE_MICROBLOCKS_POST_25").as_deref() == Ok("1")
+            {
+                debug!("Allowing miner to mine microblocks because STACKS_TEST_FORCE_MICROBLOCKS_POST_25 = 1");
+            } else {
+                return false;
+            }
+        }
+
         if !self.miner_thread_try_join() {
             // already running (for an anchored block or microblock)
             test_debug!("Relayer: miner thread already running so cannot mine microblock");

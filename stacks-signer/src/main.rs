@@ -46,7 +46,7 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, SignArgs, StackerDBArgs,
+    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
 };
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
@@ -104,8 +104,8 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
     assert!(dkg_res.len() == 1, "Received unexpected number of results");
     let dkg = dkg_res.first().unwrap();
     match dkg {
-        OperationResult::Dkg(point) => {
-            println!("Received aggregate group key: {point}");
+        OperationResult::Dkg(aggregate_key) => {
+            println!("Received aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {
             panic!(
@@ -133,8 +133,8 @@ fn process_sign_result(sign_res: &[OperationResult]) {
     assert!(sign_res.len() == 1, "Received unexpected number of results");
     let sign = sign_res.first().unwrap();
     match sign {
-        OperationResult::Dkg(point) => {
-            panic!("Received unexpected aggregate group key: {point}");
+        OperationResult::Dkg(aggregate_key) => {
+            panic!("Received unexpected aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {
             panic!(
@@ -252,7 +252,7 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.running_signer.stop();
 }
 
-fn handle_run(args: RunDkgArgs) {
+fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let spawned_signer = spawn_running_signer(&args.config);
     println!("Signer spawned successfully. Waiting for messages to process...");
@@ -292,6 +292,10 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         args.timeout.map(Duration::from_millis),
         &args.network,
         &args.password,
+        rand::random(),
+        3000,
+        None,
+        None,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -320,12 +324,28 @@ fn handle_generate_stacking_signature(
     )
     .expect("Failed to generate signature");
 
-    if do_print {
-        println!(
-            "\nSigner Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
+    let output_str = if args.json {
+        serde_json::to_string(&serde_json::json!({
+            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerSignature": to_hex(signature.to_rsv().as_slice()),
+            "authId": format!("{}", args.auth_id),
+            "rewardCycle": args.reward_cycle,
+            "maxAmount": format!("{}", args.max_amount),
+            "period": args.period,
+            "poxAddress": args.pox_address.to_b58(),
+            "method": args.method.topic().to_string(),
+        }))
+        .expect("Failed to serialize JSON")
+    } else {
+        format!(
+            "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
             to_hex(&public_key.to_bytes_compressed()),
             to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
-        );
+        )
+    };
+
+    if do_print {
+        println!("{}", output_str);
     }
 
     signature
@@ -398,6 +418,7 @@ pub mod tests {
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
 
+    #[allow(clippy::too_many_arguments)]
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,
         reward_cycle: u128,
@@ -446,6 +467,7 @@ pub mod tests {
             period: 12,
             max_amount: u128::MAX,
             auth_id: 1,
+            json: false,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);
@@ -500,6 +522,7 @@ pub mod tests {
             period: 12,
             max_amount: u128::MAX,
             auth_id: 1,
+            json: false,
         };
 
         let signature = handle_generate_stacking_signature(args.clone(), false);

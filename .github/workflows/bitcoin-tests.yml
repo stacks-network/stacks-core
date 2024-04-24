@@ -59,6 +59,7 @@ jobs:
           - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
           - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::stack_stx_burn_op_test
           - tests::neon_integrations::test_chainwork_first_intervals
           - tests::neon_integrations::test_chainwork_partial_interval
           - tests::neon_integrations::test_flash_block_skip_tenure
@@ -71,6 +72,7 @@ jobs:
           - tests::neon_integrations::confirm_unparsed_ongoing_ops
           - tests::neon_integrations::min_txs
           - tests::neon_integrations::vote_for_aggregate_key_burn_op_test
+          - tests::epoch_25::microblocks_disabled
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
@@ -78,11 +80,16 @@ jobs:
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
           - tests::nakamoto_integrations::correct_burn_outs
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
+          - tests::nakamoto_integrations::follower_bootup
           - tests::signer::stackerdb_dkg
           - tests::signer::stackerdb_sign
           - tests::signer::stackerdb_block_proposal
           - tests::signer::stackerdb_filter_bad_transactions
           - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
+          - tests::signer::stackerdb_sign_after_signer_reboot
+          - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
+          # Do not run this one until we figure out why it fails in CI
+          # - tests::neon_integrations::bitcoin_reorg_flap
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -107,3 +114,17 @@ jobs:
         uses: stacks-network/actions/codecov@main
         with:
           test-name: ${{ matrix.test-name }}
+
+  check-tests:
+    name: Check Tests
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - integration-tests
+    steps:
+      - name: Check Tests Status
+        id: check_tests_status
+        uses: stacks-network/actions/check-jobs-status@main
+        with:
+          jobs: ${{ toJson(needs) }}
+          summary_print: "true"
