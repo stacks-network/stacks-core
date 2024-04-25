@@ -1180,7 +1180,7 @@ fn stackerdb_delayed_dkg() {
     info!("------------------------- Wait for DKG -------------------------");
     let key = signer_test.wait_for_dkg(timeout);
     // Sleep a bit to make sure the transactions are broadcast.
-    std::thread::sleep(Duration::from_secs(1));
+    std::thread::sleep(Duration::from_secs(10));
     // Mine a block and make sure the votes were mined
     next_block_and_process_new_stacks_block(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -1188,7 +1188,8 @@ fn stackerdb_delayed_dkg() {
         &signer_test.running_nodes.coord_channel,
     )
     .unwrap();
-
+    // Sleep a bit to make sure the contract gets updated
+    std::thread::sleep(Duration::from_secs(5));
     // Make sure DKG did get set
     assert_eq!(
         key,
