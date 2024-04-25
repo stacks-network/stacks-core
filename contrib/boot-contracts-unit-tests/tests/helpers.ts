@@ -347,7 +347,7 @@ export const delegateStackIncrease = (
 
 export const allowContractCaller = (
   caller: string,
-  untilBurnHeight: bigint | null,
+  untilBurnHeight: bigint | number | null,
   sender: string
 ) => {
   const args = [

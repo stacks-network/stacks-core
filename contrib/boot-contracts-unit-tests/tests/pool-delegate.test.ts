@@ -227,6 +227,62 @@ describe("test `get-delegation-info`", () => {
   });
 });
 
+describe("test `get-allowance-contract-callers`", () => {
+  it("returns `none` when not allowed", () => {
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-allowance-contract-callers",
+      [Cl.principal(address1), Cl.contractPrincipal(deployer, "indirect")],
+      address1
+    );
+    expect(response.result).toBeNone();
+  });
+
+  it("returns `(some none)` when allowed indefinitely", () => {
+    allowContractCaller(`${deployer}.indirect`, null, address1);
+
+    const delegateInfo = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-allowance-contract-callers",
+      [Cl.principal(address1), Cl.contractPrincipal(deployer, "indirect")],
+      address1
+    );
+    expect(delegateInfo.result).toBeSome(
+      Cl.tuple({
+        "until-burn-ht": Cl.none(),
+      })
+    );
+  });
+
+  it("returns `(some (some X))` when allowed until burn height X", () => {
+    const untilBurnHeight = 10;
+    allowContractCaller(`${deployer}.indirect`, untilBurnHeight, address1);
+
+    const delegateInfo = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-allowance-contract-callers",
+      [Cl.principal(address1), Cl.contractPrincipal(deployer, "indirect")],
+      address1
+    );
+    expect(delegateInfo.result).toBeSome(
+      Cl.tuple({
+        "until-burn-ht": Cl.some(Cl.uint(untilBurnHeight)),
+      })
+    );
+  });
+
+  it("returns `none` when a different caller is allowed", () => {
+    allowContractCaller(`${deployer}.not-indirect`, null, address1);
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-allowance-contract-callers",
+      [Cl.principal(address1), Cl.contractPrincipal(deployer, "indirect")],
+      address1
+    );
+    expect(response.result).toBeNone();
+  });
+});
+
 describe("test `delegate-stack-stx`", () => {
   it("does not delegate if principal is not delegated", () => {
     const amount = getStackingMinimum() * 2n;
