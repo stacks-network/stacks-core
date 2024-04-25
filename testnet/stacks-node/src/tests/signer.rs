@@ -49,6 +49,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
+use wsts::net::Message;
 use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
@@ -59,7 +60,7 @@ use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
     naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
-    next_block_and_process_new_stacks_block, POX_4_DEFAULT_STACKER_BALANCE,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
@@ -1136,7 +1137,8 @@ fn stackerdb_delayed_dkg() {
 
     info!("------------------------- Test Setup -------------------------");
     let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(3);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
     boot_to_epoch_3_reward_set_calculation_boundary(
         &signer_test.running_nodes.conf,
         &signer_test.running_nodes.blocks_processed,
@@ -1150,7 +1152,22 @@ fn stackerdb_delayed_dkg() {
     let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
     let coordinator_public_key =
         StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
-
+    let signer_slot_ids: Vec<_> = (0..num_signers)
+        .into_iter()
+        .map(|i| SignerSlotID(i as u32))
+        .collect();
+    let mut stackerdbs: Vec<_> = signer_slot_ids
+        .iter()
+        .map(|i| {
+            StackerDB::new(
+                &signer_test.running_nodes.conf.node.rpc_bind,
+                StacksPrivateKey::new(), // Doesn't matter what key we use. We are just reading, not writing
+                false,
+                reward_cycle,
+                *i,
+            )
+        })
+        .collect();
     info!("------------------------- Stop Signers -------------------------");
     let mut to_stop = None;
     for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
@@ -1170,7 +1187,6 @@ fn stackerdb_delayed_dkg() {
         signer_key,
         signer_key.to_hex()
     );
-
     info!("------------------------- Start DKG -------------------------");
     info!("Waiting for DKG to start...");
     // Advance one more to trigger DKG
@@ -1180,8 +1196,31 @@ fn stackerdb_delayed_dkg() {
         || Ok(true),
     )
     .expect("Failed to mine bitcoin block");
-    // Wait a bit so DKG is actually triggered and signers are not available to respond
-    std::thread::sleep(Duration::from_secs(5));
+    // Do not proceed until we guarantee that DKG was triggered
+    let start_time = Instant::now();
+    loop {
+        let stackerdb = stackerdbs.first_mut().unwrap();
+        let dkg_packets: Vec<_> = stackerdb
+            .get_dkg_packets(&signer_slot_ids)
+            .expect("Failed to get dkg packets");
+        let begin_packets: Vec<_> = dkg_packets
+            .iter()
+            .filter_map(|packet| {
+                if matches!(packet.msg, Message::DkgBegin(_)) {
+                    Some(packet)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !begin_packets.is_empty() {
+            break;
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Timed out waiting for DKG to be triggered"
+        );
+    }
 
     info!("------------------------- Restart Stopped Signer -------------------------");
 
@@ -1189,17 +1228,49 @@ fn stackerdb_delayed_dkg() {
 
     info!("------------------------- Wait for DKG -------------------------");
     let key = signer_test.wait_for_dkg(timeout);
-    // Sleep a bit to make sure the transactions are broadcast.
-    std::thread::sleep(Duration::from_secs(10));
-    // Mine a block and make sure the votes were mined
-    next_block_and_process_new_stacks_block(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        timeout.as_secs(),
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    // Sleep a bit to make sure the contract gets updated
-    std::thread::sleep(Duration::from_secs(5));
+    let mut transactions = HashSet::with_capacity(num_signers);
+    let start_time = Instant::now();
+    while transactions.len() < num_signers {
+        for stackerdb in stackerdbs.iter_mut() {
+            let current_transactions = stackerdb
+                .get_current_transactions()
+                .expect("Failed getting current transactions for signer slot id");
+            for tx in current_transactions {
+                transactions.insert(tx.txid());
+            }
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to retrieve pending vote transactions within timeout"
+        );
+    }
+
+    // Make sure transactions get mined
+    let start_time = Instant::now();
+    while !transactions.is_empty() {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to mine transactions within timeout"
+        );
+        next_block_and_wait(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.blocks_processed,
+        );
+        let blocks = test_observer::get_blocks();
+        for block in blocks.iter() {
+            let txs = block.get("transactions").unwrap().as_array().unwrap();
+            for tx in txs.iter() {
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                if raw_tx == "0x00" {
+                    continue;
+                }
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                transactions.remove(&parsed.txid());
+            }
+        }
+    }
+
     // Make sure DKG did get set
     assert_eq!(
         key,
