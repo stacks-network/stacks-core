@@ -9,8 +9,8 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
-    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEventReceiver,
-    SignerMessage,
+    BlockProposalSigners, BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer,
+    SignerEventReceiver, SignerMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -1037,13 +1037,23 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Sign -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
+    let block_proposal_1 = BlockProposalSigners {
+        block: block1.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
+    let block_proposal_2 = BlockProposalSigners {
+        block: block2.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do sign");
     let sign_now = Instant::now();
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block1,
+            block_proposal: block_proposal_1,
             is_taproot: false,
             merkle_root: None,
         },
@@ -1051,7 +1061,7 @@ fn stackerdb_sign() {
     let sign_taproot_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block2,
+            block_proposal: block_proposal_2,
             is_taproot: true,
             merkle_root: None,
         },
@@ -1354,7 +1364,8 @@ fn stackerdb_sign_after_signer_reboot() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(3);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1383,10 +1394,19 @@ fn stackerdb_sign_after_signer_reboot() {
 
     info!("------------------------- Test Mine Block after restart -------------------------");
 
-    signer_test.mine_nakamoto_block(timeout);
+    let last_block = signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let frost_signature =
         signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+
+    // Check that the latest block's bitvec is all 1's
+    assert_eq!(
+        last_block.signer_bitvec,
+        serde_json::to_value(BitVec::<4000>::ones(num_signers as u16).unwrap())
+            .expect("Failed to serialize BitVec")
+            .as_str()
+            .expect("Failed to serialize BitVec")
+    );
 
     assert!(
         frost_signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),

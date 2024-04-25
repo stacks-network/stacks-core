@@ -72,6 +72,10 @@ impl std::fmt::Display for SignerSlotID {
 pub struct BlockInfo {
     /// The block we are considering
     pub block: NakamotoBlock,
+    /// The burn block height at which the block was proposed
+    pub burn_block_height: u64,
+    /// The reward cycle the block belongs to
+    pub reward_cycle: u64,
     /// Our vote on the block if we have one yet
     pub vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
@@ -82,27 +86,29 @@ pub struct BlockInfo {
     pub signed_over: bool,
 }
 
-impl BlockInfo {
-    /// Create a new BlockInfo
-    pub const fn new(block: NakamotoBlock) -> Self {
+impl From<BlockProposalSigners> for BlockInfo {
+    fn from(value: BlockProposalSigners) -> Self {
         Self {
-            block,
+            block: value.block,
+            burn_block_height: value.burn_height,
+            reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
             nonce_request: None,
             signed_over: false,
         }
     }
-
+}
+impl BlockInfo {
     /// Create a new BlockInfo with an associated nonce request packet
-    pub const fn new_with_request(block: NakamotoBlock, nonce_request: NonceRequest) -> Self {
-        Self {
-            block,
-            vote: None,
-            valid: None,
-            nonce_request: Some(nonce_request),
-            signed_over: true,
-        }
+    pub fn new_with_request(
+        block_proposal: BlockProposalSigners,
+        nonce_request: NonceRequest,
+    ) -> Self {
+        let mut block_info = BlockInfo::from(block_proposal);
+        block_info.nonce_request = Some(nonce_request);
+        block_info.signed_over = true;
+        block_info
     }
 
     /// Return the block's signer signature hash
@@ -119,7 +125,7 @@ pub enum Command {
     /// Sign a message
     Sign {
         /// The block to sign over
-        block: NakamotoBlock,
+        block_proposal: BlockProposalSigners,
         /// Whether to make a taproot signature
         is_taproot: bool,
         /// Taproot merkle root
@@ -399,7 +405,7 @@ impl Signer {
                 }
             }
             Command::Sign {
-                block,
+                block_proposal,
                 is_taproot,
                 merkle_root,
             } => {
@@ -407,23 +413,23 @@ impl Signer {
                     debug!("{self}: Cannot sign a block without an approved aggregate public key. Ignore it.");
                     return;
                 }
-                let signer_signature_hash = block.header.signer_signature_hash();
+                let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
                 let mut block_info = self
                     .signer_db
                     .block_lookup(self.reward_cycle, &signer_signature_hash)
-                    .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
-                    .unwrap_or_else(|| BlockInfo::new(block.clone()));
+                    .unwrap_or_else(|_| Some(BlockInfo::from(block_proposal.clone())))
+                    .unwrap_or_else(|| BlockInfo::from(block_proposal.clone()));
                 if block_info.signed_over {
                     debug!("{self}: Received a sign command for a block we are already signing over. Ignore it.");
                     return;
                 }
                 info!("{self}: Signing block";
-                         "block_consensus_hash" => %block.header.consensus_hash,
-                         "block_height" => block.header.chain_length,
-                         "pre_sign_block_id" => %block.block_id(),
+                         "block_consensus_hash" => %block_proposal.block.header.consensus_hash,
+                         "block_height" => block_proposal.block.header.chain_length,
+                         "pre_sign_block_id" => %block_proposal.block.block_id(),
                 );
                 match self.coordinator.start_signing_round(
-                    &block.serialize_to_vec(),
+                    &block_proposal.serialize_to_vec(),
                     *is_taproot,
                     *merkle_root,
                 ) {
@@ -432,7 +438,7 @@ impl Signer {
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
-                            .insert_block(self.reward_cycle, &block_info)
+                            .insert_block(&block_info)
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
@@ -517,7 +523,7 @@ impl Signer {
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 self.signer_db
-                    .insert_block(self.reward_cycle, &block_info)
+                    .insert_block(&block_info)
                     .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
@@ -574,7 +580,7 @@ impl Signer {
             "signed_over" => block_info.signed_over,
         );
         self.signer_db
-            .insert_block(self.reward_cycle, &block_info)
+            .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
@@ -605,63 +611,6 @@ impl Signer {
             })
             .collect();
         self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
-    }
-
-    /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(
-        &mut self,
-        stacks_client: &StacksClient,
-        proposals: &[BlockProposalSigners],
-    ) {
-        for proposal in proposals {
-            if proposal.reward_cycle != self.reward_cycle {
-                debug!(
-                    "{self}: Received proposal for block outside of my reward cycle, ignoring.";
-                    "proposal_reward_cycle" => proposal.reward_cycle,
-                    "proposal_burn_height" => proposal.burn_height,
-                );
-                continue;
-            }
-            let sig_hash = proposal.block.header.signer_signature_hash();
-            match self.signer_db.block_lookup(self.reward_cycle, &sig_hash) {
-                Ok(Some(block)) => {
-                    debug!(
-                        "{self}: Received proposal for block already known, ignoring new proposal.";
-                        "signer_sighash" => %sig_hash,
-                        "proposal_burn_height" => proposal.burn_height,
-                        "vote" => ?block.vote.as_ref().map(|v| {
-                            if v.rejected {
-                                "REJECT"
-                            } else {
-                                "ACCEPT"
-                            }
-                        }),
-                        "signed_over" => block.signed_over,
-                    );
-                    continue;
-                }
-                Ok(None) => {
-                    // Store the block in our cache
-                    self.signer_db
-                        .insert_block(self.reward_cycle, &BlockInfo::new(proposal.block.clone()))
-                        .unwrap_or_else(|e| {
-                            error!("{self}: Failed to insert block in DB: {e:?}");
-                        });
-                    // Submit the block for validation
-                    stacks_client
-                        .submit_block_for_validation(proposal.block.clone())
-                        .unwrap_or_else(|e| {
-                            warn!("{self}: Failed to submit block for validation: {e:?}");
-                        });
-                }
-                Err(e) => {
-                    error!(
-                        "{self}: Failed to lookup block in DB: {e:?}. Dropping proposal request."
-                    );
-                    continue;
-                }
-            }
-        }
     }
 
     /// Helper function for determining if the provided message is a DKG specific message
@@ -808,26 +757,35 @@ impl Signer {
         stacks_client: &StacksClient,
         nonce_request: &mut NonceRequest,
     ) -> Option<BlockInfo> {
-        let Some(block) =
-            NakamotoBlock::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
+        let Some(block_proposal) =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
         else {
-            // We currently reject anything that is not a block
+            // We currently reject anything that is not a valid block proposal
             warn!("{self}: Received a nonce request for an unknown message stream. Reject it.",);
             return None;
         };
-        let signer_signature_hash = block.header.signer_signature_hash();
+        if block_proposal.reward_cycle != self.reward_cycle {
+            // We are not signing for this reward cycle. Reject the block
+            warn!(
+                "{self}: Received a nonce request for a different reward cycle. Reject it.";
+                "requested_reward_cycle" => block_proposal.reward_cycle,
+            );
+            return None;
+        }
+        // TODO: could add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let Some(mut block_info) = self
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         else {
             debug!(
-                "{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...";
-                "signer_sighash" => %block.header.signer_signature_hash(),
+                "{self}: received a nonce request for a new block. Submit block for validation. ";
+                "signer_sighash" => %signer_signature_hash,
             );
-            let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
+            let block_info = BlockInfo::new_with_request(block_proposal, nonce_request.clone());
             stacks_client
-                .submit_block_for_validation(block)
+                .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}",);
                 });
@@ -1000,7 +958,7 @@ impl Signer {
                         return None;
                     };
                     self.signer_db
-                        .insert_block(self.reward_cycle, &updated_block_info)
+                        .insert_block(&updated_block_info)
                         .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
@@ -1533,7 +1491,7 @@ impl Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::MinerMessages(blocks, messages, miner_key)) => {
+            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
                 if let Some(miner_key) = miner_key {
                     let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
                         .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
@@ -1545,13 +1503,11 @@ impl Signer {
                     return Ok(());
                 }
                 debug!(
-                    "{self}: Received {} block proposals and {} messages from the miner",
-                    blocks.len(),
+                    "{self}: Received {} messages from the miner",
                     messages.len();
                     "miner_key" => ?miner_key,
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
-                self.handle_proposed_blocks(stacks_client, blocks);
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")

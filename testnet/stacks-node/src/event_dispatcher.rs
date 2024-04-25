@@ -128,6 +128,7 @@ pub struct MinedMicroblockEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedNakamotoBlockEvent {
     pub target_burn_height: u64,
+    pub parent_block_id: String,
     pub block_hash: String,
     pub block_id: String,
     pub stacks_height: u64,
@@ -1252,6 +1253,7 @@ impl EventDispatcher {
 
         let payload = serde_json::to_value(MinedNakamotoBlockEvent {
             target_burn_height,
+            parent_block_id: block.header.parent_block_id.to_string(),
             block_hash: block.header.block_hash().to_string(),
             block_id: block.header.block_id().to_string(),
             stacks_height: block.header.chain_length,

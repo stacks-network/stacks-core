@@ -81,6 +81,7 @@ jobs:
           - tests::nakamoto_integrations::correct_burn_outs
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
           - tests::nakamoto_integrations::follower_bootup
+          - tests::nakamoto_integrations::forked_tenure_is_ignored
           - tests::signer::stackerdb_dkg
           - tests::signer::stackerdb_sign
           - tests::signer::stackerdb_block_proposal
