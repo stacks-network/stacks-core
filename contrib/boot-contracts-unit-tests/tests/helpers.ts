@@ -184,6 +184,43 @@ export const stackStx = (
   return simnet.callPublicFn(POX_CONTRACT, "stack-stx", stackStxArgs, sender);
 };
 
+export const stackIncrease = (
+  stacker: StackerInfo,
+  increaseBy: bigint | number,
+  lockPeriod: bigint | number,
+  maxAmount: bigint | number,
+  authId: bigint | number,
+  sender: string
+) => {
+  const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+  const sigArgs = {
+    authId,
+    maxAmount,
+    rewardCycle,
+    period: Number(lockPeriod),
+    topic: Pox4SignatureTopic.StackIncrease,
+    poxAddress: stacker.btcAddr,
+    signerPrivateKey: stacker.signerPrivKey,
+  };
+  const signerSignature = stacker.client.signPoxSignature(sigArgs);
+  const signerKey = Cl.bufferFromHex(stacker.signerPubKey);
+
+  const stackIncreaseArgs = [
+    Cl.uint(increaseBy),
+    Cl.some(Cl.bufferFromHex(signerSignature)),
+    signerKey,
+    Cl.uint(maxAmount),
+    Cl.uint(authId),
+  ];
+
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "stack-increase",
+    stackIncreaseArgs,
+    sender
+  );
+};
+
 export const delegateStx = (
   amount: bigint | number,
   delegateTo: string,
@@ -379,7 +416,7 @@ export const setSignerKeyAuthorization = (
   topic: Pox4SignatureTopic,
   allowed: boolean,
   maxAmount: bigint | number,
-  authId: bigint | number,
+  authId: bigint | number
 ) => {
   const args = [
     poxAddressToTuple(stacker.btcAddr),

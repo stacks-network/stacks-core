@@ -478,7 +478,7 @@ describe("test `stack-aggregation-commit-indexed`", () => {
     );
   });
 
-  it("returns an error when not called by an authorized caller", () => {
+  it("returns an error when called by an unauthorized caller", () => {
     const account = stackers[0];
     const amount = getStackingMinimum() * 2n;
     const maxAmount = amount * 2n;
@@ -745,7 +745,7 @@ describe("test `stack-aggregation-commit`", () => {
     );
   });
 
-  it("returns an error when not called by an authorized caller", () => {
+  it("returns an error when called by an unauthorized caller", () => {
     const account = stackers[0];
     const amount = getStackingMinimum() * 2n;
     const maxAmount = amount * 2n;

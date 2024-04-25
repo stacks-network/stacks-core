@@ -7,8 +7,11 @@ import {
   ERRORS,
   POX_CONTRACT,
   allowContractCaller,
+  burnHeightToRewardCycle,
+  delegateStackStx,
   delegateStx,
   getPoxInfo,
+  stackIncrease,
   stackStx,
   stackers,
 } from "./helpers";
@@ -883,6 +886,311 @@ describe("pox-4", () => {
         address1
       );
       expect(result).toBeErr(Cl.int(26));
+    });
+  });
+
+  describe("stack-increase", () => {
+    it("can increase stacked amount before locked", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const { result } = stackIncrease(
+        account,
+        maxAmount,
+        2,
+        maxAmount * 2,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "total-locked": Cl.uint(maxAmount * 2),
+        })
+      );
+    });
+
+    it("can increase stacked amount after locked", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const poxInfo = getPoxInfo();
+      const cycleLength = Number(poxInfo.rewardCycleLength);
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      simnet.mineEmptyBlocks(cycleLength);
+
+      const { result } = stackIncrease(
+        account,
+        maxAmount,
+        2,
+        maxAmount * 2,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "total-locked": Cl.uint(maxAmount * 2),
+        })
+      );
+    });
+
+    it("cannot increase when not stacked", () => {
+      const account = stackers[0];
+      const authId = account.authId;
+
+      const { result } = stackIncrease(
+        account,
+        maxAmount,
+        2,
+        maxAmount * 2,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACK_INCREASE_NOT_LOCKED));
+    });
+
+    it("errors if increase-by amount is 0", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const { result } = stackIncrease(
+        account,
+        0,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_AMOUNT));
+    });
+
+    it("can stack the entire balance", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const balance = simnet
+        .getAssetsMap()
+        .get("STX")
+        ?.get(account.stxAddress)!;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const { result } = stackIncrease(
+        account,
+        balance - BigInt(maxAmount),
+        2,
+        2n ** 128n - 1n,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "total-locked": Cl.uint(balance),
+        })
+      );
+    });
+
+    it("errors on insufficient funds", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const balance = simnet
+        .getAssetsMap()
+        .get("STX")
+        ?.get(account.stxAddress)!;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        2,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const { result } = stackIncrease(
+        account,
+        balance - BigInt(maxAmount) + 1n,
+        2,
+        2n ** 128n - 1n,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS));
+    });
+
+    it("cannot be called indirectly from an unauthorized caller", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 2;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackIncrease,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackIncreaseArgs = [
+        Cl.uint(maxAmount),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount * 2),
+        Cl.uint(authId),
+      ];
+
+      const { result } = simnet.callPublicFn(
+        "indirect",
+        "stack-increase",
+        stackIncreaseArgs,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED));
+    });
+
+    it("can be called indirectly from an authorized caller", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 2;
+
+      allowContractCaller(`${deployer}.indirect`, null, account.stxAddress);
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount: maxAmount * 2,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackIncrease,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackIncreaseArgs = [
+        Cl.uint(maxAmount),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount * 2),
+        Cl.uint(authId),
+      ];
+
+      const { result } = simnet.callPublicFn(
+        "indirect",
+        "stack-increase",
+        stackIncreaseArgs,
+        account.stxAddress
+      );
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "total-locked": Cl.uint(maxAmount * 2),
+        })
+      );
+    });
+
+    it("errors if not directly stacking", () => {
+      const account = stackers[0];
+      const delegateAccount = stackers[1];
+      const authId = account.authId;
+      const period = 6;
+
+      delegateStx(
+        maxAmount * 2,
+        delegateAccount.stxAddress,
+        null,
+        null,
+        account.stxAddress
+      );
+      delegateStackStx(
+        address1,
+        maxAmount,
+        delegateAccount.btcAddr,
+        1000,
+        period,
+        address2
+      );
+
+      const { result } = stackIncrease(
+        account,
+        maxAmount,
+        period,
+        maxAmount * 2,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_IS_DELEGATED));
     });
   });
 });
