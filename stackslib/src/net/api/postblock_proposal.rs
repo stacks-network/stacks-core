@@ -425,6 +425,10 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v2/block_proposal"
+    }
 }
 
 struct ProposalThreadInfo {

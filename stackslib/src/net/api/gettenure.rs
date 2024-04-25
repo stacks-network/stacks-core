@@ -195,6 +195,10 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
 
         Ok(req_contents)
     }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v3/tenures/:block_id"
+    }
 }
 
 impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
