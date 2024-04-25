@@ -126,6 +126,10 @@ impl HttpRequest for GetStackersRequestHandler {
 
         Ok(HttpRequestContents::new().query_string(query))
     }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v2/stacker_set/:cycle_num"
+    }
 }
 
 impl RPCRequestHandler for GetStackersRequestHandler {

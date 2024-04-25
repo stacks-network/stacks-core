@@ -155,6 +155,10 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
 
         Ok(HttpRequestContents::new().query_string(query))
     }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v3/blocks/:block_id"
+    }
 }
 
 impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {

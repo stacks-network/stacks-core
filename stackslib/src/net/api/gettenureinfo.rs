@@ -97,6 +97,10 @@ impl HttpRequest for RPCNakamotoTenureInfoRequestHandler {
         }
         Ok(HttpRequestContents::new().query_string(query))
     }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v3/tenures/info"
+    }
 }
 
 impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
