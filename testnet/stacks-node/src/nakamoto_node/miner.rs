@@ -52,6 +52,11 @@ use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
 use crate::{neon_node, ChainTip};
 
+#[cfg(test)]
+lazy_static::lazy_static! {
+    pub static ref TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+}
+
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
@@ -176,7 +181,7 @@ impl BlockMinerThread {
 
             if let Some(mut new_block) = new_block {
                 let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
-                    &new_block,
+                    &mut new_block,
                     self.burn_block.block_height,
                     &mut stackerdbs,
                     &mut attempts,
@@ -230,7 +235,7 @@ impl BlockMinerThread {
 
     fn coordinate_signature(
         &mut self,
-        new_block: &NakamotoBlock,
+        new_block: &mut NakamotoBlock,
         burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
@@ -443,6 +448,23 @@ impl BlockMinerThread {
         block: NakamotoBlock,
         aggregate_public_key: &Point,
     ) -> Result<(), ChainstateError> {
+        #[cfg(test)]
+        {
+            if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Broadcasting is stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+                while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Broadcasting is no longer stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+            }
+        }
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
@@ -562,9 +584,18 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
-        let Some(stacks_tip) =
-            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
-                .expect("FATAL: could not query chain tip")
+        // The nakamoto miner must always build off of a chain tip that is the highest of:
+        // 1. The highest block in the miner's current tenure
+        // 2. The highest block in the current tenure's parent tenure
+        // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
+        let stacks_block_id = if let Some(block) = self.mined_blocks.last() {
+            block.block_id()
+        } else {
+            self.parent_tenure_id
+        };
+        let Some(mut stacks_tip_header) =
+            NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
+                .expect("FATAL: could not query prior stacks block id")
         else {
             debug!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
@@ -585,6 +616,19 @@ impl BlockMinerThread {
             });
         };
 
+        if self.mined_blocks.is_empty() {
+            // We could call this even if self.mined_blocks was not empty, but would return the same value, so save the effort and only do it when necessary.
+            // If we are starting a new tenure, then make sure we are building off of the last block of our parent tenure
+            if let Some(last_tenure_finish_block_header) =
+                NakamotoChainState::get_nakamoto_tenure_finish_block_header(
+                    chain_state.db(),
+                    &stacks_tip_header.consensus_hash,
+                )
+                .expect("FATAL: could not query parent tenure finish block")
+            {
+                stacks_tip_header = last_tenure_finish_block_header;
+            }
+        }
         let miner_address = self
             .keychain
             .origin_address(self.config.is_mainnet())
@@ -595,7 +639,7 @@ impl BlockMinerThread {
             &self.burn_block,
             miner_address,
             &self.parent_tenure_id,
-            stacks_tip,
+            stacks_tip_header,
         ) {
             Ok(parent_info) => Ok(parent_info),
             Err(NakamotoNodeError::BurnchainTipChanged) => {
@@ -704,12 +748,11 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let block_num = u64::try_from(self.mined_blocks.len())
-            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?
-            .saturating_add(1);
-
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
+
+        let signer_bitvec_len =
+            &burn_db.get_preprocessed_reward_set_size(&self.burn_block.sortition_id);
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
@@ -720,15 +763,13 @@ impl BlockMinerThread {
             &self.burn_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config.make_block_builder_settings(
-                block_num,
-                false,
-                self.globals.get_miner_status(),
-            ),
+            self.config
+                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_transactions,
+            signer_bitvec_len.unwrap_or(0),
         )
         .map_err(|e| {
             if !matches!(

@@ -1364,7 +1364,8 @@ fn stackerdb_sign_after_signer_reboot() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(3);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1393,10 +1394,19 @@ fn stackerdb_sign_after_signer_reboot() {
 
     info!("------------------------- Test Mine Block after restart -------------------------");
 
-    signer_test.mine_nakamoto_block(timeout);
+    let last_block = signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let frost_signature =
         signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+
+    // Check that the latest block's bitvec is all 1's
+    assert_eq!(
+        last_block.signer_bitvec,
+        serde_json::to_value(BitVec::<4000>::ones(num_signers as u16).unwrap())
+            .expect("Failed to serialize BitVec")
+            .as_str()
+            .expect("Failed to serialize BitVec")
+    );
 
     assert!(
         frost_signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),

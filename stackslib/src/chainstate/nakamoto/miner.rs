@@ -176,6 +176,7 @@ impl NakamotoBlockBuilder {
         total_burn: u64,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
+        bitvec_len: u16,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -208,6 +209,7 @@ impl NakamotoBlockBuilder {
                 total_burn,
                 tenure_id_consensus_hash.clone(),
                 parent_stacks_header.index_block_hash(),
+                bitvec_len,
             ),
         })
     }
@@ -406,6 +408,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_transactions: Vec<StacksTransaction>,
+        signer_bitvec_len: u16,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -426,6 +429,7 @@ impl NakamotoBlockBuilder {
             total_burn,
             tenure_info.tenure_change_tx(),
             tenure_info.coinbase_tx(),
+            signer_bitvec_len,
         )?;
 
         let ts_start = get_epoch_time_ms();

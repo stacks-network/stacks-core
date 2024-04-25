@@ -973,7 +973,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let contract = self
             .global_context
             .database
-            .get_contract(contract_identifier)?;
+            .get_contract(contract_identifier)
+            .or_else(|e| {
+                self.global_context.roll_back()?;
+                Err(e)
+            })?;
 
         let result = {
             let mut nested_env = Environment::new(
