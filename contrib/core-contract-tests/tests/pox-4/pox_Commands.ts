@@ -20,6 +20,7 @@ import { StackAggregationIncreaseCommand } from "./pox_StackAggregationIncreaseC
 import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerCommand";
 import { StackExtendAuthCommand } from "./pox_StackExtendAuthCommand";
 import { StackExtendSigCommand } from "./pox_StackExtendSigCommand";
+import { StackIncreaseAuthCommand } from "./pox_StackIncreaseAuthCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -125,6 +126,19 @@ export function PoxCommands(
             r.currentCycle,
           ),
       ),
+    // StackIncreaseAuthCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+      authId: fc.nat(),
+    })
+      .map((r) => {
+        return new StackIncreaseAuthCommand(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+        );
+      }),
     // GetStackingMinimumCommand
     fc
       .record({
