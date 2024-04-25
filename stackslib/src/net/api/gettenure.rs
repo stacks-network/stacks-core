@@ -155,6 +155,10 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
         Regex::new(r#"^/v3/tenures/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v3/tenures/:block_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -194,10 +198,6 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
         self.block_id = Some(block_id);
 
         Ok(req_contents)
-    }
-
-    fn metrics_identifier(&self) -> &str {
-        "/v3/tenures/:block_id"
     }
 }
 

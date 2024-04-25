@@ -107,7 +107,7 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/microblocks/unconfirmed/:hash/:seq"
+        "/v2/microblocks/unconfirmed/:block_id/:seq"
     }
 
     /// Try to decode this request.

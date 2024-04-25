@@ -126,6 +126,10 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
         Regex::new(r#"^/v3/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v3/blocks/:block_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -154,10 +158,6 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
         self.block_id = Some(block_id);
 
         Ok(HttpRequestContents::new().query_string(query))
-    }
-
-    fn metrics_identifier(&self) -> &str {
-        "/v3/blocks/:block_id"
     }
 }
 

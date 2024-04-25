@@ -376,6 +376,10 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         Regex::new(r#"^/v2/block_proposal$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/block_proposal"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -423,10 +427,6 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
 
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
-    }
-
-    fn metrics_identifier(&self) -> &str {
-        "/v2/block_proposal"
     }
 }
 

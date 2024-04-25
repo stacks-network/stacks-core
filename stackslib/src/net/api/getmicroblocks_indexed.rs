@@ -113,7 +113,7 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/microblocks/:hash"
+        "/v2/microblocks/:microblock_id"
     }
 
     /// Try to decode this request.

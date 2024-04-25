@@ -81,6 +81,10 @@ impl HttpRequest for RPCNakamotoTenureInfoRequestHandler {
         Regex::new(r#"^/v3/tenures/info"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v3/tenures/info"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -96,10 +100,6 @@ impl HttpRequest for RPCNakamotoTenureInfoRequestHandler {
             ));
         }
         Ok(HttpRequestContents::new().query_string(query))
-    }
-
-    fn metrics_identifier(&self) -> &str {
-        "/v3/tenures/info"
     }
 }
 

@@ -91,7 +91,7 @@ impl HttpRequest for RPCBlocksRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/blocks/:hash"
+        "/v2/blocks/:block_id"
     }
 
     /// Try to decode this request.

@@ -80,7 +80,7 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/microblocks/confirmed/:hash"
+        "/v2/microblocks/confirmed/:block_id"
     }
 
     /// Try to decode this request.
