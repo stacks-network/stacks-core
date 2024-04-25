@@ -981,7 +981,6 @@ describe("test `delegate-stack-increase`", () => {
       authId,
       address2
     );
-    console.log(cvToString(response.result));
     expect(response.result.type).toBe(ClarityType.ResponseOk);
     let index = ((response.result as ResponseCV).value as UIntCV).value;
 
@@ -2331,11 +2330,10 @@ describe("test `delegate-stack-extend`", () => {
     expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACK_EXTEND_NOT_LOCKED));
 
     const info = getStackerInfo(account.stxAddress);
-    console.log("INFO", cvToString(info.result));
     expect(info.result).toBeNone();
   });
 
-  it("cannot extend after lock has expired", () => {
+  it("cannot extend at unlock height", () => {
     const account = stackers[0];
     const amount = getStackingMinimum() * 2n;
     const maxAmount = amount * 2n;
