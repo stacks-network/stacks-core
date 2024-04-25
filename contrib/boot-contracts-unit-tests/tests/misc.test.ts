@@ -6,8 +6,11 @@ import {
   POX_CONTRACT,
   StackerInfo,
   allowContractCaller,
+  delegateStackStx,
+  delegateStx,
   getStackingMinimum,
   setSignerKeyAuthorization,
+  stackAggregationCommitIndexed,
   stackStx,
   stackers,
 } from "./helpers";
@@ -1600,5 +1603,123 @@ describe("test `set-signer-key-authorization`", () => {
       authId
     );
     expect(response.result).toBeErr(Cl.int(ERRORS.ERR_INVALID_REWARD_CYCLE));
+  });
+});
+
+describe("test `get-num-reward-set-pox-addresses`", () => {
+  it("returns 0 when there are no stackers", () => {
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-num-reward-set-pox-addresses",
+      [Cl.uint(1)],
+      address1
+    );
+    expect(response.result).toBeUint(0);
+  });
+
+  it("returns the number of stackers", () => {
+    const amount = getStackingMinimum() * 2n;
+    stackers.forEach((stacker) => {
+      stackStx(
+        stacker,
+        amount,
+        1000,
+        6,
+        amount,
+        stacker.authId,
+        stacker.stxAddress
+      );
+    });
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-num-reward-set-pox-addresses",
+      [Cl.uint(1)],
+      address1
+    );
+    expect(response.result).toBeUint(stackers.length);
+  });
+
+  it("returns the number of stackers for a specific reward cycle", () => {
+    const amount = getStackingMinimum() * 2n;
+    stackers.forEach((stacker) => {
+      stackStx(
+        stacker,
+        amount,
+        1000,
+        6,
+        amount,
+        stacker.authId,
+        stacker.stxAddress
+      );
+    });
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-num-reward-set-pox-addresses",
+      [Cl.uint(2)],
+      address1
+    );
+    expect(response.result).toBeUint(stackers.length);
+  });
+
+  it("returns 0 when there are expired stackers", () => {
+    const amount = getStackingMinimum() * 2n;
+    stackers.forEach((stacker) => {
+      stackStx(
+        stacker,
+        amount,
+        1000,
+        6,
+        amount,
+        stacker.authId,
+        stacker.stxAddress
+      );
+    });
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-num-reward-set-pox-addresses",
+      [Cl.uint(8)],
+      address1
+    );
+    expect(response.result).toBeUint(0);
+  });
+
+  it("handles delegated stacking", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const rewardCycle = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address3, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address3
+    );
+
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      maxAmount,
+      authId,
+      address3
+    );
+
+    const response = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-num-reward-set-pox-addresses",
+      [Cl.uint(1)],
+      address1
+    );
+    expect(response.result).toBeUint(1);
   });
 });
