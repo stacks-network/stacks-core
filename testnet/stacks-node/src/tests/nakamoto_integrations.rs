@@ -26,7 +26,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{BlockProposalSigners, SignerMessage, SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -72,6 +72,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
+use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -304,13 +305,23 @@ pub fn get_latest_block_proposal(
         .map_err(|_| "Unable to get miner slot")?
         .ok_or("No miner slot exists")?;
 
-    let proposed_block: NakamotoBlock = {
+    let proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        miners_stackerdb
+        let message: SignerMessage = miners_stackerdb
             .get_latest(miner_slot_id.start)
-            .map_err(|_| "Failed to get latest chunk from the miner slot ID")?
-            .ok_or("No chunk found")?
+            .expect("Failed to get latest chunk from the miner slot ID")
+            .expect("No chunk found");
+        let SignerMessage::Packet(packet) = message else {
+            panic!("Expected a signer message packet. Got {message:?}");
+        };
+        let Message::NonceRequest(nonce_request) = packet.msg else {
+            panic!("Expected a nonce request. Got {:?}", packet.msg);
+        };
+        let block_proposal =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice())
+                .expect("Failed to deserialize block proposal");
+        block_proposal.block
     };
     Ok(proposed_block)
 }
