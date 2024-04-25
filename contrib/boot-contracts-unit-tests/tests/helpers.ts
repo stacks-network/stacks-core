@@ -329,7 +329,7 @@ export const delegateStackExtend = (
 export const delegateStackIncrease = (
   stacker: string,
   poxAddr: string,
-  increaseBy: bigint,
+  increaseBy: bigint | number,
   sender: string
 ) => {
   const delegateStackIncreaseArgs = [
@@ -375,11 +375,11 @@ export const disallowContractCaller = (caller: string, sender: string) => {
 export const stackAggregationCommitIndexed = (
   stacker: StackerInfo,
   rewardCycle: bigint | number,
-  period: bigint | number,
   maxAmount: bigint | number,
   authId: bigint | number,
   sender: string
 ) => {
+  const period = 1;
   const sigArgs = {
     authId,
     maxAmount,
@@ -412,11 +412,11 @@ export const stackAggregationIncrease = (
   stacker: StackerInfo,
   rewardCycle: bigint | number,
   rewardCycleIndex: bigint | number,
-  period: bigint | number,
   maxAmount: bigint | number,
   authId: bigint | number,
   sender: string
 ) => {
+  const period = 1;
   const sigArgs = {
     authId,
     maxAmount,

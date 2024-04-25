@@ -93,6 +93,13 @@
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stack-extend stacker pox-addr extend-count)
 )
 
+(define-public (delegate-stack-increase
+                    (stacker principal)
+                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                    (increase-by uint))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stack-increase stacker pox-addr increase-by)
+)
+
 (define-public (set-signer-key-authorization (pox-addr { version: (buff 1), hashbytes: (buff 32)})
                                              (period uint)
                                              (reward-cycle uint)

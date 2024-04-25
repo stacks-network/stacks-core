@@ -1413,5 +1413,52 @@ describe("pox-4", () => {
       );
       expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_IS_DELEGATED));
     });
+
+    it("cannot change the pox address", () => {
+      const account = stackers[0];
+      const account1 = stackers[1];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 6;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount: maxAmount * 2,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackIncrease,
+        poxAddress: account1.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackIncreaseArgs = [
+        Cl.uint(maxAmount),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount * 2),
+        Cl.uint(authId),
+      ];
+
+      const { result } = simnet.callPublicFn(
+        POX_CONTRACT,
+        "stack-increase",
+        stackIncreaseArgs,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_INVALID_SIGNATURE_PUBKEY));
+    });
   });
 });

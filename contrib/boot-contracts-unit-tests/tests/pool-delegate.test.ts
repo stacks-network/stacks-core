@@ -18,6 +18,7 @@ import {
   delegateStackIncrease,
   delegateStackStx,
   delegateStx,
+  getPoxInfo,
   getStackerInfo,
   getStackingMinimum,
   stackAggregationCommitIndexed,
@@ -920,6 +921,469 @@ describe("test `stack-aggregation-commit`", () => {
   });
 });
 
+describe("test `delegate-stack-increase`", () => {
+  it("returns `(ok <stacker-state>)` on success", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "total-locked": Cl.uint(maxAmount),
+      })
+    );
+  });
+
+  it("can be called after committing", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const rewardCycle = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      maxAmount,
+      authId,
+      address2
+    );
+    console.log(cvToString(response.result));
+    expect(response.result.type).toBe(ClarityType.ResponseOk);
+    let index = ((response.result as ResponseCV).value as UIntCV).value;
+
+    response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "total-locked": Cl.uint(maxAmount),
+      })
+    );
+
+    // the amount in the reward set should not update until after
+    // the delegator calls `stack-aggregation-increase`
+    let info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    let tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(amount);
+
+    response = stackAggregationIncrease(
+      account,
+      rewardCycle,
+      index,
+      maxAmount,
+      authId,
+      address2
+    );
+    expect(response.result).toBeOk(Cl.bool(true));
+
+    // check that the amount was increased
+    info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-reward-set-pox-address",
+      [Cl.uint(rewardCycle), Cl.uint(index)],
+      address2
+    );
+    tuple = (info.result as SomeCV).value as TupleCV;
+    expect(tuple.data["total-ustx"]).toBeUint(maxAmount);
+  });
+
+  it("cannot be called if not delegated", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+
+    // Arithmetic underflow is not caught gracefully, so this triggers a runtime error.
+    // Preferably, it would return a `ERR_STACKING_NOT_DELEGATED` error.
+    expect(() =>
+      delegateStackIncrease(
+        account.stxAddress,
+        account.btcAddr,
+        maxAmount - amount,
+        address2
+      )
+    ).toThrow();
+  });
+
+  it("cannot be called if not stacked", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+
+    // Arithmetic underflow is not caught gracefully, so this triggers a runtime error.
+    // Preferably, it would return a `ERR_STACKING_NOT_DELEGATED` error.
+    expect(() =>
+      delegateStackIncrease(
+        account.stxAddress,
+        account.btcAddr,
+        maxAmount - amount,
+        address2
+      )
+    ).toThrow();
+  });
+
+  it("cannot be called in last cycle of delegation", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const poxInfo = getPoxInfo();
+    const cycleLength = Number(poxInfo.rewardCycleLength);
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    // mine enough blocks to reach the last cycle of the delegation
+    simnet.mineEmptyBlocks(6 * cycleLength);
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD)
+    );
+  });
+
+  it("cannot be called after delegation has expired", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const poxInfo = getPoxInfo();
+    const cycleLength = Number(poxInfo.rewardCycleLength);
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    // mine enough blocks to end the delegation
+    simnet.mineEmptyBlocks(7 * cycleLength);
+
+    // Arithmetic underflow is not caught gracefully, so this triggers a runtime error.
+    // Preferably, it would return a `ERR_STACKING_NOT_DELEGATED` error.
+    expect(() =>
+      delegateStackIncrease(
+        account.stxAddress,
+        account.btcAddr,
+        maxAmount - amount,
+        address2
+      )
+    ).toThrow();
+  });
+
+  it("requires a positive increase amount", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      0,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_AMOUNT));
+  });
+
+  it("cannot be called indirectly by an unauthorized caller", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    const delegateStackIncreaseArgs = [
+      Cl.principal(account.stxAddress),
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(maxAmount - amount),
+    ];
+    let response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-increase",
+      delegateStackIncreaseArgs,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("can be called indirectly by an authorized caller", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    allowContractCaller(`${deployer}.indirect`, null, address2);
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    const delegateStackIncreaseArgs = [
+      Cl.principal(account.stxAddress),
+      poxAddressToTuple(account.btcAddr),
+      Cl.uint(maxAmount - amount),
+    ];
+    let response = simnet.callPublicFn(
+      "indirect",
+      "delegate-stack-increase",
+      delegateStackIncreaseArgs,
+      address2
+    );
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "total-locked": Cl.uint(maxAmount),
+      })
+    );
+  });
+
+  it("cannot be called for a solo stacker", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const authId = 1;
+
+    stackStx(
+      account,
+      amount,
+      startBurnHeight,
+      lockPeriod,
+      maxAmount,
+      authId,
+      account.stxAddress
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address2
+    );
+    expect(response.result).toBeErr(Cl.int(ERRORS.ERR_STACKING_NOT_DELEGATED));
+  });
+
+  it("can only be called by the delegate", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount - amount,
+      address3
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+    );
+  });
+
+  it("can increase to the total account balance", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const balance = simnet.getAssetsMap().get("STX")?.get(account.stxAddress)!;
+
+    delegateStx(balance, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      balance - amount,
+      address2
+    );
+    expect(response.result).toBeOk(
+      Cl.tuple({
+        stacker: Cl.principal(account.stxAddress),
+        "total-locked": Cl.uint(balance),
+      })
+    );
+  });
+
+  it("cannot increase to more than the total account balance", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+    const balance = simnet.getAssetsMap().get("STX")?.get(account.stxAddress)!;
+
+    delegateStx(balance, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      balance - amount + 1n,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS)
+    );
+  });
+
+  it("cannot increase to more than the delegated amount", () => {
+    const account = stackers[0];
+    const minAmount = getStackingMinimum();
+    const amount = minAmount * 2n;
+    const maxAmount = minAmount * 4n;
+    const startBurnHeight = 1000;
+    const lockPeriod = 6;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      startBurnHeight,
+      lockPeriod,
+      address2
+    );
+
+    let response = delegateStackIncrease(
+      account.stxAddress,
+      account.btcAddr,
+      maxAmount,
+      address2
+    );
+    expect(response.result).toBeErr(
+      Cl.int(ERRORS.ERR_DELEGATION_TOO_MUCH_LOCKED)
+    );
+  });
+});
+
 describe("test `stack-aggregation-increase`", () => {
   it("returns `(ok uint)` and increases stacked amount on success", () => {
     const account = stackers[0];
@@ -927,7 +1391,6 @@ describe("test `stack-aggregation-increase`", () => {
     const amount = minAmount * 2n;
     const maxAmount = minAmount * 4n;
     const rewardCycle = 1;
-    const period = 1;
     const authId = 1;
 
     delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
@@ -943,7 +1406,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -972,7 +1434,6 @@ describe("test `stack-aggregation-increase`", () => {
       account,
       rewardCycle,
       index,
-      period,
       maxAmount,
       authId,
       address2
@@ -1012,7 +1473,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1094,7 +1554,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1156,7 +1615,6 @@ describe("test `stack-aggregation-increase`", () => {
     const amount = minAmount * 2n;
     const maxAmount = minAmount * 4n;
     const rewardCycle = 1;
-    const period = 1;
     const authId = 1;
 
     delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
@@ -1172,7 +1630,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1193,7 +1650,6 @@ describe("test `stack-aggregation-increase`", () => {
       account,
       rewardCycle,
       index,
-      period,
       maxAmount,
       authId,
       address2
@@ -1235,7 +1691,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1300,7 +1755,6 @@ describe("test `stack-aggregation-increase`", () => {
     const authAmount = minAmount * 3n;
     const maxAmount = minAmount * 4n;
     const rewardCycle = 1;
-    const period = 1;
     const authId = 1;
 
     delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
@@ -1316,7 +1770,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       authAmount,
       authId,
       address2
@@ -1345,7 +1798,6 @@ describe("test `stack-aggregation-increase`", () => {
       account,
       rewardCycle,
       index,
-      period,
       authAmount,
       authId,
       address2
@@ -1389,7 +1841,6 @@ describe("test `stack-aggregation-increase`", () => {
     let response = stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       authAmount,
       authId,
       address2
@@ -1487,7 +1938,6 @@ describe("test `delegate-stack-extend`", () => {
     const amount = getStackingMinimum() * 2n;
     const maxAmount = amount * 2n;
     const rewardCycle = 1;
-    const period = 1;
     const authId = 1;
 
     delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
@@ -1502,7 +1952,6 @@ describe("test `delegate-stack-extend`", () => {
     stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1534,7 +1983,6 @@ describe("test `delegate-stack-extend`", () => {
     const amount = getStackingMinimum() * 2n;
     const maxAmount = amount * 2n;
     const rewardCycle = 1;
-    const period = 1;
     const authId = 1;
 
     delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
@@ -1549,7 +1997,6 @@ describe("test `delegate-stack-extend`", () => {
     stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1868,7 +2315,6 @@ describe("test `delegate-stack-extend`", () => {
     stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
@@ -1909,7 +2355,6 @@ describe("test `delegate-stack-extend`", () => {
     stackAggregationCommitIndexed(
       account,
       rewardCycle,
-      period,
       maxAmount,
       authId,
       address2
