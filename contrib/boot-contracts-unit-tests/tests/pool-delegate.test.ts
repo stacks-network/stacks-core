@@ -2726,3 +2726,142 @@ describe("test `delegate-stack-extend`", () => {
     expect(tuple.data["lock-period"]).toBeUint(1);
   });
 });
+
+describe("test `get-partial-stacked-by-cycle`", () => {
+  it("returns the correct amount", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-partial-stacked-by-cycle",
+      [
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(rewardCycle),
+        Cl.principal(address2),
+      ],
+      address2
+    );
+    expect(info.result).toBeSome(
+      Cl.tuple({
+        "stacked-amount": Cl.uint(amount),
+      })
+    );
+  });
+
+  it("returns `none` when there are no partially stacked STX", () => {
+    const account = stackers[0];
+    const rewardCycle = 1;
+
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-partial-stacked-by-cycle",
+      [
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(rewardCycle),
+        Cl.principal(address2),
+      ],
+      address2
+    );
+    expect(info.result).toBeNone();
+  });
+
+  it("returns `none` after fully stacked", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 1;
+    const authId = 1;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      1,
+      address2
+    );
+
+    let info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-partial-stacked-by-cycle",
+      [
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(rewardCycle),
+        Cl.principal(address2),
+      ],
+      address2
+    );
+    expect(info.result).toBeSome(
+      Cl.tuple({
+        "stacked-amount": Cl.uint(amount),
+      })
+    );
+
+    stackAggregationCommitIndexed(
+      account,
+      rewardCycle,
+      maxAmount,
+      authId,
+      address2
+    );
+
+    info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-partial-stacked-by-cycle",
+      [
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(rewardCycle),
+        Cl.principal(address2),
+      ],
+      address2
+    );
+    expect(info.result).toBeNone();
+  });
+
+  it("returns the correct amount for multiple cycles", () => {
+    const account = stackers[0];
+    const amount = getStackingMinimum() * 2n;
+    const maxAmount = amount * 2n;
+    const rewardCycle = 4;
+
+    delegateStx(maxAmount, address2, null, account.btcAddr, account.stxAddress);
+    delegateStackStx(
+      account.stxAddress,
+      amount,
+      account.btcAddr,
+      1000,
+      6,
+      address2
+    );
+
+    const info = simnet.callReadOnlyFn(
+      POX_CONTRACT,
+      "get-partial-stacked-by-cycle",
+      [
+        poxAddressToTuple(account.btcAddr),
+        Cl.uint(rewardCycle),
+        Cl.principal(address2),
+      ],
+      address2
+    );
+    expect(info.result).toBeSome(
+      Cl.tuple({
+        "stacked-amount": Cl.uint(amount),
+      })
+    );
+  });
+});
