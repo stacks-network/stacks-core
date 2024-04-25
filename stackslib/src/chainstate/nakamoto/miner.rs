@@ -511,43 +511,6 @@ impl NakamotoBlockBuilder {
     pub fn get_bytes_so_far(&self) -> u64 {
         self.bytes_so_far
     }
-
-    /// Make a StackerDB chunk message containing a proposed block.
-    /// Sign it with the miner's private key.
-    /// Automatically determine which StackerDB slot and version number to use.
-    /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
-    /// Returns None if not
-    /// Returns an error on signing or DB error
-    pub fn make_stackerdb_block_proposal<T: StacksMessageCodec>(
-        sortdb: &SortitionDB,
-        tip: &BlockSnapshot,
-        stackerdbs: &StackerDBs,
-        block: &T,
-        miner_privkey: &StacksPrivateKey,
-        miners_contract_id: &QualifiedContractIdentifier,
-    ) -> Result<Option<StackerDBChunkData>, Error> {
-        let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
-        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)?
-        else {
-            // No slot exists for this miner
-            return Ok(None);
-        };
-        // proposal slot is the first slot.
-        let slot_id = slot_range.start;
-        // Get the LAST slot version number written to the DB. If not found, use 0.
-        // Add 1 to get the NEXT version number
-        // Note: we already check above for the slot's existence
-        let slot_version = stackerdbs
-            .get_slot_version(&miners_contract_id, slot_id)?
-            .unwrap_or(0)
-            .saturating_add(1);
-        let block_bytes = block.serialize_to_vec();
-        let mut chunk = StackerDBChunkData::new(slot_id, slot_version, block_bytes);
-        chunk
-            .sign(miner_privkey)
-            .map_err(|_| net_error::SigningError("Failed to sign StackerDB chunk".into()))?;
-        Ok(Some(chunk))
-    }
 }
 
 impl BlockBuilder for NakamotoBlockBuilder {

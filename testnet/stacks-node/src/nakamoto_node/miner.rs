@@ -18,20 +18,16 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use clarity::boot_util::boot_code_id;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::{
-    BlockProposalSigners, MessageSlotID, SignerMessage, SignerSession, StackerDBSession,
-};
+use libsigner::{MessageSlotID, SignerMessage};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -184,13 +180,9 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                if let Err(e) = self.propose_block(&new_block, &stackerdbs) {
-                    error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
-                    return;
-                }
-
                 let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
                     &mut new_block,
+                    self.burn_block.block_height,
                     &mut stackerdbs,
                     &mut attempts,
                 ) {
@@ -244,6 +236,7 @@ impl BlockMinerThread {
     fn coordinate_signature(
         &mut self,
         new_block: &mut NakamotoBlock,
+        burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(Point, ThresholdSignature), NakamotoNodeError> {
@@ -307,18 +300,6 @@ impl BlockMinerThread {
             ));
         };
 
-        #[cfg(test)]
-        {
-            // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
-            //  channel has been created. This allows integration tests for the stacks-node
-            //  independent of the stacks-signer.
-            if let Some(signature) =
-                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
-            {
-                return Ok((aggregate_public_key, signature));
-            }
-        }
-
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
             &reward_set,
@@ -337,95 +318,16 @@ impl BlockMinerThread {
         *attempts += 1;
         let signature = coordinator.begin_sign(
             new_block,
+            burn_block_height,
             *attempts,
             &tip,
             &self.burnchain,
             &sort_db,
             &stackerdbs,
+            &self.globals.counters,
         )?;
 
         Ok((aggregate_public_key, signature))
-    }
-
-    fn propose_block(
-        &mut self,
-        new_block: &NakamotoBlock,
-        stackerdbs: &StackerDBs,
-    ) -> Result<(), NakamotoNodeError> {
-        let rpc_socket = self.config.node.get_rpc_loopback().ok_or_else(|| {
-            NakamotoNodeError::MinerConfigurationFailed("Could not parse RPC bind")
-        })?;
-        let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_session =
-            StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id.clone());
-        let Some(miner_privkey) = self.config.miner.mining_key else {
-            return Err(NakamotoNodeError::MinerConfigurationFailed(
-                "No mining key configured, cannot mine",
-            ));
-        };
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .expect("FATAL: could not open sortition DB");
-        let tip = SortitionDB::get_block_snapshot_consensus(
-            sort_db.conn(),
-            &new_block.header.consensus_hash,
-        )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .expect("FATAL: building on a burn block that is before the first burn block");
-
-        let proposal_msg = BlockProposalSigners {
-            block: new_block.clone(),
-            burn_height: self.burn_block.block_height,
-            reward_cycle,
-        };
-        let proposal = match NakamotoBlockBuilder::make_stackerdb_block_proposal(
-            &sort_db,
-            &tip,
-            &stackerdbs,
-            &proposal_msg,
-            &miner_privkey,
-            &miners_contract_id,
-        ) {
-            Ok(Some(chunk)) => chunk,
-            Ok(None) => {
-                warn!("Failed to propose block to stackerdb: no slot available");
-                return Ok(());
-            }
-            Err(e) => {
-                warn!("Failed to propose block to stackerdb: {e:?}");
-                return Ok(());
-            }
-        };
-
-        // Propose the block to the observing signers through the .miners stackerdb instance
-        match miners_session.put_chunk(&proposal) {
-            Ok(ack) => {
-                info!(
-                    "Proposed block to stackerdb";
-                    "signer_sighash" => %new_block.header.signer_signature_hash(),
-                    "ack_msg" => ?ack,
-                );
-            }
-            Err(e) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
-                    "Failed to propose block to stackerdb {e:?}"
-                )));
-            }
-        }
-
-        self.globals.counters.bump_naka_proposed_blocks();
-        Ok(())
     }
 
     fn get_stackerdb_contract_and_slots(

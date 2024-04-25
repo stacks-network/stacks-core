@@ -9,8 +9,8 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
-    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEventReceiver,
-    SignerMessage,
+    BlockProposalSigners, BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer,
+    SignerEventReceiver, SignerMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -1037,13 +1037,23 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Sign -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
+    let block_proposal_1 = BlockProposalSigners {
+        block: block1.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
+    let block_proposal_2 = BlockProposalSigners {
+        block: block2.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do sign");
     let sign_now = Instant::now();
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block1,
+            block_proposal: block_proposal_1,
             is_taproot: false,
             merkle_root: None,
         },
@@ -1051,7 +1061,7 @@ fn stackerdb_sign() {
     let sign_taproot_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block2,
+            block_proposal: block_proposal_2,
             is_taproot: true,
             merkle_root: None,
         },
