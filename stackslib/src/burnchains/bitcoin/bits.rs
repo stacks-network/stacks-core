@@ -47,7 +47,7 @@ pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
 
 impl BitcoinTxInputStructured {
     /// Parse a script instruction stream encoding a p2pkh scritpsig into a BitcoinTxInput
-    fn from_bitcoin_p2pkh_script_sig(
+    pub fn from_bitcoin_p2pkh_script_sig(
         instructions: &Vec<Instruction>,
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {
@@ -572,13 +572,13 @@ impl BitcoinTxOutput {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::PublicKeyHash,
-                &script_bytes[3..23].to_vec(),
+                &script_bytes[3..23],
             )
         } else if script_pubkey.is_p2sh() {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::ScriptHash,
-                &script_bytes[2..22].to_vec(),
+                &script_bytes[2..22],
             )
         } else {
             Err(btc_error::InvalidByteSequence)

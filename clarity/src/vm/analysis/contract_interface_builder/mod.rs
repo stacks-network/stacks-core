@@ -171,14 +171,16 @@ impl ContractInterfaceAtomType {
     pub fn vec_from_tuple_type(
         tuple_type: &TupleTypeSignature,
     ) -> Vec<ContractInterfaceTupleEntryType> {
-        tuple_type
+        let mut out: Vec<_> = tuple_type
             .get_type_map()
             .iter()
             .map(|(name, sig)| ContractInterfaceTupleEntryType {
                 name: name.to_string(),
                 type_f: Self::from_type_signature(sig),
             })
-            .collect()
+            .collect();
+        out.sort_unstable_by(|ty1, ty2| ty1.name.cmp(&ty2.name));
+        out
     }
 
     pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
@@ -237,14 +239,13 @@ pub struct ContractInterfaceFunctionArg {
 
 impl ContractInterfaceFunctionArg {
     pub fn from_function_args(fnArgs: &[FunctionArg]) -> Vec<ContractInterfaceFunctionArg> {
-        let mut args: Vec<ContractInterfaceFunctionArg> = Vec::new();
-        for fnArg in fnArgs.iter() {
-            args.push(ContractInterfaceFunctionArg {
+        fnArgs
+            .iter()
+            .map(|fnArg| ContractInterfaceFunctionArg {
                 name: fnArg.name.to_string(),
                 type_f: ContractInterfaceAtomType::from_type_signature(&fnArg.signature),
-            });
-        }
-        args
+            })
+            .collect()
     }
 }
 

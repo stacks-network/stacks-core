@@ -83,6 +83,7 @@ impl NetworkState {
         })
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_events(&self) -> usize {
         self.event_map.len()
     }
@@ -394,10 +395,13 @@ impl NetworkState {
                 // server token?
                 if token == server.server_event {
                     // new inbound connection(s)
-                    let poll_state = poll_states.get_mut(&usize::from(token)).expect(&format!(
-                        "BUG: FATAL: no poll state registered for server {}",
-                        usize::from(token)
-                    ));
+                    let poll_state =
+                        poll_states.get_mut(&usize::from(token)).unwrap_or_else(|| {
+                            panic!(
+                                "BUG: FATAL: no poll state registered for server {}",
+                                usize::from(token)
+                            )
+                        });
 
                     loop {
                         let (client_sock, client_addr) = match server.server_socket.accept() {

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::{error, fmt};
 
 use sha2::{Digest, Sha256};
@@ -150,7 +149,7 @@ impl TryFrom<u8> for AddressHashMode {
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
 /// single-sig address (p2pkh)
 /// Get back the hash of the address
-fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
+pub fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
     Hash160::from_data(&pubk.to_bytes())
 }
 

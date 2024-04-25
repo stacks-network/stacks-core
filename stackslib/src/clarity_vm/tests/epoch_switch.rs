@@ -114,6 +114,7 @@ fn test_vm_epoch_switch() {
             },
         ],
         PoxConstants::test_default(),
+        None,
         true,
     )
     .unwrap();

@@ -8,7 +8,7 @@ use std::{cmp, thread};
 
 use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -30,9 +30,10 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
-use crate::burnchains::make_bitcoin_indexer;
-use crate::monitoring::start_serving_monitoring_metrics;
-use crate::neon_node::{Globals, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::burnchains::{make_bitcoin_indexer, Error};
+use crate::globals::NeonGlobals as Globals;
+use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
+use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
@@ -41,13 +42,16 @@ use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
+
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
-pub type RunLoopCounter = Arc<AtomicU64>;
+#[derive(Clone)]
+pub struct RunLoopCounter(pub Arc<AtomicU64>);
 
 #[cfg(not(test))]
-pub type RunLoopCounter = ();
+#[derive(Clone)]
+pub struct RunLoopCounter();
 
 #[cfg(test)]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
@@ -55,41 +59,49 @@ const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
 #[cfg(not(test))]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 300;
 
-#[derive(Clone)]
+impl Default for RunLoopCounter {
+    #[cfg(test)]
+    fn default() -> Self {
+        RunLoopCounter(Arc::new(AtomicU64::new(0)))
+    }
+    #[cfg(not(test))]
+    fn default() -> Self {
+        Self()
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for RunLoopCounter {
+    type Target = Arc<AtomicU64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
     pub microblocks_processed: RunLoopCounter,
     pub missed_tenures: RunLoopCounter,
     pub missed_microblock_tenures: RunLoopCounter,
     pub cancelled_commits: RunLoopCounter,
+
+    pub naka_submitted_vrfs: RunLoopCounter,
+    pub naka_submitted_commits: RunLoopCounter,
+    pub naka_mined_blocks: RunLoopCounter,
+    pub naka_proposed_blocks: RunLoopCounter,
+    pub naka_mined_tenures: RunLoopCounter,
 }
 
 impl Counters {
-    #[cfg(test)]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            microblocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_microblock_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
-        }
-    }
-
-    #[cfg(not(test))]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: (),
-            microblocks_processed: (),
-            missed_tenures: (),
-            missed_microblock_tenures: (),
-            cancelled_commits: (),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     #[cfg(test)]
     fn inc(ctr: &RunLoopCounter) {
-        ctr.fetch_add(1, Ordering::SeqCst);
+        ctr.0.fetch_add(1, Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
@@ -97,7 +109,7 @@ impl Counters {
 
     #[cfg(test)]
     fn set(ctr: &RunLoopCounter, value: u64) {
-        ctr.store(value, Ordering::SeqCst);
+        ctr.0.store(value, Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
@@ -123,6 +135,26 @@ impl Counters {
         Counters::inc(&self.cancelled_commits);
     }
 
+    pub fn bump_naka_submitted_vrfs(&self) {
+        Counters::inc(&self.naka_submitted_vrfs);
+    }
+
+    pub fn bump_naka_submitted_commits(&self) {
+        Counters::inc(&self.naka_submitted_commits);
+    }
+
+    pub fn bump_naka_mined_blocks(&self) {
+        Counters::inc(&self.naka_mined_blocks);
+    }
+
+    pub fn bump_naka_proposed_blocks(&self) {
+        Counters::inc(&self.naka_proposed_blocks);
+    }
+
+    pub fn bump_naka_mined_tenures(&self) {
+        Counters::inc(&self.naka_mined_tenures);
+    }
+
     pub fn set_microblocks_processed(&self, value: u64) {
         Counters::set(&self.microblocks_processed, value)
     }
@@ -144,6 +176,7 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
+    monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -184,14 +217,15 @@ impl RunLoop {
             globals: None,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
-            counters: Counters::new(),
-            should_keep_running: should_keep_running,
+            counters: Counters::default(),
+            should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
             is_miner: None,
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
+            monitoring_thread: None,
         }
     }
 
@@ -250,7 +284,7 @@ impl RunLoop {
     }
 
     pub fn get_termination_switch(&self) -> Arc<AtomicBool> {
-        self.get_globals().should_keep_running.clone()
+        self.should_keep_running.clone()
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
@@ -271,8 +305,7 @@ impl RunLoop {
 
     /// Set up termination handler.  Have a signal set the `should_keep_running` atomic bool to
     /// false.  Panics of called more than once.
-    fn setup_termination_handler(&self) {
-        let keep_running_writer = self.should_keep_running.clone();
+    pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>, allow_err: bool) {
         let install = termination::set_handler(move |sig_id| match sig_id {
             SignalId::Bus => {
                 let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
@@ -290,7 +323,8 @@ impl RunLoop {
 
         if let Err(e) = install {
             // integration tests can do this
-            if cfg!(test) {
+            if cfg!(test) || allow_err {
+                info!("Error setting up signal handler, may have already been set");
             } else {
                 panic!("FATAL: error setting termination handler - {}", e);
             }
@@ -354,17 +388,18 @@ impl RunLoop {
     /// Instantiate the burnchain client and databases.
     /// Fetches headers and instantiates the burnchain.
     /// Panics on failure.
-    fn instantiate_burnchain_state(
-        &mut self,
+    pub fn instantiate_burnchain_state(
+        config: &Config,
+        should_keep_running: Arc<AtomicBool>,
         burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> BitcoinRegtestController {
+    ) -> Result<BitcoinRegtestController, burnchain_error> {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
-            self.config.clone(),
+            config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
-            Some(self.should_keep_running.clone()),
+            Some(should_keep_running.clone()),
         );
 
         let burnchain = burnchain_controller.get_burnchain();
@@ -374,11 +409,14 @@ impl RunLoop {
         Config::assert_valid_epoch_settings(&burnchain, &epochs);
 
         // Upgrade chainstate databases if they exist already
+        // NOTE: this has to be done before the subsequent call to
+        // `burnchain_controller.connect_dbs()` below!
         match migrate_chainstate_dbs(
             &epochs,
-            &self.config.get_burn_db_file_path(),
-            &self.config.get_chainstate_path_str(),
-            Some(self.config.node.get_marf_opts()),
+            &burnchain,
+            &config.get_burn_db_file_path(),
+            &config.get_chainstate_path_str(),
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(_) => {}
             Err(coord_error::DBError(db_error::TooOldForEpoch)) => {
@@ -413,13 +451,21 @@ impl RunLoop {
             }
         };
 
-        match burnchain_controller.start(Some(target_burnchain_block_height)) {
-            Ok(_) => {}
-            Err(e) => {
+        burnchain_controller
+            .start(Some(target_burnchain_block_height))
+            .map_err(|e| {
+                match e {
+                    Error::CoordinatorClosed => {
+                        if !should_keep_running.load(Ordering::SeqCst) {
+                            info!("Shutdown initiated during burnchain initialization: {}", e);
+                            return burnchain_error::ShutdownInitiated;
+                        }
+                    }
+                    Error::IndexerError(_) => {}
+                }
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
-            }
-        };
+            })?;
 
         // if the chainstate DBs don't exist, this will instantiate them
         if let Err(e) = burnchain_controller.connect_dbs() {
@@ -429,7 +475,7 @@ impl RunLoop {
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let _ = burnchain_controller.sortdb_mut();
-        burnchain_controller
+        Ok(burnchain_controller)
     }
 
     /// Boot up the stacks chainstate.
@@ -466,6 +512,7 @@ impl RunLoop {
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
+        info!("About to call open_and_exec");
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
@@ -568,16 +615,22 @@ impl RunLoop {
 
     /// Start Prometheus logging
     fn start_prometheus(&mut self) {
-        let prometheus_bind = self.config.node.prometheus_bind.clone();
-        if let Some(prometheus_bind) = prometheus_bind {
-            thread::Builder::new()
-                .name("prometheus".to_string())
-                .spawn(move || {
-                    debug!("prometheus thread ID is {:?}", thread::current().id());
-                    start_serving_monitoring_metrics(prometheus_bind);
-                })
-                .unwrap();
-        }
+        let Some(prometheus_bind) = self.config.node.prometheus_bind.clone() else {
+            return;
+        };
+        let monitoring_thread = thread::Builder::new()
+            .name("prometheus".to_string())
+            .spawn(move || {
+                debug!("prometheus thread ID is {:?}", thread::current().id());
+                start_serving_monitoring_metrics(prometheus_bind)
+            })
+            .expect("FATAL: failed to start monitoring thread");
+
+        self.monitoring_thread.replace(monitoring_thread);
+    }
+
+    pub fn take_monitoring_thread(&mut self) -> Option<JoinHandle<Result<(), MonitoringError>>> {
+        self.monitoring_thread.take()
     }
 
     /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the
@@ -952,9 +1005,27 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        self.setup_termination_handler();
-        let mut burnchain =
-            self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
+        Self::setup_termination_handler(self.should_keep_running.clone(), false);
+
+        let burnchain_result = Self::instantiate_burnchain_state(
+            &self.config,
+            self.should_keep_running.clone(),
+            burnchain_opt,
+            coordinator_senders.clone(),
+        );
+
+        let mut burnchain = match burnchain_result {
+            Ok(burnchain_controller) => burnchain_controller,
+            Err(burnchain_error::ShutdownInitiated) => {
+                info!("Exiting stacks-node");
+                return;
+            }
+            Err(e) => {
+                error!("Error initializing burnchain: {}", e);
+                info!("Exiting stacks-node");
+                return;
+            }
+        };
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
@@ -1007,7 +1078,7 @@ impl RunLoop {
             sn
         };
 
-        globals.set_last_sortition(burnchain_tip_snapshot.clone());
+        globals.set_last_sortition(burnchain_tip_snapshot);
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
@@ -1015,9 +1086,19 @@ impl RunLoop {
         let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process
-        let burnchain_db = burnchain_config
-            .open_burnchain_db(false)
+        let mut burnchain_db = burnchain_config
+            .open_burnchain_db(true)
             .expect("FATAL: failed to open burnchain DB");
+        if !self.config.burnchain.affirmation_overrides.is_empty() {
+            let tx = burnchain_db
+                .tx_begin()
+                .expect("FATAL: failed to begin burnchain DB tx");
+            for (reward_cycle, affirmation) in self.config.burnchain.affirmation_overrides.iter() {
+                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).expect(&format!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
+            }
+            tx.commit()
+                .expect("FATAL: failed to commit burnchain DB tx");
+        }
         let burnchain_db_tip = burnchain_db
             .get_canonical_chain_tip()
             .expect("FATAL: failed to query burnchain DB");

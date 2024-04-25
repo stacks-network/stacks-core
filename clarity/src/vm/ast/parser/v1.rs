@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::convert::TryInto;
 
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::address::c32::c32_address_decode;
 use stacks_common::util::hash::hex_bytes;
@@ -508,12 +508,12 @@ fn handle_expression(
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
+pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for (item, line_pos, column_pos) in input.drain(..) {
+    for (item, line_pos, column_pos) in input.into_iter() {
         match item {
             LexItem::LeftParen => {
                 // start new list.
@@ -525,7 +525,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 if let Some((list, start_line, start_column, parse_context)) = parse_stack.pop() {
                     match parse_context {
                         ParseContext::CollectList => {
-                            let checked_list: ParseResult<Box<[PreSymbolicExpression]>> = list
+                            let checked_list: ParseResult<Vec<PreSymbolicExpression>> = list
                                 .into_iter()
                                 .map(|i| match i {
                                     ParseStackItem::Expression(e) => Ok(e),
@@ -601,8 +601,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                                     _ => unreachable!("More than four modulos of four."),
                                 }?;
                             }
-                            let mut pre_expr =
-                                PreSymbolicExpression::tuple(checked_list.into_boxed_slice());
+                            let mut pre_expr = PreSymbolicExpression::tuple(checked_list);
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         }
@@ -772,7 +771,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -784,7 +783,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::tuple(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -808,42 +807,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_atom("let", 1, 4, 1, 6),
                     make_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_atom("x", 1, 10, 1, 10),
                                     make_atom_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_atom("y", 1, 16, 1, 16),
                                     make_atom_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_atom("+", 2, 6, 2, 6),
                             make_atom("x", 2, 8, 2, 8),
                             make_list(
@@ -851,41 +850,41 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_atom("let", 4, 10, 4, 12),
                                     make_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_list(
+                                        vec![make_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_atom("x", 4, 16, 4, 16),
                                                 make_atom_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_atom("+", 5, 10, 5, 10),
                                             make_atom("x", 5, 12, 5, 12),
                                             make_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_atom("x", 6, 13, 6, 13),
             make_atom("y", 6, 15, 6, 15),
@@ -907,11 +906,11 @@ mod test {
                 9,
                 2,
                 17,
-                Box::new([
+                vec![
                     make_atom("-", 2, 10, 2, 10),
                     make_atom_value(Value::Int(12), 2, 12, 2, 13),
                     make_atom_value(Value::Int(34), 2, 15, 2, 16),
-                ]),
+                ],
             ),
         ];
 
@@ -931,10 +930,10 @@ mod test {
             1,
             1,
             11,
-            Box::new([
+            vec![
                 make_atom("id", 1, 2, 1, 3),
                 make_atom_value(Value::Int(1337), 1, 6, 1, 9),
-            ]),
+            ],
         )];
         let parsed = ast::parser::v1::parse(input);
         assert_eq!(Ok(program), parsed, "Should match expected tuple literal");

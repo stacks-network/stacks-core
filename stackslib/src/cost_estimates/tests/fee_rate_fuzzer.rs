@@ -53,9 +53,9 @@ fn test_fuzzing_seed1() {
             .get_rate_estimates()
             .expect("Estimate should exist."),
         FeeRateEstimate {
-            high: 96.20545857700169f64,
-            middle: 50.63445188263247f64,
-            low: 5.0634451882632465f64
+            high: 91.73244187536466f64,
+            middle: 48.28023256598139f64,
+            low: 4.82802325659814f64
         }
     );
 }
@@ -77,9 +77,9 @@ fn test_fuzzing_seed2() {
             .get_rate_estimates()
             .expect("Estimate should exist."),
         FeeRateEstimate {
-            high: 100.08112623179122f64,
-            middle: 52.67427696410064f64,
-            low: 5.267427696410064f64
+            high: 88.82921297592677f64,
+            middle: 46.75221735575093f64,
+            low: 4.675221735575093f64
         }
     );
 }
@@ -136,9 +136,9 @@ fn test_notify_pass_through() {
             .get_rate_estimates()
             .expect("Estimate should exist."),
         FeeRateEstimate {
-            high: 2.1069710785640257f64,
-            middle: 2.1069710785640257f64,
-            low: 2.1069710785640257f64
-        },
+            high: 1.8700886942300372f64,
+            middle: 1.8700886942300372f64,
+            low: 1.8700886942300372f64
+        }
     );
 }

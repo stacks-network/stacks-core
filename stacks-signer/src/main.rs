@@ -4,7 +4,7 @@
 //!
 //!
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,44 +28,43 @@ extern crate toml;
 
 use std::fs::File;
 use std::io::{self, BufRead, Write};
-use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
+use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use slog::{slog_debug, slog_error, slog_info};
+use stacks_common::codec::read_next;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::{debug, error, info};
 use stacks_signer::cli::{
-    Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
-    SignArgs, StackerDBArgs,
+    Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
+    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
 };
-use stacks_signer::config::{Config, Network};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
 use wsts::state_machine::OperationResult;
-use wsts::v2;
 
 struct SpawnedSigner {
-    running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
+    running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     cmd_send: Sender<RunLoopCommand>,
     res_recv: Receiver<Vec<OperationResult>>,
 }
 
 /// Create a new stacker db session
-fn stackerdb_session(host: SocketAddr, contract: QualifiedContractIdentifier) -> StackerDBSession {
+fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
     let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(host, contract).unwrap();
+    session.connect(host.to_string(), contract).unwrap();
     session
 }
 
@@ -84,18 +83,15 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 
 // Spawn a running signer and return its handle, command sender, and result receiver
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
-    let config = Config::try_from(path).unwrap();
+    let config = GlobalConfig::try_from(path).unwrap();
+    let endpoint = config.endpoint;
+    info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
-    let mut signer: Signer<
-        RunLoopCommand,
-        Vec<OperationResult>,
-        RunLoop<FrostCoordinator<v2::Aggregator>>,
-        StackerDBEventReceiver,
-    > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.endpoint;
+    let ev = SignerEventReceiver::new(config.network.is_mainnet());
+    let runloop = RunLoop::from(config);
+    let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
+        Signer::new(runloop, ev, cmd_recv, res_send);
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
@@ -109,8 +105,8 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
     assert!(dkg_res.len() == 1, "Received unexpected number of results");
     let dkg = dkg_res.first().unwrap();
     match dkg {
-        OperationResult::Dkg(point) => {
-            println!("Received aggregate group key: {point}");
+        OperationResult::Dkg(aggregate_key) => {
+            println!("Received aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {
             panic!(
@@ -124,6 +120,12 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
+        }
     }
 }
 
@@ -132,8 +134,8 @@ fn process_sign_result(sign_res: &[OperationResult]) {
     assert!(sign_res.len() == 1, "Received unexpected number of results");
     let sign = sign_res.first().unwrap();
     match sign {
-        OperationResult::Dkg(point) => {
-            panic!("Received unexpected aggregate group key: {point}");
+        OperationResult::Dkg(aggregate_key) => {
+            panic!("Received unexpected aggregate group key: {aggregate_key}");
         }
         OperationResult::Sign(signature) => {
             panic!(
@@ -147,43 +149,53 @@ fn process_sign_result(sign_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
+        }
     }
 }
 
 fn handle_get_chunk(args: GetChunkArgs) {
     debug!("Getting chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let chunk_opt = session.get_chunk(args.slot_id, args.slot_version).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_get_latest_chunk(args: GetLatestChunkArgs) {
     debug!("Getting latest chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let chunk_opt = session.get_latest_chunk(args.slot_id).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
-    let mut session = stackerdb_session(args.host, args.contract);
+    let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
     println!("{}", serde_json::to_string(&chunk_list).unwrap());
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
-    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
     let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
-    let chunk_ack = session.put_chunk(chunk).unwrap();
+    let chunk_ack = session.put_chunk(&chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
 }
 
 fn handle_dkg(args: RunDkgArgs) {
     debug!("Running DKG...");
     let spawned_signer = spawn_running_signer(&args.config);
-    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
+    let dkg_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    spawned_signer.cmd_send.send(dkg_command).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
     spawned_signer.running_signer.stop();
@@ -192,14 +204,20 @@ fn handle_dkg(args: RunDkgArgs) {
 fn handle_sign(args: SignArgs) {
     debug!("Signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    spawned_signer
-        .cmd_send
-        .send(RunLoopCommand::Sign {
-            message: args.data,
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
+    let sign_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Sign {
+            block,
             is_taproot: false,
             merkle_root: None,
-        })
-        .unwrap();
+        },
+    };
+    spawned_signer.cmd_send.send(sign_command).unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
     spawned_signer.running_signer.stop();
@@ -208,16 +226,26 @@ fn handle_sign(args: SignArgs) {
 fn handle_dkg_sign(args: SignArgs) {
     debug!("Running DKG and signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    // First execute DKG, then sign
-    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
-    spawned_signer
-        .cmd_send
-        .send(RunLoopCommand::Sign {
-            message: args.data,
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
+    let dkg_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    let sign_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Sign {
+            block,
             is_taproot: false,
             merkle_root: None,
-        })
-        .unwrap();
+        },
+    };
+    // First execute DKG, then sign
+    spawned_signer.cmd_send.send(dkg_command).unwrap();
+    spawned_signer.cmd_send.send(sign_command).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
     let sign_res = spawned_signer.res_recv.recv().unwrap();
@@ -225,7 +253,7 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.running_signer.stop();
 }
 
-fn handle_run(args: RunDkgArgs) {
+fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let spawned_signer = spawn_running_signer(&args.config);
     println!("Signer spawned successfully. Waiting for messages to process...");
@@ -236,7 +264,7 @@ fn handle_run(args: RunDkgArgs) {
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
     let signer_stacks_private_keys = if let Some(path) = args.private_keys {
-        let file = File::open(&path).unwrap();
+        let file = File::open(path).unwrap();
         let reader = io::BufReader::new(file);
 
         let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();
@@ -258,40 +286,82 @@ fn handle_generate_files(args: GenerateFilesArgs) {
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>()
     };
-    let signer_stacks_addresses = signer_stacks_private_keys
-        .iter()
-        .map(|key| to_addr(key, &args.network))
-        .collect::<Vec<StacksAddress>>();
-    // Build the stackerdb contract
-    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
+
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
-        args.num_keys,
-        &args.db_args.host.to_string(),
-        &args.db_args.contract.to_string(),
-        None,
+        &args.host.to_string(),
         args.timeout.map(Duration::from_millis),
+        &args.network,
+        &args.password,
+        rand::random(),
+        3000,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
-        let signer_conf_path = args.dir.join(format!("signer-{}.toml", i));
-        let signer_conf_filename = signer_conf_path.to_str().unwrap();
-        let mut signer_conf_file = File::create(signer_conf_filename).unwrap();
-        signer_conf_file
-            .write_all(file_contents.as_bytes())
-            .unwrap();
-        println!("Created signer config toml file: {}", signer_conf_filename);
+        write_file(&args.dir, &format!("signer-{}.toml", i), file_contents);
     }
-    let stackerdb_contract_path = args.dir.join("stackerdb.clar");
-    let stackerdb_contract_filename = stackerdb_contract_path.to_str().unwrap();
-    let mut stackerdb_contract_file = File::create(stackerdb_contract_filename).unwrap();
-    stackerdb_contract_file
-        .write_all(stackerdb_contract.as_bytes())
-        .unwrap();
-    println!(
-        "Created stackerdb clarity contract: {}",
-        stackerdb_contract_filename
-    );
+}
+
+fn handle_generate_stacking_signature(
+    args: GenerateStackingSignatureArgs,
+    do_print: bool,
+) -> MessageSignature {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+
+    let private_key = config.stacks_private_key;
+    let public_key = Secp256k1PublicKey::from_private(&private_key);
+
+    let signature = make_pox_4_signer_key_signature(
+        &args.pox_address,
+        &private_key, //
+        args.reward_cycle.into(),
+        args.method.topic(),
+        config.network.to_chain_id(),
+        args.period.into(),
+        args.max_amount,
+        args.auth_id,
+    )
+    .expect("Failed to generate signature");
+
+    let output_str = if args.json {
+        serde_json::to_string(&serde_json::json!({
+            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerSignature": to_hex(signature.to_rsv().as_slice()),
+            "authId": format!("{}", args.auth_id),
+            "rewardCycle": args.reward_cycle,
+            "maxAmount": format!("{}", args.max_amount),
+            "period": args.period,
+            "poxAddress": args.pox_address.to_b58(),
+            "method": args.method.topic().to_string(),
+        }))
+        .expect("Failed to serialize JSON")
+    } else {
+        format!(
+            "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
+            to_hex(&public_key.to_bytes_compressed()),
+            to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
+        )
+    };
+
+    if do_print {
+        println!("{}", output_str);
+    }
+
+    signature
+}
+
+fn handle_check_config(args: RunSignerArgs) {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    println!("Config: {}", config);
+}
+
+/// Helper function for writing the given contents to filename in the given directory
+fn write_file(dir: &Path, filename: &str, contents: &str) {
+    let file_path = dir.join(filename);
+    let filename = file_path.to_str().unwrap();
+    let mut file = File::create(filename).unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
+    println!("Created file: {}", filename);
 }
 
 fn main() {
@@ -330,22 +400,153 @@ fn main() {
         Command::GenerateFiles(args) => {
             handle_generate_files(args);
         }
+        Command::GenerateStackingSignature(args) => {
+            handle_generate_stacking_signature(args, true);
+        }
+        Command::CheckConfig(args) => {
+            handle_check_config(args);
+        }
     }
 }
 
-fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
-    let version = match network {
-        Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-    StacksAddress::from_public_keys(
-        version,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(stacks_private_key)],
-    )
-    .unwrap()
-}
-
 #[cfg(test)]
-pub mod tests;
+pub mod tests {
+    use blockstack_lib::chainstate::stacks::address::PoxAddress;
+    use blockstack_lib::chainstate::stacks::boot::POX_4_CODE;
+    use blockstack_lib::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
+    };
+    use clarity::vm::{execute_v2, Value};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::PublicKey;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey;
+    use stacks_signer::cli::parse_pox_addr;
+
+    use super::{handle_generate_stacking_signature, *};
+    use crate::{GenerateStackingSignatureArgs, GlobalConfig};
+
+    fn call_verify_signer_sig(
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        lock_period: u128,
+        public_key: &Secp256k1PublicKey,
+        signature: Vec<u8>,
+        amount: u128,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> bool {
+        let program = format!(
+            r#"
+            {}
+            (verify-signer-key-sig {} u{} "{}" u{} (some 0x{}) 0x{} u{} u{} u{})
+        "#,
+            &*POX_4_CODE,                                               //s
+            Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
+            reward_cycle,
+            topic.get_name_str(),
+            lock_period,
+            to_hex(signature.as_slice()),
+            to_hex(public_key.to_bytes_compressed().as_slice()),
+            amount,
+            max_amount,
+            auth_id,
+        );
+        execute_v2(&program)
+            .expect("FATAL: could not execute program")
+            .expect("Expected result")
+            .expect_result_ok()
+            .expect("Expected ok result")
+            .expect_bool()
+            .expect("Expected buff")
+    }
+
+    #[test]
+    fn test_stacking_signature_with_pox_code() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
+        let mut args = GenerateStackingSignatureArgs {
+            config: "./src/tests/conf/signer-0.toml".into(),
+            pox_address: parse_pox_addr(btc_address).unwrap(),
+            reward_cycle: 6,
+            method: Pox4SignatureTopic::StackStx.into(),
+            period: 12,
+            max_amount: u128::MAX,
+            auth_id: 1,
+            json: false,
+        };
+
+        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
+
+        let valid = call_verify_signer_sig(
+            &args.pox_address,
+            args.reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            args.period.into(),
+            &public_key,
+            signature.to_rsv(),
+            100,
+            args.max_amount,
+            args.auth_id,
+        );
+        assert!(valid);
+
+        // change up some args
+        args.period = 6;
+        args.method = Pox4SignatureTopic::AggregationCommit.into();
+        args.reward_cycle = 7;
+        args.auth_id = 2;
+        args.max_amount = 100;
+
+        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
+
+        let valid = call_verify_signer_sig(
+            &args.pox_address,
+            args.reward_cycle.into(),
+            &Pox4SignatureTopic::AggregationCommit,
+            args.period.into(),
+            &public_key,
+            signature.to_rsv(),
+            100,
+            args.max_amount,
+            args.auth_id,
+        );
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_generate_stacking_signature() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
+        let args = GenerateStackingSignatureArgs {
+            config: "./src/tests/conf/signer-0.toml".into(),
+            pox_address: parse_pox_addr(btc_address).unwrap(),
+            reward_cycle: 6,
+            method: Pox4SignatureTopic::StackStx.into(),
+            period: 12,
+            max_amount: u128::MAX,
+            auth_id: 1,
+            json: false,
+        };
+
+        let signature = handle_generate_stacking_signature(args.clone(), false);
+
+        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
+
+        let message_hash = make_pox_4_signer_key_message_hash(
+            &args.pox_address,
+            args.reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            args.period.into(),
+            args.max_amount,
+            args.auth_id,
+        );
+
+        let verify_result = public_key.verify(&message_hash.0, &signature);
+        assert!(verify_result.is_ok());
+        assert!(verify_result.unwrap());
+    }
+}

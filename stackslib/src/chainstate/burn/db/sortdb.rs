@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::{Ord, Ordering};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryFrom, TryInto};
 use std::io::{ErrorKind, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
@@ -25,12 +24,13 @@ use std::{cmp, fmt, fs};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::Value;
+use clarity::vm::types::{PrincipalData, Value};
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
 use rusqlite::{
-    Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, NO_PARAMS,
+    Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
+    TransactionBehavior, NO_PARAMS,
 };
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
@@ -38,10 +38,13 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
 use stacks_common::util::{get_epoch_time_secs, log};
+use wsts::common::Signature as WSTSSignature;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -56,14 +59,15 @@ use crate::chainstate::burn::operations::leader_block_commit::{
 };
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, Opcodes, OpsHash, SortitionHash,
 };
 use crate::chainstate::coordinator::{
-    Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+    Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
+use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -79,11 +83,11 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::{Error as NetError, Error};
+use crate::net::Error as NetError;
 use crate::util_lib::db::{
-    db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
-    query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
+    query_row_panic, query_rows, sql_pragma, table_exists, tx_begin_immediate, tx_busy_handler,
+    u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -172,33 +176,37 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
+        let miner_pk_hash = row.get("miner_pk_hash")?;
+
         let snapshot = BlockSnapshot {
-            block_height: block_height,
-            burn_header_timestamp: burn_header_timestamp,
-            burn_header_hash: burn_header_hash,
-            parent_burn_header_hash: parent_burn_header_hash,
-            consensus_hash: consensus_hash,
-            ops_hash: ops_hash,
-            total_burn: total_burn,
-            sortition: sortition,
-            sortition_hash: sortition_hash,
-            winning_block_txid: winning_block_txid,
-            winning_stacks_block_hash: winning_stacks_block_hash,
-            index_root: index_root,
-            num_sortitions: num_sortitions,
+            block_height,
+            burn_header_timestamp,
+            burn_header_hash,
+            parent_burn_header_hash,
+            consensus_hash,
+            ops_hash,
+            total_burn,
+            sortition,
+            sortition_hash,
+            winning_block_txid,
+            winning_stacks_block_hash,
+            index_root,
+            num_sortitions,
 
-            stacks_block_accepted: stacks_block_accepted,
-            stacks_block_height: stacks_block_height,
-            arrival_index: arrival_index,
+            stacks_block_accepted,
+            stacks_block_height,
+            arrival_index,
 
-            canonical_stacks_tip_height: canonical_stacks_tip_height,
-            canonical_stacks_tip_hash: canonical_stacks_tip_hash,
-            canonical_stacks_tip_consensus_hash: canonical_stacks_tip_consensus_hash,
+            canonical_stacks_tip_height,
+            canonical_stacks_tip_hash,
+            canonical_stacks_tip_consensus_hash,
 
             sortition_id,
             parent_sortition_id,
             pox_valid,
             accumulated_coinbase_ustx,
+
+            miner_pk_hash,
         };
         Ok(snapshot)
     }
@@ -298,44 +306,6 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
     }
 }
 
-impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
-    fn from_row<'a>(row: &'a Row) -> Result<UserBurnSupportOp, db_error> {
-        let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
-        let block_height = u64::from_column(row, "block_height")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-
-        let address = StacksAddress::from_column(row, "address")?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let public_key = VRFPublicKey::from_column(row, "public_key")?;
-        let key_block_ptr: u32 = row.get_unwrap("key_block_ptr");
-        let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
-        let block_header_hash_160 = Hash160::from_column(row, "block_header_hash_160")?;
-
-        let burn_fee_str: String = row.get_unwrap("burn_fee");
-
-        let burn_fee = burn_fee_str
-            .parse::<u64>()
-            .map_err(|_e| db_error::ParseError)?;
-
-        let user_burn = UserBurnSupportOp {
-            address: address,
-            consensus_hash: consensus_hash,
-            public_key: public_key,
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
-            block_header_hash_160: block_header_hash_160,
-            burn_fee: burn_fee,
-
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
-        };
-        Ok(user_burn)
-    }
-}
-
 impl FromRow<StackStxOp> for StackStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
@@ -349,6 +319,19 @@ impl FromRow<StackStxOp> for StackStxOp {
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
+        let signing_key_str_opt: Option<String> = row.get("signer_key")?;
+        let signer_key = match signing_key_str_opt {
+            Some(key_str) => serde_json::from_str(&key_str).ok(),
+            None => None,
+        };
+        let max_amount_str_opt: Option<String> = row.get("max_amount")?;
+        let max_amount = match max_amount_str_opt {
+            Some(max_amount_str) => u128::from_str_radix(&max_amount_str, 10)
+                .map_err(|_| db_error::ParseError)
+                .ok(),
+            None => None,
+        };
+        let auth_id = row.get("auth_id")?;
 
         Ok(StackStxOp {
             txid,
@@ -359,6 +342,9 @@ impl FromRow<StackStxOp> for StackStxOp {
             reward_addr,
             stacked_ustx,
             num_cycles,
+            signer_key,
+            max_amount,
+            auth_id,
         })
     }
 }
@@ -419,6 +405,39 @@ impl FromRow<TransferStxOp> for TransferStxOp {
             recipient,
             transfered_ustx,
             memo,
+        })
+    }
+}
+
+impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
+    fn from_row<'a>(row: &'a Row) -> Result<VoteForAggregateKeyOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let aggregate_key_str: String = row.get_unwrap("aggregate_key");
+        let aggregate_key: StacksPublicKeyBuffer = serde_json::from_str(&aggregate_key_str)
+            .expect("CORRUPTION: DB stored bad transition ops");
+        let round: u32 = row.get_unwrap("round");
+        let reward_cycle = u64::from_column(row, "reward_cycle")?;
+        let signer_index: u16 = row.get_unwrap("signer_index");
+        let signer_key_str: String = row.get_unwrap("signer_key");
+        let signer_key: StacksPublicKeyBuffer = serde_json::from_str(&signer_key_str)
+            .expect("CORRUPTION: DB stored bad transition ops");
+
+        Ok(VoteForAggregateKeyOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            aggregate_key,
+            round,
+            reward_cycle,
+            signer_index,
+            signer_key,
         })
     }
 }
@@ -489,7 +508,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "7";
+pub const SORTITION_DB_VERSION: &'static str = "8";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -577,26 +596,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         input TEXT NOT NULL,
         apparent_sender TEXT NOT NULL,
         burn_parent_modulus INTEGER NOT NULL,
-
-        PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
-    );"#,
-    r#"
-    CREATE TABLE user_burn_support(
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-        sortition_id TEXT NOT NULL,
-
-        address TEXT NOT NULL,
-        consensus_hash TEXT NOT NULL,
-        public_key TEXT NOT NULL,
-        key_block_ptr INTEGER NOT NULL,
-        key_vtxindex INTEGER NOT NULL,
-        block_header_hash_160 TEXT NOT NULL,
-
-        burn_fee TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -701,9 +700,51 @@ const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
 const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
-// update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
+const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
+    r#"DELETE FROM epochs;"#,
+    r#"DROP INDEX IF EXISTS index_user_burn_support_txid;"#,
+    r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_vtxindex;"#,
+    r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex;"#,
+    r#"DROP TABLE IF EXISTS user_burn_support;"#,
+    r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
+    r#"
+    -- eagerly-processed reward sets, before they're applied to the start of the next reward cycle
+    CREATE TABLE preprocessed_reward_sets (
+        sortition_id TEXT PRIMARY KEY,
+        reward_set TEXT NOT NULL
+    );"#,
+    r#"
+    -- canonical chain tip at each sortition ID.
+    -- This is updated in both 2.x and Nakamoto, but Nakamoto relies on this exclusively
+    CREATE TABLE stacks_chain_tips (
+        sortition_id TEXT PRIMARY KEY,
+        consensus_hash TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        block_height INTEGER NOT NULL
+    );"#,
+    r#"ALTER TABLE stack_stx ADD signer_key TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD max_amount TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE stack_stx ADD auth_id INTEGER DEFAULT NULL;"#,
+    r#"
+    -- table definition for `vote-for-aggregate-key` burn op
+    CREATE TABLE vote_for_aggregate_key (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
 
+        sender_addr TEXT NOT NULL,
+        aggregate_key TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        reward_cycle INTEGER NOT NULL,
+        signer_index INTEGER NOT NULL,
+        signer_key TEXT NOT NULL,
+
+        PRIMARY KEY(txid,burn_header_hash)
+    );"#,
+];
+
+const LAST_SORTITION_DB_INDEX: &'static str = "index_vote_for_aggregate_key_burn_header_hash";
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -715,9 +756,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
     "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
@@ -727,6 +765,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_vote_for_aggregate_key_burn_header_hash ON vote_for_aggregate_key(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -735,6 +774,7 @@ pub struct SortitionDB {
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
     pub pox_constants: PoxConstants,
+    pub path: String,
 }
 
 #[derive(Clone)]
@@ -783,7 +823,7 @@ impl SortitionContext for SortitionDBTxContext {
     }
 }
 
-fn get_block_commit_by_txid(
+pub fn get_block_commit_by_txid(
     conn: &Connection,
     sort_id: &SortitionId,
     txid: &Txid,
@@ -942,6 +982,33 @@ impl db_keys {
         byte_buff.copy_from_slice(&bytes[0..2]);
         u16::from_le_bytes(byte_buff)
     }
+
+    /// reward cycle ID that was last processed
+    /// NOTE: unused now, but was used in earlier consensus rules.
+    /// Preserved for testing compatibility.
+    pub fn last_reward_cycle_key() -> &'static str {
+        "sortition_db::last_reward_cycle"
+    }
+
+    /// NOTE: unused now, but was used in earlier consensus rules.
+    /// Preserved for testing compatibility.
+    pub fn last_reward_cycle_to_string(rc: u64) -> String {
+        to_hex(&rc.to_le_bytes())
+    }
+
+    /// NOTE: unused now, but was used in earlier consensus rules.
+    /// Preserved for testing compatibility.
+    pub fn last_reward_cycle_from_string(rc_str: &str) -> u64 {
+        let bytes = hex_bytes(rc_str).expect("CORRUPTION: bad format written for reward cycle ID");
+        assert_eq!(
+            bytes.len(),
+            8,
+            "CORRUPTION: expected 8 bytes for reward cycle"
+        );
+        let mut rc_buff = [0; 8];
+        rc_buff.copy_from_slice(&bytes[0..8]);
+        u64::from_le_bytes(rc_buff)
+    }
 }
 
 /// Trait for structs that provide a chaintip-indexed handle into the
@@ -957,6 +1024,22 @@ pub trait SortitionHandle {
         &mut self,
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error>;
+
+    /// Get the first burn block height
+    fn first_burn_block_height(&self) -> u64;
+
+    /// Get a ref to the PoX constants
+    fn pox_constants(&self) -> &PoxConstants;
+
+    /// Get the sortition ID of the sortition history tip this handle represents
+    fn tip(&self) -> SortitionId;
+
+    /// Get the highest-processed Nakamoto block on this sortition history.
+    /// Returns Ok(Some(nakamoto-tip-ch, nakamoto-tip-bhh, nakamoto-tip-height))) on success, if
+    /// there was a tip found
+    /// Returns Ok(None) if no Nakamoto blocks are present on this sortition history
+    /// Returns Err(..) on DB errors
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error>;
 
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
@@ -1122,10 +1205,12 @@ impl<'a> SortitionHandleTx<'a> {
                     leader_key_vtxindex,
                     &parent_tip.sortition_id,
                 )?
-                .expect(&format!(
-                    "FATAL: no leader key for accepted block commit {} (at {},{})",
-                    &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: no leader key for accepted block commit {} (at {},{})",
+                        &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex
+                    )
+                });
 
             leader_keys.push(leader_key);
         }
@@ -1193,10 +1278,12 @@ impl<'a> SortitionHandleTx<'a> {
         };
 
         let ancestor_hash = match self.get_indexed(&get_from, &db_keys::last_sortition())? {
-            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).expect(&format!(
-                "FATAL: corrupt database: failed to parse {} into a hex string",
-                &hex_str
-            )),
+            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
+                panic!(
+                    "FATAL: corrupt database: failed to parse {} into a hex string",
+                    &hex_str
+                )
+            }),
             None => {
                 // no prior sortitions, so get the first
                 return SortitionDB::get_first_block_snapshot(self.tx());
@@ -1205,10 +1292,9 @@ impl<'a> SortitionHandleTx<'a> {
 
         self.get_block_snapshot(&ancestor_hash, &chain_tip)
             .map(|snapshot_opt| {
-                snapshot_opt.expect(&format!(
-                    "FATAL: corrupt index: no snapshot {}",
-                    ancestor_hash
-                ))
+                snapshot_opt.unwrap_or_else(|| {
+                    panic!("FATAL: corrupt index: no snapshot {}", ancestor_hash)
+                })
             })
     }
 
@@ -1303,10 +1389,12 @@ impl<'a> SortitionHandleTx<'a> {
         for _i in oldest_height..current_block_height {
             let ancestor_snapshot = self
                 .get_block_snapshot(&last_snapshot.parent_burn_header_hash, &chain_tip)?
-                .expect(&format!(
-                    "Discontiguous index: missing block {}",
-                    last_snapshot.parent_burn_header_hash
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Discontiguous index: missing block {}",
+                        last_snapshot.parent_burn_header_hash
+                    )
+                });
             if check(&ancestor_snapshot.consensus_hash) {
                 return Ok(true);
             }
@@ -1350,8 +1438,26 @@ impl SortitionHandle for SortitionHandleTx<'_> {
         SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
     }
 
+    fn first_burn_block_height(&self) -> u64 {
+        self.context.first_block_height
+    }
+
+    fn pox_constants(&self) -> &PoxConstants {
+        &self.context.pox_constants
+    }
+
     fn sqlite(&self) -> &Connection {
         self.tx()
+    }
+
+    fn tip(&self) -> SortitionId {
+        self.context.chain_tip.clone()
+    }
+
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self.sqlite(), &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)?;
+        SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self.sqlite(), &sn)
     }
 }
 
@@ -1363,8 +1469,26 @@ impl SortitionHandle for SortitionHandleConn<'_> {
         SortitionHandleConn::get_block_snapshot_by_height(self, block_height)
     }
 
+    fn first_burn_block_height(&self) -> u64 {
+        self.context.first_block_height
+    }
+
+    fn pox_constants(&self) -> &PoxConstants {
+        &self.context.pox_constants
+    }
+
     fn sqlite(&self) -> &Connection {
         self.conn()
+    }
+
+    fn tip(&self) -> SortitionId {
+        self.context.chain_tip.clone()
+    }
+
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self.sqlite(), &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)?;
+        SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self.sqlite(), &sn)
     }
 }
 
@@ -1375,9 +1499,6 @@ impl<'a> SortitionHandleTx<'a> {
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
-        // NOTE: chain_tip here is the tip of the PoX fork on the canonical burn chain fork.
-        // consensus_hash refers to the consensus hash of the tip of the canonical Stacks fork
-        // we're updating.
         let chain_tip = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?.expect(
             "FAIL: Setting stacks block accepted in canonical chain tip which cannot be found",
         );
@@ -1389,6 +1510,14 @@ impl<'a> SortitionHandleTx<'a> {
             stacks_block_hash,
             stacks_block_height,
         )?;
+
+        if cfg!(test) {
+            let (ch, bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
+            debug!(
+                "Memoized canonical Stacks chain tip is now {}/{}, written to {}",
+                &ch, &bhh, &self.context.chain_tip
+            );
+        }
 
         Ok(())
     }
@@ -1530,10 +1659,12 @@ impl<'a> SortitionHandleTx<'a> {
     ) -> Result<PoxAddress, db_error> {
         let entry_str = self
             .get_indexed(sortition_id, &db_keys::pox_reward_set_entry(entry_ix))?
-            .expect(&format!(
-                "CORRUPTION: expected reward set entry at index={}, but not found",
-                entry_ix
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "CORRUPTION: expected reward set entry at index={}, but not found",
+                    entry_ix
+                )
+            });
         Ok(PoxAddress::from_db_string(&entry_str).expect("FATAL: could not decode PoX address"))
     }
 
@@ -1590,6 +1721,25 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(anchor_block_txid)
     }
 
+    /// Update the canonical Stacks tip
+    fn update_canonical_stacks_tip(
+        &mut self,
+        sort_id: &SortitionId,
+        consensus_hash: &ConsensusHash,
+        stacks_block_hash: &BlockHeaderHash,
+        stacks_block_height: u64,
+    ) -> Result<(), db_error> {
+        let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
+        let args: &[&dyn ToSql] = &[
+            sort_id,
+            consensus_hash,
+            stacks_block_hash,
+            &u64_to_sql(stacks_block_height)?,
+        ];
+        self.execute(sql, args)?;
+        Ok(())
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
@@ -1606,6 +1756,29 @@ impl<'a> SortitionHandleTx<'a> {
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
+        let block_sn = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
+            .ok_or(db_error::NotFoundError)?;
+
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self, block_sn.block_height)?.unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    block_sn.block_height
+                )
+            });
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // Nakamoto blocks are always processed in order since the chain can't fork
+            self.update_canonical_stacks_tip(
+                &burn_tip.sortition_id,
+                consensus_hash,
+                stacks_block_hash,
+                stacks_block_height,
+            )?;
+            return Ok(());
+        }
+
+        // in epoch 2.x, where we track canonical stacks tip via the sortition DB
         let arrival_index = SortitionDB::get_max_arrival_index(self)?;
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(stacks_block_height)?,
@@ -1625,11 +1798,14 @@ impl<'a> SortitionHandleTx<'a> {
             burn_tip.block_height
         );
 
-        let num_rows = self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
-        assert!(num_rows > 0);
+        // NOTE: in Nakamoto, this may return zero rows since blocks are no longer coupled to
+        // snapshots.  However, it will update at least one row if the block is a tenure-start
+        // block.
+        self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
 
         // update arrival data across all Stacks forks
         let (best_ch, best_bhh, best_height) = self.find_new_block_arrivals(burn_tip)?;
+        self.update_canonical_stacks_tip(&burn_tip.sortition_id, &best_ch, &best_bhh, best_height)?;
         self.update_new_block_arrivals(burn_tip, best_ch, best_bhh, best_height)?;
 
         Ok(())
@@ -1660,6 +1836,80 @@ impl<'a> SortitionHandleConn<'a> {
         };
 
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
+    }
+
+    /// Does the sortition db expect to receive blocks
+    /// signed by this signer set?
+    ///
+    /// This only works if `consensus_hash` is within two reward cycles (4200 blocks) of the
+    /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
+    /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
+    /// Signer keys can be used to blast out lots of Nakamoto blocks that will be accepted
+    /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
+    /// `self.context.chain_tip`, or the previous, but no earlier.
+    pub fn expects_signer_signature(
+        &self,
+        consensus_hash: &ConsensusHash,
+        signer_signature: &WSTSSignature,
+        message: &[u8],
+        aggregate_public_key: &Point,
+    ) -> Result<bool, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No sortition for tip: {:?}", &self.context.chain_tip);
+                e
+            })?;
+
+        let ch_sn = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No sortition for consensus hash: {:?}", consensus_hash);
+                e
+            })?;
+
+        if ch_sn.block_height
+            + u64::from(self.context.pox_constants.reward_cycle_length)
+            + u64::from(self.context.pox_constants.prepare_length)
+            < sn.block_height
+        {
+            // too far in the past
+            debug!("Block with consensus hash {} is too far in the past", consensus_hash;
+                   "consensus_hash" => %consensus_hash,
+                   "block_height" => ch_sn.block_height,
+                   "tip_block_height" => sn.block_height
+            );
+            return Ok(false);
+        }
+
+        // this given consensus hash must be an ancestor of our chain tip
+        let ch_at = self
+            .get_consensus_at(ch_sn.block_height)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No ancestor consensus hash";
+                      "tip" => %self.context.chain_tip,
+                      "consensus_hash" => %consensus_hash,
+                      "consensus_hash height" => %ch_sn.block_height
+                );
+                e
+            })?;
+
+        if ch_at != ch_sn.consensus_hash {
+            // not an ancestor
+            warn!("Consensus hash is not an ancestor of the sortition tip";
+                  "tip" => %self.context.chain_tip,
+                  "consensus_hash" => %consensus_hash
+            );
+            return Err(db_error::NotFoundError);
+        }
+
+        // is this consensus hash in this fork?
+        if SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_none() {
+            return Ok(false);
+        }
+
+        Ok(signer_signature.verify(aggregate_public_key, message))
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
@@ -1710,6 +1960,32 @@ impl<'a> SortitionHandleConn<'a> {
             &db_keys::pox_last_selected_anchor_txid(),
         )?);
         Ok(anchor_block_txid)
+    }
+
+    /// Get the last processed reward cycle.
+    /// Since we always process a RewardSetInfo at the start of a reward cycle (anchor block or
+    /// no), this is simply the same as asking which reward cycle this SortitionHandleConn's
+    /// sortition tip is in.
+    pub fn get_last_processed_reward_cycle(&self) -> Result<u64, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)?;
+        let rc = self
+            .context
+            .pox_constants
+            .block_height_to_reward_cycle(self.context.first_block_height, sn.block_height)
+            .expect("FATAL: sortition from before system start");
+        let rc_start_block = self
+            .context
+            .pox_constants
+            .reward_cycle_to_block_height(self.context.first_block_height, rc);
+        let last_rc = if sn.block_height >= rc_start_block {
+            rc
+        } else {
+            // NOTE: the reward cycle is "processed" at reward cycle index 1, not index 0
+            rc.saturating_sub(1)
+        };
+
+        Ok(last_rc)
     }
 
     pub fn get_reward_cycle_unlocks(
@@ -1778,6 +2054,21 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionDB::get_block_snapshot(self.conn(), &sortition_id)
     }
 
+    /// Has `consensus_hash` been processed in the current fork?
+    pub fn processed_block(&self, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
+        let Some(snapshot) = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
+        else {
+            return Ok(false);
+        };
+        let Some(expected_sortition_id) =
+            self.get_sortition_id_for_bhh(&snapshot.burn_header_hash)?
+        else {
+            return Ok(false);
+        };
+        let matched_fork = expected_sortition_id == snapshot.sortition_id;
+        Ok(matched_fork)
+    }
+
     pub fn get_tip_snapshot(&self) -> Result<Option<BlockSnapshot>, db_error> {
         SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip)
     }
@@ -1806,64 +2097,6 @@ impl<'a> SortitionHandleConn<'a> {
 
         // Note: This would return None if `block_height` were the height of `chain_tip`.
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
-    }
-
-    /// Get all user burns that burned for the winning block in the chain_tip sortition
-    /// Returns list of user burns in order by vtxindex.
-    pub fn get_winning_user_burns_by_block(&self) -> Result<Vec<UserBurnSupportOp>, db_error> {
-        let snapshot = match self.get_tip_snapshot()? {
-            Some(sn) => sn,
-            None => {
-                // no such snapshot, so no such users
-                return Ok(vec![]);
-            }
-        };
-
-        if !snapshot.sortition {
-            // no winner
-            return Ok(vec![]);
-        }
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2";
-        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &snapshot.winning_block_txid];
-        let winning_commit: LeaderBlockCommitOp = query_row(self, qry, &args)?
-            .expect("BUG: sortition exists, but winner cannot be found");
-
-        let winning_block_hash160 =
-            Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
-
-        let qry = "SELECT * FROM user_burn_support \
-                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4 \
-                   ORDER BY vtxindex ASC";
-        let args: [&dyn ToSql; 4] = [
-            &snapshot.sortition_id,
-            &winning_block_hash160,
-            &winning_commit.key_vtxindex,
-            &winning_commit.key_block_ptr,
-        ];
-
-        let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
-
-        // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
-        let qry = "SELECT COUNT(*) FROM block_commits \
-                   WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
-        let args: [&dyn ToSql; 4] = [
-            &snapshot.sortition_id,
-            &snapshot.winning_stacks_block_hash,
-            &winning_commit.key_vtxindex,
-            &winning_commit.key_block_ptr,
-        ];
-        let shared_miners = query_count(self, qry, &args)? as u64;
-
-        assert!(
-            shared_miners >= 1,
-            "BUG: Should be at least 1 matching miner for the winning block commit"
-        );
-
-        for winning_user_burn in winning_user_burns.iter_mut() {
-            winning_user_burn.burn_fee /= shared_miners;
-        }
-
-        Ok(winning_user_burns)
     }
 
     /// Get the block snapshot of the parent stacks block of the given stacks block.
@@ -1951,10 +2184,12 @@ impl<'a> SortitionHandleConn<'a> {
         };
 
         let ancestor_hash = match self.get_indexed(&get_from, &db_keys::last_sortition())? {
-            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).expect(&format!(
-                "FATAL: corrupt database: failed to parse {} into a hex string",
-                &hex_str
-            )),
+            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
+                panic!(
+                    "FATAL: corrupt database: failed to parse {} into a hex string",
+                    &hex_str
+                )
+            }),
             None => {
                 // no prior sortitions, so get the first
                 return self.get_first_block_snapshot();
@@ -1962,10 +2197,8 @@ impl<'a> SortitionHandleConn<'a> {
         };
 
         self.get_block_snapshot(&ancestor_hash).map(|snapshot_opt| {
-            snapshot_opt.expect(&format!(
-                "FATAL: corrupt index: no snapshot {}",
-                ancestor_hash
-            ))
+            snapshot_opt
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: no snapshot {}", ancestor_hash))
         })
     }
 
@@ -2426,18 +2659,26 @@ impl SortitionDB {
         );
 
         let marf = SortitionDB::open_index(&index_path)?;
-        let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
+        let (first_block_height, first_burn_header_hash) =
+            SortitionDB::get_first_block_height_and_hash(marf.sqlite_conn())?;
 
         let mut db = SortitionDB {
+            path: path.to_string(),
             marf,
             readwrite,
             pox_constants,
-            first_block_height: first_snapshot.block_height,
-            first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
+            first_block_height,
+            first_burn_header_hash,
         };
 
         db.check_schema_version_or_error()?;
         Ok(db)
+    }
+
+    /// Open a new copy of this SortitionDB. Will use the same `readwrite` flag
+    ///  of `self`.
+    pub fn reopen(&self) -> Result<SortitionDB, db_error> {
+        Self::open(&self.path, self.readwrite, self.pox_constants.clone())
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2449,6 +2690,7 @@ impl SortitionDB {
         first_burn_header_timestamp: u64,
         epochs: &[StacksEpoch],
         pox_constants: PoxConstants,
+        migrator: Option<SortitionDBMigrator>,
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
         let create_flag = match fs::metadata(path) {
@@ -2478,6 +2720,7 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
 
         let mut db = SortitionDB {
+            path: path.to_string(),
             marf,
             readwrite,
             first_block_height,
@@ -2493,127 +2736,23 @@ impl SortitionDB {
                 first_burn_header_timestamp,
                 epochs,
             )?;
-        } else {
-            // validate -- must contain the given first block and first block hash
-            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial()
-                || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
-            {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
-                return Err(db_error::Corruption);
-            }
         }
 
-        db.check_schema_version_and_update(epochs)?;
+        db.check_schema_version_and_update(epochs, migrator)?;
+
+        // validate -- must contain the given first block and first block hash
+        let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+        if !snapshot.is_initial()
+            || snapshot.block_height != first_block_height
+            || snapshot.burn_header_hash != *first_burn_hash
+        {
+            error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                   snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+            return Err(db_error::Corruption);
+        }
+
         if readwrite {
             db.add_indexes()?;
-        }
-        Ok(db)
-    }
-
-    /// Open a burn database at random tmp dir (used for testing)
-    #[cfg(test)]
-    pub fn connect_test(
-        first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-    ) -> Result<SortitionDB, db_error> {
-        use crate::core::StacksEpochExtension;
-        SortitionDB::connect_test_with_epochs(
-            first_block_height,
-            first_burn_hash,
-            StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
-        )
-    }
-
-    /// Open a burn database at random tmp dir (used for testing)
-    /// But, take a particular epoch configuration
-    #[cfg(test)]
-    pub fn connect_test_with_epochs(
-        first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-        epochs: Vec<StacksEpoch>,
-    ) -> Result<SortitionDB, db_error> {
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 32];
-        rng.fill_bytes(&mut buf);
-        let db_path_dir = format!(
-            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
-            to_hex(&buf)
-        );
-
-        SortitionDB::connect(
-            &db_path_dir,
-            first_block_height,
-            first_burn_hash,
-            get_epoch_time_secs(),
-            &epochs,
-            PoxConstants::test_default(),
-            true,
-        )
-    }
-
-    #[cfg(test)]
-    pub fn connect_v1(
-        path: &str,
-        first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
-        readwrite: bool,
-    ) -> Result<SortitionDB, db_error> {
-        let create_flag = match fs::metadata(path) {
-            Err(e) => {
-                if e.kind() == ErrorKind::NotFound {
-                    // need to create
-                    if readwrite {
-                        true
-                    } else {
-                        return Err(db_error::NoDBError);
-                    }
-                } else {
-                    return Err(db_error::IOError(e));
-                }
-            }
-            Ok(_md) => false,
-        };
-
-        let index_path = db_mkdirs(path)?;
-        debug!(
-            "Connect/Open {} sortdb '{}' as '{}'",
-            if create_flag { "(create)" } else { "" },
-            index_path,
-            if readwrite { "readwrite" } else { "readonly" }
-        );
-
-        let marf = SortitionDB::open_index(&index_path)?;
-
-        let mut db = SortitionDB {
-            marf,
-            readwrite,
-            first_block_height,
-            first_burn_header_hash: first_burn_hash.clone(),
-            pox_constants: PoxConstants::test_default(),
-        };
-
-        if create_flag {
-            // instantiate!
-            db.instantiate_v1(
-                first_block_height,
-                first_burn_hash,
-                first_burn_header_timestamp,
-            )?;
-        } else {
-            // validate -- must contain the given first block and first block hash
-            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial()
-                || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
-            {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
-                return Err(db_error::Corruption);
-            }
         }
 
         Ok(db)
@@ -2659,13 +2798,14 @@ impl SortitionDB {
         SortitionDB::apply_schema_5(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
+        SortitionDB::apply_schema_8_tables(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
         let (index_root, pox_payout) =
-            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &[], None, None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
@@ -2676,7 +2816,12 @@ impl SortitionDB {
 
         db_tx.commit()?;
 
+        // NOTE: we don't need to provide a migrator here because we're not migrating
+        self.apply_schema_8_migration(None)?;
+
         self.add_indexes()?;
+
+        debug!("Instantiated SortDB");
         Ok(())
     }
 
@@ -2703,58 +2848,77 @@ impl SortitionDB {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn instantiate_v1(
-        &mut self,
-        first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
+    /// replaces them into the SortitionDB's epochs table
+    fn validate_and_replace_epochs(
+        db_tx: &Transaction,
+        epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        debug!("Instantiate SortDB");
-
-        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
-        sql_pragma(self.conn(), "foreign_keys", &true)?;
-
-        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
-
-        // create first (sentinel) snapshot
-        debug!("Make first snapshot");
-        let mut first_snapshot = BlockSnapshot::initial(
-            first_block_height,
-            first_burn_header_hash,
-            first_burn_header_timestamp,
-        );
-
-        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
-        assert_eq!(
-            first_snapshot.parent_burn_header_hash,
-            BurnchainHeaderHash::sentinel()
-        );
-
-        for row_text in SORTITION_DB_INITIAL_SCHEMA {
-            db_tx.execute_batch(row_text)?;
+        let epochs = StacksEpoch::validate_epochs(epochs);
+        let existing_epochs = Self::get_stacks_epochs(db_tx)?;
+        if existing_epochs == epochs {
+            return Ok(());
         }
 
-        db_tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &[&"1"],
-        )?;
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db_tx)?;
+        let existing_epoch_idx = StacksEpoch::find_epoch(&existing_epochs, tip.block_height)
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in its existing epochs table",
+                    tip.block_height
+                );
+            });
 
-        db_tx.instantiate_index()?;
+        let new_epoch_idx =
+            StacksEpoch::find_epoch(&epochs, tip.block_height).unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in the configured epochs list",
+                    tip.block_height
+                );
+            });
 
-        let mut first_sn = first_snapshot.clone();
-        first_sn.sortition_id = SortitionId::sentinel();
-        let (index_root, pox_payout) =
-            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
-        first_snapshot.index_root = index_root;
+        // can't retcon epochs -- all epochs up to (but excluding) the tip's epoch in both epoch
+        // lists must be the same.
+        for i in 0..existing_epoch_idx.min(new_epoch_idx) {
+            if existing_epochs[i] != epochs[i] {
+                panic!(
+                    "FATAL: tried to retcon epoch {:?} into epoch {:?}",
+                    &existing_epochs[i], &epochs[i]
+                );
+            }
+        }
 
-        db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
-        db_tx.store_transition_ops(
-            &first_snapshot.sortition_id,
-            &BurnchainStateTransition::noop(),
-        )?;
+        // can't change parameters of the current epoch in either epoch list,
+        // except for the end height (and only if it hasn't been reached yet)
+        let mut diff_epoch = existing_epochs[existing_epoch_idx].clone();
+        diff_epoch.end_height = epochs[new_epoch_idx].end_height;
 
-        db_tx.commit()?;
+        if diff_epoch != epochs[new_epoch_idx] {
+            panic!(
+                "FATAL: tried to change current epoch {:?} into {:?}",
+                &existing_epochs[existing_epoch_idx], &epochs[new_epoch_idx]
+            );
+        }
+
+        if tip.block_height >= epochs[new_epoch_idx].end_height {
+            panic!("FATAL: tip has reached or passed the end of the configured epoch");
+        }
+
+        info!("Replace existing epochs with new epochs");
+        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        for epoch in epochs.into_iter() {
+            let args: &[&dyn ToSql] = &[
+                &(epoch.epoch_id as u32),
+                &u64_to_sql(epoch.start_height)?,
+                &u64_to_sql(epoch.end_height)?,
+                &epoch.block_limit,
+                &epoch.network_epoch,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
+                args
+            )?;
+        }
         Ok(())
     }
 
@@ -2771,8 +2935,6 @@ impl SortitionDB {
 
     /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
     /// `txid` is the burnchain txid of a block-commit.
-    /// Because the block_commit_parents table is not populated on schema migration, the returned
-    /// value may be NULL (and this is okay).
     pub fn get_block_commit_parent_sortition_id(
         conn: &Connection,
         txid: &Txid,
@@ -2798,7 +2960,35 @@ impl SortitionDB {
         query_rows(conn, qry, &[bhh])
     }
 
+    /// Get all snapshots for a burn block height, even if they're not on the canonical PoX fork
+    pub fn get_all_snapshots_by_burn_height(
+        conn: &DBConn,
+        height: u64,
+    ) -> Result<Vec<BlockSnapshot>, db_error> {
+        let qry = "SELECT * FROM snapshots WHERE block_height = ?1";
+        query_rows(conn, qry, &[u64_to_sql(height)?])
+    }
+
+    /// Get all preprocessed reward sets and their associated anchor blocks
+    pub fn get_all_preprocessed_reward_sets(
+        conn: &DBConn,
+    ) -> Result<Vec<(SortitionId, RewardCycleInfo)>, db_error> {
+        let sql = "SELECT * FROM preprocessed_reward_sets;";
+        let mut stmt = conn.prepare(sql)?;
+        let mut qry = stmt.query(NO_PARAMS)?;
+        let mut ret = vec![];
+        while let Some(row) = qry.next()? {
+            let sort_id: SortitionId = row.get("sortition_id")?;
+            let reward_set_str: String = row.get("reward_set")?;
+            let reward_set: RewardCycleInfo =
+                serde_json::from_str(&reward_set_str).map_err(|_| db_error::ParseError)?;
+            ret.push((sort_id, reward_set));
+        }
+        Ok(ret)
+    }
+
     /// Get the height of a consensus hash, even if it's not on the canonical PoX fork.
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
         let mut heights: Vec<u64> = query_rows(self.conn(), qry, &[ch])?;
@@ -2854,6 +3044,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -2862,6 +3053,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch21 => {
                 version == "3"
@@ -2869,6 +3061,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch22 => {
                 version == "3"
@@ -2876,6 +3069,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch23 => {
                 version == "3"
@@ -2883,6 +3077,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch24 => {
                 version == "3"
@@ -2890,6 +3085,23 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
+            }
+            StacksEpochId::Epoch25 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
+                    || version == "8"
+            }
+            StacksEpochId::Epoch30 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
+                    || version == "8"
             }
         }
     }
@@ -2959,6 +3171,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         // the schema 5 changes simply **replace** the contents of the epochs table
         //  by dropping all the current rows and then revalidating and inserting
@@ -2977,6 +3190,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_6(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_6 {
             tx.execute_batch(sql_exec)?;
@@ -2992,6 +3206,7 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn apply_schema_7(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_7 {
             tx.execute_batch(sql_exec)?;
@@ -3003,6 +3218,119 @@ impl SortitionDB {
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &["7"],
         )?;
+
+        Ok(())
+    }
+
+    /// Apply just the table creation/alterations for schema 8.  Don't attempt migration yet.
+    fn apply_schema_8_tables(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        if table_exists(tx, "stacks_chain_tips")? {
+            info!("Schema 8 tables appear to have been created already; skipping this step");
+            return Ok(());
+        }
+
+        for sql_exec in SORTITION_DB_SCHEMA_8 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
+        Ok(())
+    }
+
+    /// When applying schema 8, instantiate the `stacks_chain_tips` table
+    /// NOTE: this only works in epochs 2.5 and earlier
+    pub(crate) fn apply_schema_8_stacks_chain_tips(
+        &mut self,
+        canonical_tip: &BlockSnapshot,
+    ) -> Result<(), db_error> {
+        let first_block_height = self.first_block_height;
+        let tx = self.tx_begin()?;
+
+        // skip if this step was done
+        if table_exists(&tx, "stacks_chain_tips")? {
+            let sql = "SELECT 1 FROM stacks_chain_tips WHERE sortition_id = ?1";
+            let args = rusqlite::params![&canonical_tip.sortition_id];
+            if let Ok(Some(_)) = query_row::<i64, _>(&tx, sql, args) {
+                info!("`stacks_chain_tips` appears to have been populated already; skipping this step");
+                return Ok(());
+            }
+        }
+
+        for height in first_block_height..=canonical_tip.block_height {
+            let snapshots = SortitionDB::get_all_snapshots_by_burn_height(&tx, height)?;
+            debug!(
+                "Populate stacks_chain_tips for {} sortition(s) at height {}",
+                snapshots.len(),
+                height
+            );
+            for snapshot in snapshots.into_iter() {
+                let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
+                let args: &[&dyn ToSql] = &[
+                    &snapshot.sortition_id,
+                    &snapshot.canonical_stacks_tip_consensus_hash,
+                    &snapshot.canonical_stacks_tip_hash,
+                    &u64_to_sql(snapshot.canonical_stacks_tip_height)?,
+                ];
+                tx.execute(sql, args)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// When applying schema 8, instantiate the `preprocessed_reward_sets` table
+    pub(crate) fn apply_schema_8_preprocessed_reward_sets(
+        &mut self,
+        canonical_tip: &BlockSnapshot,
+        mut migrator: SortitionDBMigrator,
+    ) -> Result<(), db_error> {
+        let pox_constants = self.pox_constants.clone();
+        for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
+            if pox_constants.reward_cycle_to_block_height(self.first_block_height, rc)
+                > canonical_tip.block_height
+            {
+                break;
+            }
+            info!("Regenerating reward set for cycle {}", &rc);
+            migrator.regenerate_reward_cycle_info(self, rc)?;
+        }
+
+        Ok(())
+    }
+
+    /// Apply schema 8 migration.  Call after `apply_schema_8_tables()`.
+    /// This migration path is different from the others in that it manages sortition DB
+    /// transactions on its own (namely, it needs access to the SortitionDB MARF).
+    ///
+    /// To _migrate_ the sortition DB from schema 7, it needs access to the Stacks chainstate in
+    /// order to obtain prior reward sets.  This is encapsulated in the `SortitionDBMigrator`
+    /// implementation.  However, to _instantiate_ the sortition DB, no migrator is needed (since
+    /// the chainstate will also be empty).
+    fn apply_schema_8_migration(
+        &mut self,
+        mut migrator: Option<SortitionDBMigrator>,
+    ) -> Result<(), db_error> {
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
+
+        // port over `stacks_chain_tips` table
+        info!("Instantiating `stacks_chain_tips` table...");
+        self.apply_schema_8_stacks_chain_tips(&canonical_tip)?;
+
+        // port over `preprocessed_reward_sets` table
+        if let Some(migrator) = migrator.take() {
+            info!("Instantiating `preprocessed_reward_sets` table...");
+            self.apply_schema_8_preprocessed_reward_sets(&canonical_tip, migrator)?;
+        } else {
+            // NOTE: if we're instantiating the DB, this is fine.
+            info!("No migrator implementation given; `preprocessed_reward_sets` will not be prepopulated");
+        }
+
+        let tx = self.tx_begin()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["8"],
+        )?;
+        tx.commit()?;
 
         Ok(())
     }
@@ -3023,10 +3351,14 @@ impl SortitionDB {
         }
     }
 
-    /// Migrate the sortition DB to its latest version, given the set of system epochs
-    pub fn check_schema_version_and_update(
+    /// Migrate the sortition DB to its latest version, given the set of system epochs.
+    /// The `migrator` should only be `None` if the DB is being instantiated, or if the DB is
+    /// instantiated and migrated to the latest schema.
+    /// Otherwise, it should be `Some(..)`.
+    fn check_schema_version_and_update(
         &mut self,
         epochs: &[StacksEpoch],
+        mut migrator: Option<SortitionDBMigrator>,
     ) -> Result<(), db_error> {
         let expected_version = SORTITION_DB_VERSION.to_string();
         loop {
@@ -3057,7 +3389,17 @@ impl SortitionDB {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_7(&tx.deref(), epochs)?;
                         tx.commit()?;
+                    } else if version == "7" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_8_tables(&tx.deref(), epochs)?;
+                        tx.commit()?;
+
+                        self.apply_schema_8_migration(migrator.take())?;
                     } else if version == expected_version {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
+                        tx.commit()?;
+
                         return Ok(());
                     } else {
                         panic!("The schema version of the sortition DB is invalid.")
@@ -3070,7 +3412,11 @@ impl SortitionDB {
     }
 
     /// Open and migrate the sortition DB if it exists.
-    pub fn migrate_if_exists(path: &str, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    pub fn migrate_if_exists(
+        path: &str,
+        epochs: &[StacksEpoch],
+        migrator: SortitionDBMigrator,
+    ) -> Result<(), db_error> {
         // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
         // the mainnet_default PoX constants
         if let Err(db_error::OldSchema(_)) =
@@ -3079,15 +3425,16 @@ impl SortitionDB {
             let index_path = db_mkdirs(path)?;
             let marf = SortitionDB::open_index(&index_path)?;
             let mut db = SortitionDB {
+                path: path.to_string(),
                 marf,
                 readwrite: true,
-                // not used by migration logic
-                first_block_height: 0,
-                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-                pox_constants: PoxConstants::mainnet_default(),
+                first_block_height: migrator.get_burnchain().first_block_height,
+                first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
+                pox_constants: migrator.get_burnchain().pox_constants.clone(),
             };
-            db.check_schema_version_and_update(epochs)
+            db.check_schema_version_and_update(epochs, Some(migrator))
         } else {
+            debug!("SortitionDB is at the latest schema");
             Ok(())
         }
     }
@@ -3156,6 +3503,87 @@ impl SortitionDB {
         }
 
         return Ok(last_rules);
+    }
+
+    /// Store a pre-processed reward set.
+    /// `sortition_id` is the first sortition ID of the prepare phase
+    pub fn store_preprocessed_reward_set(
+        sort_tx: &mut DBTx,
+        sortition_id: &SortitionId,
+        rc_info: &RewardCycleInfo,
+    ) -> Result<(), db_error> {
+        let sql = "INSERT INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
+        let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
+        let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
+        sort_tx.execute(sql, args)?;
+        Ok(())
+    }
+
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    ///  reward set (if it exists) for the active reward cycle during `tip`
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
+            error!(
+                "Could not find snapshot for sortition while fetching reward set";
+                "tip_sortition_id" => %tip,
+            );
+            db_error::NotFoundError
+        })?;
+
+        let reward_cycle_id = self
+            .pox_constants
+            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
+            .expect("FATAL: stored snapshot with block height < first_block_height");
+
+        let prepare_phase_start = self
+            .pox_constants
+            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
+            .saturating_sub(self.pox_constants.prepare_length.into());
+
+        let first_sortition = get_ancestor_sort_id(
+            &self.index_conn(),
+            prepare_phase_start,
+            &tip_sn.sortition_id,
+        )?
+        .ok_or_else(|| {
+            error!(
+                "Could not find prepare phase start ancestor while fetching reward set";
+                "tip_sortition_id" => %tip,
+                "reward_cycle_id" => reward_cycle_id,
+                "prepare_phase_start_height" => prepare_phase_start
+            );
+            db_error::NotFoundError
+        })?;
+
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+    }
+
+    /// Get a pre-processed reawrd set.
+    /// `sortition_id` is the first sortition ID of the prepare phase.
+    pub fn get_preprocessed_reward_set(
+        sortdb: &DBConn,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let sql = "SELECT reward_set FROM preprocessed_reward_sets WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let reward_set_opt: Option<String> =
+            sortdb.query_row(sql, args, |row| row.get(0)).optional()?;
+
+        let rc_info = reward_set_opt
+            .map(|reward_set_str| serde_json::from_str(&reward_set_str))
+            .transpose()
+            .map_err(|_| db_error::ParseError)?;
+
+        Ok(rc_info)
     }
 }
 
@@ -3245,10 +3673,12 @@ impl<'a> SortitionDBConn<'a> {
                 db_handle.conn(),
                 &ancestor_consensus_hash,
             )?
-            .expect(&format!(
-                "Discontiguous index: missing block for consensus hash {}",
-                ancestor_consensus_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "Discontiguous index: missing block for consensus hash {}",
+                    ancestor_consensus_hash
+                )
+            });
 
             // this can happen if this call is interleaved with a PoX invalidation transaction
             if !ancestor_snapshot.pox_valid {
@@ -3273,10 +3703,12 @@ impl<'a> SortitionDBConn<'a> {
                 db_handle.conn(),
                 &ancestor_snapshot.parent_sortition_id,
             )?
-            .expect(&format!(
-                "Discontiguous index: missing parent block of parent burn header hash {}",
-                &ancestor_snapshot.parent_burn_header_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "Discontiguous index: missing parent block of parent burn header hash {}",
+                    &ancestor_snapshot.parent_burn_header_hash
+                )
+            });
 
             ancestor_consensus_hash = ancestor_snapshot_parent.consensus_hash;
         }
@@ -3323,6 +3755,7 @@ impl<'a> SortitionDBConn<'a> {
         Ok(Some(parent_block_snapshot))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn get_reward_set_size_at(&mut self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -3339,10 +3772,12 @@ impl<'a> SortitionDBConn<'a> {
     ) -> Result<PoxAddress, db_error> {
         let entry_str = self
             .get_indexed(sortition_id, &db_keys::pox_reward_set_entry(entry_ix))?
-            .expect(&format!(
-                "CORRUPTION: expected reward set entry at index={}, but not found",
-                entry_ix
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "CORRUPTION: expected reward set entry at index={}, but not found",
+                    entry_ix
+                )
+            });
         Ok(PoxAddress::from_db_string(&entry_str).expect("FATAL: could not decode PoX address"))
     }
 
@@ -3431,6 +3866,7 @@ impl SortitionDB {
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
     /// height and block-accepted flag.
+    #[cfg_attr(test, mutants::skip)]
     pub fn revalidate_snapshot_with_block(
         tx: &DBTx,
         sortition_id: &SortitionId,
@@ -3543,7 +3979,7 @@ impl SortitionDB {
     pub fn find_snapshots_with_dirty_canonical_block_pointers(
         conn: &DBConn,
         canonical_stacks_height: u64,
-    ) -> Result<Vec<SortitionId>, Error> {
+    ) -> Result<Vec<SortitionId>, db_error> {
         let dirty_sortitions : Vec<SortitionId> = query_rows(conn, "SELECT sortition_id FROM snapshots WHERE canonical_stacks_tip_height > ?1 AND pox_valid = 1", &[&u64_to_sql(canonical_stacks_height)?])?;
         Ok(dirty_sortitions)
     }
@@ -3563,10 +3999,8 @@ impl SortitionDB {
             None => return Ok(None),
         };
         let snapshot =
-            SortitionDB::get_block_snapshot(self.conn(), &prepare_end_sortid)?.expect(&format!(
-            "BUG: Sortition ID for prepare phase end is known, but no BlockSnapshot is stored: {}",
-            &prepare_end_sortid
-        ));
+            SortitionDB::get_block_snapshot(self.conn(), &prepare_end_sortid)?.unwrap_or_else(|| panic!("BUG: Sortition ID for prepare phase end is known, but no BlockSnapshot is stored: {}",
+            &prepare_end_sortid));
         Ok(Some(snapshot))
     }
 
@@ -3665,10 +4099,12 @@ impl SortitionDB {
             })?;
 
         let cur_epoch = SortitionDB::get_stacks_epoch(self.conn(), burn_header.block_height)?
-            .expect(&format!(
-                "FATAL: no epoch defined for burn height {}",
-                burn_header.block_height
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    burn_header.block_height
+                )
+            });
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
         let parent_snapshot = sortition_db_handle
@@ -3745,16 +4181,6 @@ impl SortitionDB {
         Ok((new_snapshot.0, new_snapshot.1))
     }
 
-    #[cfg(test)]
-    pub fn test_get_next_block_recipients(
-        &mut self,
-        burnchain: &Burnchain,
-        next_pox_info: Option<&RewardCycleInfo>,
-    ) -> Result<Option<RewardSetInfo>, BurnchainError> {
-        let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
-        self.get_next_block_recipients(burnchain, &parent_snapshot, next_pox_info)
-    }
-
     pub fn get_next_block_recipients(
         &mut self,
         burnchain: &Burnchain,
@@ -3766,12 +4192,13 @@ impl SortitionDB {
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
         let cur_epoch =
-            SortitionDB::get_stacks_epoch(self.conn(), parent_snapshot.block_height + 1)?.expect(
-                &format!(
-                    "FATAL: no epoch defined for burn height {}",
-                    parent_snapshot.block_height + 1
-                ),
-            );
+            SortitionDB::get_stacks_epoch(self.conn(), parent_snapshot.block_height + 1)?
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: no epoch defined for burn height {}",
+                        parent_snapshot.block_height + 1
+                    )
+                });
 
         let mut sortition_db_handle =
             SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
@@ -3800,6 +4227,7 @@ impl SortitionDB {
         Ok(result.is_some())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn latest_stacks_blocks_processed(
         &self,
         sortition_id: &SortitionId,
@@ -3987,6 +4415,20 @@ impl SortitionDB {
         )
     }
 
+    /// Get the list of `vote-for-aggregate-key` operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
+    pub fn get_vote_for_aggregate_key_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<VoteForAggregateKeyOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM vote_for_aggregate_key WHERE burn_header_hash = ? ORDER BY vtxindex",
+            &[burn_header_hash],
+        )
+    }
+
     /// Get the list of Transfer-STX operations processed in a given burnchain block.
     /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
     /// to reject them.
@@ -4074,31 +4516,66 @@ impl SortitionDB {
         self.tx_handle_begin(&sortition_id).unwrap()
     }
 
+    /// Given a starting sortition ID, go and find the canonical Nakamoto tip
+    /// Returns Ok(Some(tip info)) on success
+    /// Returns Ok(None) if there are no Nakamoto blocks in this tip
+    /// Returns Err(..) on other DB error
+    pub fn get_canonical_nakamoto_tip_hash_and_height(
+        conn: &Connection,
+        tip: &BlockSnapshot,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let mut cursor = tip.clone();
+        loop {
+            let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
+                &[&cursor.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            ).optional()?;
+            if let Some(stacks_tip) = result_at_tip {
+                return Ok(Some(stacks_tip));
+            }
+            let Some(next_cursor) =
+                SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
+            else {
+                return Ok(None);
+            };
+            cursor = next_cursor
+        }
+    }
+
+    /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    pub fn get_canonical_stacks_chain_tip_hash_and_height(
+        conn: &Connection,
+    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(conn, sn.block_height)?.unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    sn.block_height
+                )
+            });
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // nakamoto behavior -- look to the stacks_chain_tip table
+            //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
+            return Self::get_canonical_nakamoto_tip_hash_and_height(conn, &sn)?
+                .ok_or(db_error::NotFoundError);
+        }
+
+        // epoch 2.x behavior -- look at the snapshot itself
+        let stacks_block_hash = sn.canonical_stacks_tip_hash;
+        let consensus_hash = sn.canonical_stacks_tip_consensus_hash;
+        let stacks_block_height = sn.canonical_stacks_tip_height;
+        Ok((consensus_hash, stacks_block_hash, stacks_block_height))
+    }
+
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
     pub fn get_canonical_stacks_chain_tip_hash(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
-
-        let stacks_block_hash = sn.canonical_stacks_tip_hash;
-        let consensus_hash = sn.canonical_stacks_tip_consensus_hash;
-
-        Ok((consensus_hash, stacks_block_hash))
-    }
-
-    #[cfg(test)]
-    pub fn set_canonical_stacks_chain_tip(
-        conn: &Connection,
-        ch: &ConsensusHash,
-        bhh: &BlockHeaderHash,
-        height: u64,
-    ) -> Result<(), db_error> {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(conn)?;
-        let args: &[&dyn ToSql] = &[ch, bhh, &u64_to_sql(height)?, &tip.sortition_id];
-        conn.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
-                    WHERE sortition_id = ?4", args)
-            .map_err(db_error::SqliteError)?;
-        Ok(())
+        Self::get_canonical_stacks_chain_tip_hash_and_height(conn)
+            .map(|(ch, bhh, _height)| (ch, bhh))
     }
 
     /// Get the maximum arrival index for any known snapshot.
@@ -4129,6 +4606,20 @@ impl SortitionDB {
         )
     }
 
+    pub fn get_burnchain_header_hash_by_consensus(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let qry = "SELECT burn_header_hash FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
+        let args = [&consensus_hash];
+        query_row_panic(conn, qry, &args, || {
+            format!(
+                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                consensus_hash
+            )
+        })
+    }
+
     pub fn get_sortition_id_by_consensus(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4157,6 +4648,22 @@ impl SortitionDB {
                 consensus_hash
             )
         })
+    }
+
+    /// Determine if a burnchain block has been processed
+    pub fn has_block_snapshot_consensus(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<bool, db_error> {
+        let qry = "SELECT 1 FROM snapshots WHERE consensus_hash = ?1";
+        let args = [&consensus_hash];
+        let res: Option<i64> = query_row_panic(conn, qry, &args, || {
+            format!(
+                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                consensus_hash
+            )
+        })?;
+        Ok(res.is_some())
     }
 
     /// Get a snapshot for an processed sortition.
@@ -4194,6 +4701,27 @@ impl SortitionDB {
             }
             Some(snapshot) => Ok(snapshot),
         }
+    }
+
+    /// Get the first-ever block height and hash
+    pub(crate) fn get_first_block_height_and_hash(
+        conn: &Connection,
+    ) -> Result<(u64, BurnchainHeaderHash), db_error> {
+        let sql = "SELECT block_height, burn_header_hash FROM snapshots WHERE consensus_hash = ?1";
+        let args = rusqlite::params!(&ConsensusHash::empty());
+        let mut stmt = conn.prepare(sql)?;
+        let mut rows = stmt.query(args)?;
+        while let Some(row) = rows.next()? {
+            let height_i64: i64 = row.get("block_height")?;
+            let hash: BurnchainHeaderHash = row.get("burn_header_hash")?;
+            let height = u64::try_from(height_i64).map_err(|_| {
+                warn!("Height does not fit into a u64");
+                db_error::ParseError
+            })?;
+            return Ok((height, hash));
+        }
+        // NOTE: shouldn't be reachable because we instantiate with a first snapshot
+        return Err(db_error::NotFoundError);
     }
 
     pub fn is_pox_active(
@@ -4249,34 +4777,16 @@ impl SortitionDB {
         conn: &Connection,
         block_snapshot: &BlockSnapshot,
     ) -> Result<u64, db_error> {
-        let user_burns = SortitionDB::get_user_burns_by_block(conn, &block_snapshot.sortition_id)?;
         let block_commits =
             SortitionDB::get_block_commits_by_block(conn, &block_snapshot.sortition_id)?;
         let mut burn_total: u64 = 0;
 
-        for i in 0..user_burns.len() {
-            burn_total = burn_total
-                .checked_add(user_burns[i].burn_fee)
-                .expect("Way too many tokens burned");
-        }
         for i in 0..block_commits.len() {
             burn_total = burn_total
                 .checked_add(block_commits[i].burn_fee)
                 .expect("Way too many tokens burned");
         }
         Ok(burn_total)
-    }
-
-    /// Get all user burns registered in a block on is fork.
-    /// Returns list of user burns in order by vtxindex.
-    pub fn get_user_burns_by_block(
-        conn: &Connection,
-        sortition: &SortitionId,
-    ) -> Result<Vec<UserBurnSupportOp>, db_error> {
-        let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
-        let args: &[&dyn ToSql] = &[sortition];
-
-        query_rows(conn, qry, args)
     }
 
     /// Get all block commitments registered in a block on the burn chain's history in this fork.
@@ -4448,7 +4958,9 @@ impl SortitionDB {
         })
     }
 
-    /// Get a block commit by its committed block
+    /// Get a block commit by its committed block.
+    /// For Stacks 2.x, `block_hash` is just the hash of the block
+    /// For Nakamoto, `block_hash` is the StacksBlockId of the last tenure's first block
     pub fn get_block_commit_for_stacks_block(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4520,48 +5032,6 @@ impl SortitionDB {
         debug!("Block header cache has {} items", cache.len());
     }
 
-    /// Get a blockstack burnchain operation by txid
-    #[cfg(test)]
-    pub fn get_burnchain_transaction(
-        conn: &Connection,
-        txid: &Txid,
-    ) -> Result<Option<BlockstackOperationType>, db_error> {
-        // leader key?
-        let leader_key_sql = "SELECT * FROM leader_keys WHERE txid = ?1 LIMIT 1";
-        let args = [&txid];
-
-        let leader_key_res = query_row_panic(conn, &leader_key_sql, &args, || {
-            "Multiple leader keys with same txid".to_string()
-        })?;
-        if let Some(leader_key) = leader_key_res {
-            return Ok(Some(BlockstackOperationType::LeaderKeyRegister(leader_key)));
-        }
-
-        // block commit?
-        let block_commit_sql = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
-
-        let block_commit_res = query_row_panic(conn, &block_commit_sql, &args, || {
-            "Multiple block commits with same txid".to_string()
-        })?;
-        if let Some(block_commit) = block_commit_res {
-            return Ok(Some(BlockstackOperationType::LeaderBlockCommit(
-                block_commit,
-            )));
-        }
-
-        // user burn?
-        let user_burn_sql = "SELECT * FROM user_burn_support WHERE txid = ?1 LIMIT 1".to_string();
-
-        let user_burn_res = query_row_panic(conn, &user_burn_sql, &args, || {
-            "Multiple user burns with same txid".to_string()
-        })?;
-        if let Some(user_burn) = user_burn_res {
-            return Ok(Some(BlockstackOperationType::UserBurnSupport(user_burn)));
-        }
-
-        Ok(None)
-    }
-
     /// Get the StacksEpoch for a given burn block height
     pub fn get_stacks_epoch(
         conn: &DBConn,
@@ -4602,6 +5072,18 @@ impl SortitionDB {
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
+    }
+
+    /// Are microblocks disabled by Epoch 2.5 at the height specified
+    /// in `at_burn_height`?
+    pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
+        match Self::get_stacks_epoch_by_epoch_id(conn, &StacksEpochId::Epoch25)? {
+            Some(epoch_25) => Ok(at_burn_height >= epoch_25.start_height),
+            None => {
+                // Epoch 2.5 is not defined, so it cannot disable microblocks
+                Ok(false)
+            }
+        }
     }
 
     /// Get the last reward cycle in epoch 2.05
@@ -4658,10 +5140,12 @@ impl SortitionDB {
         };
 
         let ancestor_hash = match tx.get_indexed(&get_from, &db_keys::last_sortition())? {
-            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).expect(&format!(
-                "FATAL: corrupt database: failed to parse {} into a hex string",
-                &hex_str
-            )),
+            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
+                panic!(
+                    "FATAL: corrupt database: failed to parse {} into a hex string",
+                    &hex_str
+                )
+            }),
             None => {
                 // no prior sortitions, so get the first
                 return SortitionDB::get_first_block_snapshot(tx);
@@ -4719,10 +5203,45 @@ impl<'a> SortitionHandleTx<'a> {
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
 
-        // preserve memoized stacks chain tip from this burn chain fork
-        sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
-        sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
-        sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self, snapshot.block_height)?.unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    snapshot.block_height
+                )
+            });
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // nakamoto behavior
+            // look at stacks_chain_tips table
+            let res: Result<_, db_error> = self.deref().query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
+                &[&parent_snapshot.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            );
+            let (
+                canonical_stacks_tip_consensus_hash,
+                canonical_stacks_tip_block_hash,
+                canonical_stacks_tip_height,
+            ) = res?;
+            debug!(
+                "Setting stacks_chain_tips values";
+                "sortition_id" => %sn.sortition_id,
+                "parent_sortition_id" => %parent_snapshot.sortition_id,
+                "stacks_tip_height" => canonical_stacks_tip_height,
+                "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
+                "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
+            );
+            sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
+            sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
+            sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;
+        } else {
+            // epoch 2.x behavior
+            // preserve memoized stacks chain tip from this burn chain fork
+            sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
+            sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
+            sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
+        }
 
         self.insert_block_snapshot(&sn, pox_payout)?;
 
@@ -4734,6 +5253,23 @@ impl<'a> SortitionHandleTx<'a> {
             self.insert_missed_block_commit(missed_commit)?;
         }
 
+        self.update_canonical_stacks_tip(
+            &sn.sortition_id,
+            &sn.canonical_stacks_tip_consensus_hash,
+            &sn.canonical_stacks_tip_hash,
+            sn.canonical_stacks_tip_height,
+        )?;
+
+        #[cfg(test)]
+        {
+            let (block_consensus_hash, block_bhh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
+
+            debug!(
+                "After sortition {}, canonical Stacks tip is {}/{}",
+                &snapshot.consensus_hash, &block_consensus_hash, &block_bhh
+            );
+        }
         Ok(root_hash)
     }
 
@@ -4826,13 +5362,6 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_block_commit(op, sort_id)
             }
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                info!(
-                    "ACCEPTED({}) user burn support {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
-                self.insert_user_burn(op, sort_id)
-            }
             BlockstackOperationType::StackStx(ref op) => {
                 info!(
                     "ACCEPTED({}) stack stx opt {} at {},{}",
@@ -4861,6 +5390,13 @@ impl<'a> SortitionHandleTx<'a> {
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
                 self.insert_delegate_stx(op)
+            }
+            BlockstackOperationType::VoteForAggregateKey(ref op) => {
+                info!(
+                    "ACCEPTED({}) vote for aggregate key {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_vote_for_aggregate_key(op)
             }
         }
     }
@@ -4903,9 +5439,12 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
+            &serde_json::to_string(&op.signer_key).unwrap(),
+            &serde_json::to_string(&op.max_amount).unwrap(),
+            &op.auth_id,
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", args)?;
 
         Ok(())
     }
@@ -4925,6 +5464,29 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a vote-for-aggregate-key op
+    fn insert_vote_for_aggregate_key(
+        &mut self,
+        op: &VoteForAggregateKeyOp,
+    ) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &serde_json::to_string(&op.aggregate_key).unwrap(),
+            &op.round,
+            &u64_to_sql(op.reward_cycle)?,
+            &op.signer_index,
+            &serde_json::to_string(&op.signer_key).unwrap(),
+        ];
+
+        self.execute("REPLACE INTO vote_for_aggregate_key (txid, vtxindex, block_height, burn_header_hash, sender_addr, aggregate_key, round, reward_cycle, signer_index, signer_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
 
         Ok(())
     }
@@ -5026,42 +5588,6 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    /// Insert a user support burn.
-    /// No validity checking will be done, beyond what is encoded in the user_burn_support table
-    /// constraints.  That is, type mismatches and serialization errors will be caught, but nothing
-    /// else.
-    /// The corresponding snapshot must already be inserted
-    fn insert_user_burn(
-        &mut self,
-        user_burn: &UserBurnSupportOp,
-        sort_id: &SortitionId,
-    ) -> Result<(), db_error> {
-        assert!(user_burn.block_height < BLOCK_HEIGHT_MAX);
-
-        // represent burn fee as TEXT
-        let burn_fee_str = format!("{}", user_burn.burn_fee);
-
-        let args: &[&dyn ToSql] = &[
-            &user_burn.txid,
-            &user_burn.vtxindex,
-            &u64_to_sql(user_burn.block_height)?,
-            &user_burn.burn_header_hash,
-            &user_burn.address.to_string(),
-            &user_burn.consensus_hash,
-            &user_burn.public_key.to_hex(),
-            &user_burn.key_block_ptr,
-            &user_burn.key_vtxindex,
-            &user_burn.block_header_hash_160,
-            &burn_fee_str,
-            sort_id,
-        ];
-
-        self.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee, sortition_id) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", args)?;
-
-        Ok(())
-    }
-
     /// Insert a missed block commit
     fn insert_missed_block_commit(&mut self, op: &MissedBlockCommit) -> Result<(), db_error> {
         // serialize tx input to JSON
@@ -5145,13 +5671,14 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.pox_valid,
             &snapshot.accumulated_coinbase_ustx.to_string(),
             &pox_payouts_json,
+            &snapshot.miner_pk_hash,
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
-                      pox_payouts) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)
+                      pox_payouts, miner_pk_hash) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -5342,6 +5869,9 @@ impl<'a> SortitionHandleTx<'a> {
                         snapshot.block_height
                     );
                 }
+
+                let _reward_cycle = reward_info.reward_cycle;
+
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
                 if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
@@ -5414,6 +5944,16 @@ impl<'a> SortitionHandleTx<'a> {
 
                 keys.push(db_keys::pox_affirmation_map().to_string());
                 values.push(cur_affirmation_map.encode());
+
+                if cfg!(test) {
+                    // last reward cycle.
+                    // NOTE: We keep this only for testing, since this is what the original (but
+                    // unmigratable code) did, and we need to verify that the compatibility fix to
+                    // SortitionDB::get_last_processed_reward_cycle() is semantically compatible
+                    // with querying this key.
+                    keys.push(db_keys::last_reward_cycle_key().to_string());
+                    values.push(db_keys::last_reward_cycle_to_string(_reward_cycle));
+                }
 
                 pox_payout_addrs
             } else {
@@ -5496,6 +6036,15 @@ impl<'a> SortitionHandleTx<'a> {
             values.push("".to_string());
             keys.push(db_keys::pox_last_selected_anchor_txid().to_string());
             values.push("".to_string());
+
+            if cfg!(test) {
+                // NOTE: We keep this only for testing, since this is what the original (but
+                // unmigratable code) did, and we need to verify that the compatibility fix to
+                // SortitionDB::get_last_processed_reward_cycle() is semantically compatible
+                // with querying this key.
+                keys.push(db_keys::last_reward_cycle_key().to_string());
+                values.push(db_keys::last_reward_cycle_to_string(0));
+            }
 
             // no payouts
             vec![]
@@ -5732,7 +6281,9 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|(ch, bhh, height, _, _)| (ch, bhh, height))
     }
 
-    /// Update the given tip's canonical Stacks block pointer
+    /// Update the given tip's canonical Stacks block pointer.
+    /// Does so on all sortitions of the same height as tip.
+    /// Only used in Stacks 2.x
     fn update_new_block_arrivals(
         &mut self,
         tip: &BlockSnapshot,
@@ -5744,7 +6295,7 @@ impl<'a> SortitionHandleTx<'a> {
             &best_chh,
             &best_bhh,
             &u64_to_sql(best_height)?,
-            &tip.sortition_id,
+            &u64_to_sql(tip.block_height)?,
         ];
 
         debug!(
@@ -5752,9 +6303,8 @@ impl<'a> SortitionHandleTx<'a> {
             &tip.block_height, &tip.burn_header_hash, &best_chh, &best_bhh, best_height
         );
         self.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
-                    WHERE sortition_id = ?4", args)
+                    WHERE block_height = ?4", args)
             .map_err(db_error::SqliteError)?;
-
         Ok(())
     }
 
@@ -5809,6 +6359,7 @@ pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
+    use rusqlite::NO_PARAMS;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
@@ -5824,13 +6375,344 @@ pub mod tests {
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
+
+    impl<'a> SortitionHandleConn<'a> {
+        /// At one point in the development lifecycle, this code depended on a MARF key/value
+        /// pair to map the sortition tip to the last-processed reward cycle number.  This data would
+        /// not have been present in epoch 2.4 chainstate and earlier, but would have been present in
+        /// epoch 2.5 and later, since at the time it was expected that all nodes would perform a
+        /// genesis sync when booting into epoch 2.5.  However, that requirement changed at the last
+        /// minute, so this code was reworked to avoid the need for the MARF key.  But to ensure that
+        /// this method is semantically consistent with the old code (which the Nakamoto chains
+        /// coordinator depends on), this code will test that the new reward cycle calculation matches
+        /// the old reward cycle calculation.
+        #[cfg(test)]
+        pub fn legacy_get_last_processed_reward_cycle(&self) -> Result<u64, db_error> {
+            // verify that this is semantically compatible with the older behavior, which shipped
+            // for epoch 2.5 but needed to be removed at the last minute in order to support a
+            // migration path from 2.4 chainstate to 2.5/3.0 chainstate.
+            let encoded_rc = self
+                .get_indexed(&self.context.chain_tip, &db_keys::last_reward_cycle_key())?
+                .expect("FATAL: no last-processed reward cycle");
+
+            let expected_rc = db_keys::last_reward_cycle_from_string(&encoded_rc);
+            Ok(expected_rc)
+        }
+    }
+
+    impl<'a> SortitionHandleTx<'a> {
+        /// Update the canonical Stacks tip (testing only)
+        pub fn test_update_canonical_stacks_tip(
+            &mut self,
+            sort_id: &SortitionId,
+            consensus_hash: &ConsensusHash,
+            stacks_block_hash: &BlockHeaderHash,
+            stacks_block_height: u64,
+        ) -> Result<(), db_error> {
+            self.update_canonical_stacks_tip(
+                sort_id,
+                consensus_hash,
+                stacks_block_hash,
+                stacks_block_height,
+            )
+        }
+    }
+
+    impl SortitionDB {
+        /// Open a burn database at random tmp dir (used for testing)
+        pub fn connect_test(
+            first_block_height: u64,
+            first_burn_hash: &BurnchainHeaderHash,
+        ) -> Result<SortitionDB, db_error> {
+            use crate::core::StacksEpochExtension;
+            SortitionDB::connect_test_with_epochs(
+                first_block_height,
+                first_burn_hash,
+                StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+            )
+        }
+
+        /// Open a burn database at random tmp dir (used for testing)
+        /// But, take a particular epoch configuration
+        pub fn connect_test_with_epochs(
+            first_block_height: u64,
+            first_burn_hash: &BurnchainHeaderHash,
+            epochs: Vec<StacksEpoch>,
+        ) -> Result<SortitionDB, db_error> {
+            let mut rng = rand::thread_rng();
+            let mut buf = [0u8; 32];
+            rng.fill_bytes(&mut buf);
+            let db_path_dir = format!(
+                "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+                to_hex(&buf)
+            );
+
+            SortitionDB::connect(
+                &db_path_dir,
+                first_block_height,
+                first_burn_hash,
+                get_epoch_time_secs(),
+                &epochs,
+                PoxConstants::test_default(),
+                None,
+                true,
+            )
+        }
+
+        pub fn connect_v1(
+            path: &str,
+            first_block_height: u64,
+            first_burn_hash: &BurnchainHeaderHash,
+            first_burn_header_timestamp: u64,
+            readwrite: bool,
+        ) -> Result<SortitionDB, db_error> {
+            let create_flag = match fs::metadata(path) {
+                Err(e) => {
+                    if e.kind() == ErrorKind::NotFound {
+                        // need to create
+                        if readwrite {
+                            true
+                        } else {
+                            return Err(db_error::NoDBError);
+                        }
+                    } else {
+                        return Err(db_error::IOError(e));
+                    }
+                }
+                Ok(_md) => false,
+            };
+
+            let index_path = db_mkdirs(path)?;
+            debug!(
+                "Connect/Open {} sortdb '{}' as '{}'",
+                if create_flag { "(create)" } else { "" },
+                index_path,
+                if readwrite { "readwrite" } else { "readonly" }
+            );
+
+            let marf = SortitionDB::open_index(&index_path)?;
+
+            let mut db = SortitionDB {
+                path: path.to_string(),
+                marf,
+                readwrite,
+                first_block_height,
+                first_burn_header_hash: first_burn_hash.clone(),
+                pox_constants: PoxConstants::test_default(),
+            };
+
+            if create_flag {
+                // instantiate!
+                db.instantiate_v1(
+                    first_block_height,
+                    first_burn_hash,
+                    first_burn_header_timestamp,
+                )?;
+            } else {
+                // validate -- must contain the given first block and first block hash
+                let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+                if !snapshot.is_initial()
+                    || snapshot.block_height != first_block_height
+                    || snapshot.burn_header_hash != *first_burn_hash
+                {
+                    error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                           snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+                    return Err(db_error::Corruption);
+                }
+            }
+
+            Ok(db)
+        }
+
+        fn instantiate_v1(
+            &mut self,
+            first_block_height: u64,
+            first_burn_header_hash: &BurnchainHeaderHash,
+            first_burn_header_timestamp: u64,
+        ) -> Result<(), db_error> {
+            debug!("Instantiate SortDB");
+
+            sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+            sql_pragma(self.conn(), "foreign_keys", &true)?;
+
+            let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+
+            // create first (sentinel) snapshot
+            debug!("Make first snapshot");
+            let mut first_snapshot = BlockSnapshot::initial(
+                first_block_height,
+                first_burn_header_hash,
+                first_burn_header_timestamp,
+            );
+
+            assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+            assert_eq!(
+                first_snapshot.parent_burn_header_hash,
+                BurnchainHeaderHash::sentinel()
+            );
+
+            for row_text in SORTITION_DB_INITIAL_SCHEMA {
+                db_tx.execute_batch(row_text)?;
+            }
+
+            db_tx.execute(
+                "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+                &[&"1"],
+            )?;
+
+            db_tx.instantiate_index()?;
+
+            let mut first_sn = first_snapshot.clone();
+            first_sn.sortition_id = SortitionId::sentinel();
+            let (index_root, pox_payout) = db_tx.index_add_fork_info(
+                &mut first_sn,
+                &first_snapshot,
+                &vec![],
+                None,
+                None,
+                None,
+            )?;
+            first_snapshot.index_root = index_root;
+
+            // manually insert the first block snapshot in instantiate_v1 testing code, because
+            //  SCHEMA_8 adds a new column
+            let pox_payouts_json = serde_json::to_string(&pox_payout)
+                .expect("FATAL: could not encode `total_pox_payouts` as JSON");
+
+            let args = rusqlite::params![
+                &u64_to_sql(first_snapshot.block_height)?,
+                &first_snapshot.burn_header_hash,
+                &u64_to_sql(first_snapshot.burn_header_timestamp)?,
+                &first_snapshot.parent_burn_header_hash,
+                &first_snapshot.consensus_hash,
+                &first_snapshot.ops_hash,
+                &first_snapshot.total_burn.to_string(),
+                &first_snapshot.sortition,
+                &first_snapshot.sortition_hash,
+                &first_snapshot.winning_block_txid,
+                &first_snapshot.winning_stacks_block_hash,
+                &first_snapshot.index_root,
+                &u64_to_sql(first_snapshot.num_sortitions)?,
+                &first_snapshot.stacks_block_accepted,
+                &u64_to_sql(first_snapshot.stacks_block_height)?,
+                &u64_to_sql(first_snapshot.arrival_index)?,
+                &u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
+                &first_snapshot.canonical_stacks_tip_hash,
+                &first_snapshot.canonical_stacks_tip_consensus_hash,
+                &first_snapshot.sortition_id,
+                &first_snapshot.parent_sortition_id,
+                &first_snapshot.pox_valid,
+                &first_snapshot.accumulated_coinbase_ustx.to_string(),
+                &pox_payouts_json,
+            ];
+
+            db_tx.execute("INSERT INTO snapshots \
+                          (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
+                          stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
+                          pox_payouts) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)?;
+
+            db_tx.store_transition_ops(
+                &first_snapshot.sortition_id,
+                &BurnchainStateTransition::noop(),
+            )?;
+
+            db_tx.commit()?;
+            Ok(())
+        }
+
+        pub fn test_get_next_block_recipients(
+            &mut self,
+            burnchain: &Burnchain,
+            next_pox_info: Option<&RewardCycleInfo>,
+        ) -> Result<Option<RewardSetInfo>, BurnchainError> {
+            let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
+            self.get_next_block_recipients(burnchain, &parent_snapshot, next_pox_info)
+        }
+
+        pub fn set_canonical_stacks_chain_tip(
+            conn: &Connection,
+            ch: &ConsensusHash,
+            bhh: &BlockHeaderHash,
+            height: u64,
+        ) -> Result<(), db_error> {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+            let args: &[&dyn ToSql] = &[ch, bhh, &u64_to_sql(height)?, &tip.sortition_id];
+            conn.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
+                        WHERE sortition_id = ?4", args)
+                .map_err(db_error::SqliteError)?;
+            Ok(())
+        }
+
+        /// Given the last_tenure_id (e.g. in a block-commit in Nakamoto), find its sortition in the
+        /// given sortition fork.
+        pub fn get_block_snapshot_for_winning_nakamoto_tenure(
+            ic: &SortitionDBConn,
+            tip: &SortitionId,
+            last_tenure_id: &StacksBlockId,
+        ) -> Result<Option<BlockSnapshot>, db_error> {
+            let block_hash = BlockHeaderHash(last_tenure_id.0.clone());
+            Self::get_block_snapshot_for_winning_stacks_block(ic, tip, &block_hash)
+        }
+
+        /// Get a blockstack burnchain operation by txid
+        pub fn get_burnchain_transaction(
+            conn: &Connection,
+            txid: &Txid,
+        ) -> Result<Option<BlockstackOperationType>, db_error> {
+            // leader key?
+            let leader_key_sql = "SELECT * FROM leader_keys WHERE txid = ?1 LIMIT 1";
+            let args = [&txid];
+
+            let leader_key_res = query_row_panic(conn, &leader_key_sql, &args, || {
+                "Multiple leader keys with same txid".to_string()
+            })?;
+            if let Some(leader_key) = leader_key_res {
+                return Ok(Some(BlockstackOperationType::LeaderKeyRegister(leader_key)));
+            }
+
+            // block commit?
+            let block_commit_sql = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
+
+            let block_commit_res = query_row_panic(conn, &block_commit_sql, &args, || {
+                "Multiple block commits with same txid".to_string()
+            })?;
+            if let Some(block_commit) = block_commit_res {
+                return Ok(Some(BlockstackOperationType::LeaderBlockCommit(
+                    block_commit,
+                )));
+            }
+
+            Ok(None)
+        }
+
+        /// Load up all stacks chain tips, in ascending order by block height.  Great for testing!
+        pub fn get_all_stacks_chain_tips(
+            &self,
+        ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+            let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
+            let mut stmt = self.conn().prepare(sql)?;
+            let mut qry = stmt.query(NO_PARAMS)?;
+            let mut ret = vec![];
+            while let Some(row) = qry.next()? {
+                let sort_id: SortitionId = row.get("sortition_id")?;
+                let consensus_hash: ConsensusHash = row.get("consensus_hash")?;
+                let block_hash: BlockHeaderHash = row.get("block_hash")?;
+                let block_height_i64: i64 = row.get("block_height")?;
+                let block_height =
+                    u64::try_from(block_height_i64).map_err(|_| db_error::ParseError)?;
+                ret.push((sort_id, consensus_hash, block_hash, block_height));
+            }
+            Ok(ret)
+        }
+    }
 
     #[test]
     fn test_instantiate() {
@@ -5881,6 +6763,7 @@ pub mod tests {
             get_epoch_time_secs(),
             &StacksEpoch::unit_test_2_05(first_block_height),
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -6253,95 +7136,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_insert_user_burn() {
-        let block_height = 123;
-        let vtxindex = 456;
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-
-        let leader_key = LeaderKeyRegisterOp {
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex,
-            block_height: block_height + 1,
-            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
-        };
-
-        let user_burn = UserBurnSupportOp {
-            address: StacksAddress::new(1, Hash160([1u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: (block_height + 1) as u32,
-            key_vtxindex: vtxindex as u16,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex,
-            block_height: block_height + 2,
-            burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-        };
-
-        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
-
-        let snapshot = test_append_snapshot(
-            &mut db,
-            BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
-                leader_key.clone(),
-            )],
-        );
-
-        let user_burn_snapshot = test_append_snapshot(
-            &mut db,
-            BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())],
-        );
-
-        {
-            let res_user_burns =
-                SortitionDB::get_user_burns_by_block(db.conn(), &user_burn_snapshot.sortition_id)
-                    .unwrap();
-            assert_eq!(res_user_burns.len(), 1);
-            assert_eq!(res_user_burns[0], user_burn);
-
-            let no_user_burns =
-                SortitionDB::get_user_burns_by_block(db.conn(), &snapshot.sortition_id).unwrap();
-            assert_eq!(no_user_burns.len(), 0);
-        }
-    }
-
-    #[test]
     fn has_VRF_public_key() {
         let public_key = VRFPublicKey::from_bytes(
             &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
@@ -6549,6 +7343,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -6798,6 +7593,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -6906,35 +7702,6 @@ pub mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
 
-        let user_burn = UserBurnSupportOp {
-            address: StacksAddress::new(2, Hash160([2u8; 20])),
-            consensus_hash: ConsensusHash::from_bytes(
-                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
-            )
-            .unwrap(),
-            public_key: VRFPublicKey::from_bytes(
-                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
-                    .unwrap(),
-            )
-            .unwrap(),
-            block_header_hash_160: Hash160::from_bytes(
-                &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-            )
-            .unwrap(),
-            key_block_ptr: (block_height + 1) as u32,
-            key_vtxindex: vtxindex as u16,
-            burn_fee: 12345,
-
-            txid: Txid::from_bytes_be(
-                &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c")
-                    .unwrap(),
-            )
-            .unwrap(),
-            vtxindex: vtxindex + 1,
-            block_height: block_height + 2,
-            burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-        };
-
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
         let key_snapshot = test_append_snapshot(
@@ -6948,15 +7715,14 @@ pub mod tests {
         let commit_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![
-                BlockstackOperationType::LeaderBlockCommit(block_commit.clone()),
-                BlockstackOperationType::UserBurnSupport(user_burn.clone()),
-            ],
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit.clone(),
+            )],
         );
 
         {
             let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
-            assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
+            assert_eq!(burn_amt, block_commit.burn_fee);
 
             let no_burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &key_snapshot).unwrap();
             assert_eq!(no_burn_amt, 0);
@@ -7007,6 +7773,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
@@ -7060,6 +7827,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let snapshot_without_sortition = BlockSnapshot {
@@ -7113,6 +7881,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
@@ -7747,6 +8516,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 } else {
                     total_burn += 1;
@@ -7823,6 +8593,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 };
 
@@ -8043,13 +8814,14 @@ pub mod tests {
         }
     }
 
-    fn make_fork_run(
+    pub fn make_fork_run(
         db: &mut SortitionDB,
         start_snapshot: &BlockSnapshot,
         length: u64,
         bit_pattern: u8,
-    ) -> () {
+    ) -> Vec<BlockSnapshot> {
         let mut last_snapshot = start_snapshot.clone();
+        let mut new_snapshots = vec![];
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
                 accumulated_coinbase_ustx: 0,
@@ -8072,10 +8844,13 @@ pub mod tests {
                 stacks_block_accepted: false,
                 stacks_block_height: 0,
                 arrival_index: 0,
-                canonical_stacks_tip_height: 0,
-                canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height,
+                canonical_stacks_tip_hash: last_snapshot.canonical_stacks_tip_hash,
+                canonical_stacks_tip_consensus_hash: last_snapshot
+                    .canonical_stacks_tip_consensus_hash,
+                miner_pk_hash: None,
             };
+            new_snapshots.push(snapshot.clone());
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
@@ -8095,6 +8870,7 @@ pub mod tests {
                 .unwrap()
                 .unwrap();
         }
+        new_snapshots
     }
 
     #[test]
@@ -8679,6 +9455,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0x09; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0x0a; 20]),
+            miner_pk_hash: None,
         };
 
         let best_height = 123;
@@ -8742,6 +9519,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -8810,6 +9588,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -8876,6 +9655,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -8921,6 +9701,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -8966,6 +9747,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -9011,6 +9793,7 @@ pub mod tests {
                 }, // missing future
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -9056,6 +9839,7 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();
@@ -9590,6 +10374,7 @@ pub mod tests {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
 
         let mut burnchain = Burnchain::regtest(path_root);
@@ -9700,6 +10485,11 @@ pub mod tests {
         )
         .unwrap();
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let vote_pubkey = StacksPublicKey::from_hex(
+            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+        )
+        .unwrap();
+        let vote_key: StacksPublicKeyBuffer = vote_pubkey.to_bytes_compressed().as_slice().into();
 
         let good_ops = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
@@ -9718,6 +10508,9 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0u32),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -9739,6 +10532,19 @@ pub mod tests {
 
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
+                block_height,
+                burn_header_hash: first_burn_hash.clone(),
+            }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                aggregate_key: vote_key,
+                signer_key: vote_key,
+                round: 1,
+                reward_cycle: 2,
+                signer_index: 3,
+
+                txid: Txid([0x05; 32]),
+                vtxindex: 4,
                 block_height,
                 burn_header_hash: first_burn_hash.clone(),
             }),
@@ -9772,6 +10578,13 @@ pub mod tests {
             good_ops[2]
         );
 
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops[3]
+        );
+
         // if the same ops get mined in a different burnchain block, they will still be available
         let good_ops_2 = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
@@ -9790,6 +10603,9 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -9808,6 +10624,19 @@ pub mod tests {
 
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
+                block_height,
+                burn_header_hash: fork_burn_hash.clone(),
+            }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                aggregate_key: StacksPublicKeyBuffer([0x01; 33]),
+                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                round: 1,
+                reward_cycle: 2,
+                signer_index: 3,
+
+                txid: Txid([0x05; 32]),
+                vtxindex: 4,
                 block_height,
                 burn_header_hash: fork_burn_hash.clone(),
             }),
@@ -9842,6 +10671,13 @@ pub mod tests {
             good_ops[2]
         );
 
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops[3]
+        );
+
         // and so are the new ones
         let ops = SortitionDB::get_transfer_stx_ops(db.conn(), &fork_burn_hash).unwrap();
         assert_eq!(ops.len(), 1);
@@ -9863,5 +10699,59 @@ pub mod tests {
             BlockstackOperationType::DelegateStx(ops[0].clone()),
             good_ops_2[2]
         );
+
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &fork_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops_2[3]
+        );
+    }
+
+    #[test]
+    fn test_validate_and_replace_epochs() {
+        use crate::core::STACKS_EPOCHS_MAINNET;
+
+        let path_root = "/tmp/test_validate_and_replace_epochs";
+        if fs::metadata(path_root).is_ok() {
+            fs::remove_dir_all(path_root).unwrap();
+        }
+
+        fs::create_dir_all(path_root).unwrap();
+
+        let mut bad_epochs = STACKS_EPOCHS_MAINNET.to_vec();
+        let idx = bad_epochs.len() - 2;
+        bad_epochs[idx].end_height += 1;
+        bad_epochs[idx + 1].start_height += 1;
+
+        let sortdb = SortitionDB::connect(
+            &format!("{}/sortdb.sqlite", &path_root),
+            0,
+            &BurnchainHeaderHash([0x00; 32]),
+            0,
+            &bad_epochs,
+            PoxConstants::mainnet_default(),
+            None,
+            true,
+        )
+        .unwrap();
+
+        let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+        assert_eq!(db_epochs, bad_epochs);
+
+        let fixed_sortdb = SortitionDB::connect(
+            &format!("{}/sortdb.sqlite", &path_root),
+            0,
+            &BurnchainHeaderHash([0x00; 32]),
+            0,
+            &STACKS_EPOCHS_MAINNET.to_vec(),
+            PoxConstants::mainnet_default(),
+            None,
+            true,
+        )
+        .unwrap();
+
+        let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+        assert_eq!(db_epochs, STACKS_EPOCHS_MAINNET.to_vec());
     }
 }

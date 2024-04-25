@@ -2,7 +2,13 @@
 stacks-node = "run --package stacks-node --"
 fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity=Module"
 
+# Uncomment to improve performance slightly, at the cost of portability
+#   * Note that native binaries may not run on CPUs that are different from the build machine
+# [build]
+# rustflags = ["-Ctarget-cpu=native"]
+
 # Needed by perf to generate flamegraphs.
 #[target.x86_64-unknown-linux-gnu]
 #linker = "/usr/bin/clang"
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+

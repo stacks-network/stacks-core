@@ -1074,7 +1074,7 @@ fn test_metrics_identifiers() {
                 "GET",
                 "/v2/blocks/d8bd3c7e7cf7a9d783560a71356d3d9dbc84dc2f0c1a0001be8b141927c9d7ab",
             ),
-            ("/v2/blocks/:hash", true),
+            ("/v2/blocks/:block_id", true),
         ),
         // Invalid requests
         (("POST", "/v2/info"), ("<err-handler-not-found>", false)),

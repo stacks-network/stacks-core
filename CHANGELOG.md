@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.5.0.0.3]
+
+This release fixes a regression in `2.5.0.0.0` from `2.4.0.1.0` caused by git merge
+
+## [2.5.0.0.2]
+
+This release fixes two bugs in `2.5.0.0.0`, correctly setting the activation height for 2.5, and the network peer version.
+
+## [2.5.0.0.0]
+
+This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `840,360`: primarily the instantiation
+of the pox-4 contract. For more details see SIP-021.
+
+This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
+
+**This is a required release before Nakamoto rules are enabled in 3.0.**
+
+
+### Timing of Release from 2.5 to 3.0
+
+Activating Nakamoto will include two epochs:
+
+- **Epoch 2.5:** Pox-4 contract is booted up but no Nakamoto consensus rules take effect.
+- **Epoch 3:** Nakamoto consensus rules take effect.
+
+### Added
+
+- New RPC endpoint `/v2/stacker_set/{cycle_number}` to fetch stacker sets in PoX-4
+- New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
+- Stacker bitvec in NakamotoBlock
+- New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
+  - `stack-stx`, `stack-extend`, `stack-increase` and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
+  - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
+  - Signer key authorizations can be added via `set-signer-key-authorization` to omit the need for `signer-key` signatures
+  - A `max-amount` field is a field in signer key authorizations and defines the maximum amount of STX that can be locked in a single transaction.
+- Added configuration parameters to customize the burn block at which to start processing Stacks blocks, when running on testnet or regtest.
+  ```
+  [burnchain]
+  first_burn_block_height = 2582526
+  first_burn_block_timestamp = 1710780828
+  first_burn_block_hash = "000000000000001a17c68d43cb577d62074b63a09805e4a07e829ee717507f66"
+  ```
+
+### Modified
+
+- `pox-4.aggregation-commit` contains a signing-key parameter (like
+  `stack-stx` and `stack-extend`), the signing-key parameter is removed from
+  `delegate-*` functions.
+
 ## [2.4.0.1.0]
 
 ### Added
@@ -21,24 +70,29 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
+- satoshis_per_byte can be changed in the config file and miners will always use
+  the most up to date value
+- New RPC endpoint at /v2/block_proposal for miner to validate proposed block.
+  Only accessible on local loopback interface
 
-In addition, this introduces a set of improvements to the Stacks miner behavior.  In
+In addition, this introduces a set of improvements to the Stacks miner behavior. In
 particular:
-* The VRF public key can be re-used across node restarts.
-* Settings that affect mining are hot-reloaded from the config file.  They take
+
+- The VRF public key can be re-used across node restarts.
+- Settings that affect mining are hot-reloaded from the config file. They take
   effect once the file is updated; there is no longer a need to restart the
-node.
-* The act of changing the miner settings in the config file automatically
+  node.
+- The act of changing the miner settings in the config file automatically
   triggers a subsequent block-build attempt, allowing the operator to force the
-miner to re-try building blocks.
-* This adds a new tip-selection algorithm that minimizes block orphans within a
+  miner to re-try building blocks.
+- This adds a new tip-selection algorithm that minimizes block orphans within a
   configurable window of time.
-* When configured, the node will automatically stop mining if it is not achieving a
+- When configured, the node will automatically stop mining if it is not achieving a
   targeted win rate over a configurable window of blocks.
-* When configured, the node will selectively mine transactions from only certain
+- When configured, the node will selectively mine transactions from only certain
   addresses, or only of certain types (STX-transfers, contract-publishes,
-contract-calls).
-* When configured, the node will optionally only RBF block-commits if it can
+  contract-calls).
+- When configured, the node will optionally only RBF block-commits if it can
   produce a block with strictly more transactions.
 
 ### Changed

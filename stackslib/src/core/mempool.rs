@@ -44,6 +44,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -59,6 +60,7 @@ use crate::core::{
 use crate::cost_estimates::metrics::{CostMetric, UnitMetric};
 use crate::cost_estimates::{CostEstimator, EstimatorError, UnitEstimator};
 use crate::monitoring::increment_stx_mempool_gc;
+use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
@@ -364,7 +366,12 @@ impl std::fmt::Display for MemPoolDropReason {
     }
 }
 
+pub trait ProposalCallbackReceiver: Send {
+    fn notify_proposal_result(&self, result: Result<BlockValidateOk, BlockValidateReject>);
+}
+
 pub trait MemPoolEventDispatcher {
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>>;
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
     fn mined_block_event(
         &self,
@@ -381,6 +388,14 @@ pub trait MemPoolEventDispatcher {
         tx_results: Vec<TransactionEvent>,
         anchor_block_consensus_hash: ConsensusHash,
         anchor_block: BlockHeaderHash,
+    );
+    fn mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_results: Vec<TransactionEvent>,
     );
 }
 
@@ -1182,6 +1197,7 @@ impl CandidateCache {
     }
 
     /// Total length of the cache.
+    #[cfg_attr(test, mutants::skip)]
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
     }
@@ -1286,6 +1302,7 @@ impl MemPoolDB {
     }
 
     /// Add indexes
+    #[cfg_attr(test, mutants::skip)]
     fn add_indexes(tx: &mut DBTx) -> Result<(), db_error> {
         for cmd in MEMPOOL_INDEXES {
             tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
@@ -1294,6 +1311,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the on-disk counting bloom filter
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_bloom_state(tx: &mut DBTx) -> Result<(), db_error> {
         let node_hasher = BloomNodeHasher::new_random();
         let _ = BloomCounter::new(
@@ -1311,6 +1329,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the cost estimator schema
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
             tx.execute_batch(sql_exec)?;
@@ -1329,6 +1348,7 @@ impl MemPoolDB {
     }
 
     /// Instantiate the tx blacklist schema
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_tx_blacklist(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_4_BLACKLIST {
             tx.execute_batch(sql_exec)?;
@@ -1338,6 +1358,7 @@ impl MemPoolDB {
     }
 
     /// Add the nonce table
+    #[cfg_attr(test, mutants::skip)]
     fn instantiate_nonces(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_6_NONCES {
             tx.execute_batch(sql_exec)?;
@@ -1346,6 +1367,7 @@ impl MemPoolDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
         let mut path = PathBuf::from(chainstate_root_path);
 
@@ -1453,6 +1475,7 @@ impl MemPoolDB {
         MemPoolDB::open_db(&db_path, cost_estimator, metric)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
@@ -2253,8 +2276,9 @@ impl MemPoolDB {
             block_hash
         );
 
-        let height = match chainstate.get_stacks_block_height(consensus_hash, block_hash) {
-            Ok(Some(h)) => h,
+        let block_id = StacksBlockId::new(consensus_hash, block_hash);
+        let height = match NakamotoChainState::get_block_header(chainstate.db(), &block_id) {
+            Ok(Some(header)) => header.stacks_block_height,
             Ok(None) => {
                 if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
                     0

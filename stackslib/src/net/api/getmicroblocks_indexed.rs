@@ -113,7 +113,7 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/microblocks/:hash"
+        "/v2/microblocks/:microblock_id"
     }
 
     /// Try to decode this request.
@@ -227,6 +227,7 @@ impl HttpChunkGenerator for StacksIndexedMicroblockStream {
     /// Stream back microblock chunks.
     /// The first chunk is a 4-byte length prefix
     /// Subsequent chunks are microblocks
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.num_items_ptr == 0 {
             // send length prefix

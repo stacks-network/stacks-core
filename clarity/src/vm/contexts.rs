@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::convert::TryInto;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 
+use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
+use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
@@ -276,7 +277,7 @@ impl AssetMap {
         amount: u128,
     ) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
-            Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
+            Some(principal_map) => *principal_map.get(asset).unwrap_or(&0),
             None => 0,
         };
 
@@ -305,10 +306,7 @@ impl AssetMap {
         asset: AssetIdentifier,
         transfered: Value,
     ) {
-        let principal_map = self
-            .asset_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.asset_map.entry(principal.clone()).or_default();
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
             map_entry.push(transfered);
@@ -325,10 +323,7 @@ impl AssetMap {
     ) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
-        let principal_map = self
-            .token_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.token_map.entry(principal.clone()).or_default();
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -338,8 +333,8 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
-        let mut stx_to_add = Vec::new();
-        let mut stx_burn_to_add = Vec::new();
+        let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
+        let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
 
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
@@ -361,10 +356,7 @@ impl AssetMap {
         // After this point, this function will not fail.
         for (principal, mut principal_map) in other.asset_map.drain() {
             for (asset, mut transfers) in principal_map.drain() {
-                let landing_map = self
-                    .asset_map
-                    .entry(principal.clone())
-                    .or_insert_with(|| HashMap::new());
+                let landing_map = self.asset_map.entry(principal.clone()).or_default();
                 if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 } else {
@@ -373,19 +365,16 @@ impl AssetMap {
             }
         }
 
-        for (principal, stx_amount) in stx_to_add.drain(..) {
+        for (principal, stx_amount) in stx_to_add.into_iter() {
             self.stx_map.insert(principal, stx_amount);
         }
 
-        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+        for (principal, stx_burn_amount) in stx_burn_to_add.into_iter() {
             self.burn_map.insert(principal, stx_burn_amount);
         }
 
-        for (principal, asset, amount) in to_add.drain(..) {
-            let principal_map = self
-                .token_map
-                .entry(principal)
-                .or_insert_with(|| HashMap::new());
+        for (principal, asset, amount) in to_add.into_iter() {
+            let principal_map = self.token_map.entry(principal).or_default();
             principal_map.insert(asset, amount);
         }
 
@@ -393,9 +382,9 @@ impl AssetMap {
     }
 
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::new();
+        let mut map = HashMap::with_capacity(self.token_map.len());
         for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::new();
+            let mut output_map = HashMap::with_capacity(principal_map.len());
             for (asset, amount) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
@@ -403,9 +392,7 @@ impl AssetMap {
         }
 
         for (principal, stx_amount) in self.stx_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX(),
                 AssetMapEntry::STX(stx_amount as u128),
@@ -413,9 +400,7 @@ impl AssetMap {
         }
 
         for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount as u128),
@@ -423,9 +408,7 @@ impl AssetMap {
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -435,17 +418,11 @@ impl AssetMap {
     }
 
     pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.stx_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.stx_map.get(principal).copied()
     }
 
     pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.burn_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.burn_map.get(principal).copied()
     }
 
     pub fn get_stx_burned_total(&self) -> Result<u128> {
@@ -610,7 +587,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b mut ContractContext,
+        context: &'b ContractContext,
     ) -> Environment<'b, 'a, 'hooks> {
         Environment::new(
             &mut self.context,
@@ -670,7 +647,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             None,
             |exec_env| {
                 exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
@@ -688,7 +665,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 version,
@@ -709,7 +686,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 clarity_version,
@@ -1162,8 +1139,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1191,6 +1167,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         function: &DefinedFunction,
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
+        allow_private: bool,
     ) -> Result<Value> {
         let make_read_only = function.is_read_only();
 
@@ -1219,7 +1196,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self.global_context.roll_back()?;
             result
         } else {
-            self.global_context.handle_tx_result(result)
+            self.global_context.handle_tx_result(result, allow_private)
         }
     }
 
@@ -1749,7 +1726,14 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.database.roll_back()
     }
 
-    pub fn handle_tx_result(&mut self, result: Result<Value>) -> Result<Value> {
+    // the allow_private parameter allows private functions calls to return any Clarity type
+    // and not just Response. It only has effect is the devtools feature is enabled. eg:
+    // clarity = { version = "*", features = ["devtools"] }
+    pub fn handle_tx_result(
+        &mut self,
+        result: Result<Value>,
+        allow_private: bool,
+    ) -> Result<Value> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
@@ -1758,6 +1742,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                     self.roll_back()?;
                 }
                 Ok(Value::Response(data))
+            } else if allow_private && cfg!(feature = "devtools") {
+                self.commit()?;
+                Ok(result)
             } else {
                 Err(
                     CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)
@@ -1947,7 +1934,7 @@ impl CallStack {
                 )
                 .into());
             }
-            if tracked && !self.set.remove(&function) {
+            if tracked && !self.set.remove(function) {
                 return Err(InterpreterError::InterpreterError(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )
@@ -1975,8 +1962,14 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::Hash160;
+
     use super::*;
     use crate::vm::callables::DefineType;
+    use crate::vm::tests::{
+        test_epochs, tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+    };
     use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
@@ -1989,11 +1982,11 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let _t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
 
@@ -2028,27 +2021,27 @@ mod test {
         let p3 = PrincipalData::Contract(c_contract_id.clone());
         let _p4 = PrincipalData::Contract(d_contract_id.clone());
         let _p5 = PrincipalData::Contract(e_contract_id.clone());
-        let _p6 = PrincipalData::Contract(f_contract_id.clone());
-        let _p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id);
+        let _p7 = PrincipalData::Contract(g_contract_id);
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
         let t3 = AssetIdentifier {
-            contract_identifier: c_contract_id.clone(),
+            contract_identifier: c_contract_id,
             asset_name: "a".into(),
         };
         let t4 = AssetIdentifier {
-            contract_identifier: d_contract_id.clone(),
+            contract_identifier: d_contract_id,
             asset_name: "a".into(),
         };
         let t5 = AssetIdentifier {
-            contract_identifier: e_contract_id.clone(),
+            contract_identifier: e_contract_id,
             asset_name: "a".into(),
         };
         let t6 = AssetIdentifier::STX();
@@ -2132,6 +2125,35 @@ mod test {
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
     }
 
+    /// Test the stx-transfer consolidation tx invalidation
+    ///  bug from 2.4.0.1.0-rc1
+    #[apply(test_epochs)]
+    fn stx_transfer_consolidate_regr_24010(
+        epoch: StacksEpochId,
+        mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+    ) {
+        let mut env = tl_env_factory.get_env(epoch);
+        let u1 = StacksAddress {
+            version: 0,
+            bytes: Hash160([1; 20]),
+        };
+        let u2 = StacksAddress {
+            version: 0,
+            bytes: Hash160([2; 20]),
+        };
+        // insufficient balance must be a non-includable transaction. it must error here,
+        //  not simply rollback the tx and squelch the error as includable.
+        let e = env
+            .stx_transfer(
+                &PrincipalData::from(u1.clone()),
+                &PrincipalData::from(u2.clone()),
+                1000,
+                &BuffData::empty(),
+            )
+            .unwrap_err();
+        assert_eq!(e.to_string(), "Interpreter(InsufficientBalance)");
+    }
+
     #[test]
     fn test_canonicalize_contract_context() {
         let trait_id = TraitIdentifier::new(
@@ -2186,7 +2208,7 @@ mod test {
                 .get("alpha")
                 .unwrap()
                 .args[0],
-            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
     }
 }

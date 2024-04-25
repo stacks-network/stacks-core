@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{From, TryFrom};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -28,7 +27,10 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::Error as RusqliteError;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::{Error as RusqliteError, ToSql};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{
@@ -38,7 +40,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use stacks_common::util::hash::{
+    hex_bytes, to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE,
+};
 use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -84,6 +88,7 @@ pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
+    ExpectedTenureChange,
     InvalidStacksMicroblock(String, BlockHeaderHash),
     // The bool is true if the invalid transaction was quietly ignored.
     InvalidStacksTransaction(String, bool),
@@ -120,6 +125,9 @@ pub enum Error {
     ProblematicTransaction(Txid),
     MinerAborted,
     ChannelClosed(String),
+    /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
+    InvalidChildOfNakomotoBlock,
+    NoRegisteredSigners(u64),
 }
 
 impl From<marf_error> for Error {
@@ -205,11 +213,23 @@ impl fmt::Display for Error {
             Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
             Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
             Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
+            Error::InvalidChildOfNakomotoBlock => write!(
+                f,
+                "Stacks Epoch 2-style block building off of Nakamoto block"
+            ),
+            Error::ExpectedTenureChange => write!(
+                f,
+                "Block has a different tenure than parent, but no tenure change transaction"
+            ),
+            Error::NoRegisteredSigners(reward_cycle) => {
+                write!(f, "No registered signers for reward cycle {reward_cycle}")
+            }
         }
     }
 }
 
 impl error::Error for Error {
+    #[cfg_attr(test, mutants::skip)]
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidFee => None,
@@ -245,11 +265,15 @@ impl error::Error for Error {
             Error::PoxInvalidIncrease => None,
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
+            Error::InvalidChildOfNakomotoBlock => None,
+            Error::ExpectedTenureChange => None,
+            Error::NoRegisteredSigners(_) => None,
         }
     }
 }
 
 impl Error {
+    #[cfg_attr(test, mutants::skip)]
     fn name(&self) -> &'static str {
         match self {
             Error::InvalidFee => "InvalidFee",
@@ -285,9 +309,13 @@ impl Error {
             Error::PoxInvalidIncrease => "PoxInvalidIncrease",
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
+            Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
+            Error::ExpectedTenureChange => "ExpectedTenureChange",
+            Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn into_json(&self) -> serde_json::Value {
         let reason_code = self.name();
         let reason_data = format!("{:?}", &self);
@@ -604,13 +632,149 @@ impl_array_hexstring_fmt!(TokenTransferMemo);
 impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
 impl_byte_array_serde!(TokenTransferMemo);
 
+/// Cause of change in mining tenure
+/// Depending on cause, tenure can be ended or extended
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TenureChangeCause {
+    /// A valid winning block-commit
+    BlockFound = 0,
+    /// The next burnchain block is taking too long, so extend the runtime budget
+    Extended = 1,
+}
+
+impl TryFrom<u8> for TenureChangeCause {
+    type Error = ();
+
+    fn try_from(num: u8) -> Result<Self, Self::Error> {
+        match num {
+            0 => Ok(Self::BlockFound),
+            1 => Ok(Self::Extended),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TenureChangeCause {
+    /// Does this tenure change cause require a sortition to be valid?
+    pub fn expects_sortition(&self) -> bool {
+        match self {
+            Self::BlockFound => true,
+            Self::Extended => false,
+        }
+    }
+
+    /// Convert to u8 representation
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
+    }
+}
+
+/// Reasons why a `TenureChange` transaction can be bad
+pub enum TenureChangeError {
+    /// Not signed by required threshold (>70%)
+    SignatureInvalid,
+    /// `previous_tenure_end` does not match parent block
+    PreviousTenureInvalid,
+    /// Block is not a Nakamoto block
+    NotNakamoto,
+}
+
+/// Schnorr threshold signature using types from `wsts`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThresholdSignature(pub wsts::common::Signature);
+impl FromSql for ThresholdSignature {
+    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
+        let hex_str = value.as_str()?;
+        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
+        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
+            .map_err(|_| FromSqlError::InvalidType)?;
+        Ok(ts)
+    }
+}
+
+impl fmt::Display for ThresholdSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        to_hex(&self.serialize_to_vec()).fmt(f)
+    }
+}
+
+impl ToSql for ThresholdSignature {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let bytes = self.serialize_to_vec();
+        let hex_str = to_hex(&bytes);
+        Ok(hex_str.into())
+    }
+}
+
+impl serde::Serialize for ThresholdSignature {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let bytes = self.serialize_to_vec();
+        s.serialize_str(&to_hex(&bytes))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ThresholdSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let hex_str = String::deserialize(d)?;
+        let bytes = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
+        ThresholdSignature::consensus_deserialize(&mut bytes.as_slice())
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// A transaction from Stackers to signal new mining tenure
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TenureChangePayload {
+    /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
+    /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
+    /// subsequent sortitions; if this happens, then this `consensus_hash` value _remains the same_
+    /// as the sortition in which the winning block-commit was mined.
+    pub tenure_consensus_hash: ConsensusHash,
+    /// Consensus hash of the previous tenure.  Corresponds to the sortition of the previous
+    /// winning block-commit.
+    pub prev_tenure_consensus_hash: ConsensusHash,
+    /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
+    /// sortition.
+    pub burn_view_consensus_hash: ConsensusHash,
+    /// The StacksBlockId of the last block from the previous tenure
+    pub previous_tenure_end: StacksBlockId,
+    /// The number of blocks produced since the last sortition-linked tenure
+    pub previous_tenure_blocks: u32,
+    /// A flag to indicate the cause of this tenure change
+    pub cause: TenureChangeCause,
+    /// The ECDSA public key hash of the current tenure
+    pub pubkey_hash: Hash160,
+}
+
+impl TenureChangePayload {
+    pub fn extend(
+        &self,
+        burn_view_consensus_hash: ConsensusHash,
+        last_tenure_block_id: StacksBlockId,
+        num_blocks_so_far: u32,
+    ) -> Self {
+        TenureChangePayload {
+            tenure_consensus_hash: self.tenure_consensus_hash.clone(),
+            prev_tenure_consensus_hash: self.tenure_consensus_hash.clone(),
+            burn_view_consensus_hash,
+            previous_tenure_end: last_tenure_block_id,
+            previous_tenure_blocks: num_blocks_so_far,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: self.pubkey_hash.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload, Option<PrincipalData>),
+    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
+    Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
+    TenureChange(TenureChangePayload),
 }
 
 impl TransactionPayload {
@@ -618,24 +782,42 @@ impl TransactionPayload {
         match self {
             TransactionPayload::TokenTransfer(..) => "TokenTransfer",
             TransactionPayload::ContractCall(..) => "ContractCall",
-            TransactionPayload::SmartContract(..) => "SmartContract",
+            TransactionPayload::SmartContract(_, version_opt) => {
+                if version_opt.is_some() {
+                    "SmartContract(Versioned)"
+                } else {
+                    "SmartContract"
+                }
+            }
             TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
-            TransactionPayload::Coinbase(..) => "Coinbase",
+            TransactionPayload::Coinbase(_, _, vrf_opt) => {
+                if vrf_opt.is_some() {
+                    "Coinbase(Nakamoto)"
+                } else {
+                    "Coinbase"
+                }
+            }
+            TransactionPayload::TenureChange(payload) => match payload.cause {
+                TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
+                TenureChangeCause::Extended => "TenureChange(Extension)",
+            },
         }
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPayloadID {
+define_u8_enum!(TransactionPayloadID {
     TokenTransfer = 0,
     SmartContract = 1,
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
+    // has an alt principal, but no VRF proof
     CoinbaseToAltRecipient = 5,
     VersionedSmartContract = 6,
-}
+    TenureChange = 7,
+    // has a VRF proof, and may have an alt principal
+    NakamotoCoinbase = 8
+});
 
 /// Encoding of an asset type identifier
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1156,6 +1338,8 @@ pub mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
         let tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
@@ -1200,20 +1384,46 @@ pub mod test {
                 },
                 Some(ClarityVersion::Clarity2),
             ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Contract(
                     QualifiedContractIdentifier::transient(),
                 )),
+                None,
             ),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Standard(StandardPrincipalData(
                     0x01, [0x02; 20],
                 ))),
+                None,
+            ),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone())),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+                Some(proof.clone()),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
+                Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+            TransactionPayload::TenureChange(TenureChangePayload {
+                tenure_consensus_hash: ConsensusHash([0x01; 20]),
+                prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
+                previous_tenure_end: StacksBlockId([0x00; 32]),
+                previous_tenure_blocks: 0,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0x00; 20]),
+            }),
         ];
 
         // create all kinds of transactions
@@ -1240,8 +1450,8 @@ pub mod test {
 
                     let tx = StacksTransaction {
                         version: (*version).clone(),
-                        chain_id: chain_id,
-                        auth: auth,
+                        chain_id,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1271,7 +1481,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1330,7 +1540,7 @@ pub mod test {
         };
 
         StacksBlock {
-            header: header,
+            header,
             txs: txs_anchored,
         }
     }

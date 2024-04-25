@@ -28,7 +28,7 @@ use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
 use crate::error::EventError;
-use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
+use crate::events::{EventReceiver, EventStopSignaler, SignerEvent};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
@@ -45,12 +45,12 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
     fn get_event_timeout(&self) -> Duration;
-    /// Run one pass of the event loop, given new StackerDB events discovered since the last pass.
+    /// Run one pass of the event loop, given new Signer events discovered since the last pass.
     /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
     /// Returns None to keep running.
     fn run_one_pass(
         &mut self,
-        event: Option<StackerDBChunksEvent>,
+        event: Option<SignerEvent>,
         cmd: Option<CMD>,
         res: Sender<R>,
     ) -> Option<R>;
@@ -64,7 +64,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
     /// This would run in a separate thread from the event receiver.
     fn main_loop<EVST: EventStopSignaler>(
         &mut self,
-        event_recv: Receiver<StackerDBChunksEvent>,
+        event_recv: Receiver<SignerEvent>,
         command_recv: Receiver<CMD>,
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
@@ -79,14 +79,8 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
                     return None;
                 }
             };
-            let next_command_opt = match command_recv.recv_timeout(poll_timeout) {
-                Ok(cmd) => Some(cmd),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => {
-                    info!("Command receiver disconnected");
-                    return None;
-                }
-            };
+            // Do not block for commands
+            let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
                 self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
             {
@@ -99,12 +93,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
 }
 
 /// The top-level signer implementation
-pub struct Signer<
-    CMD: Send,
-    R: Send,
-    SL: SignerRunLoop<R, CMD> + Send + Sync,
-    EV: EventReceiver + Send,
-> {
+pub struct Signer<CMD, R, SL, EV> {
     /// the runloop itself
     signer_loop: Option<SL>,
     /// the event receiver to use
@@ -113,8 +102,6 @@ pub struct Signer<
     command_receiver: Option<Receiver<CMD>>,
     /// the result sender to use
     result_sender: Option<Sender<R>>,
-    /// marker to permit the R type
-    _phantom: PhantomData<R>,
 }
 
 /// The running signer implementation
@@ -202,13 +189,7 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
     }).expect("FATAL: failed to set signal handler");
 }
 
-impl<
-        CMD: Send + 'static,
-        R: Send + 'static,
-        SL: SignerRunLoop<R, CMD> + Send + Sync + 'static,
-        EV: EventReceiver + Send + 'static,
-    > Signer<CMD, R, SL, EV>
-{
+impl<CMD, R, SL, EV> Signer<CMD, R, SL, EV> {
     /// Create a new signer with the given runloop and event receiver.
     pub fn new(
         runloop: SL,
@@ -221,10 +202,17 @@ impl<
             event_receiver: Some(event_receiver),
             command_receiver: Some(command_receiver),
             result_sender: Some(result_sender),
-            _phantom: PhantomData,
         }
     }
+}
 
+impl<
+        CMD: Send + 'static,
+        R: Send + 'static,
+        SL: SignerRunLoop<R, CMD> + Send + 'static,
+        EV: EventReceiver + Send + 'static,
+    > Signer<CMD, R, SL, EV>
+{
     /// This is a helper function to spawn both the runloop and event receiver in their own
     /// threads.  Advanced signers may not need this method, and instead opt to run the receiver
     /// and runloop directly.  However, this method is present to help signer developers to get

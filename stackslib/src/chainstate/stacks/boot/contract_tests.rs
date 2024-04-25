@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
@@ -22,12 +21,14 @@ use clarity::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use clarity::vm::version::ClarityVersion;
+use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::util::hash::{to_hex, Sha256Sum, Sha512Trunc256Sum};
 
+use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
@@ -397,7 +398,15 @@ impl BurnStateDB for TestSimBurnStateDB {
         u32::MAX
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
         u32::MAX
     }
 
@@ -1676,6 +1685,34 @@ fn test_deploy_smart_contract(
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })
+}
+
+#[test]
+// test that the maximum stackerdb list size will fit in a value
+fn max_stackerdb_list() {
+    let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
+        .into_iter()
+        .map(|signer_ix| {
+            let signer_address = StacksAddress {
+                version: 0,
+                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
+            };
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "signer".into(),
+                        Value::Principal(PrincipalData::from(signer_address)),
+                    ),
+                    ("num-slots".into(), Value::UInt(1)),
+                ])
+                .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
+            )
+        })
+        .collect();
+
+    assert_eq!(signers_list.len(), SIGNERS_MAX_LIST_SIZE);
+    Value::cons_list_unsanitized(signers_list)
+        .expect("Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list");
 }
 
 #[test]

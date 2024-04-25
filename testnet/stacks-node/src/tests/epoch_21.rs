@@ -102,6 +102,7 @@ fn advance_to_2_1(
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -197,7 +198,7 @@ fn advance_to_2_1(
     // these should all succeed across the epoch 2.1 boundary
     for _i in 0..5 {
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
@@ -600,6 +601,7 @@ fn transition_fixes_bitcoin_rigidity() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1047,6 +1049,7 @@ fn transition_adds_get_pox_addr_recipients() {
         v1_unlock_height,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1364,6 +1367,7 @@ fn transition_adds_mining_from_segwit() {
         v1_unlock_height,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1529,6 +1533,7 @@ fn transition_removes_pox_sunset() {
         (epoch_21 as u32) + 1,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1576,7 +1581,7 @@ fn transition_removes_pox_sunset() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -1619,7 +1624,7 @@ fn transition_removes_pox_sunset() {
     }
 
     // pox must activate
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info in pox-1 = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(
@@ -1634,7 +1639,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-1: {} <= {}", sort_height, epoch_21);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     // pox is still "active" despite unlock, because there's enough participation, and also even
     // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
@@ -1679,7 +1684,7 @@ fn transition_removes_pox_sunset() {
         sort_height
     );
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
     // get pox back online
@@ -1689,7 +1694,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-2: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
@@ -1811,6 +1816,7 @@ fn transition_empty_blocks() {
         (epoch_2_1 + 1) as u32,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1865,7 +1871,7 @@ fn transition_empty_blocks() {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
@@ -2167,6 +2173,7 @@ fn test_pox_reorgs_three_flaps() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
         );
@@ -2705,6 +2712,7 @@ fn test_pox_reorg_one_flap() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3127,6 +3135,7 @@ fn test_pox_reorg_flap_duel() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
         );
@@ -3563,6 +3572,7 @@ fn test_pox_reorg_flap_reward_cycles() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3991,6 +4001,7 @@ fn test_pox_missing_five_anchor_blocks() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4391,6 +4402,7 @@ fn test_sortition_divergence_pre_21() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4755,6 +4767,7 @@ fn trait_invocation_cross_epoch() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4998,6 +5011,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         u64::MAX - 2,
         u64::MAX - 1,
         v1_unlock_height as u32,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
@@ -5262,6 +5276,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u64::MAX - 2,
         u64::MAX - 1,
         v1_unlock_height as u32,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
