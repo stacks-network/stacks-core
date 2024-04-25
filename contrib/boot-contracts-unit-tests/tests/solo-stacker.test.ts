@@ -11,6 +11,7 @@ import {
   delegateStackStx,
   delegateStx,
   getPoxInfo,
+  stackExtend,
   stackIncrease,
   stackStx,
   stackers,
@@ -886,6 +887,226 @@ describe("pox-4", () => {
         address1
       );
       expect(result).toBeErr(Cl.int(26));
+    });
+
+    it("cannot be called indirectly from an unauthorized caller", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 2;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackExtend,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackExtendArgs = [
+        Cl.uint(2),
+        poxAddressToTuple(account.btcAddr),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      const response = simnet.callPublicFn(
+        "indirect",
+        "stack-extend",
+        stackExtendArgs,
+        address1
+      );
+
+      expect(response.result).toBeErr(
+        Cl.int(ERRORS.ERR_STACKING_PERMISSION_DENIED)
+      );
+    });
+
+    it("can be called indirectly from an authorized caller", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 2;
+      const poxInfo = getPoxInfo();
+      const cycleLength = Number(poxInfo.rewardCycleLength);
+
+      allowContractCaller(`${deployer}.indirect`, null, address1);
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period,
+        topic: Pox4SignatureTopic.StackExtend,
+        poxAddress: account.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackExtendArgs = [
+        Cl.uint(2),
+        poxAddressToTuple(account.btcAddr),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+      const response = simnet.callPublicFn(
+        "indirect",
+        "stack-extend",
+        stackExtendArgs,
+        address1
+      );
+
+      expect(response.result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "unlock-burn-height": Cl.uint(5 * cycleLength),
+        })
+      );
+    });
+
+    it("cannot extend for 0 cycles", () => {
+      const account = stackers[0];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 2;
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+      const { result } = stackExtend(
+        account,
+        0,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD));
+    });
+
+    it("errors if not directly stacking", () => {
+      const account = stackers[0];
+      const delegateAccount = stackers[1];
+      const authId = account.authId;
+      const period = 6;
+
+      delegateStx(
+        maxAmount,
+        delegateAccount.stxAddress,
+        null,
+        null,
+        account.stxAddress
+      );
+      delegateStackStx(
+        address1,
+        maxAmount,
+        delegateAccount.btcAddr,
+        1000,
+        period,
+        address2
+      );
+
+      const { result } = stackExtend(
+        account,
+        4,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+      expect(result).toBeErr(Cl.int(ERRORS.ERR_STACKING_IS_DELEGATED));
+    });
+
+    it("can change the pox address", () => {
+      const account = stackers[0];
+      const account1 = stackers[1];
+      const burnBlockHeight = 1;
+      const authId = account.authId;
+      const period = 6;
+      const extendPeriod = 5;
+      const poxInfo = getPoxInfo();
+      const cycleLength = Number(poxInfo.rewardCycleLength);
+
+      stackStx(
+        account,
+        maxAmount,
+        burnBlockHeight,
+        period,
+        maxAmount,
+        authId,
+        account.stxAddress
+      );
+
+      const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+      const sigArgs = {
+        authId,
+        maxAmount,
+        rewardCycle,
+        period: extendPeriod,
+        topic: Pox4SignatureTopic.StackExtend,
+        poxAddress: account1.btcAddr,
+        signerPrivateKey: account.signerPrivKey,
+      };
+      const signerSignature = account.client.signPoxSignature(sigArgs);
+      const signerKey = Cl.bufferFromHex(account.signerPubKey);
+
+      const stackExtendArgs = [
+        Cl.uint(extendPeriod),
+        poxAddressToTuple(account1.btcAddr),
+        Cl.some(Cl.bufferFromHex(signerSignature)),
+        signerKey,
+        Cl.uint(maxAmount),
+        Cl.uint(authId),
+      ];
+
+      const { result } = simnet.callPublicFn(
+        POX_CONTRACT,
+        "stack-extend",
+        stackExtendArgs,
+        address1
+      );
+
+      expect(result).toBeOk(
+        Cl.tuple({
+          stacker: Cl.principal(account.stxAddress),
+          "unlock-burn-height": Cl.uint(12 * cycleLength),
+        })
+      );
     });
   });
 

@@ -18,6 +18,15 @@
   (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-increase increase-by signer-sig signer-key max-amount auth-id)
 )
 
+(define-public (stack-extend (extend-count uint)
+                             (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                             (signer-sig (optional (buff 65)))
+                             (signer-key (buff 33))
+                             (max-amount uint)
+                             (auth-id uint))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-extend extend-count pox-addr signer-sig signer-key max-amount auth-id)
+)
+
 (define-public (delegate-stx (amount-ustx uint)
                              (delegate-to principal)
                              (until-burn-ht (optional uint))

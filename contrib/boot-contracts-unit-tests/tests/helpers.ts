@@ -221,6 +221,43 @@ export const stackIncrease = (
   );
 };
 
+export const stackExtend = (
+  stacker: StackerInfo,
+  extendCount: bigint | number,
+  maxAmount: bigint | number,
+  authId: bigint | number,
+  sender: string
+) => {
+  const rewardCycle = burnHeightToRewardCycle(simnet.blockHeight);
+  const sigArgs = {
+    authId,
+    maxAmount,
+    rewardCycle,
+    period: Number(extendCount),
+    topic: Pox4SignatureTopic.StackExtend,
+    poxAddress: stacker.btcAddr,
+    signerPrivateKey: stacker.signerPrivKey,
+  };
+  const signerSignature = stacker.client.signPoxSignature(sigArgs);
+  const signerKey = Cl.bufferFromHex(stacker.signerPubKey);
+
+  const stackExtendArgs = [
+    Cl.uint(extendCount),
+    poxAddressToTuple(stacker.btcAddr),
+    Cl.some(Cl.bufferFromHex(signerSignature)),
+    signerKey,
+    Cl.uint(maxAmount),
+    Cl.uint(authId),
+  ];
+
+  return simnet.callPublicFn(
+    POX_CONTRACT,
+    "stack-extend",
+    stackExtendArgs,
+    sender
+  );
+};
+
 export const delegateStx = (
   amount: bigint | number,
   delegateTo: string,
