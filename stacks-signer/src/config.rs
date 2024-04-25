@@ -183,6 +183,8 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<SocketAddr>,
 }
 
 /// Internal struct for loading up the config file
@@ -215,6 +217,8 @@ struct RawConfigFile {
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
     pub db_path: String,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<String>,
 }
 
 impl RawConfigFile {
@@ -292,6 +296,19 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         let db_path = raw_data.db_path.into();
 
+        let metrics_endpoint = match raw_data.metrics_endpoint {
+            Some(endpoint) => Some(
+                endpoint
+                    .to_socket_addrs()
+                    .map_err(|_| ConfigError::BadField("endpoint".to_string(), endpoint.clone()))?
+                    .next()
+                    .ok_or_else(|| {
+                        ConfigError::BadField("endpoint".to_string(), endpoint.clone())
+                    })?,
+            ),
+            None => None,
+        };
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -308,6 +325,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
             auth_password: raw_data.auth_password,
             db_path,
+            metrics_endpoint,
         })
     }
 }
@@ -338,6 +356,10 @@ impl GlobalConfig {
             0 => "default".to_string(),
             _ => (self.tx_fee_ustx as f64 / 1_000_000.0).to_string(),
         };
+        let metrics_endpoint = match &self.metrics_endpoint {
+            Some(endpoint) => endpoint.to_string(),
+            None => "None".to_string(),
+        };
         format!(
             r#"
 Stacks node host: {node_host}
@@ -347,6 +369,7 @@ Public key: {public_key}
 Network: {network}
 Database path: {db_path}
 DKG transaction fee: {tx_fee} uSTX
+Metrics endpoint: {metrics_endpoint}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
@@ -354,7 +377,8 @@ DKG transaction fee: {tx_fee} uSTX
             public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
-            tx_fee = tx_fee
+            tx_fee = tx_fee,
+            metrics_endpoint = metrics_endpoint,
         )
     }
 }
@@ -374,6 +398,7 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
+    mut metrics_port_start: Option<usize>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -410,6 +435,17 @@ event_timeout = {event_timeout_ms}
             )
         }
 
+        if let Some(metrics_port) = metrics_port_start {
+            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+metrics_endpoint = "{metrics_endpoint}"
+"#
+            );
+            metrics_port_start = Some(metrics_port + 1);
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
 
@@ -439,12 +475,14 @@ mod tests {
             password,
             rand::random(),
             3000,
+            Some(4000),
         );
 
         let config =
             RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
 
         assert_eq!(config.auth_password, "melon");
+        assert_eq!(config.metrics_endpoint, Some("localhost:4000".to_string()));
     }
 
     #[test]
@@ -462,6 +500,7 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Database path: :memory:
 DKG transaction fee: 0.01 uSTX
+Metrics endpoint: 0.0.0.0:9090
 "#
             )
         );
