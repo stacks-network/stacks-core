@@ -413,6 +413,7 @@ impl Signer {
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
             Command::Dkg => {
+                crate::monitoring::increment_commands_processed(&"dkg");
                 if self.approved_aggregate_public_key.is_some() {
                     debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
                     return;
@@ -449,6 +450,7 @@ impl Signer {
                 is_taproot,
                 merkle_root,
             } => {
+                crate::monitoring::increment_commands_processed(&"sign");
                 if self.approved_aggregate_public_key.is_none() {
                     debug!("{self}: Cannot sign a block without an approved aggregate public key. Ignore it.");
                     return;
@@ -548,6 +550,7 @@ impl Signer {
     ) {
         let mut block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
+                crate::monitoring::increment_block_validation_responses(true);
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
                 // For mutability reasons, we need to take the block_info out of the map and add it back after processing
                 let mut block_info = match self
@@ -578,6 +581,7 @@ impl Signer {
                 block_info
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
+                crate::monitoring::increment_block_validation_responses(false);
                 let signer_signature_hash = block_validate_reject.signer_signature_hash;
                 let mut block_info = match self
                     .signer_db
@@ -680,6 +684,9 @@ impl Signer {
         packets: &[Packet],
         current_reward_cycle: u64,
     ) {
+        if let Ok(packets_len) = packets.len().try_into() {
+            crate::monitoring::increment_inbound_packets(packets_len);
+        }
         let signer_outbound_messages = self
             .state_machine
             .process_inbound_messages(packets)
@@ -1036,20 +1043,25 @@ impl Signer {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
             match operation_result {
                 OperationResult::Sign(signature) => {
+                    crate::monitoring::increment_operation_results(&"sign");
                     debug!("{self}: Received signature result");
                     self.process_signature(signature);
                 }
                 OperationResult::SignTaproot(_) => {
+                    crate::monitoring::increment_operation_results(&"sign_taproot");
                     debug!("{self}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.");
                 }
                 OperationResult::Dkg(aggregate_key) => {
+                    crate::monitoring::increment_operation_results(&"dkg");
                     self.process_dkg(stacks_client, aggregate_key);
                 }
                 OperationResult::SignError(e) => {
+                    crate::monitoring::increment_operation_results(&"sign_error");
                     warn!("{self}: Received a Sign error: {e:?}");
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
+                    crate::monitoring::increment_operation_results(&"dkg_error");
                     warn!("{self}: Received a DKG error: {e:?}");
                     // TODO: process these errors and track malicious signers to report
                 }
@@ -1200,6 +1212,7 @@ impl Signer {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
             return Ok(());
         }
+        crate::monitoring::increment_dkg_votes_submitted();
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         signer_transactions.push(new_transaction);
         let signer_message = SignerMessage::Transactions(signer_transactions);
@@ -1219,9 +1232,11 @@ impl Signer {
         };
 
         let block_submission = if block_vote.rejected {
+            crate::monitoring::increment_block_responses_sent(false);
             // We signed a rejection message. Return a rejection message
             BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone())
         } else {
+            crate::monitoring::increment_block_responses_sent(true);
             // we agreed to sign the block hash. Return an approval message
             BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone())
         };

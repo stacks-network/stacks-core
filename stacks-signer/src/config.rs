@@ -186,6 +186,8 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<SocketAddr>,
 }
 
 /// Internal struct for loading up the config file
@@ -221,6 +223,8 @@ struct RawConfigFile {
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
     pub db_path: String,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<String>,
 }
 
 impl RawConfigFile {
@@ -298,6 +302,19 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         let db_path = raw_data.db_path.into();
 
+        let metrics_endpoint = match raw_data.metrics_endpoint {
+            Some(endpoint) => Some(
+                endpoint
+                    .to_socket_addrs()
+                    .map_err(|_| ConfigError::BadField("endpoint".to_string(), endpoint.clone()))?
+                    .next()
+                    .ok_or_else(|| {
+                        ConfigError::BadField("endpoint".to_string(), endpoint.clone())
+                    })?,
+            ),
+            None => None,
+        };
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -315,6 +332,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
+            metrics_endpoint,
         })
     }
 }
@@ -345,6 +363,10 @@ impl GlobalConfig {
             0 => "default".to_string(),
             _ => (self.tx_fee_ustx as f64 / 1_000_000.0).to_string(),
         };
+        let metrics_endpoint = match &self.metrics_endpoint {
+            Some(endpoint) => endpoint.to_string(),
+            None => "None".to_string(),
+        };
         format!(
             r#"
 Stacks node host: {node_host}
@@ -354,6 +376,7 @@ Public key: {public_key}
 Network: {network}
 Database path: {db_path}
 DKG transaction fee: {tx_fee} uSTX
+Metrics endpoint: {metrics_endpoint}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
@@ -361,7 +384,8 @@ DKG transaction fee: {tx_fee} uSTX
             public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
-            tx_fee = tx_fee
+            tx_fee = tx_fee,
+            metrics_endpoint = metrics_endpoint,
         )
     }
 }
@@ -384,6 +408,7 @@ pub fn build_signer_config_tomls(
     mut port_start: usize,
     max_tx_fee_ustx: Option<u64>,
     tx_fee_ustx: Option<u64>,
+    mut metrics_port_start: Option<usize>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -438,6 +463,17 @@ tx_fee_ustx = {tx_fee_ustx}
             )
         }
 
+        if let Some(metrics_port) = metrics_port_start {
+            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+metrics_endpoint = "{metrics_endpoint}"
+"#
+            );
+            metrics_port_start = Some(metrics_port + 1);
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
 
@@ -469,6 +505,7 @@ mod tests {
             3000,
             None,
             None,
+            Some(4000),
         );
 
         let config =
@@ -477,6 +514,7 @@ mod tests {
         assert_eq!(config.auth_password, "melon");
         assert!(config.max_tx_fee_ustx.is_none());
         assert!(config.tx_fee_ustx.is_none());
+        assert_eq!(config.metrics_endpoint, Some("localhost:4000".to_string()));
     }
 
     #[test]
@@ -499,6 +537,7 @@ mod tests {
             password,
             rand::random(),
             3000,
+            None,
             None,
             None,
         );
@@ -526,6 +565,7 @@ mod tests {
             3000,
             max_tx_fee_ustx,
             tx_fee_ustx,
+            None,
         );
 
         let config =
@@ -545,6 +585,7 @@ mod tests {
             rand::random(),
             3000,
             max_tx_fee_ustx,
+            None,
             None,
         );
 
@@ -570,6 +611,7 @@ mod tests {
             3000,
             None,
             tx_fee_ustx,
+            None,
         );
 
         let config =

@@ -93,6 +93,10 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
+    #[cfg(feature = "monitoring_prom")]
+    {
+        stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
+    }
     let runloop = RunLoop::from(config);
     let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
         Signer::new(runloop, ev, cmd_recv, res_send);
@@ -303,6 +307,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.password,
         rand::random(),
         3000,
+        None,
         None,
         None,
     );
