@@ -189,6 +189,8 @@ export class StackStxAuthCommand implements PoxCommand {
       "stack-stx-auth",
       "lock-amount",
       amountUstx.toString(),
+      "period",
+      this.period.toString(),
     );
 
     // Refresh the model's state if the network gets to the next reward cycle.
