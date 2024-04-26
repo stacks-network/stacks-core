@@ -1,11 +1,7 @@
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
 import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
-import {
-  currentCycle,
-  FIRST_BURNCHAIN_BLOCK_HEIGHT,
-  REWARD_CYCLE_LENGTH,
-} from "./pox_Commands";
-import { Cl } from "@stacks/transactions";
+import { currentCycle } from "./pox_Commands";
+import { Cl, cvToJSON } from "@stacks/transactions";
 import { expect } from "vitest";
 import { tx } from "@hirosystems/clarinet-sdk";
 
@@ -67,14 +63,14 @@ export class StackIncreaseAuthCommand implements PoxCommand {
     const currentRewCycle = currentCycle(real.network);
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-    const firstRewardCycle = stacker.firstLockedRewardCycle;
-
-    const unlockCycle = Math.floor(
-      (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
-        REWARD_CYCLE_LENGTH,
+    // Get the lock period from the stacking state. This will be used for correctly
+    // issuing the authorization.
+    const stackingStateCV = real.network.getMapEntry(
+      "ST000000000000000000002AMW42H.pox-4",
+      "stacking-state",
+      Cl.tuple({ stacker: Cl.principal(this.wallet.stxAddress) }),
     );
-
-    const period = unlockCycle - firstRewardCycle;
+    const period = cvToJSON(stackingStateCV).value.value["lock-period"].value;
 
     const maxAmount = stacker.amountLocked + this.increaseBy;
 
