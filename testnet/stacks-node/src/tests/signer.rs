@@ -10,7 +10,7 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
     BlockProposalSigners, BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer,
-    SignerEventReceiver, SignerMessage,
+    SignerEntries, SignerEventReceiver, SignerMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -42,13 +42,15 @@ use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
+use stacks_signer::coordinator::CoordinatorSelector;
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::OperationResult;
+use wsts::net::Message;
+use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
@@ -56,8 +58,9 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
-    next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
+    boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
+    naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
@@ -496,6 +499,16 @@ impl SignerTest {
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
             .expect("FATAL: signer not registered")
+    }
+
+    fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
+        let entries = self
+            .stacks_client
+            .get_reward_set_signers(reward_cycle)
+            .unwrap()
+            .unwrap();
+        let entries = SignerEntries::parse(false, &entries).unwrap();
+        entries.public_keys
     }
 
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
@@ -963,8 +976,8 @@ fn stackerdb_dkg() {
 
 #[test]
 #[ignore]
-/// Test the signer can respond to external commands to perform DKG
-fn stackerdb_sign() {
+/// Test the signer rejects requests to sign that do not come from a miner
+fn stackerdb_sign_request_rejected() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1106,6 +1119,167 @@ fn stackerdb_sign() {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
+}
+
+#[test]
+#[ignore]
+/// Test that a signer can be offline when a DKG round has commenced and
+/// can rejoin the DKG round after it has restarted
+fn stackerdb_delayed_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
+    boot_to_epoch_3_reward_set_calculation_boundary(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
+    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let coordinator_selector = CoordinatorSelector::from(public_keys);
+    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
+    let coordinator_public_key =
+        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
+    let signer_slot_ids: Vec<_> = (0..num_signers)
+        .into_iter()
+        .map(|i| SignerSlotID(i as u32))
+        .collect();
+    let mut stackerdbs: Vec<_> = signer_slot_ids
+        .iter()
+        .map(|i| {
+            StackerDB::new(
+                &signer_test.running_nodes.conf.node.rpc_bind,
+                StacksPrivateKey::new(), // Doesn't matter what key we use. We are just reading, not writing
+                false,
+                reward_cycle,
+                *i,
+            )
+        })
+        .collect();
+    info!("------------------------- Stop Signers -------------------------");
+    let mut to_stop = None;
+    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
+        let public_key = StacksPublicKey::from_private(key);
+        if public_key == coordinator_public_key {
+            // Do not stop the coordinator. We want coordinator to start a DKG round
+            continue;
+        }
+        // Only stop one signer
+        to_stop = Some(idx);
+        break;
+    }
+    let signer_idx = to_stop.expect("Failed to find a signer to stop");
+    let signer_key = signer_test.stop_signer(signer_idx);
+    debug!(
+        "Removed signer {signer_idx} with key: {:?}, {}",
+        signer_key,
+        signer_key.to_hex()
+    );
+    info!("------------------------- Start DKG -------------------------");
+    info!("Waiting for DKG to start...");
+    // Advance one more to trigger DKG
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        timeout.as_secs(),
+        || Ok(true),
+    )
+    .expect("Failed to mine bitcoin block");
+    // Do not proceed until we guarantee that DKG was triggered
+    let start_time = Instant::now();
+    loop {
+        let stackerdb = stackerdbs.first_mut().unwrap();
+        let dkg_packets: Vec<_> = stackerdb
+            .get_dkg_packets(&signer_slot_ids)
+            .expect("Failed to get dkg packets");
+        let begin_packets: Vec<_> = dkg_packets
+            .iter()
+            .filter_map(|packet| {
+                if matches!(packet.msg, Message::DkgBegin(_)) {
+                    Some(packet)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !begin_packets.is_empty() {
+            break;
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Timed out waiting for DKG to be triggered"
+        );
+    }
+
+    info!("------------------------- Restart Stopped Signer -------------------------");
+
+    signer_test.restart_signer(signer_idx, signer_key);
+
+    info!("------------------------- Wait for DKG -------------------------");
+    let key = signer_test.wait_for_dkg(timeout);
+    let mut transactions = HashSet::with_capacity(num_signers);
+    let start_time = Instant::now();
+    while transactions.len() < num_signers {
+        for stackerdb in stackerdbs.iter_mut() {
+            let current_transactions = stackerdb
+                .get_current_transactions()
+                .expect("Failed getting current transactions for signer slot id");
+            for tx in current_transactions {
+                transactions.insert(tx.txid());
+            }
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to retrieve pending vote transactions within timeout"
+        );
+    }
+
+    // Make sure transactions get mined
+    let start_time = Instant::now();
+    while !transactions.is_empty() {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to mine transactions within timeout"
+        );
+        next_block_and_wait(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.blocks_processed,
+        );
+        let blocks = test_observer::get_blocks();
+        for block in blocks.iter() {
+            let txs = block.get("transactions").unwrap().as_array().unwrap();
+            for tx in txs.iter() {
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                if raw_tx == "0x00" {
+                    continue;
+                }
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                transactions.remove(&parsed.txid());
+            }
+        }
+    }
+
+    // Make sure DKG did get set
+    assert_eq!(
+        key,
+        signer_test
+            .stacks_client
+            .get_approved_aggregate_key(reward_cycle)
+            .expect("Failed to get approved aggregate key")
+            .expect("No approved aggregate key found")
+    );
 }
 
 pub fn find_block_response(chunk_events: Vec<StackerDBChunksEvent>) -> Option<SignerMessage> {

@@ -75,7 +75,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
         let hexed_string = to_hex(chunk);
         let hexed_chunk = hexed_string.as_bytes();
-        let bytes = io::stdout().write(&hexed_chunk).unwrap();
+        let bytes = io::stdout().write(hexed_chunk).unwrap();
         if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",

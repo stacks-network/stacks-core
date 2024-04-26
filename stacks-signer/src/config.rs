@@ -357,7 +357,7 @@ DKG transaction fee: {tx_fee} uSTX
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
-            stacks_address = self.stacks_address.to_string(),
+            stacks_address = self.stacks_address,
             public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),

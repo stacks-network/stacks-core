@@ -145,6 +145,8 @@ pub enum Operation {
 /// The Signer state
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
+    /// The signer is uninitialized and should read stackerdb to restore state
+    Uninitialized,
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
@@ -234,6 +236,43 @@ impl Signer {
     fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
         self.coordinator_selector.get_coordinator()
     }
+
+    /// Read stackerdb messages in case the signer was started late or restarted and missed incoming DKG messages
+    pub fn read_dkg_stackerdb_messages(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        if self.state != State::Uninitialized {
+            // We should only read stackerdb if we are uninitialized
+            return Ok(());
+        }
+        let ordered_packets = self
+            .stackerdb
+            .get_dkg_packets(&self.signer_slot_ids)?
+            .iter()
+            .filter_map(|packet| {
+                let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                    self.get_coordinator_dkg().1
+                } else {
+                    debug!(
+                        "{self}: Received a non-DKG message in the DKG message queue. Ignoring it."
+                    );
+                    return None;
+                };
+                self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
+            })
+            .collect::<Vec<_>>();
+        // We successfully read stackerdb so we are no longer uninitialized
+        self.state = State::Idle;
+        debug!(
+            "{self}: Processing {} DKG messages from stackerdb: {ordered_packets:?}",
+            ordered_packets.len()
+        );
+        self.handle_packets(stacks_client, res, &ordered_packets, current_reward_cycle);
+        Ok(())
+    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -297,7 +336,7 @@ impl From<SignerConfig> for Signer {
 
         if let Some(state) = load_encrypted_signer_state(
             &mut stackerdb,
-            signer_config.signer_slot_id.into(),
+            signer_config.signer_slot_id,
             &state_machine.network_private_key,
         ).or_else(|err| {
                 warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
@@ -312,7 +351,7 @@ impl From<SignerConfig> for Signer {
         Self {
             coordinator,
             state_machine,
-            state: State::Idle,
+            state: State::Uninitialized,
             commands: VecDeque::new(),
             stackerdb,
             mainnet: signer_config.mainnet,
@@ -403,6 +442,7 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Dkg);
             }
             Command::Sign {
                 block_proposal,
@@ -449,6 +489,7 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Sign);
             }
         }
     }
@@ -460,6 +501,10 @@ impl Signer {
         current_reward_cycle: u64,
     ) {
         match &self.state {
+            State::Uninitialized => {
+                // We cannot process any commands until we have restored our state
+                warn!("{self}: Cannot process commands until state is restored. Waiting...");
+            }
             State::Idle => {
                 let Some(command) = self.commands.front() else {
                     debug!("{self}: Nothing to process. Waiting for command...");
@@ -685,13 +730,13 @@ impl Signer {
             }
         }
 
-        if packets.iter().any(|packet| match packet.msg {
-            Message::DkgEnd(_) => true,
-            _ => false,
-        }) {
+        if packets
+            .iter()
+            .any(|packet| matches!(packet.msg, Message::DkgEnd(_)))
+        {
             debug!("{self}: Saving signer state");
             self.save_signer_state()
-                .expect(&format!("{self}: Failed to save signer state"));
+                .unwrap_or_else(|_| panic!("{self}: Failed to save signer state"));
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -1316,14 +1361,44 @@ impl Signer {
         }
     }
 
-    /// Refresh DKG value and queue DKG command if necessary
-    pub fn refresh_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
-        // First check if we should queue DKG based on contract vote state and stackerdb transactions
-        let should_queue = self.should_queue_dkg(stacks_client)?;
-        // Before queueing the command, check one last time if DKG has been
-        // approved. It could have happened after the last call to
-        // `get_approved_aggregate_key` but before the theshold check in
-        // `should_queue_dkg`.
+    /// Refresh DKG and queue it if required
+    pub fn refresh_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        // First attempt to retrieve the aggregate key from the contract.
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        // Check stackerdb for any missed DKG messages to catch up our state.
+        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        // Check if we should still queue DKG
+        if !self.should_queue_dkg(stacks_client)? {
+            return Ok(());
+        }
+        // Because there could be a slight delay in reading pending transactions and a key being approved by the contract,
+        // check one last time if the approved key was set since we finished the should queue dkg call
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        if self.commands.front() != Some(&Command::Dkg) {
+            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
+            self.commands.push_front(Command::Dkg);
+        } else {
+            debug!("{self}: DKG command already queued...");
+        }
+        Ok(())
+    }
+
+    /// Overwrites the approved aggregate key to the value in the contract, updating state accordingly
+    pub fn update_approved_aggregate_key(
+        &mut self,
+        stacks_client: &StacksClient,
+    ) -> Result<(), ClientError> {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
@@ -1331,27 +1406,33 @@ impl Signer {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
+            let internal_dkg = self.coordinator.aggregate_public_key;
+            if internal_dkg != self.approved_aggregate_public_key {
+                warn!("{self}: we do not support changing the internal DKG key yet. Expected {internal_dkg:?} got {:?}", self.approved_aggregate_public_key);
+            }
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             if old_dkg != self.approved_aggregate_public_key {
                 warn!(
-                    "{self}: updated DKG value to {:?}.",
+                    "{self}: updated DKG value from {old_dkg:?} to {:?}.",
                     self.approved_aggregate_public_key
                 );
             }
-            if let State::OperationInProgress(Operation::Dkg) = self.state {
-                debug!(
-                    "{self}: DKG has already been set. Aborting DKG operation {}.",
-                    self.coordinator.current_dkg_id
-                );
-                self.finish_operation();
-            }
-        } else if should_queue {
-            if self.commands.front() != Some(&Command::Dkg) {
-                info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-                self.commands.push_front(Command::Dkg);
-            } else {
-                debug!("{self}: DKG command already queued...");
+            match self.state {
+                State::OperationInProgress(Operation::Dkg) => {
+                    debug!(
+                        "{self}: DKG has already been set. Aborting DKG operation {}.",
+                        self.coordinator.current_dkg_id
+                    );
+                    self.finish_operation();
+                }
+                State::Uninitialized => {
+                    // If we successfully load the DKG value, we are fully initialized
+                    self.state = State::Idle;
+                }
+                _ => {
+                    // do nothing
+                }
             }
         }
         Ok(())
@@ -1433,7 +1514,7 @@ impl Signer {
                 else {
                     continue;
                 };
-                let Some(dkg_public_key) = self.coordinator.aggregate_public_key.clone() else {
+                let Some(dkg_public_key) = self.coordinator.aggregate_public_key else {
                     break;
                 };
                 if params.aggregate_key == dkg_public_key
