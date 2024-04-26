@@ -70,6 +70,8 @@ jobs:
           draft: false
           prerelease: true
           fail_on_unmatched_files: true
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
           files: |
             release/*.zip
             CHECKSUMS.txt

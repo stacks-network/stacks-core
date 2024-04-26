@@ -1340,7 +1340,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
-            Ok(value) => match value.clone().expect_result() {
+            Ok(value) => match value.clone().expect_result()? {
                 Ok(_) => {
                     self.global_context.commit()?;
                     Ok(value)
@@ -1966,8 +1966,14 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::Hash160;
+
     use super::*;
     use crate::vm::callables::DefineType;
+    use crate::vm::tests::{
+        test_epochs, tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+    };
     use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
@@ -2121,6 +2127,35 @@ mod test {
 
         assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
+
+    /// Test the stx-transfer consolidation tx invalidation
+    ///  bug from 2.4.0.1.0-rc1
+    #[apply(test_epochs)]
+    fn stx_transfer_consolidate_regr_24010(
+        epoch: StacksEpochId,
+        mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+    ) {
+        let mut env = tl_env_factory.get_env(epoch);
+        let u1 = StacksAddress {
+            version: 0,
+            bytes: Hash160([1; 20]),
+        };
+        let u2 = StacksAddress {
+            version: 0,
+            bytes: Hash160([2; 20]),
+        };
+        // insufficient balance must be a non-includable transaction. it must error here,
+        //  not simply rollback the tx and squelch the error as includable.
+        let e = env
+            .stx_transfer(
+                &PrincipalData::from(u1.clone()),
+                &PrincipalData::from(u2.clone()),
+                1000,
+                &BuffData::empty(),
+            )
+            .unwrap_err();
+        assert_eq!(e.to_string(), "Interpreter(InsufficientBalance)");
     }
 
     #[test]
