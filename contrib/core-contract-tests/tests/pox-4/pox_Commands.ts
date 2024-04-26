@@ -21,6 +21,7 @@ import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerComma
 import { StackExtendAuthCommand } from "./pox_StackExtendAuthCommand";
 import { StackExtendSigCommand } from "./pox_StackExtendSigCommand";
 import { StackIncreaseAuthCommand } from "./pox_StackIncreaseAuthCommand";
+import { StackIncreaseSigCommand } from "./pox_StackIncreaseSigCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -134,6 +135,19 @@ export function PoxCommands(
     })
       .map((r) => {
         return new StackIncreaseAuthCommand(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+        );
+      }),
+    // StackIncreaseSigCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+      authId: fc.nat(),
+    })
+      .map((r) => {
+        return new StackIncreaseSigCommand(
           r.operator,
           r.increaseBy,
           r.authId,
