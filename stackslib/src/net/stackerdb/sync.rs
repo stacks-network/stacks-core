@@ -659,7 +659,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     self.replicas.insert(naddr);
                 }
                 Err(_e) => {
-                    info!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
+                    if naddr.addrbytes.is_in_private_range() {
+                        debug!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
+                    } else {
+                        info!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
+                    }
                 }
             }
         }
