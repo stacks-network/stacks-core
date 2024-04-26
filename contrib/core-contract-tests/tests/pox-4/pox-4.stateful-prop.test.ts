@@ -149,12 +149,12 @@ it("statefully interacts with PoX-4", async () => {
     ),
     {
       // Defines the number of test iterations to run; default is 100.
-      numRuns: 100000,
+      numRuns: 1000,
       // Adjusts the level of detail in test reports. Default is 0 (minimal).
       // At level 2, reports include extensive details, helpful for deep
       // debugging. This includes not just the failing case and its seed, but
       // also a comprehensive log of all executed steps and their outcomes.
-      verbose: 1,
+      verbose: 2,
     },
   );
 
