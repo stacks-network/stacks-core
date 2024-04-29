@@ -1290,7 +1290,7 @@ impl Signer {
     fn save_signer_state(&mut self) -> Result<(), PersistenceError> {
         let rng = &mut OsRng;
 
-        let mut saved_states = self.load_encrypted_signer_state().unwrap_or_else(|err| {
+        let mut saved_states = self.load_encrypted_signer_states().unwrap_or_else(|err| {
             warn!("{self}: Failed to load previous dkg state: {err}");
             VecDeque::new()
         });
@@ -1406,13 +1406,13 @@ impl Signer {
         aggregate_key: Point,
     ) -> Result<Option<v2::Signer>, PersistenceError> {
         Ok(
-            get_signer(self.load_encrypted_signer_state()?, aggregate_key)
+            get_signer_state(self.load_encrypted_signer_states()?, aggregate_key)
                 .map(|state| v2::Signer::load(&state)),
         )
     }
 
     /// Load the entire encrypted signer state
-    fn load_encrypted_signer_state(&mut self) -> Result<StoredSignerStates, PersistenceError> {
+    fn load_encrypted_signer_states(&mut self) -> Result<StoredSignerStates, PersistenceError> {
         let loaded_signers = load_encrypted_signer_state(
             &mut self.stackerdb,
             self.signer_slot_id.into(),
@@ -1715,7 +1715,10 @@ fn load_encrypted_signer_state<S: SignerStateStorage>(
     Ok(serde_json::from_slice(&serialized_state)?)
 }
 
-fn get_signer(loaded_signers: StoredSignerStates, aggregate_key: Point) -> Option<SignerState> {
+fn get_signer_state(
+    loaded_signers: StoredSignerStates,
+    aggregate_key: Point,
+) -> Option<SignerState> {
     loaded_signers
         .into_iter()
         .find(|state| state.group_key == aggregate_key)
