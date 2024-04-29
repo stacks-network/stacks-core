@@ -33,7 +33,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -86,6 +86,12 @@ use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
+
+use blockstack_lib::chainstate::burn::db::sortdb::get_block_commit_by_txid;
+use blockstack_lib::chainstate::burn::db::sortdb::SortitionHandle;
+use blockstack_lib::chainstate::burn::BlockSnapshot;
+use blockstack_lib::chainstate::coordinator::get_reward_cycle_info;
+use blockstack_lib::chainstate::coordinator::OnChainRewardSetProvider;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -1015,6 +1021,130 @@ simulating a miner.
 
         println!("{}", &serde_json::to_string(&chunk).unwrap());
         process::exit(0);
+    }
+
+    if argv[1] == "analyze-sortition-mev" {
+        if argv.len() < 7 {
+            eprintln!(
+                "Usage: {} /path/to/burnchain/db /path/to/sortition/db /path/to/chainstate/db start_height end_height",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let burnchaindb_path = argv[2].clone();
+        let sortdb_path = argv[3].clone();
+        let chainstate_path = argv[4].clone();
+        let start_height: u64 = argv[5].parse().unwrap();
+        let end_height: u64 = argv[6].parse().unwrap();
+
+        let mut sortdb =
+            SortitionDB::open(&sortdb_path, true, PoxConstants::mainnet_default()).unwrap();
+        let burnchain = Burnchain::new(&burnchaindb_path, "bitcoin", "mainnet").unwrap();
+        let burnchaindb = BurnchainDB::connect(&burnchaindb_path, &burnchain, true).unwrap();
+        let (mut chainstate, _) =
+            StacksChainState::open(true, 0x00000001, &chainstate_path, None).unwrap();
+
+        let mut wins_epoch2 = BTreeMap::new();
+        let mut wins_epoch3 = BTreeMap::new();
+
+        for height in start_height..end_height {
+            let (tip_sort_id, ancestor_sn) = {
+                let mut sort_tx = sortdb.tx_begin_at_tip();
+                let tip_sort_id = sort_tx.tip();
+                let ancestor_sn = sort_tx
+                    .get_block_snapshot_by_height(height)
+                    .unwrap()
+                    .unwrap();
+                (tip_sort_id, ancestor_sn)
+            };
+            let rc_info_opt = get_reward_cycle_info(
+                ancestor_sn.block_height + 1,
+                &ancestor_sn.burn_header_hash,
+                &tip_sort_id,
+                &burnchain,
+                &burnchaindb,
+                &mut chainstate,
+                &mut sortdb,
+                &OnChainRewardSetProvider::new(),
+                false,
+            )
+            .unwrap();
+
+            let burn_block =
+                BurnchainDB::get_burnchain_block(burnchaindb.conn(), &ancestor_sn.burn_header_hash)
+                    .unwrap();
+            let (next_sn, state_transition) = sortdb
+                .evaluate_sortition(
+                    &burn_block.header,
+                    burn_block.ops.clone(),
+                    &burnchain,
+                    &tip_sort_id,
+                    rc_info_opt,
+                    |_| (),
+                )
+                .unwrap();
+
+            let mut sort_tx = sortdb.tx_begin_at_tip();
+            let tip_pox_id = sort_tx.get_pox_id().unwrap();
+            let next_sn_nakamoto = BlockSnapshot::make_snapshot_in_epoch(
+                &mut sort_tx,
+                &burnchain,
+                &ancestor_sn.sortition_id,
+                &tip_pox_id,
+                &ancestor_sn,
+                &burn_block.header,
+                &state_transition,
+                0,
+                StacksEpochId::Epoch30,
+            )
+            .unwrap();
+
+            assert_eq!(next_sn.block_height, next_sn_nakamoto.block_height);
+            assert_eq!(next_sn.burn_header_hash, next_sn_nakamoto.burn_header_hash);
+
+            let winner_epoch2 =
+                get_block_commit_by_txid(&sort_tx, &tip_sort_id, &next_sn.winning_block_txid)
+                    .unwrap()
+                    .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
+                    .unwrap_or("(null)".to_string());
+
+            let winner_epoch3 = get_block_commit_by_txid(
+                &sort_tx,
+                &tip_sort_id,
+                &next_sn_nakamoto.winning_block_txid,
+            )
+            .unwrap()
+            .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
+            .unwrap_or("(null)".to_string());
+
+            wins_epoch2.insert(
+                (next_sn.block_height, next_sn.burn_header_hash),
+                winner_epoch2,
+            );
+            wins_epoch3.insert(
+                (
+                    next_sn_nakamoto.block_height,
+                    next_sn_nakamoto.burn_header_hash,
+                ),
+                winner_epoch3,
+            );
+        }
+
+        println!("Wins epoch 2");
+        println!("------------");
+        println!("height,burn_header_hash,winner");
+        for ((height, bhh), winner) in wins_epoch2.into_iter() {
+            println!("{},{},{}", &height, &bhh, &winner);
+        }
+
+        println!("------------");
+        println!("Wins epoch 3");
+        println!("------------");
+        println!("height,burn_header_hash,winner");
+        for ((height, bhh), winner) in wins_epoch3.into_iter() {
+            println!("{},{},{}", &height, &bhh, &winner);
+        }
     }
 
     if argv[1] == "replay-chainstate" {
