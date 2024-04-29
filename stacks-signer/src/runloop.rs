@@ -214,7 +214,7 @@ impl RunLoop {
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(&mut self, reward_cycle: u64) {
+    fn refresh_signer_config(&mut self, reward_cycle: u64) -> Result<(), ClientError> {
         let reward_index = reward_cycle % 2;
         if let Some(new_signer_config) = self.get_signer_config(reward_cycle) {
             let signer_id = new_signer_config.signer_id;
@@ -237,15 +237,19 @@ impl RunLoop {
                 }
             }
             let mut new_signer = Signer::from(new_signer_config);
-            let dkg_id = self
-                .stacks_client
-                .get_last_round(reward_cycle)
-                .expect("Failed to get last DKG round")
-                .unwrap_or(0);
-            let approved_aggregate_key = self
-                .stacks_client
-                .get_approved_aggregate_key(reward_cycle)
-                .expect("Failed to get approved aggregate key");
+
+            let dkg_id = retry_with_exponential_backoff(|| {
+                self.stacks_client
+                    .get_last_round(reward_cycle)
+                    .map_err(backoff::Error::transient)
+            })?
+            .unwrap_or(0);
+
+            let approved_aggregate_key = retry_with_exponential_backoff(|| {
+                self.stacks_client
+                    .get_approved_aggregate_key(reward_cycle)
+                    .map_err(backoff::Error::transient)
+            })?;
 
             new_signer.state_machine.reset(dkg_id, &mut OsRng);
             new_signer.approved_aggregate_public_key = approved_aggregate_key;
@@ -257,6 +261,8 @@ impl RunLoop {
         } else {
             warn!("Signer is not registered for reward cycle {reward_cycle}. Waiting for confirmed registration...");
         }
+
+        Ok(())
     }
 
     fn initialize_runloop(&mut self) -> Result<(), ClientError> {
@@ -267,10 +273,10 @@ impl RunLoop {
                 .map_err(backoff::Error::transient)
         })?;
         let current_reward_cycle = reward_cycle_info.reward_cycle;
-        self.refresh_signer_config(current_reward_cycle);
+        self.refresh_signer_config(current_reward_cycle)?;
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
         if reward_cycle_info.is_in_prepare_phase(reward_cycle_info.last_burnchain_block_height) {
-            self.refresh_signer_config(current_reward_cycle.saturating_add(1));
+            self.refresh_signer_config(current_reward_cycle.saturating_add(1))?;
         }
         self.current_reward_cycle_info = Some(reward_cycle_info);
         if self.stacks_signers.is_empty() {
@@ -306,7 +312,7 @@ impl RunLoop {
                 .unwrap_or(true)
             {
                 info!("Received a new burnchain block height ({current_burn_block_height}) in the prepare phase of the next reward cycle ({next_reward_cycle}). Checking for signer registration...");
-                self.refresh_signer_config(next_reward_cycle);
+                self.refresh_signer_config(next_reward_cycle)?;
             }
         }
         self.cleanup_stale_signers(current_reward_cycle);
