@@ -1016,7 +1016,8 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                         test_debug!(
                             "{:?}: Failed to connect to {:?}: {:?}",
                             network.get_local_peer(),
-                            &na.addrbytes
+                            &nk,
+                            &e
                         );
                     } else {
                         info!(
