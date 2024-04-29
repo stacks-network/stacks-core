@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "test": "vitest run -- --coverage",
-    "unittest": "vitest run tests/pox-4-unit-tests/*.test.ts -- --coverage",
     "genhtml": "genhtml lcov.info --branch-coverage -o coverage/"
   },
   "author": "",
