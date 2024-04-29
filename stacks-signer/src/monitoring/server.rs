@@ -119,9 +119,24 @@ impl MonitoringServer {
                 continue;
             }
 
-            // unknown request, return 200 ok
+            if request.url() == "/info" {
+                request
+                    .respond(HttpResponse::from_string(self.get_info_response()))
+                    .expect("Failed to respond to request");
+                continue;
+            }
+
+            // return 200 OK for "/"
+            if request.url() == "/" {
+                request
+                    .respond(HttpResponse::from_string("OK"))
+                    .expect("Failed to respond to request");
+                continue;
+            }
+
+            // unknown request, return 404
             request
-                .respond(HttpResponse::from_string(self.get_info_response()))
+                .respond(HttpResponse::from_string("Not Found").with_status_code(404))
                 .expect("Failed to respond to request");
         }
     }

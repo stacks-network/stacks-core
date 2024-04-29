@@ -1212,11 +1212,11 @@ impl Signer {
             debug!("{self}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", new_transaction.txid());
             return Ok(());
         }
-        crate::monitoring::increment_dkg_votes_submitted();
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         signer_transactions.push(new_transaction);
         let signer_message = SignerMessage::Transactions(signer_transactions);
         self.stackerdb.send_message_with_retry(signer_message)?;
+        crate::monitoring::increment_dkg_votes_submitted();
         info!("{self}: Broadcasted DKG vote transaction ({txid}) to stacker DB");
         Ok(())
     }
