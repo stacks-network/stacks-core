@@ -378,13 +378,11 @@ impl From<SignerConfig> for Signer {
 
 impl Signer {
     /// Refresh the coordinator selector
-    pub fn refresh_coordinator(&mut self) {
-        // TODO: do not use an empty consensus hash
-        let pox_consensus_hash = ConsensusHash::empty();
+    pub fn refresh_coordinator(&mut self, pox_consensus_hash: &ConsensusHash) {
         let old_coordinator_id = self.coordinator_selector.get_coordinator().0;
         let updated_coordinator_id = self
             .coordinator_selector
-            .refresh_coordinator(&pox_consensus_hash);
+            .refresh_coordinator(pox_consensus_hash);
         if old_coordinator_id != updated_coordinator_id {
             debug!(
                 "{self}: Coordinator updated. Resetting state to Idle.";
@@ -1095,14 +1093,10 @@ impl Signer {
             .first()
             .map(|tx| tx.get_origin_nonce().wrapping_add(1))
             .unwrap_or(*account_nonce);
-        let epoch = stacks_client
-            .get_node_epoch()
-            .unwrap_or(StacksEpochId::Epoch24);
-        match self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key) {
+        match self.build_dkg_vote(stacks_client, next_nonce, *dkg_public_key) {
             Ok(new_transaction) => {
                 if let Err(e) = self.broadcast_dkg_vote(
                     stacks_client,
-                    epoch,
                     signer_transactions,
                     new_transaction,
                 ) {
@@ -1123,7 +1117,6 @@ impl Signer {
     fn build_dkg_vote(
         &mut self,
         stacks_client: &StacksClient,
-        epoch: &StacksEpochId,
         nonce: u64,
         dkg_public_key: Point,
     ) -> Result<StacksTransaction, ClientError> {
@@ -1134,7 +1127,7 @@ impl Signer {
             self.reward_cycle,
             nonce,
         )?;
-        let tx_fee = if epoch < &StacksEpochId::Epoch30 {
+        let tx_fee = if self.current_reward_cycle_info.expect("FATAL: cannot be an initialized signer with no reward cycle info.").epoch < &StacksEpochId::Epoch30 {
             info!("{self}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.");
             let fee = if let Some(max_fee) = self.max_tx_fee_ustx {
                 let estimated_fee = stacks_client

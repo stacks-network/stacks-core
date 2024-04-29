@@ -20,6 +20,8 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::types::chainstate::ConsensusHash;
+use clarity::types::StacksEpochId;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -64,6 +66,10 @@ pub struct RewardCycleInfo {
     pub first_burnchain_block_height: u64,
     /// The burnchain block height of the last query
     pub last_burnchain_block_height: u64,
+    /// The pox consensus hash
+    pub pox_consensus_hash: ConsensusHash,
+    /// The current epoch of the node
+    pub epoch: StacksEpochId,
 }
 
 impl RewardCycleInfo {
@@ -390,7 +396,12 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
-            signer.refresh_coordinator();
+            signer.refresh_coordinator(
+                &self
+                    .current_reward_cycle_info
+                    .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
+                    .pox_consensus_hash,
+            );
             if let Err(e) = signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),
@@ -426,7 +437,10 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 
 #[cfg(test)]
 mod tests {
+    use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
+    use clarity::types::chainstate::ConsensusHash;
+    use clarity::types::StacksEpochId;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
@@ -487,6 +501,8 @@ mod tests {
             prepare_phase_block_length,
             first_burnchain_block_height,
             last_burnchain_block_height,
+            pox_consensus_hash: ConsensusHash::empty(),
+            epoch: StacksEpochId::Epoch25,
         };
         assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
         assert!(!reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height));
