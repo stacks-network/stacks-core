@@ -125,10 +125,7 @@ impl RunLoop {
         reward_cycle: u64,
     ) -> Result<Option<SignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self
-            .stacks_client
-            .get_reward_set_signers_with_retry(reward_cycle)?
-        else {
+        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
@@ -210,6 +207,7 @@ impl RunLoop {
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
             tx_fee_ustx: self.config.tx_fee_ustx,
+            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
         })
     }
@@ -385,14 +383,11 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if event_parity == Some(other_signer_parity) {
                 continue;
             }
-
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client)
-                        .map_err(backoff::Error::transient)
-                }) {
-                    error!("{signer}: failed to update DKG: {e}");
+                if let Err(e) =
+                    signer.refresh_dkg(&self.stacks_client, res.clone(), current_reward_cycle)
+                {
+                    error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
             signer.refresh_coordinator();
@@ -428,6 +423,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;

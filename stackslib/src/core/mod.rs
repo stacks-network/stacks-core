@@ -119,7 +119,7 @@ pub const BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT: u64 = 788_240;
 /// This is Epoch-2.3, now Epoch-2.4, activation height proposed in SIP-024
 pub const BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT: u64 = 791_551;
 /// This is Epoch-2.5, activation height proposed in SIP-021
-pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 1_000_000;
+pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 839_444;
 /// This is Epoch-3.0, activation height proposed in SIP-021
 pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 2_000_000;
 
@@ -134,6 +134,11 @@ pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_633;
 pub const BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT: u64 = 2_432_545;
 pub const BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT: u64 = 2_583_893;
 pub const BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT: u64 = 30_000_000;
+
+/// This constant sets the approximate testnet bitcoin height at which 2.5 Xenon
+///  was reorged back to 2.5 instantiation. This is only used to calculate the
+///  expected affirmation maps (so it only must be accurate to the reward cycle).
+pub const BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT: u64 = 2_586_000;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;

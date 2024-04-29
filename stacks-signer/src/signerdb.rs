@@ -23,7 +23,6 @@ use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::traits::SignerState;
 
 use crate::signer::BlockInfo;
 
@@ -40,13 +39,14 @@ CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
+    burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
-const CREATE_SIGNER_STATE_TABLE: &'static str = "
+const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
-    state TEXT NOT NULL
+    encrypted_state BLOB NOT NULL
 )";
 
 impl SignerDb {
@@ -84,26 +84,26 @@ impl SignerDb {
     }
 
     /// Get the signer state for the provided reward cycle if it exists in the database
-    pub fn get_signer_state(&self, reward_cycle: u64) -> Result<Option<SignerState>, DBError> {
-        let result: Option<String> = query_row(
+    pub fn get_encrypted_signer_state(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<Vec<u8>>, DBError> {
+        query_row(
             &self.db,
-            "SELECT state FROM signer_states WHERE reward_cycle = ?",
-            &[u64_to_sql(reward_cycle)?],
-        )?;
-
-        try_deserialize(result)
+            "SELECT encrypted_state FROM signer_states WHERE reward_cycle = ?",
+            [u64_to_sql(reward_cycle)?],
+        )
     }
 
     /// Insert the given state in the `signer_states` table for the given reward cycle
-    pub fn insert_signer_state(
+    pub fn insert_encrypted_signer_state(
         &self,
         reward_cycle: u64,
-        signer_state: &SignerState,
+        encrypted_signer_state: &[u8],
     ) -> Result<(), DBError> {
-        let serialized_state = serde_json::to_string(signer_state)?;
         self.db.execute(
-            "INSERT OR REPLACE INTO signer_states (reward_cycle, state) VALUES (?1, ?2)",
-            params![&u64_to_sql(reward_cycle)?, &serialized_state],
+            "INSERT OR REPLACE INTO signer_states (reward_cycle, encrypted_state) VALUES (?1, ?2)",
+            params![&u64_to_sql(reward_cycle)?, &encrypted_signer_state],
         )?;
         Ok(())
     }
@@ -126,30 +126,29 @@ impl SignerDb {
 
     /// Insert a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
-    pub fn insert_block(
-        &mut self,
-        reward_cycle: u64,
-        block_info: &BlockInfo,
-    ) -> Result<(), DBError> {
+    pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
         let signed_over = &block_info.signed_over;
-        debug!(
-            "Inserting block_info: reward_cycle = {reward_cycle}, sighash = {hash}, block_id = {block_id}, signed = {signed_over} vote = {:?}",
-            block_info.vote.as_ref().map(|v| {
-                if v.rejected {
-                    "REJECT"
-                } else {
-                    "ACCEPT"
-                }
-            })
+        let vote = block_info
+            .vote
+            .as_ref()
+            .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
+
+        debug!("Inserting block_info.";
+            "reward_cycle" => %block_info.reward_cycle,
+            "burn_block_height" => %block_info.burn_block_height,
+            "sighash" => %hash,
+            "block_id" => %block_id,
+            "signed" => %signed_over,
+            "vote" => vote
         );
         self.db
             .execute(
-                "INSERT OR REPLACE INTO blocks (reward_cycle, signer_signature_hash, block_info) VALUES (?1, ?2, ?3)",
-                params![&u64_to_sql(reward_cycle)?, hash.to_string(), &block_json],
+                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info) VALUES (?1, ?2, ?3, ?4)",
+                params![u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json],
             )?;
 
         Ok(())
@@ -185,15 +184,10 @@ mod tests {
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use num_traits::identities::Zero;
-    use polynomial::Polynomial;
+    use libsigner::BlockProposalSigners;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::secp256k1::MessageSignature;
-    use wsts::common::Nonce;
-    use wsts::curve::point::Point;
-    use wsts::curve::scalar::Scalar;
-    use wsts::traits::PartyState;
 
     use super::*;
 
@@ -204,8 +198,8 @@ mod tests {
     }
 
     fn create_block_override(
-        overrides: impl FnOnce(&mut NakamotoBlock),
-    ) -> (BlockInfo, NakamotoBlock) {
+        overrides: impl FnOnce(&mut BlockProposalSigners),
+    ) -> (BlockInfo, BlockProposalSigners) {
         let header = NakamotoBlockHeader {
             version: 1,
             chain_length: 2,
@@ -218,39 +212,20 @@ mod tests {
             signer_signature: ThresholdSignature::empty(),
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
-        let mut block = NakamotoBlock {
+        let block = NakamotoBlock {
             header,
             txs: vec![],
         };
-        overrides(&mut block);
-        (BlockInfo::new(block.clone()), block)
+        let mut block_proposal = BlockProposalSigners {
+            block,
+            burn_height: 7,
+            reward_cycle: 42,
+        };
+        overrides(&mut block_proposal);
+        (BlockInfo::from(block_proposal.clone()), block_proposal)
     }
 
-    fn create_signer_state(id: u32) -> SignerState {
-        let ps1 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        let ps2 = PartyState {
-            polynomial: Some(Polynomial::new(vec![1.into(), 2.into(), 3.into()])),
-            private_keys: vec![(1, 45.into()), (2, 56.into())],
-            nonce: Nonce::zero(),
-        };
-
-        SignerState {
-            id,
-            key_ids: vec![2, 4],
-            num_keys: 12,
-            num_parties: 10,
-            threshold: 7,
-            group_key: Point::from(Scalar::from(42)),
-            parties: vec![(2, ps1), (4, ps2)],
-        }
-    }
-
-    fn create_block() -> (BlockInfo, NakamotoBlock) {
+    fn create_block() -> (BlockInfo, BlockProposalSigners) {
         create_block_override(|_| {})
     }
 
@@ -263,21 +238,26 @@ mod tests {
 
     fn test_basic_signer_db_with_path(db_path: impl AsRef<Path>) {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let reward_cycle = 1;
-        let (block_info, block) = create_block();
-        db.insert_block(reward_cycle, &block_info)
+        let (block_info, block_proposal) = create_block();
+        let reward_cycle = block_info.reward_cycle;
+        db.insert_block(&block_info)
             .expect("Unable to insert block into db");
-
         let block_info = db
-            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
+            .block_lookup(
+                reward_cycle,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::new(block.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal.clone()), block_info);
 
         // Test looking up a block from a different reward cycle
         let block_info = db
-            .block_lookup(reward_cycle + 1, &block.header.signer_signature_hash())
+            .block_lookup(
+                reward_cycle + 1,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
             .unwrap();
         assert!(block_info.is_none());
     }
@@ -297,23 +277,27 @@ mod tests {
     fn test_update_block() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let reward_cycle = 42;
-        let (block_info, block) = create_block();
-        db.insert_block(reward_cycle, &block_info)
+        let (block_info, block_proposal) = create_block();
+        let reward_cycle = block_info.reward_cycle;
+        db.insert_block(&block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
+            .block_lookup(
+                reward_cycle,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::new(block.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal.clone()), block_info);
 
         let old_block_info = block_info;
-        let old_block = block;
+        let old_block_proposal = block_proposal;
 
-        let (mut block_info, block) = create_block_override(|b| {
-            b.header.signer_signature = old_block.header.signer_signature.clone();
+        let (mut block_info, block_proposal) = create_block_override(|b| {
+            b.block.header.signer_signature =
+                old_block_proposal.block.header.signer_signature.clone();
         });
         assert_eq!(
             block_info.signer_signature_hash(),
@@ -324,11 +308,14 @@ mod tests {
             rejected: false,
         };
         block_info.vote = Some(vote.clone());
-        db.insert_block(reward_cycle, &block_info)
+        db.insert_block(&block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(reward_cycle, &block.header.signer_signature_hash())
+            .block_lookup(
+                reward_cycle,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
             .unwrap()
             .expect("Unable to get block from db");
 
@@ -340,35 +327,33 @@ mod tests {
     fn test_write_signer_state() {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let state_0 = create_signer_state(0);
-        let state_1 = create_signer_state(1);
+        let state_0 = vec![0];
+        let state_1 = vec![1; 1024];
 
-        db.insert_signer_state(10, &state_0)
+        db.insert_encrypted_signer_state(10, &state_0)
             .expect("Failed to insert signer state");
 
-        db.insert_signer_state(11, &state_1)
+        db.insert_encrypted_signer_state(11, &state_1)
             .expect("Failed to insert signer state");
 
         assert_eq!(
-            db.get_signer_state(10)
+            db.get_encrypted_signer_state(10)
                 .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_0.id
+                .unwrap(),
+            state_0
         );
         assert_eq!(
-            db.get_signer_state(11)
+            db.get_encrypted_signer_state(11)
                 .expect("Failed to get signer state")
-                .unwrap()
-                .id,
-            state_1.id
+                .unwrap(),
+            state_1
         );
         assert!(db
-            .get_signer_state(12)
+            .get_encrypted_signer_state(12)
             .expect("Failed to get signer state")
             .is_none());
         assert!(db
-            .get_signer_state(9)
+            .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
     }

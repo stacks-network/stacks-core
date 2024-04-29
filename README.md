@@ -49,6 +49,19 @@ cargo build --release
 cargo build --profile release-lite
 ```
 
+_Note on building_: you may set `RUSTFLAGS` to build binaries for your native cpu:
+
+```
+RUSTFLAGS="-Ctarget-cpu=native"
+```
+
+or uncomment these lines in `./cargo/config`:
+
+```
+# [build]
+# rustflags = ["-Ctarget-cpu=native"]
+```
+
 ## Testing
 
 **Run the tests:**

@@ -57,6 +57,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::coordinator::SortitionDBMigrator;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
 use crate::chainstate::stacks::StacksPublicKey;
@@ -687,6 +688,8 @@ impl Burnchain {
     }
 
     /// Connect to the burnchain databases.  They may or may not already exist.
+    /// NOTE: this will _not_ perform a chainstate migration!  Use
+    /// coordinator::migrate_chainstate_dbs() for that.
     pub fn connect_db(
         &self,
         readwrite: bool,
@@ -706,6 +709,7 @@ impl Burnchain {
             first_block_header_timestamp,
             &epochs,
             self.pox_constants.clone(),
+            None,
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(&burnchain_db_path, self, readwrite)?;

@@ -503,6 +503,7 @@ impl NakamotoBlockHeader {
         burn_spent: u64,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
+        bitvec_len: u16,
     ) -> NakamotoBlockHeader {
         NakamotoBlockHeader {
             version: NAKAMOTO_BLOCK_VERSION,
@@ -514,7 +515,8 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            signer_bitvec: BitVec::ones(bitvec_len)
+                .expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -1826,6 +1828,11 @@ impl NakamotoChainState {
                 .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
         let aggregate_key_block_header =
             Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
+            .ok_or(ChainstateError::InvalidStacksBlock(
+                "Failed to get epoch ID".into(),
+            ))?
+            .epoch_id;
 
         let aggregate_public_key = Self::load_aggregate_public_key(
             sortdb,
@@ -1833,7 +1840,7 @@ impl NakamotoChainState {
             chainstate,
             block_sn.block_height,
             &aggregate_key_block_header.index_block_hash(),
-            true,
+            epoch_id >= StacksEpochId::Epoch30,
         )?;
         Ok(aggregate_public_key)
     }
@@ -2982,6 +2989,7 @@ impl NakamotoChainState {
         debug!(
             "Append nakamoto block";
             "block" => format!("{}/{block_hash}", block.header.consensus_hash),
+            "block_id" => %block.header.block_id(),
             "parent_block" => %block.header.parent_block_id,
             "stacks_height" => next_block_height,
             "total_burns" => block.header.burn_spent,

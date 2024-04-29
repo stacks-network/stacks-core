@@ -141,6 +141,7 @@ impl BurnchainController for MocknetController {
             get_epoch_time_secs(),
             &epoch_vector,
             self.burnchain.pox_constants.clone(),
+            None,
             true,
         ) {
             Ok(db) => db,
