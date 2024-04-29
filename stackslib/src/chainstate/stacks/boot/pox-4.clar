@@ -897,12 +897,12 @@
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
     (let ((partial-amount-ustx (get stacked-amount partial-stacked))
-          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
-          ;; infallible; getting something from partial-stacked-by-cycle succeeded so this must succeed
-          (existing-cycle (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
           ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
           (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
                           (err ERR_DELEGATION_NO_REWARD_SLOT)))
+          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
+          ;; infallible; getting existing-entry succeeded so this must succeed
+          (existing-cycle (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
           (increased-entry-total (+ (get total-ustx existing-entry) partial-amount-ustx))
           (increased-cycle-total (+ (get total-ustx existing-cycle) partial-amount-ustx))
           (existing-signer-key (get signer existing-entry)))

@@ -109,6 +109,10 @@ impl HttpRequest for RPCHeadersRequestHandler {
         Regex::new(r#"^/v2/headers/(?P<quantity>[0-9]+)$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/headers/:height"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
