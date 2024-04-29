@@ -1169,6 +1169,55 @@ impl BlockMinerThread {
             return vec![];
         }
 
+        let sortdb_tip_handle = burn_db.index_handle_at_tip();
+
+        let stacks_tips: Vec<_> = stacks_tips
+            .into_iter()
+            .filter(|candidate| {
+                let candidate_ch = &candidate.consensus_hash;
+                let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
+                    sortdb_tip_handle.conn(),
+                    candidate_ch
+                ) {
+                    Ok(Some(x)) => x.block_height,
+                    Ok(None) => {
+                        warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash);
+                        return false;
+                    },
+                    Err(e) => {
+                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash,
+                              "err" => ?e);
+                        return false;
+                    },
+                };
+                let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
+                    Ok(Some(x)) => x,
+                    Ok(None) => {
+                        warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash);
+                        return false;
+                    },
+                    Err(e) => {
+                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash,
+                              "err" => ?e);
+                        return false;
+                    },
+                };
+                if &tip_ch != candidate_ch {
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
         let mut considered = HashSet::new();
         let mut candidates = vec![];
         let end_height = stacks_tips[0].height;

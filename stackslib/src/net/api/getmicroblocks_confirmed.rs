@@ -79,6 +79,10 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
         Regex::new(r#"^/v2/microblocks/confirmed/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/microblocks/confirmed/:block_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
