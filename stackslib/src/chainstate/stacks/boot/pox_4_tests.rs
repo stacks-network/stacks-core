@@ -4393,7 +4393,7 @@ fn stack_agg_increase() {
             .clone()
             .expect_u128()
             .unwrap(),
-        Some(alice_signature_increase),
+        Some(alice_signature_increase.clone()),
         &alice.public_key,
         u128::MAX,
         1,
@@ -4491,16 +4491,52 @@ fn stack_agg_increase() {
         &bob_err_increase_result_expected
     );
 
+    let bob_aggregate_increase_tx = &tx_block.receipts.get(4).unwrap();
+
     // Fetch the aggregate increase result & check that value is true
-    let bob_aggregate_increase_result = &tx_block
-        .receipts
-        .get(4)
-        .unwrap()
+    let bob_aggregate_increase_result = bob_aggregate_increase_tx
         .result
         .clone()
         .expect_result_ok()
         .unwrap();
-    assert_eq!(bob_aggregate_increase_result, &Value::Bool(true));
+    assert_eq!(bob_aggregate_increase_result, Value::Bool(true));
+
+    let aggregation_increase_event = &bob_aggregate_increase_tx.events[0];
+
+    let expected_result = Value::okay(Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                Value::Principal(PrincipalData::from(bob.address.clone())),
+            ),
+            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
+
+    let increase_op_data = HashMap::from([
+        (
+            "signer-sig",
+            Value::some(Value::buff_from(alice_signature_increase).unwrap()).unwrap(),
+        ),
+        (
+            "signer-key",
+            Value::buff_from(alice.public_key.to_bytes_compressed()).unwrap(),
+        ),
+        ("max-amount", Value::UInt(u128::MAX)),
+        ("auth-id", Value::UInt(1)),
+    ]);
+
+    let common_data = PoxPrintFields {
+        op_name: "stack-aggregation-increase".to_string(),
+        stacker: Value::Principal(PrincipalData::from(bob.address.clone())),
+        balance: Value::UInt(1000000000000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+
+    check_pox_print_event(&aggregation_increase_event, common_data, increase_op_data);
 
     // Check that Bob's second pool has an assigned reward index of 1
     let bob_aggregate_commit_reward_index = &tx_block
@@ -6397,7 +6433,7 @@ fn test_scenario_one() {
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
     let default_initial_balances: u64 = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
@@ -6806,7 +6842,7 @@ fn test_scenario_two() {
     let mut dave = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
@@ -7147,7 +7183,7 @@ fn test_scenario_three() {
     // Bob stacker signer setup
     let mut bob = StackerSignerInfo::new();
     // Carl service signer setup
-    let mut carl = StackerSignerInfo::new();
+    let carl = StackerSignerInfo::new();
     // David stacking pool operator setup
     let mut david = StackerSignerInfo::new();
     // Eve pool stacker setup
@@ -7624,7 +7660,7 @@ fn test_scenario_four() {
     let mut bob = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
@@ -8564,7 +8600,7 @@ fn test_scenario_five() {
     let mut mallory = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
