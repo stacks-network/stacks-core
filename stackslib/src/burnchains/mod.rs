@@ -48,6 +48,9 @@ use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;
 
+use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+
 /// This module contains drivers and types for all burn chains we support.
 pub mod affirmation;
 pub mod bitcoin;
@@ -646,6 +649,8 @@ pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
     pub accepted_ops: Vec<BlockstackOperationType>,
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
+    pub windowed_block_commits: Vec<Vec<LeaderBlockCommitOp>>,
+    pub windowed_missed_commits: Vec<Vec<MissedBlockCommit>>,
 }
 
 /// The burnchain block's state transition's ops:
