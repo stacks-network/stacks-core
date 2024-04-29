@@ -16,8 +16,9 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    gather, opts, register_int_counter, register_int_counter_vec, register_int_gauge, Encoder,
-    IntCounter, IntCounterVec, IntGauge, TextEncoder,
+    gather, histogram_opts, opts, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, register_int_gauge, Encoder, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, TextEncoder,
 };
 
 lazy_static! {
@@ -87,6 +88,12 @@ lazy_static! {
         "stacks_signer_nonce",
         "The current nonce of the signer"
     )).unwrap();
+
+    pub static ref SIGNER_RPC_CALL_LATENCIES_HISTOGRAM: HistogramVec = register_histogram_vec!(histogram_opts!(
+        "stacks_signer_node_rpc_call_latencies_histogram",
+        "Time (seconds) measuring round-trip RPC call latency to the Stacks node"
+        // Will use DEFAULT_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0] by default
+    ), &["path"]).unwrap();
 }
 
 pub fn gather_metrics_string() -> String {

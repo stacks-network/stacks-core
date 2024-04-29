@@ -207,6 +207,9 @@ impl StacksClient {
             estimated_len: Some(tx.tx_len()),
             transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
         };
+        #[cfg(feature = "monitoring_prom")]
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.fees_transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.fees_transaction_path())
@@ -215,6 +218,8 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
@@ -268,6 +273,9 @@ impl StacksClient {
             block,
             chain_id: self.chain_id,
         };
+        #[cfg(feature = "monitoring_prom")]
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.block_proposal_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.block_proposal_path())
@@ -279,6 +287,8 @@ impl StacksClient {
         };
 
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -355,6 +365,9 @@ impl StacksClient {
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.core_info_path())
@@ -362,6 +375,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -402,6 +417,11 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer = crate::monitoring::new_rpc_call_timer(
+            &self.reward_set_path(reward_cycle),
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
@@ -409,6 +429,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -419,6 +441,8 @@ impl StacksClient {
     /// Retreive the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -426,6 +450,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -463,6 +489,9 @@ impl StacksClient {
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("Getting account info...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -470,6 +499,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -536,6 +567,9 @@ impl StacksClient {
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
+        #[cfg(feature = "monitoring_prom")]
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.transaction_path())
@@ -548,6 +582,8 @@ impl StacksClient {
                 })
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -576,12 +612,16 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
+        #[cfg(feature = "monitoring_prom")]
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
             .header("Content-Type", "application/json")
             .body(body)
             .send()?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }

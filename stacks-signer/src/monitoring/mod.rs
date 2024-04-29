@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #[cfg(feature = "monitoring_prom")]
+use ::prometheus::HistogramTimer;
+#[cfg(feature = "monitoring_prom")]
 use slog::slog_error;
 #[cfg(not(feature = "monitoring_prom"))]
 use slog::slog_warn;
@@ -134,6 +136,16 @@ pub fn update_signer_stx_balance(balance: i64) {
 pub fn update_signer_nonce(nonce: u64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::SIGNER_NONCE.set(nonce as i64);
+}
+
+/// Start a new RPC call timer.
+/// The `origin` parameter is the base path of the RPC call, e.g. `http://node.com`.
+/// The `origin` parameter is removed from `full_path` when storing in prometheus.
+#[cfg(feature = "monitoring_prom")]
+pub fn new_rpc_call_timer(full_path: &str, origin: &String) -> HistogramTimer {
+    let path = &full_path[origin.len()..];
+    let histogram = prometheus::SIGNER_RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[path]);
+    histogram.start_timer()
 }
 
 /// Start serving monitoring metrics.
