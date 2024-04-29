@@ -601,7 +601,7 @@ impl StacksBlock {
                 }
             }
             if !tx.auth.is_supported_in_epoch(epoch_id) {
-                error!("Order independent multisig transactions not supported before Stacks 3.0");
+                error!("Authentication mode not supported in Epoch {epoch_id}");
                 return false;
             }
         }

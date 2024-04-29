@@ -710,11 +710,11 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: key_encoding,
+                key_encoding,
                 signature: MessageSignature::empty(),
             },
         ))
@@ -730,7 +730,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: SinglesigHashMode::P2WPKH,
@@ -753,7 +753,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Multisig(
             MultisigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: MultisigHashMode::P2SH,
@@ -776,7 +776,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::OrderIndependentMultisig(
             OrderIndependentMultisigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: OrderIndependentMultisigHashMode::P2SH,
@@ -799,7 +799,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::OrderIndependentMultisig(
             OrderIndependentMultisigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: OrderIndependentMultisigHashMode::P2WSH,
@@ -822,7 +822,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Multisig(
             MultisigSpendingCondition {
-                signer: signer_addr.bytes.clone(),
+                signer: signer_addr.bytes,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: MultisigHashMode::P2WSH,
