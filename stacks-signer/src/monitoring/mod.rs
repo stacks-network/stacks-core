@@ -33,11 +33,11 @@ mod prometheus;
 #[cfg(feature = "monitoring_prom")]
 mod server;
 
-/// Update stacks tip height guage
+/// Update stacks tip height gauge
 #[allow(unused_variables)]
 pub fn update_stacks_tip_height(height: i64) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::STACKS_TIP_HEIGHT_GUAGE.set(height);
+    prometheus::STACKS_TIP_HEIGHT_GAUGE.set(height);
 }
 
 /// Update the current reward cycle

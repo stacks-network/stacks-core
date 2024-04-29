@@ -22,7 +22,7 @@ use prometheus::{
 };
 
 lazy_static! {
-    pub static ref STACKS_TIP_HEIGHT_GUAGE: IntGauge = register_int_gauge!(opts!(
+    pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_stacks_node_height",
         "The current height of the Stacks node"
     ))
