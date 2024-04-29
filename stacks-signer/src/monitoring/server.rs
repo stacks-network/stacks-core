@@ -50,6 +50,8 @@ pub struct MonitoringServer {
     last_metrics_poll: Instant,
     network: Network,
     public_key: Secp256k1PublicKey,
+    stacks_node_client: reqwest::blocking::Client,
+    stacks_node_origin: String,
 }
 
 impl MonitoringServer {
@@ -59,6 +61,7 @@ impl MonitoringServer {
         stacks_client: StacksClient,
         network: Network,
         public_key: Secp256k1PublicKey,
+        stacks_node_origin: String,
     ) -> Self {
         Self {
             http_server,
@@ -67,6 +70,8 @@ impl MonitoringServer {
             last_metrics_poll: Instant::now(),
             network,
             public_key,
+            stacks_node_client: reqwest::blocking::Client::new(),
+            stacks_node_origin,
         }
     }
 
@@ -84,6 +89,7 @@ impl MonitoringServer {
             stacks_client,
             config.network.clone(),
             public_key,
+            format!("http://{}", config.node_host),
         );
         server.update_metrics()?;
         server.main_loop()
@@ -130,6 +136,19 @@ impl MonitoringServer {
             if request.url() == "/" {
                 request
                     .respond(HttpResponse::from_string("OK"))
+                    .expect("Failed to respond to request");
+                continue;
+            }
+
+            // Run heartbeat check to test connection to the node
+            if request.url() == "/heartbeat" {
+                let (msg, status) = if self.heartbeat() {
+                    ("OK", 200)
+                } else {
+                    ("Failed", 500)
+                };
+                request
+                    .respond(HttpResponse::from_string(msg).with_status_code(status))
                     .expect("Failed to respond to request");
                 continue;
             }
@@ -202,6 +221,29 @@ impl MonitoringServer {
             "stxAddress": self.stacks_client.get_signer_address().to_string(),
         }))
         .expect("Failed to serialize JSON")
+    }
+
+    /// Poll the Stacks node's `v2/info` endpoint to validate the connection
+    fn heartbeat(&self) -> bool {
+        let url = format!("{}/v2/info", self.stacks_node_origin);
+        let response = self.stacks_node_client.get(&url).send();
+        match response {
+            Ok(response) => {
+                if response.status().is_success() {
+                    true
+                } else {
+                    warn!(
+                        "Monitoring: Heartbeat failed with status: {}",
+                        response.status()
+                    );
+                    false
+                }
+            }
+            Err(err) => {
+                warn!("Monitoring: Heartbeat failed with error: {:?}", err);
+                false
+            }
+        }
     }
 }
 
