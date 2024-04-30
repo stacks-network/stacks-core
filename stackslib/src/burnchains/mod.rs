@@ -37,9 +37,11 @@ use self::bitcoin::{
     Error as btc_error,
 };
 use crate::chainstate::burn::distribution::BurnSamplePoint;
-use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, OUTPUTS_PER_COMMIT,
+};
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, Error as op_error, LeaderKeyRegisterOp,
+    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
@@ -47,9 +49,6 @@ use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;
-
-use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod affirmation;
