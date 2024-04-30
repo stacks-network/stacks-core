@@ -2580,9 +2580,11 @@ impl BlockBuilder for StacksBlockBuilder {
             }
 
             // preemptively skip problematic transactions
+            let epoch_id = clarity_tx.get_epoch();
+
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
-                clarity_tx.get_epoch(),
+                epoch_id,
                 &tx,
                 ast_rules,
             ) {
@@ -2592,6 +2594,19 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
+
+            if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch_id) {
+                let msg = format!(
+                    "Invalid transaction {}: target epoch is not activated",
+                    tx.txid()
+                );
+                warn!("{msg}");
+                return TransactionResult::skipped_due_to_error(
+                    tx,
+                    Error::InvalidStacksTransaction(msg, false),
+                );
+            }
+
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
             ) {

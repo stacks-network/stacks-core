@@ -1680,12 +1680,10 @@ mod test {
 
     fn verify_block_epoch_validation(
         txs: &[StacksTransaction],
-        tx_coinbase_old: StacksTransaction,
-        tx_coinbase_nakamoto: StacksTransaction,
+        tx_coinbase_old: Option<StacksTransaction>,
+        tx_coinbase_nakamoto: Option<StacksTransaction>,
         activation_epoch_id: StacksEpochId,
         header: StacksBlockHeader,
-        need_to_include_coinbase_old: bool,
-        need_to_include_coinbase_nakamoto: bool,
         deactivation_epoch_id: Option<StacksEpochId>,
     ) {
         let epoch_list = [
@@ -1714,41 +1712,47 @@ mod test {
             txs: txs.to_vec(),
         };
 
-        let mut txs_with_coinbase = txs.to_vec();
-        txs_with_coinbase.insert(0, tx_coinbase_old);
+        let block_with_coinbase_tx = tx_coinbase_old.map(|coinbase| {
+            let mut txs_with_coinbase = txs.to_vec();
+            txs_with_coinbase.insert(0, coinbase);
 
-        let mut block_header_dup_tx_with_coinbase = header.clone();
-        block_header_dup_tx_with_coinbase.tx_merkle_root = get_tx_root(&txs_with_coinbase.to_vec());
+            let mut block_header_dup_tx_with_coinbase = header.clone();
+            block_header_dup_tx_with_coinbase.tx_merkle_root =
+                get_tx_root(&txs_with_coinbase.to_vec());
 
-        let block_with_coinbase_tx = StacksBlock {
-            header: block_header_dup_tx_with_coinbase.clone(),
-            txs: txs_with_coinbase,
-        };
+            StacksBlock {
+                header: block_header_dup_tx_with_coinbase.clone(),
+                txs: txs_with_coinbase,
+            }
+        });
 
-        let mut txs_with_coinbase_nakamoto = txs.to_vec();
-        txs_with_coinbase_nakamoto.insert(0, tx_coinbase_nakamoto);
+        let block_with_coinbase_tx_nakamoto = tx_coinbase_nakamoto.map(|coinbase| {
+            let mut txs_with_coinbase_nakamoto = txs.to_vec();
+            txs_with_coinbase_nakamoto.insert(0, coinbase);
 
-        let mut block_header_dup_tx_with_coinbase_nakamoto = header.clone();
-        block_header_dup_tx_with_coinbase_nakamoto.tx_merkle_root =
-            get_tx_root(&txs_with_coinbase_nakamoto.to_vec());
+            let mut block_header_dup_tx_with_coinbase_nakamoto = header.clone();
+            block_header_dup_tx_with_coinbase_nakamoto.tx_merkle_root =
+                get_tx_root(&txs_with_coinbase_nakamoto.to_vec());
 
-        let block_with_coinbase_tx_nakamoto = StacksBlock {
-            header: block_header_dup_tx_with_coinbase_nakamoto.clone(),
-            txs: txs_with_coinbase_nakamoto,
-        };
+            StacksBlock {
+                header: block_header_dup_tx_with_coinbase_nakamoto.clone(),
+                txs: txs_with_coinbase_nakamoto,
+            }
+        });
 
         for epoch_id in epoch_list.iter() {
-            let block_to_check =
-                if *epoch_id >= StacksEpochId::Epoch30 && need_to_include_coinbase_nakamoto {
-                    block_with_coinbase_tx_nakamoto.clone()
-                } else if *epoch_id >= StacksEpochId::Epoch21
-                    && *epoch_id < StacksEpochId::Epoch30
-                    && need_to_include_coinbase_old
-                {
-                    block_with_coinbase_tx.clone()
-                } else {
-                    block.clone()
-                };
+            let block_to_check = if *epoch_id >= StacksEpochId::Epoch30
+                && block_with_coinbase_tx_nakamoto.is_some()
+            {
+                block_with_coinbase_tx_nakamoto.clone().unwrap()
+            } else if *epoch_id >= StacksEpochId::Epoch21
+                && *epoch_id < StacksEpochId::Epoch30
+                && block_with_coinbase_tx.is_some()
+            {
+                block_with_coinbase_tx.clone().unwrap()
+            } else {
+                block.clone()
+            };
 
             let mut bytes: Vec<u8> = vec![];
             block_to_check.consensus_serialize(&mut bytes).unwrap();
@@ -2064,62 +2068,50 @@ mod test {
 
         verify_block_epoch_validation(
             &versioned_contract,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
             StacksEpochId::Epoch21,
             header.clone(),
-            true,
-            true,
             None,
         );
         verify_block_epoch_validation(
             &coinbase_contract,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            None,
+            None,
             StacksEpochId::Epoch21,
             header.clone(),
-            false,
-            false,
             Some(StacksEpochId::Epoch30),
         );
         verify_block_epoch_validation(
             &order_independent_multisig_txs,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
             StacksEpochId::Epoch30,
             header.clone(),
-            true,
-            true,
             None,
         );
         verify_block_epoch_validation(
             &nakamoto_txs,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            Some(tx_coinbase.clone()),
+            None,
             StacksEpochId::Epoch30,
             header.clone(),
-            true,
-            false,
             None,
         );
         verify_block_epoch_validation(
             &nakamoto_coinbase,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            Some(tx_coinbase.clone()),
+            None,
             StacksEpochId::Epoch30,
             header.clone(),
-            true,
-            false,
             None,
         );
         verify_block_epoch_validation(
             &tenure_change_tx,
-            tx_coinbase.clone(),
-            tx_coinbase_proof.clone(),
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
             StacksEpochId::Epoch30,
             header.clone(),
-            true,
-            true,
             None,
         );
     }
