@@ -521,8 +521,18 @@ impl StacksChainState {
     pub fn process_transaction_precheck(
         config: &DBConfig,
         tx: &StacksTransaction,
+        epoch_id: StacksEpochId,
     ) -> Result<(), Error> {
         // valid auth?
+        if !tx.auth.is_supported_in_epoch(epoch_id) {
+            let msg = format!(
+                "Invalid tx {}: authentication mode not supported in Epoch {epoch_id}",
+                tx.txid()
+            );
+            warn!("{msg}");
+
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
         tx.verify().map_err(Error::NetError)?;
 
         // destined for us?
@@ -1467,7 +1477,7 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
@@ -1478,15 +1488,6 @@ impl StacksChainState {
                 warn!("{}", &msg);
                 return Err(Error::InvalidStacksTransaction(msg, false));
             }
-        }
-
-        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch) {
-            let msg = format!(
-                "Invalid transaction {}: target epoch is not activated",
-                tx.txid()
-            );
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
@@ -9381,6 +9382,27 @@ pub mod test {
         };
     }
 
+    /// Call `process_transaction()` with  prechecks
+    pub fn validate_transactions_static_epoch_and_process_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+        ast_rules: ASTRules,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        let epoch = clarity_block.get_epoch();
+
+        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch) {
+            let msg = format!(
+                "Invalid transaction {}: target epoch is not activated",
+                tx.txid()
+            );
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+
+        StacksChainState::process_transaction(clarity_block, tx, quiet, ast_rules)
+    }
+
     #[test]
     fn test_checkerrors_at_runtime() {
         let privk = StacksPrivateKey::from_hex(
@@ -9703,7 +9725,7 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx_no_version,
             false,
@@ -9712,7 +9734,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx_no_version,
             false,
@@ -9721,7 +9743,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar1_no_version,
             false,
@@ -9730,7 +9752,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9745,7 +9767,7 @@ pub mod test {
             panic!("Did not get unchecked interpreter error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -9758,7 +9780,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar1,
             false,
@@ -9771,7 +9793,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -9787,7 +9809,7 @@ pub mod test {
         let acct = StacksChainState::get_account(&mut conn, &addr.into());
         assert_eq!(acct.nonce, 3);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
             false,
@@ -9815,7 +9837,7 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx_no_version,
             false,
@@ -9824,7 +9846,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx_no_version,
             false,
@@ -9833,7 +9855,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar1_no_version,
             false,
@@ -9842,7 +9864,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9857,7 +9879,7 @@ pub mod test {
             panic!("Did not get unchecked interpreter error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -9870,7 +9892,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar1,
             false,
@@ -9883,7 +9905,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -9898,7 +9920,7 @@ pub mod test {
         let acct = StacksChainState::get_account(&mut conn, &addr.into());
         assert_eq!(acct.nonce, 3);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
             false,
@@ -9933,7 +9955,7 @@ pub mod test {
 
         let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -9942,7 +9964,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -9960,7 +9982,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9984,7 +10006,7 @@ pub mod test {
             .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
             .is_some());
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar1,
             false,
@@ -10019,7 +10041,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -10028,7 +10050,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -10037,7 +10059,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar2,
             false,
@@ -10046,7 +10068,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -10066,7 +10088,7 @@ pub mod test {
 
         assert!(tx_receipt.vm_error.is_none());
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar2,
             false,
@@ -10318,7 +10340,7 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx_no_version,
             false,
@@ -10327,7 +10349,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx_no_version,
             false,
@@ -10336,7 +10358,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1_no_version,
             false,
@@ -10352,7 +10374,7 @@ pub mod test {
             _ => panic!("expected the contract publish to fail"),
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10365,7 +10387,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10378,7 +10400,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -10402,7 +10424,7 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx_no_version,
             false,
@@ -10411,7 +10433,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx_no_version,
             false,
@@ -10420,7 +10442,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1_no_version,
             false,
@@ -10436,7 +10458,7 @@ pub mod test {
             _ => panic!("expected the contract publish to fail"),
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10451,7 +10473,7 @@ pub mod test {
             panic!("Did not get unchecked interpreter error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10464,7 +10486,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10477,7 +10499,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -10501,7 +10523,7 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10510,7 +10532,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10519,7 +10541,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -10546,7 +10568,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10555,7 +10577,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10564,7 +10586,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -10573,7 +10595,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10894,7 +10916,7 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx_no_version,
             false,
@@ -10903,7 +10925,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx_no_version,
             false,
@@ -10912,7 +10934,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx_no_version,
             false,
@@ -10921,7 +10943,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1_no_version,
             false,
@@ -10930,7 +10952,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10946,7 +10968,7 @@ pub mod test {
         }
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10959,7 +10981,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -10972,7 +10994,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10985,7 +11007,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -11009,7 +11031,7 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx_no_version,
             false,
@@ -11018,7 +11040,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx_no_version,
             false,
@@ -11027,7 +11049,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx_no_version,
             false,
@@ -11036,7 +11058,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1_no_version,
             false,
@@ -11045,7 +11067,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -11060,7 +11082,7 @@ pub mod test {
             panic!("Did not get unchecked interpreter error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -11073,7 +11095,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -11086,7 +11108,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -11099,7 +11121,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -11123,7 +11145,7 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -11132,7 +11154,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -11141,7 +11163,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -11150,7 +11172,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -11159,7 +11181,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -11190,7 +11212,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -11199,7 +11221,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -11208,7 +11230,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -11217,7 +11239,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -11226,7 +11248,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -11257,7 +11279,7 @@ pub mod test {
             &BlockHeaderHash([5u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -11266,7 +11288,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
@@ -11275,7 +11297,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -11284,7 +11306,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -11311,7 +11333,7 @@ pub mod test {
             &BlockHeaderHash([6u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -11320,7 +11342,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
@@ -11329,7 +11351,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -11338,7 +11360,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
