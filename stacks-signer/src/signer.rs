@@ -47,7 +47,7 @@ use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{
     Config as CoordinatorConfig, Coordinator, State as CoordinatorState,
 };
-use wsts::state_machine::signer::Signer as SignerStateMachine;
+use wsts::state_machine::signer::{Signer as SignerStateMachine, State as SignerState};
 use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
@@ -1374,7 +1374,7 @@ impl Signer {
             return Ok(());
         }
         // Check stackerdb for any missed DKG messages to catch up our state.
-        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        self.read_dkg_stackerdb_messages(stacks_client, res, current_reward_cycle)?;
         // Check if we should still queue DKG
         if !self.should_queue_dkg(stacks_client)? {
             return Ok(());
@@ -1603,6 +1603,37 @@ impl Signer {
         }
         Ok(())
     }
+}
+
+/// Convert the signer state to a string
+pub fn signer_state_to_string(state: &SignerState) -> String {
+    match state {
+        SignerState::Idle => "Idle",
+        SignerState::DkgPublicDistribute => "DkgPublicDistribute",
+        SignerState::DkgPublicGather => "DkgPublicGather",
+        SignerState::DkgPrivateDistribute => "DkgPrivateDistribute",
+        SignerState::DkgPrivateGather => "DkgPrivateGather",
+        SignerState::SignGather => "SignGather",
+    }
+    .to_string()
+}
+
+/// Convert the coordinator state to a string
+pub fn coordinator_state_to_string(state: &CoordinatorState) -> String {
+    match state {
+        CoordinatorState::Idle => "Idle",
+        CoordinatorState::DkgPublicDistribute => "DkgPublicDistribute",
+        CoordinatorState::DkgPublicGather => "DkgPublicGather",
+        CoordinatorState::DkgPrivateDistribute => "DkgPrivateGather",
+        CoordinatorState::DkgPrivateGather => "DkgPrivateGather",
+        CoordinatorState::DkgEndDistribute => "DkgEndDistribute",
+        CoordinatorState::DkgEndGather => "DkgEndGather",
+        CoordinatorState::NonceRequest(_, _) => "NonceRequest",
+        CoordinatorState::NonceGather(_, _) => "NonceGather",
+        CoordinatorState::SigShareRequest(_, _) => "SigShareRequest",
+        CoordinatorState::SigShareGather(_, _) => "SigShareGather",
+    }
+    .to_string()
 }
 
 fn load_encrypted_signer_state<S: SignerStateStorage>(

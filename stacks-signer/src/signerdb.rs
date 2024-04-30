@@ -17,14 +17,58 @@
 use std::path::Path;
 
 use blockstack_lib::util_lib::db::{
-    query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
+    query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError, FromRow,
 };
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, Row, NO_PARAMS};
+use serde::Serialize;
+use serde_json::Value;
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use wsts::net::Packet;
+use wsts::state_machine::coordinator::State as CoordinatorState;
+use wsts::state_machine::signer::State as SignerState;
 
-use crate::signer::BlockInfo;
+use crate::signer::{coordinator_state_to_string, signer_state_to_string, BlockInfo};
+
+/// The Outbound Message info
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct OutboundMessageInfo {
+    /// The messages sent to listening parties
+    pub outbound_messages: Vec<Packet>,
+    /// the WSTS Coordinator state at the time of sending the outbound messages
+    pub coordinator_state: String,
+    /// the WSTS Signer state at the time of sending the outbound messages
+    pub signer_state: String,
+    /// The time at which the messages were stored in the database
+    pub insertion_time: chrono::DateTime<chrono::Utc>,
+}
+
+impl FromRow<OutboundMessageInfo> for OutboundMessageInfo {
+    fn from_row(row: &Row) -> Result<OutboundMessageInfo, DBError> {
+        let messages: Value = row.get_unwrap("messages");
+        let outbound_messages = messages
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .cloned()
+                    .map(serde_json::from_value::<Packet>)
+                    .collect::<Result<Vec<_>, serde_json::Error>>()
+            })
+            .ok_or_else(|| DBError::Corruption)??;
+        let coordinator_state: String = row.get_unwrap("coordinator_state");
+        let signer_state: String = row.get_unwrap("signer_state");
+        let insertion_time: chrono::DateTime<chrono::Utc> = row.get_unwrap("insertion_time");
+
+        Ok(OutboundMessageInfo {
+            outbound_messages,
+            coordinator_state,
+            signer_state,
+            insertion_time,
+        })
+    }
+}
 
 /// This struct manages a SQLite database connection
 /// for the signer.
@@ -49,6 +93,15 @@ CREATE TABLE IF NOT EXISTS signer_states (
     encrypted_state BLOB NOT NULL
 )";
 
+const CREATE_OUTBOUND_MESSAGES_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS outbound_messages (
+    insertion_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reward_cycle INTEGER PRIMARY KEY,
+    coordinator_state BLOB NOT NULL,
+    signer_state BLOB NOT NULL,
+    messages BLOB NOT NULL
+)";
+
 impl SignerDb {
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -70,6 +123,10 @@ impl SignerDb {
 
         if !table_exists(&self.db, "signer_states")? {
             self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
+        }
+
+        if !table_exists(&self.db, "outbound_messages")? {
+            self.db.execute(CREATE_OUTBOUND_MESSAGES_TABLE, NO_PARAMS)?;
         }
 
         Ok(())
@@ -125,7 +182,6 @@ impl SignerDb {
     }
 
     /// Insert a block into the database.
-    /// `hash` is the `signer_signature_hash` of the block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
@@ -152,6 +208,42 @@ impl SignerDb {
             )?;
 
         Ok(())
+    }
+
+    /// Insert the outbound messages into the database
+    pub fn insert_outbound_messages(
+        &self,
+        reward_cycle: u64,
+        coordinator_state: &CoordinatorState,
+        signer_state: &SignerState,
+        outbound_messages: &[Packet],
+    ) -> Result<(), DBError> {
+        let insertion_time = chrono::Utc::now();
+        debug!(
+            "Inserting {} messages at {insertion_time}.",
+            outbound_messages.len()
+        );
+        let outbound_messages = serde_json::to_string(&outbound_messages)
+            .expect("Unable to serialize outbound messages");
+
+        self.db.execute(
+            "INSERT OR REPLACE INTO outbound_messages (reward_cycle, coordinator_state, signer_state, messages, insertion_time) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params!(u64_to_sql(reward_cycle)?, coordinator_state_to_string(coordinator_state), signer_state_to_string(signer_state), outbound_messages, insertion_time)
+
+        )?;
+        Ok(())
+    }
+
+    /// lookup the last sent outbound messages
+    pub fn outbound_messages_lookup(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<OutboundMessageInfo>, DBError> {
+        query_row(
+            &self.db,
+            "SELECT * FROM outbound_messages WHERE reward_cycle = ?",
+            params![&u64_to_sql(reward_cycle)?],
+        )
     }
 }
 
@@ -185,9 +277,11 @@ mod tests {
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use libsigner::BlockProposalSigners;
+    use rand::{thread_rng, RngCore};
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::secp256k1::MessageSignature;
+    use wsts::net::{DkgBegin, DkgPrivateBegin, Message};
 
     use super::*;
 
@@ -356,5 +450,108 @@ mod tests {
             .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
+    }
+
+    #[test]
+    fn write_and_read_outbound_messages() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let coordinator_state = CoordinatorState::DkgPrivateGather;
+        let signer_state = SignerState::DkgPrivateGather;
+        let reward_cycle = 42;
+        let mut sig_1 = [0u8; 32];
+        thread_rng().fill_bytes(&mut sig_1);
+        let mut sig_2 = [0u8; 32];
+        thread_rng().fill_bytes(&mut sig_2);
+        let outbound_message_1 = Packet {
+            msg: Message::DkgBegin(DkgBegin {
+                dkg_id: thread_rng().next_u64(),
+            }),
+            sig: sig_1.to_vec(),
+        };
+        let outbound_message_2 = Packet {
+            msg: Message::DkgPrivateBegin(DkgPrivateBegin {
+                dkg_id: thread_rng().next_u64(),
+                signer_ids: vec![0, 1],
+                key_ids: vec![0, 1, 2, 3],
+            }),
+            sig: sig_2.to_vec(),
+        };
+        let outbound_messages = vec![outbound_message_1.clone(), outbound_message_2.clone()];
+
+        // We haven't added anything yet. This should be an empty database
+        assert!(db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query empty outbound messages")
+            .is_none());
+
+        db.insert_outbound_messages(
+            reward_cycle,
+            &coordinator_state,
+            &signer_state,
+            &outbound_messages,
+        )
+        .expect("Failed to insert outbound messages");
+
+        let coordinator_state_2 = CoordinatorState::DkgEndGather;
+        db.insert_outbound_messages(
+            reward_cycle.wrapping_add(1),
+            &coordinator_state_2,
+            &signer_state,
+            &outbound_messages,
+        )
+        .expect("Failed to insert outbound messages");
+
+        let stored_info = db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query outbound messaages")
+            .expect("Failed to find outbound messages");
+        let insertion_1 = stored_info.insertion_time;
+        assert_eq!(stored_info.outbound_messages, outbound_messages);
+        assert_eq!(
+            stored_info.coordinator_state,
+            coordinator_state_to_string(&coordinator_state)
+        );
+        assert_eq!(
+            stored_info.signer_state,
+            signer_state_to_string(&signer_state)
+        );
+
+        let stored_info = db
+            .outbound_messages_lookup(reward_cycle.wrapping_add(1))
+            .expect("Failed to query outbound messages")
+            .expect("Failed to find outbound messages");
+        assert_eq!(stored_info.outbound_messages, outbound_messages);
+        assert_eq!(
+            stored_info.coordinator_state,
+            coordinator_state_to_string(&coordinator_state_2)
+        );
+        assert_eq!(
+            stored_info.signer_state,
+            signer_state_to_string(&signer_state)
+        );
+
+        db.insert_outbound_messages(
+            reward_cycle,
+            &coordinator_state,
+            &signer_state,
+            &outbound_messages,
+        )
+        .expect("Failed to insert outbound messages");
+        let stored_info = db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query outbound messaages")
+            .expect("Failed to find outbound messages");
+        let insertion_2 = stored_info.insertion_time;
+        assert_eq!(stored_info.outbound_messages, outbound_messages);
+        assert_eq!(
+            stored_info.coordinator_state,
+            coordinator_state_to_string(&coordinator_state)
+        );
+        assert_eq!(
+            stored_info.signer_state,
+            signer_state_to_string(&signer_state)
+        );
+        assert_ne!(insertion_1, insertion_2);
     }
 }
