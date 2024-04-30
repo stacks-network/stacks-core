@@ -294,6 +294,17 @@ impl BurnSamplePoint {
                 };
 
                 let burns = cmp::min(median_burn, most_recent_burn);
+
+                let frequency = linked_commits.iter().fold(0u8, |count, commit_opt| {
+                    if commit_opt.is_some() {
+                        count
+                            .checked_add(1)
+                            .expect("infallable -- commit window exceeds u8::MAX")
+                    } else {
+                        count
+                    }
+                });
+
                 let candidate = if let LinkedCommitIdentifier::Valid(op) =
                     linked_commits.remove(0).unwrap().op
                 {
@@ -307,17 +318,8 @@ impl BurnSamplePoint {
                        "txid" => %candidate.txid.to_string(),
                        "most_recent_burn" => %most_recent_burn,
                        "median_burn" => %median_burn,
+                       "frequency" => frequency,
                        "all_burns" => %format!("{:?}", all_burns));
-
-                let frequency = linked_commits.iter().fold(0u8, |count, commit_opt| {
-                    if commit_opt.is_some() {
-                        count
-                            .checked_add(1)
-                            .expect("infallable -- commit window exceeds u8::MAX")
-                    } else {
-                        count
-                    }
-                });
 
                 BurnSamplePoint {
                     burns,
