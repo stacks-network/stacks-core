@@ -97,6 +97,7 @@ pub fn lookup_reserved_variable(
                 Ok(Some(sponsor))
             }
             NativeVariables::BlockHeight => {
+                // FIXME: this needs to be updated to epoch 3.0 vs epoch 2.x
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let block_height = env.global_context.database.get_current_block_height();
                 Ok(Some(Value::UInt(block_height as u128)))
@@ -136,6 +137,7 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::TenureHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
+                // FIXME: this is a placeholder and needs to be implemented correctly
                 let burn_block_height = env
                     .global_context
                     .database

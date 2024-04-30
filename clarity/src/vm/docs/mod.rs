@@ -126,18 +126,16 @@ to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
 };
 
-const STACKS_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stacks-block-height",
     snippet: "stacks-block-height",
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain.",
     example:
         "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
-    min_version: ClarityVersion::Clarity3,
-    max_version: None,
 };
 
-const TENURE_HEIGHT_KEYWORD: KeywordAPI = KeywordAPI {
+const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "tenure-height",
     snippet: "tenure-height",
     output_type: "uint",
@@ -145,8 +143,6 @@ const TENURE_HEIGHT_KEYWORD: KeywordAPI = KeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
-    min_version: ClarityVersion::Clarity3,
-    max_version: None,
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -2568,13 +2564,15 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 }
 
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
-    let simple_api = match variable {
+    let keyword = match variable {
         NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
         NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
         NativeVariables::NativeNone => NONE_KEYWORD.clone(),
         NativeVariables::NativeTrue => TRUE_KEYWORD.clone(),
         NativeVariables::NativeFalse => FALSE_KEYWORD.clone(),
         NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::StacksBlockHeight => STACKS_BLOCK_HEIGHT_KEYWORD.clone(),
+        NativeVariables::TenureHeight => TENURE_HEIGHT_KEYWORD.clone(),
         NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
         NativeVariables::TotalLiquidMicroSTX => TOTAL_LIQUID_USTX_KEYWORD.clone(),
         NativeVariables::Regtest => REGTEST_KEYWORD.clone(),
@@ -2583,11 +2581,11 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
     };
     Some(KeywordAPI {
-        name: simple_api.name,
-        snippet: simple_api.snippet,
-        output_type: simple_api.output_type,
-        description: simple_api.description,
-        example: simple_api.example,
+        name: keyword.name,
+        snippet: keyword.snippet,
+        output_type: keyword.output_type,
+        description: keyword.description,
+        example: keyword.example,
         min_version: variable.get_min_version(),
         max_version: variable.get_max_version(),
     })
