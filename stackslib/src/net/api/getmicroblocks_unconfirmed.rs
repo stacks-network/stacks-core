@@ -106,6 +106,10 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
         Regex::new(r#"^/v2/microblocks/unconfirmed/(?P<parent_block_id>[0-9a-f]{64})/(?P<start_sequence>[0-9]{1,6})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/microblocks/unconfirmed/:block_id/:seq"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

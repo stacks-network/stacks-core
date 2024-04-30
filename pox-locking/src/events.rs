@@ -288,7 +288,7 @@ fn create_event_info_data_code(
                         ;; Get start cycle ID
                         start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
                     }}
-                }}
+                }})
                 "#,
                 stacker = &args[0],
                 pox_addr = &args[1],
@@ -467,6 +467,14 @@ fn create_event_info_data_code(
                         end-cycle-id: (some (+ {reward_cycle} u1)),
                         ;; Get start cycle ID
                         start-cycle-id: start-cycle,
+                        ;; equal to args[3]
+                        signer-sig: {signer_sig},
+                        ;; equal to args[4]
+                        signer-key: {signer_key},
+                        ;; equal to args[5]
+                        max-amount: {max_amount},
+                        ;; equal to args[6]
+                        auth-id: {auth_id},
                     }}
                 }})
                 "#,
@@ -474,6 +482,10 @@ fn create_event_info_data_code(
                 reward_cycle = &args[1],
                 reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+                signer_sig = &args.get(3).unwrap_or(&Value::none()),
+                signer_key = &args.get(4).unwrap_or(&Value::none()),
+                max_amount = &args.get(5).unwrap_or(&Value::none()),
+                auth_id = &args.get(6).unwrap_or(&Value::none()),
             )
         }
         "delegate-stx" => {

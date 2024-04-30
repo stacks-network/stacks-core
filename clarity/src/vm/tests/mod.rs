@@ -149,7 +149,7 @@ impl MemoryEnvironmentGenerator {
 
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
-    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
         let owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
         owned_env
     }

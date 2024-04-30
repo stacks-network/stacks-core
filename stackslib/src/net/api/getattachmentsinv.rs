@@ -61,6 +61,10 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
         Regex::new("^/v2/attachments/inv$").unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/attachments/inv"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

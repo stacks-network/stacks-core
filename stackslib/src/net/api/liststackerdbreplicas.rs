@@ -77,6 +77,10 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/stackedb/:principal/:contract_name/replicas"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
