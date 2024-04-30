@@ -47,8 +47,12 @@ use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use blockstack_lib::burnchains::{
     Address, Burnchain, PoxConstants, Txid, BLOCKSTACK_MAGIC_MAINNET,
 };
-use blockstack_lib::chainstate::burn::db::sortdb::SortitionDB;
-use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::burn::db::sortdb::{
+    get_block_commit_by_txid, SortitionDB, SortitionHandle,
+};
+use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
+use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
 use blockstack_lib::chainstate::nakamoto::NakamotoChainState;
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
@@ -86,12 +90,6 @@ use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
-
-use blockstack_lib::chainstate::burn::db::sortdb::get_block_commit_by_txid;
-use blockstack_lib::chainstate::burn::db::sortdb::SortitionHandle;
-use blockstack_lib::chainstate::burn::BlockSnapshot;
-use blockstack_lib::chainstate::coordinator::get_reward_cycle_info;
-use blockstack_lib::chainstate::coordinator::OnChainRewardSetProvider;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -1024,9 +1022,9 @@ simulating a miner.
     }
 
     if argv[1] == "analyze-sortition-mev" {
-        if argv.len() < 7 {
+        if argv.len() < 7 || (argv.len() >= 7 && argv.len() % 2 != 1) {
             eprintln!(
-                "Usage: {} /path/to/burnchain/db /path/to/sortition/db /path/to/chainstate/db start_height end_height",
+                "Usage: {} /path/to/burnchain/db /path/to/sortition/db /path/to/chainstate/db start_height end_height [advantage_miner advantage_burn ..]",
                 &argv[0]
             );
             process::exit(1);
@@ -1038,8 +1036,23 @@ simulating a miner.
         let start_height: u64 = argv[5].parse().unwrap();
         let end_height: u64 = argv[6].parse().unwrap();
 
+        let mut advantages = HashMap::new();
+        if argv.len() >= 7 {
+            let mut i = 7;
+            loop {
+                let advantaged_miner = argv[i].clone();
+                let advantage: u64 = argv[i + 1].parse().unwrap();
+                advantages.insert(advantaged_miner, advantage);
+                i += 2;
+                if i >= argv.len() {
+                    break;
+                }
+            }
+        }
+
         let mut sortdb =
             SortitionDB::open(&sortdb_path, true, PoxConstants::mainnet_default()).unwrap();
+        sortdb.dryrun = true;
         let burnchain = Burnchain::new(&burnchaindb_path, "bitcoin", "mainnet").unwrap();
         let burnchaindb = BurnchainDB::connect(&burnchaindb_path, &burnchain, true).unwrap();
         let (mut chainstate, _) =
@@ -1049,18 +1062,32 @@ simulating a miner.
         let mut wins_epoch3 = BTreeMap::new();
 
         for height in start_height..end_height {
-            let (tip_sort_id, ancestor_sn) = {
+            debug!("Get ancestor snapshots for {}", height);
+            let (tip_sort_id, parent_ancestor_sn, ancestor_sn) = {
                 let mut sort_tx = sortdb.tx_begin_at_tip();
                 let tip_sort_id = sort_tx.tip();
                 let ancestor_sn = sort_tx
                     .get_block_snapshot_by_height(height)
                     .unwrap()
                     .unwrap();
-                (tip_sort_id, ancestor_sn)
+                let parent_ancestor_sn = sort_tx
+                    .get_block_snapshot_by_height(height - 1)
+                    .unwrap()
+                    .unwrap();
+                (tip_sort_id, parent_ancestor_sn, ancestor_sn)
             };
+
+            let mut burn_block =
+                BurnchainDB::get_burnchain_block(burnchaindb.conn(), &ancestor_sn.burn_header_hash)
+                    .unwrap();
+
+            debug!(
+                "Get reward cycle info at {}",
+                burn_block.header.block_height
+            );
             let rc_info_opt = get_reward_cycle_info(
-                ancestor_sn.block_height + 1,
-                &ancestor_sn.burn_header_hash,
+                burn_block.header.block_height,
+                &burn_block.header.parent_block_hash,
                 &tip_sort_id,
                 &burnchain,
                 &burnchaindb,
@@ -1071,9 +1098,22 @@ simulating a miner.
             )
             .unwrap();
 
-            let burn_block =
-                BurnchainDB::get_burnchain_block(burnchaindb.conn(), &ancestor_sn.burn_header_hash)
-                    .unwrap();
+            let mut ops = burn_block.ops.clone();
+            for op in ops.iter_mut() {
+                if let BlockstackOperationType::LeaderBlockCommit(op) = op {
+                    if let Some(extra_burn) = advantages.get(&op.apparent_sender.to_string()) {
+                        debug!(
+                            "Miner {} gets {} extra burn fee",
+                            &op.apparent_sender.to_string(),
+                            extra_burn
+                        );
+                        op.burn_fee += *extra_burn;
+                    }
+                }
+            }
+            burn_block.ops = ops;
+
+            debug!("Re-evaluate sortition at height {}", height);
             let (next_sn, state_transition) = sortdb
                 .evaluate_sortition(
                     &burn_block.header,
@@ -1085,6 +1125,9 @@ simulating a miner.
                 )
                 .unwrap();
 
+            assert_eq!(next_sn.block_height, ancestor_sn.block_height);
+            assert_eq!(next_sn.burn_header_hash, ancestor_sn.burn_header_hash);
+
             let mut sort_tx = sortdb.tx_begin_at_tip();
             let tip_pox_id = sort_tx.get_pox_id().unwrap();
             let next_sn_nakamoto = BlockSnapshot::make_snapshot_in_epoch(
@@ -1092,7 +1135,7 @@ simulating a miner.
                 &burnchain,
                 &ancestor_sn.sortition_id,
                 &tip_pox_id,
-                &ancestor_sn,
+                &parent_ancestor_sn,
                 &burn_block.header,
                 &state_transition,
                 0,
@@ -1103,15 +1146,18 @@ simulating a miner.
             assert_eq!(next_sn.block_height, next_sn_nakamoto.block_height);
             assert_eq!(next_sn.burn_header_hash, next_sn_nakamoto.burn_header_hash);
 
-            let winner_epoch2 =
-                get_block_commit_by_txid(&sort_tx, &tip_sort_id, &next_sn.winning_block_txid)
-                    .unwrap()
-                    .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
-                    .unwrap_or("(null)".to_string());
+            let winner_epoch2 = get_block_commit_by_txid(
+                &sort_tx,
+                &ancestor_sn.sortition_id,
+                &next_sn.winning_block_txid,
+            )
+            .unwrap()
+            .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
+            .unwrap_or("(null)".to_string());
 
             let winner_epoch3 = get_block_commit_by_txid(
                 &sort_tx,
-                &tip_sort_id,
+                &ancestor_sn.sortition_id,
                 &next_sn_nakamoto.winning_block_txid,
             )
             .unwrap()
@@ -1131,20 +1177,69 @@ simulating a miner.
             );
         }
 
+        let mut all_wins_epoch2 = BTreeMap::new();
+        let mut all_wins_epoch3 = BTreeMap::new();
+
         println!("Wins epoch 2");
         println!("------------");
         println!("height,burn_header_hash,winner");
-        for ((height, bhh), winner) in wins_epoch2.into_iter() {
-            println!("{},{},{}", &height, &bhh, &winner);
+        for ((height, bhh), winner) in wins_epoch2.iter() {
+            println!("{},{},{}", height, bhh, winner);
+            if let Some(cnt) = all_wins_epoch2.get_mut(winner) {
+                *cnt += 1;
+            } else {
+                all_wins_epoch2.insert(winner, 1);
+            }
         }
 
         println!("------------");
         println!("Wins epoch 3");
         println!("------------");
         println!("height,burn_header_hash,winner");
-        for ((height, bhh), winner) in wins_epoch3.into_iter() {
-            println!("{},{},{}", &height, &bhh, &winner);
+        for ((height, bhh), winner) in wins_epoch3.iter() {
+            println!("{},{},{}", height, bhh, winner);
+            if let Some(cnt) = all_wins_epoch3.get_mut(winner) {
+                *cnt += 1;
+            } else {
+                all_wins_epoch3.insert(winner, 1);
+            }
         }
+
+        println!("---------------");
+        println!("Differences");
+        println!("---------------");
+        println!("height,burn_header_hash,winner_epoch2,winner_epoch3");
+        for ((height, bhh), winner) in wins_epoch2.iter() {
+            let Some(epoch3_winner) = wins_epoch3.get(&(*height, *bhh)) else {
+                continue;
+            };
+            if epoch3_winner != winner {
+                println!("{},{},{},{}", height, bhh, winner, epoch3_winner);
+            }
+        }
+
+        println!("---------------");
+        println!("All epoch2 wins");
+        println!("---------------");
+        println!("miner,count");
+        for (winner, count) in all_wins_epoch2.iter() {
+            println!("{},{}", winner, count);
+        }
+
+        println!("---------------");
+        println!("All epoch3 wins");
+        println!("---------------");
+        println!("miner,count,degradation");
+        for (winner, count) in all_wins_epoch3.into_iter() {
+            let degradation = (count as f64)
+                / (all_wins_epoch2
+                    .get(&winner)
+                    .map(|cnt| *cnt as f64)
+                    .unwrap_or(0.00000000000001f64));
+            println!("{},{},{}", &winner, count, degradation);
+        }
+
+        process::exit(0);
     }
 
     if argv[1] == "replay-chainstate" {
