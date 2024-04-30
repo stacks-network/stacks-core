@@ -26,10 +26,11 @@ use stacks_common::util::log;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
 
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainStateTransition, PublicKey,
-    Txid,
+    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainSigner,
+    BurnchainStateTransition, PublicKey, Txid,
 };
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::atc::{AtcRational, ATC_LOOKUP};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -42,12 +43,6 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
-
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-
-use crate::burnchains::BurnchainSigner;
-
-use crate::chainstate::burn::atc::{AtcRational, ATC_LOOKUP};
 
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
@@ -302,7 +297,8 @@ impl BlockSnapshot {
         // phase)
         let epoch_frequency_usize =
             usize::try_from(epoch_id.mining_commitment_frequency()).expect("Infallible");
-        if epoch_frequency_usize >= sampled_window_len
+        if sampled_window_len > 1
+            && epoch_frequency_usize >= sampled_window_len
             && miner_frequency < epoch_id.mining_commitment_frequency()
         {
             // this miner didn't mine often enough to win anyway
@@ -785,16 +781,13 @@ mod test {
 
     use super::*;
     use crate::burnchains::tests::*;
-    use crate::burnchains::*;
+    use crate::burnchains::{BurnchainSigner, *};
+    use crate::chainstate::burn::atc::AtcRational;
     use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot_with_winner;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::stacks::*;
-
-    use crate::burnchains::BurnchainSigner;
-
-    use crate::chainstate::burn::atc::AtcRational;
 
     fn test_make_snapshot(
         sort_tx: &mut SortitionHandleTx,
