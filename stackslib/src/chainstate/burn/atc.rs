@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::stacks_common::util::uint::BitArray;
 use stacks_common::util::uint::Uint256;
+
+use crate::stacks_common::util::uint::BitArray;
 
 /// A fixed-point numerical representation for ATC.  THe integer and fractional parts are both 64
 /// bits.
@@ -108,10 +109,11 @@ impl AtcRational {
 
 #[cfg(test)]
 mod test {
-    use crate::chainstate::burn::atc::AtcRational;
-    use crate::chainstate::burn::BlockSnapshot;
     use stacks_common::util::hash::to_hex;
     use stacks_common::util::uint::Uint256;
+
+    use crate::chainstate::burn::atc::AtcRational;
+    use crate::chainstate::burn::BlockSnapshot;
 
     impl AtcRational {
         /// Convert to f64, and panic on conversion failure
