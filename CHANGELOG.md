@@ -5,7 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Next-Branch]
+## [2.5.0.0.3]
+
+This release fixes a regression in `2.5.0.0.0` from `2.4.0.1.0` caused by git merge
+
+## [2.5.0.0.2]
+
+This release fixes two bugs in `2.5.0.0.0`, correctly setting the activation height for 2.5, and the network peer version.
+
+## [2.5.0.0.0]
+
+This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `840,360`: primarily the instantiation
+of the pox-4 contract. For more details see SIP-021.
+
+This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
+
+**This is a required release before Nakamoto rules are enabled in 3.0.**
+
+
+### Timing of Release from 2.5 to 3.0
+
+Activating Nakamoto will include two epochs:
+
+- **Epoch 2.5:** Pox-4 contract is booted up but no Nakamoto consensus rules take effect.
+- **Epoch 3:** Nakamoto consensus rules take effect.
 
 ### Added
 

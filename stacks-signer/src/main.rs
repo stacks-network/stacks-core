@@ -32,11 +32,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
-use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
+use libsigner::{
+    BlockProposalSigners, RunningSigner, Signer, SignerEventReceiver, SignerSession,
+    StackerDBSession,
+};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error, slog_info};
 use stacks_common::codec::read_next;
@@ -73,7 +75,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
         let hexed_string = to_hex(chunk);
         let hexed_chunk = hexed_string.as_bytes();
-        let bytes = io::stdout().write(&hexed_chunk).unwrap();
+        let bytes = io::stdout().write(hexed_chunk).unwrap();
         if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
@@ -208,15 +210,16 @@ fn handle_dkg(args: RunDkgArgs) {
 fn handle_sign(args: SignArgs) {
     debug!("Signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
-        error!("Unable to parse provided message as a NakamotoBlock.");
+    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
+    else {
+        error!("Unable to parse provided message as a BlockProposalSigners.");
         spawned_signer.running_signer.stop();
         return;
     };
     let sign_command = RunLoopCommand {
         reward_cycle: args.reward_cycle,
         command: SignerCommand::Sign {
-            block,
+            block_proposal,
             is_taproot: false,
             merkle_root: None,
         },
@@ -230,8 +233,9 @@ fn handle_sign(args: SignArgs) {
 fn handle_dkg_sign(args: SignArgs) {
     debug!("Running DKG and signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
-        error!("Unable to parse provided message as a NakamotoBlock.");
+    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
+    else {
+        error!("Unable to parse provided message as a BlockProposalSigners.");
         spawned_signer.running_signer.stop();
         return;
     };
@@ -242,7 +246,7 @@ fn handle_dkg_sign(args: SignArgs) {
     let sign_command = RunLoopCommand {
         reward_cycle: args.reward_cycle,
         command: SignerCommand::Sign {
-            block,
+            block_proposal,
             is_taproot: false,
             merkle_root: None,
         },

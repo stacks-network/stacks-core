@@ -384,7 +384,9 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 continue;
             }
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = signer.refresh_dkg(&self.stacks_client) {
+                if let Err(e) =
+                    signer.refresh_dkg(&self.stacks_client, res.clone(), current_reward_cycle)
+                {
                     error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
@@ -421,6 +423,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;

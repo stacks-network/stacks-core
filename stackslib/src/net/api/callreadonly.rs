@@ -116,6 +116,10 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/contracts/call-read/:principal/:contract_name/:func_name"
+    }
+
     /// Try to decode this request.
     fn try_parse_request(
         &mut self,
