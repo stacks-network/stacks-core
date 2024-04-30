@@ -6547,6 +6547,7 @@ pub mod tests {
                 path: path.to_string(),
                 marf,
                 readwrite,
+                dryrun: false,
                 first_block_height,
                 first_burn_header_hash: first_burn_hash.clone(),
                 pox_constants: PoxConstants::test_default(),
