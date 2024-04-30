@@ -2858,6 +2858,80 @@ impl SortitionDB {
         Ok(())
     }
 
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
+    /// replaces them into the SortitionDB's epochs table
+    fn validate_and_replace_epochs(
+        db_tx: &Transaction,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
+        let epochs = StacksEpoch::validate_epochs(epochs);
+        let existing_epochs = Self::get_stacks_epochs(db_tx)?;
+        if existing_epochs == epochs {
+            return Ok(());
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db_tx)?;
+        let existing_epoch_idx = StacksEpoch::find_epoch(&existing_epochs, tip.block_height)
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in its existing epochs table",
+                    tip.block_height
+                );
+            });
+
+        let new_epoch_idx =
+            StacksEpoch::find_epoch(&epochs, tip.block_height).unwrap_or_else(|| {
+                panic!(
+                    "FATAL: Sortition tip {} has no epoch in the configured epochs list",
+                    tip.block_height
+                );
+            });
+
+        // can't retcon epochs -- all epochs up to (but excluding) the tip's epoch in both epoch
+        // lists must be the same.
+        for i in 0..existing_epoch_idx.min(new_epoch_idx) {
+            if existing_epochs[i] != epochs[i] {
+                panic!(
+                    "FATAL: tried to retcon epoch {:?} into epoch {:?}",
+                    &existing_epochs[i], &epochs[i]
+                );
+            }
+        }
+
+        // can't change parameters of the current epoch in either epoch list,
+        // except for the end height (and only if it hasn't been reached yet)
+        let mut diff_epoch = existing_epochs[existing_epoch_idx].clone();
+        diff_epoch.end_height = epochs[new_epoch_idx].end_height;
+
+        if diff_epoch != epochs[new_epoch_idx] {
+            panic!(
+                "FATAL: tried to change current epoch {:?} into {:?}",
+                &existing_epochs[existing_epoch_idx], &epochs[new_epoch_idx]
+            );
+        }
+
+        if tip.block_height >= epochs[new_epoch_idx].end_height {
+            panic!("FATAL: tip has reached or passed the end of the configured epoch");
+        }
+
+        info!("Replace existing epochs with new epochs");
+        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        for epoch in epochs.into_iter() {
+            let args: &[&dyn ToSql] = &[
+                &(epoch.epoch_id as u32),
+                &u64_to_sql(epoch.start_height)?,
+                &u64_to_sql(epoch.end_height)?,
+                &epoch.block_limit,
+                &epoch.network_epoch,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
+                args
+            )?;
+        }
+        Ok(())
+    }
+
     /// Get a block commit by its content-addressed location in a specific sortition.
     pub fn get_block_commit(
         conn: &Connection,
@@ -3332,6 +3406,10 @@ impl SortitionDB {
 
                         self.apply_schema_8_migration(migrator.take())?;
                     } else if version == expected_version {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
+                        tx.commit()?;
+
                         return Ok(());
                     } else {
                         panic!("The schema version of the sortition DB is invalid.")
@@ -10672,5 +10750,52 @@ pub mod tests {
             BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
             good_ops_2[3]
         );
+    }
+
+    #[test]
+    fn test_validate_and_replace_epochs() {
+        use crate::core::STACKS_EPOCHS_MAINNET;
+
+        let path_root = "/tmp/test_validate_and_replace_epochs";
+        if fs::metadata(path_root).is_ok() {
+            fs::remove_dir_all(path_root).unwrap();
+        }
+
+        fs::create_dir_all(path_root).unwrap();
+
+        let mut bad_epochs = STACKS_EPOCHS_MAINNET.to_vec();
+        let idx = bad_epochs.len() - 2;
+        bad_epochs[idx].end_height += 1;
+        bad_epochs[idx + 1].start_height += 1;
+
+        let sortdb = SortitionDB::connect(
+            &format!("{}/sortdb.sqlite", &path_root),
+            0,
+            &BurnchainHeaderHash([0x00; 32]),
+            0,
+            &bad_epochs,
+            PoxConstants::mainnet_default(),
+            None,
+            true,
+        )
+        .unwrap();
+
+        let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+        assert_eq!(db_epochs, bad_epochs);
+
+        let fixed_sortdb = SortitionDB::connect(
+            &format!("{}/sortdb.sqlite", &path_root),
+            0,
+            &BurnchainHeaderHash([0x00; 32]),
+            0,
+            &STACKS_EPOCHS_MAINNET.to_vec(),
+            PoxConstants::mainnet_default(),
+            None,
+            true,
+        )
+        .unwrap();
+
+        let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+        assert_eq!(db_epochs, STACKS_EPOCHS_MAINNET.to_vec());
     }
 }
