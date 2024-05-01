@@ -90,6 +90,7 @@ jobs:
           - tests::signer::stackerdb_sign_after_signer_reboot
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::signer::stackerdb_delayed_dkg
+          - tests::signer::stackerdb_resend_messages
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
     steps:
