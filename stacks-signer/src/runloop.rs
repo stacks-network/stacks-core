@@ -74,6 +74,12 @@ impl RewardCycleInfo {
         self.reward_cycle == reward_cycle
     }
 
+    /// Get the reward cycle for a specific burnchain block height
+    pub const fn get_reward_cycle(&self, burnchain_block_height: u64) -> u64 {
+        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
+        blocks_mined / self.reward_cycle_length
+    }
+
     /// Check if the provided burnchain block height is in the prepare phase
     pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         PoxConstants::static_is_in_prepare_phase(
@@ -270,12 +276,24 @@ impl RunLoop {
             .current_reward_cycle_info
             .as_mut()
             .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let block_reward_cycle = reward_cycle_info.get_reward_cycle(current_burn_block_height);
+
         // First ensure we refresh our view of the current reward cycle information
-        if !reward_cycle_info.is_in_reward_cycle(current_burn_block_height) {
+        if block_reward_cycle != current_reward_cycle {
             let new_reward_cycle_info = retry_with_exponential_backoff(|| {
-                self.stacks_client
+                let info = self
+                    .stacks_client
                     .get_current_reward_cycle_info()
-                    .map_err(backoff::Error::transient)
+                    .map_err(backoff::Error::transient)?;
+                if info.reward_cycle != block_reward_cycle {
+                    // If the stacks-node is still processing the burn block, the /v2/pox endpoint
+                    // may return the previous reward cycle. In this case, we should retry.
+                    return Err(backoff::Error::transient(err_msg!(
+                        "Received reward cycle info is not the new block's expected reward cycle. Try again."
+                    )));
+                }
+                Ok(info)
             })?;
             *reward_cycle_info = new_reward_cycle_info;
         }
