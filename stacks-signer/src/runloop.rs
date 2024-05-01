@@ -89,6 +89,14 @@ impl RewardCycleInfo {
             burnchain_block_height,
         )
     }
+
+    /// Check if the provided burnchain block height is in the prepare phase of the next cycle
+    pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
+        let next_reward_cycle = self.reward_cycle.saturating_add(1);
+
+        self.is_in_prepare_phase(burnchain_block_height)
+            && self.get_reward_cycle(burnchain_block_height) == next_reward_cycle
+    }
 }
 
 /// The runloop for the stacks signer
@@ -299,7 +307,7 @@ impl RunLoop {
         }
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         // We should only attempt to refresh the signer if we are not configured for the next reward cycle yet and we received a new burn block for its prepare phase
-        if reward_cycle_info.is_in_prepare_phase(current_burn_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height) {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if self
                 .stacks_signers
