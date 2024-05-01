@@ -297,8 +297,9 @@ impl RunLoop {
                 if info.reward_cycle != block_reward_cycle {
                     // If the stacks-node is still processing the burn block, the /v2/pox endpoint
                     // may return the previous reward cycle. In this case, we should retry.
-                    return Err(backoff::Error::transient(err_msg!(
-                        "Received reward cycle info is not the new block's expected reward cycle. Try again."
+                    return Err(backoff::Error::transient(ClientError::InvalidResponse(
+                        "Received reward cycle info does not match the current burn block height."
+                            .to_string(),
                     )));
                 }
                 Ok(info)
