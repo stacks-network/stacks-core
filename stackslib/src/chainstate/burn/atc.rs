@@ -18,12 +18,16 @@ use stacks_common::util::uint::Uint256;
 
 use crate::stacks_common::util::uint::BitArray;
 
-/// A fixed-point numerical representation for ATC.  THe integer and fractional parts are both 64
-/// bits.
+/// A fixed-point numerical representation for ATC.  The integer and fractional parts are both 64
+/// bits.  Internally, this is a Uint256 so that safe addition and multiplication can be done.
+///
+/// Bits 0-63 are the fraction.
+/// Bits 64-127 are the integer.
+/// Bits 128-256 are 0's to facilitate safe addition and multiplication.
 ///
 /// The reasons we use this instead of f64 for ATC calculations are as follows:
 /// * This avoids unrepresentable states, like NaN or +/- INF
-/// * This avoids ambituous states, like +0.0 and -0.0.
+/// * This avoids ambiguous states, like +0.0 and -0.0.
 /// * This integrates better into the sortition-sampling system, which uses a u256 to represent a
 /// probability range (which is what this is going to be used for)
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
@@ -271,7 +275,7 @@ mod test {
 
     /// Calculate the logic advantage curve for the null miner.
     /// This function's parameters are chosen such that:
-    /// * if the ATC carryover has diminished by less than 20%, the null miner has negligeable
+    /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
     /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
     /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
     /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
@@ -365,7 +369,7 @@ mod test {
 /// assumed total commit carryover -- the ratio between what the winning miner paid in this
 /// block-commit to the median of what they historically paid (for an epoch-defined search window
 /// size).  A value greater than 1.0 means that the miner paid all of the assumed commit
-/// carry-over, and the null miner has negligeable chances of winning.  A value less than 1.0 means
+/// carry-over, and the null miner has negligible chances of winning.  A value less than 1.0 means
 /// that the miner underpaid relative to their past performance, and the closer to 0.0 this ratio
 /// is, the more likely the null miner wins and this miner loses.
 ///

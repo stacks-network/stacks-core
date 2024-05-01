@@ -187,7 +187,7 @@ impl BlockSnapshot {
     }
 
     /// Select the next Stacks block header hash using cryptographic sortition.
-    /// Go through all block commits at this height, find out how any burn tokens
+    /// Go through all block commits at this height, find out how many burn tokens
     /// were spent for them, and select one at random using the relative burn amounts
     /// to weight the sample.  Use HASH(sortition_hash ++ last_VRF_seed) to pick the
     /// winning block commit, and by extension, the next VRF seed.
@@ -382,7 +382,7 @@ impl BlockSnapshot {
     ///
     /// This is NullP(atc) = (1 - atc) + atc * adv(atc).
     ///
-    /// Where atv(x) is an "advantage function", such that the null miner is more heavily favored
+    /// Where adv(x) is an "advantage function", such that the null miner is more heavily favored
     /// to win based on how comparatively little commit carryover there is.  Here, adv(x) is a
     /// logistic function.
     ///
@@ -439,8 +439,8 @@ impl BlockSnapshot {
             // make the block header hash different, to render it different from the winner.
             // Just flip the block header bits.
             let mut bhh_bytes = null_winner.block_header_hash.0.clone();
-            for i in 0..bhh_bytes.len() {
-                bhh_bytes[i] = !bhh_bytes[i];
+            for byte in bhh_bytes.iter_mut() {
+                *byte = !*byte;
             }
             BlockHeaderHash(bhh_bytes)
         };
@@ -452,7 +452,7 @@ impl BlockSnapshot {
 
         // AtcRational's integer part is only 64 bits, so we need to scale it up so that it occupes the
         // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
-        // fo mining power the null miner has.
+        // of mining power the null miner has.
         let null_prob_u256 = if null_prob.0 >= AtcRational::one().0 {
             // prevent left-shift overflow
             AtcRational::one_sup().into_inner() << 192
@@ -655,7 +655,7 @@ impl BlockSnapshot {
         // * if the winning miner didn't mine in more than k of n blocks of the window, then their chances of
         // winning are 0.
         // * There exists a "null miner" that can win sortition, in which case there is no
-        // sortition.  This happens if the assumed total commit with carry-over is sufficently low.
+        // sortition.  This happens if the assumed total commit with carry-over is sufficiently low.
         let mut reject_winner_reason = None;
         if epoch_id >= StacksEpochId::Epoch30 {
             if !Self::check_miner_is_active(

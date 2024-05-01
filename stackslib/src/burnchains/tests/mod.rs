@@ -452,7 +452,7 @@ impl TestBurnchainBlock {
                     leader_key.block_height as u32,
                     leader_key.vtxindex as u16,
                     burn_fee,
-                    &input,
+                    &(parent.txid.clone(), (1 + parent.commit_outs.len()) as u32),
                     &apparent_sender,
                 );
                 txop
