@@ -92,10 +92,11 @@ impl RewardCycleInfo {
 
     /// Check if the provided burnchain block height is in the prepare phase of the next cycle
     pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
-        let next_reward_cycle = self.reward_cycle.saturating_add(1);
+        let effective_height = burnchain_block_height - self.first_burnchain_block_height;
+        let reward_index = effective_height % self.reward_cycle_length;
 
-        self.is_in_prepare_phase(burnchain_block_height)
-            && self.get_reward_cycle(burnchain_block_height) == next_reward_cycle
+        reward_index >= u64::from(self.reward_cycle_length - self.prepare_phase_block_length)
+            && self.get_reward_cycle(burnchain_block_height) == self.reward_cycle
     }
 }
 
@@ -267,7 +268,8 @@ impl RunLoop {
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if reward_cycle_info.is_in_prepare_phase(reward_cycle_info.last_burnchain_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(reward_cycle_info.last_burnchain_block_height)
+        {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
         self.current_reward_cycle_info = Some(reward_cycle_info);
@@ -559,5 +561,68 @@ mod tests {
                 .wrapping_add(reward_cycle_phase_block_length)
                 .wrapping_add(1)
         ));
+    }
+
+    #[test]
+    fn is_in_next_prepare_phase() {
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle: 5,
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 5,
+            first_burnchain_block_height: 0,
+            last_burnchain_block_height: 50,
+        };
+
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(49));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(50));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(51));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(52));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(53));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(54));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(55));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(56));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(57));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(58));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(59));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(60));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(61));
+
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+
+        for i in 0..reward_cycle_length {
+            if i < reward_cycle_phase_block_length {
+                assert!(!reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            } else {
+                assert!(reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            }
+        }
     }
 }
