@@ -300,8 +300,11 @@ impl RunLoop {
                     // If the stacks-node is still processing the burn block, the /v2/pox endpoint
                     // may return the previous reward cycle. In this case, we should retry.
                     return Err(backoff::Error::transient(ClientError::InvalidResponse(
-                        "Received reward cycle info does not match the current burn block height."
-                            .to_string(),
+                        format!("Received reward cycle ({}) does not match the expected reward cycle ({}) for block {}.",
+                            info.reward_cycle,
+                            block_reward_cycle,
+                            current_burn_block_height
+                        ),
                     )));
                 }
                 Ok(info)
