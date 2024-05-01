@@ -209,6 +209,7 @@ impl RunLoop {
             tx_fee_ustx: self.config.tx_fee_ustx,
             max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
+            response_wait_timeout: self.config.response_wait_timeout,
         })
     }
 
@@ -417,6 +418,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                     signer.commands.push_back(command.command);
                 }
             }
+            signer.resend_outbound_messages(self.config.response_wait_timeout);
             // After processing event, run the next command for each signer
             signer.process_next_command(&self.stacks_client, current_reward_cycle);
         }

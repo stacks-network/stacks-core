@@ -36,6 +36,8 @@ use crate::signer::SignerSlotID;
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee to use in microstacks (if unspecificed in the config file)
 const TX_FEE_USTX: u64 = 10_000;
+/// Default time to wait for all listening parties' responses before resending messages in milliseconds
+const RESPONSE_WAIT_TIMEOUT_MS: u64 = 100_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -149,6 +151,8 @@ pub struct SignerConfig {
     pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// The time to wait for all listening parties' responses before resending messages
+    pub response_wait_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -186,6 +190,8 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// The time to wait for all listening parties' responses before resending messages
+    pub response_wait_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -221,6 +227,8 @@ struct RawConfigFile {
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
     pub db_path: String,
+    /// The time in milliseconds to wait for all listening parties responses before attempting to resend messages
+    pub response_wait_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -296,6 +304,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
+        let response_wait_timeout = Duration::from_millis(
+            raw_data
+                .response_wait_timeout_ms
+                .unwrap_or(RESPONSE_WAIT_TIMEOUT_MS),
+        );
         let db_path = raw_data.db_path.into();
 
         Ok(Self {
@@ -315,6 +328,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
+            response_wait_timeout,
         })
     }
 }
@@ -384,6 +398,7 @@ pub fn build_signer_config_tomls(
     mut port_start: usize,
     max_tx_fee_ustx: Option<u64>,
     tx_fee_ustx: Option<u64>,
+    response_wait_timeout: Option<u64>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -437,6 +452,14 @@ tx_fee_ustx = {tx_fee_ustx}
 "#
             )
         }
+        if let Some(response_wait_timeout) = response_wait_timeout {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+response_wait_timeout = {response_wait_timeout}
+"#
+            )
+        }
 
         signer_config_tomls.push(signer_config_toml);
     }
@@ -467,6 +490,7 @@ mod tests {
             password,
             rand::random(),
             3000,
+            None,
             None,
             None,
         );
@@ -501,6 +525,7 @@ mod tests {
             3000,
             None,
             None,
+            None,
         );
 
         let config =
@@ -526,6 +551,7 @@ mod tests {
             3000,
             max_tx_fee_ustx,
             tx_fee_ustx,
+            None,
         );
 
         let config =
@@ -545,6 +571,7 @@ mod tests {
             rand::random(),
             3000,
             max_tx_fee_ustx,
+            None,
             None,
         );
 
@@ -570,6 +597,7 @@ mod tests {
             3000,
             None,
             tx_fee_ustx,
+            None,
         );
 
         let config =

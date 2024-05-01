@@ -245,6 +245,12 @@ impl SignerDb {
             params![&u64_to_sql(reward_cycle)?],
         )
     }
+
+    /// Update the last sent time of the outbound messages
+    pub fn update_outbound_messages_time(&self, reward_cycle: u64) -> Result<(), DBError> {
+        self.db.execute("UPDATE outbound_messages SET insertion_time = CURRENT_TIMESTAMP WHERE reward_cycle = ?", params!(u64_to_sql(reward_cycle)?))?;
+        Ok(())
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -281,7 +287,7 @@ mod tests {
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::secp256k1::MessageSignature;
-    use wsts::net::{DkgBegin, DkgPrivateBegin, Message};
+    use wsts::net::{DkgBegin, DkgEnd, DkgPrivateBegin, Message};
 
     use super::*;
 
@@ -553,5 +559,52 @@ mod tests {
             signer_state_to_string(&signer_state)
         );
         assert_ne!(insertion_1, insertion_2);
+    }
+
+    #[test]
+    fn update_outbound_messages_time() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let coordinator_state = CoordinatorState::DkgPrivateGather;
+        let signer_state = SignerState::DkgPrivateGather;
+        let reward_cycle = 42;
+        let mut sig_1 = [0u8; 32];
+        thread_rng().fill_bytes(&mut sig_1);
+        let mut sig_2 = [0u8; 32];
+        thread_rng().fill_bytes(&mut sig_2);
+        let outbound_message_1 = Packet {
+            msg: Message::DkgEnd(DkgEnd {
+                dkg_id: thread_rng().next_u64(),
+                signer_id: thread_rng().next_u32(),
+                status: wsts::net::DkgStatus::Success,
+            }),
+            sig: sig_1.to_vec(),
+        };
+        let outbound_messages = vec![outbound_message_1.clone()];
+        // We haven't added anything yet. This should be an empty database
+        assert!(db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query empty outbound messages")
+            .is_none());
+
+        db.insert_outbound_messages(
+            reward_cycle,
+            &coordinator_state,
+            &signer_state,
+            &outbound_messages,
+        )
+        .expect("Failed to insert outbound messages");
+        let stored_info = db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query outbound messaages")
+            .expect("Failed to find outbound messages");
+        db.update_outbound_messages_time(reward_cycle)
+            .expect("Failed to update outbound messages");
+
+        let updated_info = db
+            .outbound_messages_lookup(reward_cycle)
+            .expect("Failed to query outbound messaages")
+            .expect("Failed to find outbound messages");
+        assert_ne!(updated_info.insertion_time, stored_info.insertion_time);
     }
 }

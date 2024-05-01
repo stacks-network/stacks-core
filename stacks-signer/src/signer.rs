@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -409,6 +409,39 @@ impl Signer {
         self.coordinator_selector.last_message_time = Some(Instant::now());
     }
 
+    /// Resend outbound messages if no state change has occurred within the configured timeout
+    pub fn resend_outbound_messages(&mut self, response_wait_timeout: Duration) {
+        // We do not need to resend outbound messages if we are in the Idle state.
+        if self.state == State::Idle {
+            return;
+        }
+        match self.signer_db.outbound_messages_lookup(self.reward_cycle) {
+            Ok(Some(info)) => {
+                if info.insertion_time < chrono::Utc::now() - response_wait_timeout
+                    && info.coordinator_state
+                        == coordinator_state_to_string(&self.coordinator.state)
+                    && info.signer_state == signer_state_to_string(&self.state_machine.state)
+                {
+                    info!("{self}: timed out waiting for responses. Resending {:?} outbound messages", info.outbound_messages.len();
+                        "coordinator_state" => info.coordinator_state,
+                        "signer_state" => info.signer_state
+                    );
+                    self.send_outbound_messages(info.outbound_messages);
+                    if let Err(e) = self
+                        .signer_db
+                        .update_outbound_messages_time(self.reward_cycle)
+                    {
+                        error!("{self}: Failed to update outbound messages in DB: {e:?}");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                error!("{self}: failed to read outbound messages from signer DB. {e:?}");
+            }
+        }
+    }
+
     /// Execute the given command and update state accordingly
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
@@ -738,8 +771,26 @@ impl Signer {
             self.save_signer_state()
                 .unwrap_or_else(|_| panic!("{self}: Failed to save signer state"));
         }
-        self.send_outbound_messages(signer_outbound_messages);
-        self.send_outbound_messages(coordinator_outbound_messages);
+        let mut outbound_messages = Vec::with_capacity(
+            signer_outbound_messages.len() + coordinator_outbound_messages.len(),
+        );
+        outbound_messages.extend(signer_outbound_messages);
+        outbound_messages.extend(coordinator_outbound_messages);
+        self.send_outbound_messages(outbound_messages.clone());
+        if !outbound_messages.is_empty() || self.state == State::Idle {
+            debug!(
+                "{self}: Saving outbound {:?} message(s) to SignerDB.",
+                outbound_messages.len()
+            );
+            if let Err(e) = self.signer_db.insert_outbound_messages(
+                self.reward_cycle,
+                &self.coordinator.state,
+                &self.state_machine.state,
+                &outbound_messages,
+            ) {
+                error!("{self}: Failed to save outbound message info. {e:?}");
+            }
+        }
     }
 
     /// Validate a signature share request, updating its message where appropriate.
