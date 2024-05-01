@@ -132,7 +132,7 @@ impl BurnchainStateTransition {
         if block_total_burns.len() == 0 {
             return Some(0);
         } else if block_total_burns.len() == 1 {
-            return Some(block_total_burns[0])
+            return Some(block_total_burns[0]);
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
             return block_total_burns.get(idx).map(|b| *b);
@@ -255,7 +255,12 @@ impl BurnchainStateTransition {
 
                 windowed_missed_commits.push(missed_commits_at_height);
             }
-            test_debug!("Block {} is in a reward phase with PoX. Miner commit window is {}: {:?}", parent_snapshot.block_height + 1, windowed_block_commits.len(), &windowed_block_commits);
+            test_debug!(
+                "Block {} is in a reward phase with PoX. Miner commit window is {}: {:?}",
+                parent_snapshot.block_height + 1,
+                windowed_block_commits.len(),
+                &windowed_block_commits
+            );
         } else {
             // PoX reward-phase is not active
             debug!(

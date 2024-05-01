@@ -345,13 +345,14 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn make_null_miner_lookup_table() {
+        use crate::chainstate::burn::atc::ATC_LOOKUP;
         let mut lookup_table = Vec::with_capacity(1024);
         for atc in 0..1024 {
             let fatc = (atc as f64) / 1024.0;
             let lgst_fatc = null_miner_logistic(fatc);
             let lgst_rational = AtcRational::from_f64_unit(lgst_fatc);
+            assert_eq!(ATC_LOOKUP[atc], lgst_rational);
             lookup_table.push(lgst_rational);
         }
         println!("[");
