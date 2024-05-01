@@ -13,7 +13,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -22,8 +22,10 @@ use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
 use stacks::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
-    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
+    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
@@ -211,7 +213,7 @@ mod tests {
             ConfigFile::from_str(&format!(
                 r#"
                     [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
+                    reward_cycle = 413
                     affirmation = "{affirmation_string}"
                 "#
             ))
@@ -222,7 +224,7 @@ mod tests {
         assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
         assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
         assert_eq!(
-            config.burnchain.affirmation_overrides.get(&1),
+            config.burnchain.affirmation_overrides.get(&413),
             Some(&affirmation)
         );
     }
@@ -267,7 +269,33 @@ mod tests {
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 3);
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+    }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
     }
 }
 
@@ -1192,6 +1220,26 @@ impl Config {
         self.events_observers.len() > 0
     }
 
+    pub fn make_nakamoto_block_builder_settings(
+        &self,
+        miner_status: Arc<Mutex<MinerStatus>>,
+    ) -> BlockBuilderSettings {
+        let miner_config = self.get_miner_config();
+        BlockBuilderSettings {
+            max_miner_time_ms: miner_config.nakamoto_attempt_time_ms,
+            mempool_settings: MemPoolWalkSettings {
+                max_walk_time_ms: miner_config.nakamoto_attempt_time_ms,
+                consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
+                nonce_cache_size: miner_config.nonce_cache_size,
+                candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
+                txs_to_consider: miner_config.txs_to_consider,
+                filter_origins: miner_config.filter_origins,
+            },
+            miner_status,
+            confirm_microblocks: false,
+        }
+    }
+
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -1445,7 +1493,7 @@ impl BurnchainConfigFile {
     /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
     /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
     pub fn add_affirmation_overrides_xenon(&mut self) {
-        let default_overrides = vec![
+        let mut default_overrides = vec![
         AffirmationOverride {
             reward_cycle: 413,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
@@ -1458,9 +1506,44 @@ impl BurnchainConfigFile {
             reward_cycle: 415,
             affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
         }];
+
+        // Now compute the 2.5 overrides.
+        let affirmations_pre_2_5 = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaaapppppppnnnnnnnnnnnnnnnnnnnnnnnpnppnppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnpnpppppppppnppnnnnnnnnnnnnnnnnnnnnnnnnnppnppppppppp";
+        let xenon_pox_consts = PoxConstants::testnet_default();
+        let last_present_cycle = xenon_pox_consts
+            .block_height_to_reward_cycle(
+                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+            )
+            .unwrap();
+        assert_eq!(
+            u64::try_from(affirmations_pre_2_5.len()).unwrap(),
+            last_present_cycle - 1
+        );
+        let last_override = xenon_pox_consts
+            .block_height_to_reward_cycle(
+                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
+            )
+            .unwrap();
+        let override_values = ["a", "n"];
+
+        for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
+            assert!(override_values.len() > override_index);
+            let overrides = override_values[..(override_index + 1)].join("");
+            let affirmation = format!("{affirmations_pre_2_5}{overrides}");
+            default_overrides.push(AffirmationOverride {
+                reward_cycle,
+                affirmation,
+            });
+        }
+
         if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
             for affirmation in default_overrides {
-                affirmation_overrides.push(affirmation);
+                // insert at front, so that the hashmap uses the configured overrides
+                //  instead of the defaults (the configured overrides will write over the
+                //  the defaults because they come later in the list).
+                affirmation_overrides.insert(0, affirmation);
             }
         } else {
             self.affirmation_overrides = Some(default_overrides);
@@ -1503,6 +1586,12 @@ impl BurnchainConfigFile {
                         ao.reward_cycle, ao.affirmation
                     ));
                 };
+                if u64::try_from(affirmation_map.len()).unwrap() != ao.reward_cycle - 1 {
+                    return Err(format!(
+                        "Invalid affirmation override for reward cycle {}. Map len = {}, but expected {}.",
+                        ao.reward_cycle, affirmation_map.len(), ao.reward_cycle - 1,
+                    ));
+                }
                 affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
             }
         }
@@ -2123,6 +2212,8 @@ pub struct MinerConfig {
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
+    /// Max time to assemble Nakamoto block
+    pub nakamoto_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
@@ -2173,6 +2264,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
+            nakamoto_attempt_time_ms: 10_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
@@ -2498,6 +2590,7 @@ pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
+    pub nakamoto_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
     pub segwit: Option<bool>,
@@ -2531,6 +2624,9 @@ impl MinerConfigFile {
             microblock_attempt_time_ms: self
                 .microblock_attempt_time_ms
                 .unwrap_or(miner_default_config.microblock_attempt_time_ms),
+            nakamoto_attempt_time_ms: self
+                .nakamoto_attempt_time_ms
+                .unwrap_or(miner_default_config.nakamoto_attempt_time_ms),
             probability_pick_no_estimate_tx: self
                 .probability_pick_no_estimate_tx
                 .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),

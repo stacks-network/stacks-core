@@ -687,9 +687,9 @@ impl Relayer {
 
         if epoch_id < StacksEpochId::Epoch30 {
             error!("Nakamoto blocks are not supported in this epoch");
-            return Err(chainstate_error::InvalidStacksBlock(
-                "Nakamoto blocks are not supported in this epoch".into(),
-            ));
+            return Err(chainstate_error::InvalidStacksBlock(format!(
+                "Nakamoto blocks are not supported in this epoch: {epoch_id}"
+            )));
         }
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its

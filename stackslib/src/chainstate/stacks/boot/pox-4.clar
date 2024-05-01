@@ -316,7 +316,6 @@
           (some delegation-info))))
 
 ;; Get the size of the reward set for a reward cycle.
-;; Note that this does _not_ return duplicate PoX addresses.
 ;; Note that this also _will_ return PoX addresses that are beneath
 ;; the minimum threshold -- i.e. the threshold can increase after insertion.
 ;; Used internally by the Stacks node, which filters out the entries
@@ -665,6 +664,12 @@
                 (err ERR_STACKING_INVALID_POX_ADDRESS))
          true)
 
+      (match pox-addr
+         pox-tuple
+            (asserts! (check-pox-addr-hashbytes (get version pox-tuple) (get hashbytes pox-tuple))
+                (err ERR_STACKING_INVALID_POX_ADDRESS))
+         true)
+
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
@@ -873,7 +878,11 @@
 ;;
 (define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                            (reward-cycle uint)
-                                           (reward-cycle-index uint))
+                                           (reward-cycle-index uint)
+                                           (signer-sig (optional (buff 65)))
+                                           (signer-key (buff 33))
+                                           (max-amount uint)
+                                           (auth-id uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
@@ -887,21 +896,22 @@
     (asserts! (> reward-cycle (current-pox-reward-cycle))
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
-    (let ((amount-ustx (get stacked-amount partial-stacked))
-          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
-          ;; infallible; getting something from partial-stacked-by-cycle succeeded so this must succeed
-          (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+    (let ((partial-amount-ustx (get stacked-amount partial-stacked))
           ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
           (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
                           (err ERR_DELEGATION_NO_REWARD_SLOT)))
-          (increased-ustx (+ (get total-ustx existing-entry) amount-ustx))
-          (total-ustx (+ (get total-ustx existing-total) amount-ustx)))
+          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
+          ;; infallible; getting existing-entry succeeded so this must succeed
+          (existing-cycle (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+          (increased-entry-total (+ (get total-ustx existing-entry) partial-amount-ustx))
+          (increased-cycle-total (+ (get total-ustx existing-cycle) partial-amount-ustx))
+          (existing-signer-key (get signer existing-entry)))
 
           ;; must be stackable
-          (try! (minimal-can-stack-stx pox-addr total-ustx reward-cycle u1))
+          (try! (minimal-can-stack-stx pox-addr increased-entry-total reward-cycle u1))
 
           ;; new total must exceed the stacking minimum
-          (asserts! (<= (get-stacking-minimum) total-ustx)
+          (asserts! (<= (get-stacking-minimum) increased-entry-total)
                     (err ERR_STACKING_THRESHOLD_NOT_MET))
 
           ;; there must *not* be a stacker entry (since this is a delegator)
@@ -912,19 +922,28 @@
           (asserts! (is-eq pox-addr (get pox-addr existing-entry))
                     (err ERR_DELEGATION_WRONG_REWARD_SLOT))
 
+          ;; Validate that amount is less than or equal to `max-amount`
+          (asserts! (>= max-amount increased-entry-total) (err ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH))
+
+          ;; Validate that signer-key matches the existing signer-key
+          (asserts! (is-eq existing-signer-key signer-key) (err ERR_INVALID_SIGNER_KEY))
+
+          ;; Verify signature from delegate that allows this sender for this cycle
+          ;; 'lock-period' param set to one period, same as aggregation-commit-indexed
+          (try! (consume-signer-key-authorization pox-addr reward-cycle "agg-increase" u1 signer-sig signer-key increased-entry-total max-amount auth-id))
+
           ;; update the pox-address list -- bump the total-ustx
           (map-set reward-cycle-pox-address-list
                    { reward-cycle: reward-cycle, index: reward-cycle-index }
                    { pox-addr: pox-addr,
-                     total-ustx: increased-ustx,
+                     total-ustx: increased-entry-total,
                      stacker: none,
-                     ;; TODO: this must be authorized with a signature, or tx-sender allowance!
-                     signer: (get signer existing-entry) })
+                     signer: signer-key })
 
           ;; update the total ustx in this cycle
           (map-set reward-cycle-total-stacked
                    { reward-cycle: reward-cycle }
-                   { total-ustx: total-ustx })
+                   { total-ustx: increased-cycle-total })
 
           ;; don't update the stacking-state map,
           ;;  because it _already has_ this stacker's state
@@ -1160,9 +1179,6 @@
 
     ;; Verify signature from delegate that allows this sender for this cycle
     (try! (consume-signer-key-authorization pox-addr cur-cycle "stack-extend" extend-count signer-sig signer-key u0 max-amount auth-id))
-
-    ;; TODO: add more assertions to sanity check the `stacker-info` values with
-    ;;       the `stacker-state` values
 
     (let ((last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
           (lock-period (+ u1 (- last-extend-cycle first-reward-cycle)))
@@ -1421,6 +1437,9 @@
                                              (max-amount uint)
                                              (auth-id uint))
   (begin
+    ;; must be called directly by the tx-sender or by an allowed contract-caller
+    (asserts! (check-caller-allowed)
+      (err ERR_NOT_ALLOWED))
     ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
     (asserts! (is-eq
       (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))

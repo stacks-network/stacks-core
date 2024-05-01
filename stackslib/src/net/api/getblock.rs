@@ -90,6 +90,10 @@ impl HttpRequest for RPCBlocksRequestHandler {
         Regex::new(r#"^/v2/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/blocks/:block_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

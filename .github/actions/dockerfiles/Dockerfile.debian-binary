@@ -23,5 +23,5 @@ RUN case ${TARGETPLATFORM} in \
     && unzip ${BIN_ARCH}.zip -d /out
 
 FROM --platform=${TARGETPLATFORM} debian:bookworm
-COPY --from=builder /out/stacks-node /bin/
+COPY --from=builder /out/stacks-node /out/stacks-signer /bin/
 CMD ["stacks-node", "mainnet"]

@@ -1371,6 +1371,7 @@ pub mod test {
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_common::util::*;
 
+    use self::signers_tests::readonly_call;
     use super::*;
     use crate::burnchains::{Address, PublicKey};
     use crate::chainstate::burn::db::sortdb::*;
@@ -1728,6 +1729,58 @@ pub mod test {
         }
     }
 
+    pub fn get_stacker_info_pox_4(
+        peer: &mut TestPeer,
+        addr: &PrincipalData,
+    ) -> Option<(PoxAddress, u128, u128, Vec<u128>)> {
+        let value_opt = eval_at_tip(
+            peer,
+            "pox-4",
+            &format!("(get-stacker-info '{})", addr.to_string()),
+        );
+        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
+            d
+        } else {
+            return None;
+        };
+
+        let data = data.expect_tuple().unwrap();
+        let pox_addr = tuple_to_pox_addr(
+            data.get("pox-addr")
+                .unwrap()
+                .to_owned()
+                .expect_tuple()
+                .unwrap(),
+        );
+        let first_reward_cycle = data
+            .get("first-reward-cycle")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let lock_period = data
+            .get("lock-period")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let reward_set_indices = data
+            .get("reward-set-indexes")
+            .unwrap()
+            .to_owned()
+            .expect_list()
+            .unwrap()
+            .iter()
+            .map(|v| v.to_owned().expect_u128().unwrap())
+            .collect();
+        Some((
+            pox_addr,
+            first_reward_cycle,
+            lock_period,
+            reward_set_indices,
+        ))
+    }
+
     pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
@@ -1987,6 +2040,27 @@ pub mod test {
         make_tx(key, nonce, 1, payload)
     }
 
+    pub fn get_approved_aggregate_key(
+        peer: &mut TestPeer<'_>,
+        latest_block_id: StacksBlockId,
+        reward_cycle: u128,
+    ) -> Option<Point> {
+        let key_opt = readonly_call(
+            peer,
+            &latest_block_id,
+            SIGNERS_VOTING_NAME.into(),
+            "get-approved-aggregate-key".into(),
+            vec![Value::UInt(reward_cycle)],
+        )
+        .expect_optional()
+        .unwrap();
+        key_opt.map(|key_value| {
+            let data = key_value.expect_buff(33).unwrap();
+            let compressed_data = Compressed::try_from(data.as_slice()).unwrap();
+            Point::try_from(&compressed_data).unwrap()
+        })
+    }
+
     pub fn make_pox_2_increase(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -2174,6 +2248,40 @@ pub mod test {
             vec![
                 addr_tuple,
                 Value::UInt(reward_cycle),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregation_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        reward_cycle_index: u128,
+        signature_opt: Option<Vec<u8>>,
+        signer_key: &Secp256k1PublicKey,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let signature = signature_opt
+            .map(|sig| Value::some(Value::buff_from(sig).unwrap()).unwrap())
+            .unwrap_or_else(|| Value::none());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-aggregation-increase",
+            vec![
+                addr_tuple,
+                Value::UInt(reward_cycle),
+                Value::UInt(reward_cycle_index),
                 signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
                 Value::UInt(max_amount),
