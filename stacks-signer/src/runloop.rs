@@ -296,7 +296,7 @@ impl RunLoop {
                     .stacks_client
                     .get_current_reward_cycle_info()
                     .map_err(backoff::Error::transient)?;
-                if info.reward_cycle != block_reward_cycle {
+                if info.reward_cycle < block_reward_cycle {
                     // If the stacks-node is still processing the burn block, the /v2/pox endpoint
                     // may return the previous reward cycle. In this case, we should retry.
                     return Err(backoff::Error::transient(ClientError::InvalidResponse(
