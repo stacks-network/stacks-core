@@ -1049,7 +1049,7 @@ mod tests {
                     median_burn: block_commit_1.burn_fee.into(),
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
-                    frequency: 10,
+                    frequency: 1,
                     candidate: block_commit_1.clone(),
                 }],
             },
@@ -1068,14 +1068,14 @@ mod tests {
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        frequency: 10,
+                        frequency: 1,
                         candidate: block_commit_1.clone(),
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1095,7 +1095,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1109,7 +1109,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1129,7 +1129,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1143,7 +1143,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1163,7 +1163,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1177,7 +1177,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1197,7 +1197,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1211,7 +1211,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1231,7 +1231,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1245,7 +1245,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1272,7 +1272,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0x3ed94d3cb0a84709,
@@ -1285,7 +1285,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
@@ -1303,7 +1303,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
                         median_burn: block_commit_3.burn_fee.into(),
-                        frequency: 10,
+                        frequency: 1,
                         range_start: Uint256([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,

@@ -297,10 +297,7 @@ impl BlockSnapshot {
         // phase)
         let epoch_frequency_usize =
             usize::try_from(epoch_id.mining_commitment_frequency()).expect("Infallible");
-        if sampled_window_len > 1
-            && epoch_frequency_usize >= sampled_window_len
-            && miner_frequency < epoch_id.mining_commitment_frequency()
-        {
+        if usize::from(miner_frequency) < epoch_frequency_usize.min(sampled_window_len) {
             // this miner didn't mine often enough to win anyway
             info!("Miner did not mine often enough to win";
                    "miner_sender" => %winning_block_sender,
@@ -345,14 +342,14 @@ impl BlockSnapshot {
             return (AtcRational::zero(), false);
         };
 
-        if block_burn_total >= windowed_median_burns {
-            // clamp to 1.0, and ATC increased
-            return (AtcRational::one(), false);
-        }
-
         if windowed_median_burns == 0 {
             // no carried commit, so null miner wins by default.
             return (AtcRational::zero(), true);
+        }
+
+        if block_burn_total >= windowed_median_burns {
+            // clamp to 1.0, and ATC increased
+            return (AtcRational::one(), false);
         }
 
         (
@@ -929,45 +926,39 @@ mod test {
 
     #[test]
     fn test_check_is_miner_active() {
-        assert_eq!(StacksEpochId::Epoch30.mining_commitment_frequency(), 10);
-        assert_eq!(StacksEpochId::Epoch25.mining_commitment_frequency(), 6);
+        assert_eq!(StacksEpochId::Epoch30.mining_commitment_frequency(), 3);
+        assert_eq!(StacksEpochId::Epoch25.mining_commitment_frequency(), 0);
 
         // reward phase
         assert!(BlockSnapshot::check_miner_is_active(
             StacksEpochId::Epoch30,
-            10,
-            &BurnchainSigner("".to_string()),
-            10
-        ));
-        assert!(BlockSnapshot::check_miner_is_active(
-            StacksEpochId::Epoch30,
-            10,
-            &BurnchainSigner("".to_string()),
-            9
-        ));
-        assert!(BlockSnapshot::check_miner_is_active(
-            StacksEpochId::Epoch30,
-            10,
-            &BurnchainSigner("".to_string()),
-            8
-        ));
-        assert!(BlockSnapshot::check_miner_is_active(
-            StacksEpochId::Epoch30,
-            10,
-            &BurnchainSigner("".to_string()),
-            7
-        ));
-        assert!(BlockSnapshot::check_miner_is_active(
-            StacksEpochId::Epoch30,
-            10,
+            6,
             &BurnchainSigner("".to_string()),
             6
         ));
-        assert!(!BlockSnapshot::check_miner_is_active(
+        assert!(BlockSnapshot::check_miner_is_active(
             StacksEpochId::Epoch30,
-            10,
+            6,
             &BurnchainSigner("".to_string()),
             5
+        ));
+        assert!(BlockSnapshot::check_miner_is_active(
+            StacksEpochId::Epoch30,
+            6,
+            &BurnchainSigner("".to_string()),
+            4
+        ));
+        assert!(BlockSnapshot::check_miner_is_active(
+            StacksEpochId::Epoch30,
+            6,
+            &BurnchainSigner("".to_string()),
+            3
+        ));
+        assert!(!BlockSnapshot::check_miner_is_active(
+            StacksEpochId::Epoch30,
+            6,
+            &BurnchainSigner("".to_string()),
+            2
         ));
 
         // prepare phase
@@ -1037,7 +1028,7 @@ mod test {
         // no carried commit
         assert_eq!(
             BlockSnapshot::get_miner_commit_carryover(Some(2), Some(0)),
-            (AtcRational::zero(), false)
+            (AtcRational::zero(), true)
         );
 
         // assumed carryover
