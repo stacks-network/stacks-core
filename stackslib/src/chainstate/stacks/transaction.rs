@@ -1251,6 +1251,9 @@ mod test {
     use crate::net::*;
 
     impl StacksTransaction {
+        /// Sign a sighash without appending the signature and public key
+        /// to the given spending condition.
+        /// Returns the resulting signature
         fn sign_no_append_origin(
             &self,
             cur_sighash: &Txid,
@@ -1272,6 +1275,7 @@ mod test {
             Ok(next_sig)
         }
 
+        /// Appends a signature and public key to the spending condition.
         fn append_origin_signature(
             &mut self,
             signature: MessageSignature,
@@ -1295,6 +1299,9 @@ mod test {
             Ok(())
         }
 
+        /// Sign a sighash as a sponsor without appending the signature and public key
+        /// to the given spending condition.
+        /// Returns the resulting signature
         fn sign_no_append_sponsor(
             &mut self,
             cur_sighash: &Txid,
@@ -1321,6 +1328,7 @@ mod test {
             Ok(next_sig)
         }
 
+        /// Appends a sponsor signature and public key to the spending condition.
         pub fn append_sponsor_signature(
             &mut self,
             signature: MessageSignature,
