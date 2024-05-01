@@ -1039,14 +1039,11 @@ simulating a miner.
         let mut advantages = HashMap::new();
         if argv.len() >= 7 {
             let mut i = 7;
-            loop {
+            while i + 2 < argv.len() {
                 let advantaged_miner = argv[i].clone();
                 let advantage: u64 = argv[i + 1].parse().unwrap();
                 advantages.insert(advantaged_miner, advantage);
                 i += 2;
-                if i >= argv.len() {
-                    break;
-                }
             }
         }
 
