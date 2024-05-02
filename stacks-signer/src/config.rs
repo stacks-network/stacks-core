@@ -640,7 +640,7 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Database path: :memory:
 DKG transaction fee: 0.01 uSTX
-metrics_endpoint: 0.0.0.0:9090
+Metrics endpoint: 0.0.0.0:9090
 "#
             )
         );
