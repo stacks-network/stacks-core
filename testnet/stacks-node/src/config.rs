@@ -558,6 +558,19 @@ impl Config {
         return config.miner;
     }
 
+    pub fn get_node_config(&self) -> NodeConfig {
+        let Some(path) = &self.config_path else {
+            return self.node.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.node.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.node.clone();
+        };
+        return config.node;
+    }
+
     /// Apply any test settings to this burnchain config struct
     #[cfg_attr(test, mutants::skip)]
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
