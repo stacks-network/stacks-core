@@ -703,7 +703,7 @@ impl BitcoinRegtestController {
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
-        // if mock mining, do not even both requesting UTXOs
+        // if mock mining, do not even bother requesting UTXOs
         if self.config.get_node_config().mock_mining {
             return None;
         }
