@@ -2760,6 +2760,10 @@ mod test {
         fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
             Some(12000)
         }
+
+        fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+            Some(100)
+        }
     }
 
     struct DocBurnStateDB {}

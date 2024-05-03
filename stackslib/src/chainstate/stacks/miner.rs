@@ -1487,6 +1487,7 @@ impl StacksBlockBuilder {
             anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
+            tenure_height: Some(0),
             index_root: TrieHash([0u8; 32]),
             consensus_hash: genesis_consensus_hash.clone(),
             burn_header_hash: genesis_burn_header_hash.clone(),

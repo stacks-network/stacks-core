@@ -216,6 +216,16 @@ lazy_static! {
         UPDATE db_config SET version = "4";
         "#.into(),
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
+    r#"
+      -- Add a `tenure_height` column to the block_headers table.
+      ALTER TABLE block_headers ADD COLUMN tenure_height INTEGER;
+    "#.into(),
+    r#"
+      UPDATE db_config SET version = "5";
+     "#.into(),
+    ];
 }
 
 /// Matured miner reward schedules
@@ -2342,6 +2352,22 @@ impl NakamotoChainState {
         let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
+        let parent_header_info =
+            NakamotoChainState::get_block_header(headers_tx.deref(), &new_tip.parent_block_id)
+                .and_then(|x| x.ok_or(ChainstateError::NoSuchBlockError))?;
+        let tenure_height = if let Some(th) = parent_header_info.tenure_height {
+            if new_tenure {
+                th + 1
+            } else {
+                th
+            }
+        } else {
+            // This can only be the case if the parent is an epoch 2.x block that was stored
+            // before the tenure height was added to the header info. In that case, the tenure
+            // height is the parent's block height + 1.
+            parent_header_info.stacks_block_height + 1
+        };
+
         // store each indexed field
         test_debug!("Headers index_put_begin {parent_hash}-{index_block_hash}");
         let root_hash =
@@ -2353,6 +2379,7 @@ impl NakamotoChainState {
             microblock_tail: None,
             index_root: root_hash,
             stacks_block_height: new_tip.chain_length,
+            tenure_height: Some(tenure_height),
             consensus_hash: new_tip.consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,

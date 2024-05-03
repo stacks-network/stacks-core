@@ -98,6 +98,7 @@ pub trait HeadersDB {
     fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
     fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
 }
 
 pub trait BurnStateDB {
@@ -182,6 +183,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         (*self).get_tokens_earned_for_block(id_bhh)
+    }
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        (*self).get_tenure_height_for_block(id_bhh)
     }
 }
 
@@ -332,6 +336,9 @@ impl HeadersDB for NullHeadersDB {
         None
     }
     fn get_tokens_earned_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+    fn get_tenure_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
         None
     }
 }
@@ -1141,6 +1148,18 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> Result<()> {
         self.put_data("vm_pox::stx_btc_ops::processed_blocks", &processed)
+    }
+
+    pub fn get_current_tenure_height(&mut self) -> Result<u32> {
+        let cur_stacks_height = self.store.get_current_block_height();
+        let last_mined_bhh = match self.get_index_block_header_hash(cur_stacks_height) {
+            Ok(x) => x,
+            Err(_) => return Ok(1),
+        };
+        // FIXME: This only works on a previous block, but not for a block that is currently being built.
+        self.headers_db
+            .get_tenure_height_for_block(&last_mined_bhh)
+            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 }
 

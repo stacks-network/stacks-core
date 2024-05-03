@@ -53,7 +53,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -184,6 +184,8 @@ pub struct StacksHeaderInfo {
     pub microblock_tail: Option<StacksMicroblockHeader>,
     /// Height of this Stacks block
     pub stacks_block_height: u64,
+    /// Tenure height of this Stacks block
+    pub tenure_height: Option<u64>,
     /// MARF root hash of the headers DB (not consensus critical)
     pub index_root: TrieHash,
     /// consensus hash of the burnchain block in which this miner was selected to produce this block
@@ -365,6 +367,7 @@ impl StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
+            tenure_height: Some(0),
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: burnchain_params.first_block_hash.clone(),
             burn_header_height: burnchain_params.first_block_height as u32,
@@ -384,6 +387,7 @@ impl StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
+            tenure_height: Some(0),
             index_root: root_hash,
             burn_header_hash: first_burnchain_block_hash.clone(),
             burn_header_height: first_burnchain_block_height,
@@ -426,6 +430,7 @@ impl FromRow<DBConfig> for DBConfig {
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
         let block_height: u64 = u64::from_column(row, "block_height")?;
+        let tenure_height: Option<u64> = u64::from_column(row, "tenure_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
@@ -454,6 +459,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
             stacks_block_height: block_height,
+            tenure_height,
             index_root,
             consensus_hash,
             burn_header_hash,
@@ -1076,6 +1082,13 @@ impl StacksChainState {
                         // migrate to nakamoto 1
                         info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "4" => {
+                        // migrate to clarity 3
+                        info!("Migrating chainstate schema from version 4 to 5: Clarity 3 support");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }
@@ -2584,11 +2597,26 @@ impl StacksChainState {
             &index_block_hash,
         );
 
+        let parent_header_info = StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+            headers_tx.deref(),
+            parent_consensus_hash,
+        )
+        .and_then(|x| x.ok_or(Error::NoSuchBlockError))?;
+        let tenure_height = if let Some(th) = parent_header_info.tenure_height {
+            th + 1
+        } else {
+            // This can only be the case if the parent is an epoch 2.x block that was stored
+            // before the tenure height was added to the header info. In that case, the tenure
+            // height is the parent's block height + 1.
+            parent_header_info.stacks_block_height + 1
+        };
+
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone().into(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
             stacks_block_height: new_tip.total_work.work,
+            tenure_height: Some(tenure_height),
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,

@@ -196,6 +196,11 @@ impl HeadersDB for UnitTestHeaderDB {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
+
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 100)
+    }
 }
 
 impl BurnStateDB for UnitTestBurnStateDB {

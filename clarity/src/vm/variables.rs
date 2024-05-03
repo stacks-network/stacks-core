@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use super::errors::InterpreterError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -97,10 +99,19 @@ pub fn lookup_reserved_variable(
                 Ok(Some(sponsor))
             }
             NativeVariables::BlockHeight => {
-                // FIXME: this needs to be updated to epoch 3.0 vs epoch 2.x
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let block_height = env.global_context.database.get_current_block_height();
-                Ok(Some(Value::UInt(block_height as u128)))
+                // In epoch 2.x, the `block-height` keyword returns the block height, but
+                // beginning in epoch 3, it returns the tenure height instead in order to
+                // maintain a similar pace to the block  height advancement pre-Nakamoto. This
+                // keyword is removed in Clarity 3 to avoid confusion and replaced with
+                // `stacks-block-height` and `tenure-height`.
+                if env.global_context.epoch_id < StacksEpochId::Epoch30 {
+                    let block_height = env.global_context.database.get_current_block_height();
+                    Ok(Some(Value::UInt(block_height as u128)))
+                } else {
+                    let tenure_height = env.global_context.database.get_current_tenure_height()?;
+                    Ok(Some(Value::UInt(tenure_height as u128)))
+                }
             }
             NativeVariables::BurnBlockHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
@@ -137,12 +148,8 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::TenureHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                // FIXME: this is a placeholder and needs to be implemented correctly
-                let burn_block_height = env
-                    .global_context
-                    .database
-                    .get_current_burnchain_block_height()?;
-                Ok(Some(Value::UInt(u128::from(burn_block_height))))
+                let tenure_height = env.global_context.database.get_current_tenure_height()?;
+                Ok(Some(Value::UInt(tenure_height as u128)))
             }
         }
     } else {

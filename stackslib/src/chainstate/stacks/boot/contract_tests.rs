@@ -559,6 +559,20 @@ impl HeadersDB for TestSimHeadersDB {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
+
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
+            Some(0)
+        } else {
+            let input_height = test_sim_hash_to_height(&id_bhh.0)?;
+            if input_height > self.height {
+                eprintln!("{} > {}", input_height, self.height);
+                None
+            } else {
+                Some(input_height as u32)
+            }
+        }
+    }
 }
 
 #[test]

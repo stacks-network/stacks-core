@@ -145,3 +145,61 @@ fn test_stacks_block_height(
         assert_eq!(Ok(Value::UInt(1)), eval_result);
     }
 }
+
+#[apply(test_clarity_versions)]
+fn test_tenure_height(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let contract = "(define-read-only (test-func) tenure-height)";
+
+    let mut placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut owned_env = tl_env_factory.get_env(epoch);
+    let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+
+    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let analysis = db.execute(|db| {
+        type_check_version(&contract_identifier, &mut exprs, db, true, epoch, version)
+    });
+    if version < ClarityVersion::Clarity3 {
+        let err = analysis.unwrap_err();
+        assert_eq!(
+            CheckErrors::UndefinedVariable("tenure-height".to_string()),
+            err.err
+        );
+    } else {
+        assert!(analysis.is_ok());
+    }
+
+    // Initialize the contract
+    // Note that we're ignoring the analysis failure here so that we can test
+    // the runtime behavior. In Clarity 3, if this case somehow gets past the
+    // analysis, it should fail at runtime.
+    let result = owned_env.initialize_versioned_contract(
+        contract_identifier.clone(),
+        version,
+        contract,
+        None,
+        ASTRules::PrecheckSize,
+    );
+
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+
+    // Call the function
+    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    // In Clarity 3, this should trigger a runtime error
+    if version < ClarityVersion::Clarity3 {
+        let err = eval_result.unwrap_err();
+        assert_eq!(
+            Error::Unchecked(CheckErrors::UndefinedVariable("tenure-height".to_string(),)),
+            err
+        );
+    } else {
+        assert_eq!(Ok(Value::UInt(1)), eval_result);
+    }
+}

@@ -107,6 +107,15 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         get_matured_reward(self.0, id_bhh).map(|x| x.total().into())
     }
+
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_column(self.0, id_bhh, "tenure_height", |r| {
+            u64::from_row(r)
+                .expect("FATAL: malformed tenure_height")
+                .try_into()
+                .expect("FATAL: blockchain too long")
+        })
+    }
 }
 
 impl<'a> HeadersDB for ChainstateTx<'a> {
@@ -184,6 +193,15 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         get_matured_reward(self.deref().deref(), id_bhh).map(|x| x.total().into())
     }
+
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_column(self.deref().deref(), id_bhh, "tenure_height", |r| {
+            u64::from_row(r)
+                .expect("FATAL: malformed tenure_height")
+                .try_into()
+                .expect("FATAL: blockchain too long")
+        })
+    }
 }
 
 impl HeadersDB for MARF<StacksBlockId> {
@@ -260,6 +278,15 @@ impl HeadersDB for MARF<StacksBlockId> {
 
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         get_matured_reward(self.sqlite_conn(), id_bhh).map(|x| x.total().into())
+    }
+
+    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_column(self.sqlite_conn(), id_bhh, "tenure_height", |r| {
+            u64::from_row(r)
+                .expect("FATAL: malformed tenure_height")
+                .try_into()
+                .expect("FATAL: blockchain too long")
+        })
     }
 }
 

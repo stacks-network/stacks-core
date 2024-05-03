@@ -125,6 +125,11 @@ impl StacksChainState {
         let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
         let block_height = tip_info.stacks_block_height;
+        let tenure_height = if let Some(th) = tip_info.tenure_height {
+            th
+        } else {
+            tip_info.stacks_block_height
+        };
         let burn_header_height = tip_info.burn_header_height;
         let burn_header_timestamp = tip_info.burn_header_timestamp;
 
@@ -162,6 +167,7 @@ impl StacksChainState {
             &block_size_str,
             parent_id,
             &u64_to_sql(affirmation_weight)?,
+            &u64_to_sql(tenure_height)?,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -186,8 +192,9 @@ impl StacksChainState {
                     cost,
                     block_size,
                     parent_block_id,
-                    affirmation_weight) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    affirmation_weight,
+                    tenure_height) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
