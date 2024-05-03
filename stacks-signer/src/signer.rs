@@ -1416,14 +1416,14 @@ impl Signer {
     /// Load the entire encrypted signer state
     fn load_encrypted_signer_states(&mut self) -> Result<StoredSignerStates, PersistenceError> {
         let loaded_signers = load_encrypted_signer_state(
-            &mut self.stackerdb,
-            self.signer_slot_id.into(),
+            &self.signer_db,
+            self.reward_cycle,
             &self.state_machine.network_private_key,
         ).or_else(|err| {
-                warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
+                warn!("Failed to load encrypted signer state from SignerDB, falling back to StackerDB: {err}");
                 load_encrypted_signer_state(
-                    &self.signer_db,
-                    self.reward_cycle,
+                    &mut self.stackerdb,
+                    self.signer_slot_id.into(),
                     &self.state_machine.network_private_key)
         })?;
 
