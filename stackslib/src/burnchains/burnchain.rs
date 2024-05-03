@@ -211,10 +211,26 @@ impl BurnchainStateTransition {
             })
             .epoch_id;
 
+        // what was the epoch at the start of this window?
+        let window_start_epoch_id = SortitionDB::get_stacks_epoch(
+            sort_tx,
+            parent_snapshot
+                .block_height
+                .saturating_sub(epoch_id.mining_commitment_window().into()),
+        )?
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no epoch defined at burn height {}",
+                parent_snapshot.block_height + 1
+            )
+        })
+        .epoch_id;
+
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
             && !burnchain
                 .pox_constants
                 .is_after_pox_sunset_end(parent_snapshot.block_height + 1, epoch_id)
+            && (epoch_id < StacksEpochId::Epoch30 || window_start_epoch_id == epoch_id)
         {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
@@ -262,9 +278,9 @@ impl BurnchainStateTransition {
                 &windowed_block_commits
             );
         } else {
-            // PoX reward-phase is not active
+            // PoX reward-phase is not active, or we're starting a new epoch
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
+                "Block {} is in a prepare phase, in the post-PoX sunset, or in an epoch transition, so no windowing will take place",
                 parent_snapshot.block_height + 1
             );
 
