@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
@@ -197,6 +197,8 @@ pub struct Signer {
     pub db_path: PathBuf,
     /// SignerDB for state management
     pub signer_db: SignerDb,
+    /// Pending DKG result to be sent when the aggregate key is approved
+    pub pending_dkg_results: HashMap<Point, Vec<u8>>,
 }
 
 impl std::fmt::Display for Signer {
@@ -362,6 +364,7 @@ impl From<SignerConfig> for Signer {
             miner_key: None,
             db_path: signer_config.db_path,
             signer_db,
+            pending_dkg_results: HashMap::new(),
         }
     }
 }
@@ -1064,25 +1067,11 @@ impl Signer {
             return;
         }
 
-        let mut dkg_results_bytes = vec![];
         debug!(
             "{self}: Received DKG result. Broadcasting vote to the stacks node...";
             "dkg_public_key" => %dkg_public_key
         );
-        if let Err(e) = SignerMessage::serialize_dkg_result(
-            &mut dkg_results_bytes,
-            dkg_public_key,
-            self.coordinator.party_polynomials.iter(),
-        ) {
-            error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
-                   "error" => %e);
-        } else if let Err(e) = self
-            .stackerdb
-            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-        {
-            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
-                       "error" => %e);
-        }
+        self.prepare_dkg_results(dkg_public_key.clone());
 
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
@@ -1363,30 +1352,6 @@ impl Signer {
 
         info!("{self}: Loading saved state for key: {aggregate_key}");
         if let Some(state) = self.load_saved_state_for_aggregate_key(aggregate_key)? {
-            let party_id = state.party_id;
-            let poly_commitment = state.get_poly_commitment(&mut storage::crypto_rng());
-
-            let party_polynomials = poly_commitment
-                .as_ref()
-                .map(|poly_commitment| (&party_id, poly_commitment));
-
-            let mut dkg_results_bytes = vec![];
-
-            if let Err(e) = SignerMessage::serialize_dkg_result(
-                &mut dkg_results_bytes,
-                &aggregate_key,
-                party_polynomials.into_iter(),
-            ) {
-                error!(
-                    "{self}: Failed to serialize DKGResults message after loading saved state: {e}"
-                );
-            } else if let Err(e) = self
-                .stackerdb
-                .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-            {
-                error!("{self}: Failed to send DKGResults message to StackerDB after loading: {e}");
-            };
-
             self.state_machine.signer = state;
         } else {
             warn!("{self}: Signer unable to load state for key {aggregate_key}");
@@ -1500,7 +1465,7 @@ impl Signer {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
-        if self.approved_aggregate_public_key.is_some() {
+        if let Some(approved_aggregate_key) = self.approved_aggregate_public_key {
             let internal_dkg = self.coordinator.aggregate_public_key;
             if internal_dkg != self.approved_aggregate_public_key {
                 warn!("{self}: we do not support changing the internal DKG key yet. Expected {internal_dkg:?} got {:?}", self.approved_aggregate_public_key);
@@ -1512,6 +1477,10 @@ impl Signer {
                     "{self}: updated DKG value from {old_dkg:?} to {:?}.",
                     self.approved_aggregate_public_key
                 );
+                if let Err(_) = self.load_saved_state_for_aggregate_key(approved_aggregate_key) {
+                    warn!("{self}: Failed to load saved state for key {approved_aggregate_key}");
+                }
+                self.send_dkg_results(&approved_aggregate_key);
             }
             match self.state {
                 State::OperationInProgress(Operation::Dkg) => {
@@ -1531,6 +1500,42 @@ impl Signer {
             }
         }
         Ok(())
+    }
+
+    /// Send DKG results to the miner coordinator so that it can coordinate signing rounds
+    fn send_dkg_results(&mut self, dkg_public_key: &Point) {
+        let Some(dkg_results_bytes) = self.pending_dkg_results.remove(dkg_public_key) else {
+            warn!("{self}: No DKG results found for key: {dkg_public_key}");
+            return;
+        };
+
+        if let Err(e) = self
+            .stackerdb
+            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
+        {
+            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
+                       "error" => %e);
+        };
+    }
+
+    /// Prepare the DKG results message to be sent once the public key is approved
+    fn prepare_dkg_results(&mut self, dkg_public_key: Point) {
+        let mut dkg_results_bytes = vec![];
+        debug!(
+            "{self}: DKG public key changed. Sending DKG results";
+            "dkg_public_key" => %dkg_public_key
+        );
+        if let Err(e) = SignerMessage::serialize_dkg_result(
+            &mut dkg_results_bytes,
+            &dkg_public_key,
+            self.coordinator.party_polynomials.iter(),
+        ) {
+            error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
+                   "error" => %e);
+        };
+
+        self.pending_dkg_results
+            .insert(dkg_public_key, dkg_results_bytes);
     }
 
     /// Should DKG be queued to the current signer's command queue

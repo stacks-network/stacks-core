@@ -458,122 +458,6 @@ impl SignerTest {
         key
     }
 
-    /// Wait for StackerDB to contain the polynomial commitments for `expected_aggregate_key`
-    /// which is necessary for the sign coordinator to be able to coordinate signing rounds
-    fn wait_for_signer_commitments_in_stackerdb(
-        &mut self,
-        timeout: Duration,
-        is_mainnet: bool,
-        reward_cycle: u64,
-        expected_aggregate_key: &Point,
-    ) {
-        let start = Instant::now();
-
-        loop {
-            if self.is_signer_commitments_in_stackerdb(
-                is_mainnet,
-                reward_cycle,
-                expected_aggregate_key,
-            ) {
-                return;
-            }
-
-            if start.elapsed() > timeout {
-                panic!("Timed out waiting for signer commitments");
-            }
-        }
-    }
-
-    /// Check if StackerDB contains the polynomial commitments for `expected_aggregate_key`
-    fn is_signer_commitments_in_stackerdb(
-        &mut self,
-        is_mainnet: bool,
-        reward_cycle: u64,
-        expected_aggregate_key: &Point,
-    ) -> bool {
-        let stackerdbs =
-            StackerDBs::connect(&self.running_nodes.conf.get_stacker_db_file_path(), true)
-                .expect("Failed to connect to StackerDB");
-
-        let reward_set = self
-            .stacks_client
-            .get_reward_set_signers(reward_cycle)
-            .unwrap()
-            .expect("No reward set");
-        let commitment_contract =
-            MessageSlotID::DkgResults.stacker_db_contract(is_mainnet, reward_cycle);
-        let signer_set_len = u32::try_from(reward_set.len()).unwrap();
-
-        let mut all_party_polynomials = HashMap::new();
-        for signer_id in 0..signer_set_len {
-            let Some(signer_data) = stackerdbs
-                .get_latest_chunk(&commitment_contract, signer_id)
-                .expect("Failed to get latest chunk")
-            else {
-                warn!(
-                    "Failed to fetch DKG result, will look for results from other signers.";
-                    "signer_id" => signer_id
-                );
-                continue;
-            };
-            let Ok(SignerMessage::DkgResults {
-                aggregate_key,
-                party_polynomials,
-            }) = SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
-            else {
-                warn!(
-                    "Failed to parse DKG result, will look for results from other signers.";
-                    "signer_id" => signer_id,
-                );
-                continue;
-            };
-
-            for (party_id, poly_commitment) in party_polynomials.iter() {
-                all_party_polynomials.insert(*party_id, poly_commitment.clone());
-            }
-
-            if &aggregate_key != expected_aggregate_key {
-                warn!(
-                    "Aggregate key in DKG results does not match expected, will look for results from other signers.";
-                    "expected" => %expected_aggregate_key,
-                    "reported" => %aggregate_key,
-                );
-                continue;
-            }
-            let computed_key = party_polynomials
-                .iter()
-                .fold(Point::default(), |s, (_, comm)| s + comm.poly[0]);
-
-            if expected_aggregate_key != &computed_key {
-                warn!(
-                    "Aggregate key computed from DKG results does not match expected, will look for results from other signers.";
-                    "expected" => %expected_aggregate_key,
-                    "computed" => %computed_key,
-                );
-                continue;
-            }
-
-            return true;
-        }
-
-        let computed_key = all_party_polynomials
-            .iter()
-            .fold(Point::default(), |s, (_, comm)| s + comm.poly[0]);
-
-        if &computed_key == expected_aggregate_key {
-            debug!(
-                "Aggregate key computed from combined DKG results match expected. Using this one"
-            );
-            return true;
-        }
-
-        error!(
-            "No valid DKG results found for the active signing set, cannot coordinate a group signature";
-            "reward_cycle" => reward_cycle,
-        );
-        false
-    }
-
     fn run_until_epoch_3_boundary(&mut self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
         let epoch_3 =
@@ -1317,8 +1201,6 @@ fn stackerdb_recover_old_dkg_key() {
         let key = signer_test.stop_signer(i);
         signer_test.restart_signer(i, key);
     }
-
-    signer_test.wait_for_signer_commitments_in_stackerdb(timeout, false, reward_cycle, &old_key);
 
     signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
