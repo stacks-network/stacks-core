@@ -1644,6 +1644,7 @@ pub mod test {
             &StacksBlockId([3; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
+            true,
         );
 
         let mut tx_conn = next_block.start_transaction_processing();
@@ -1721,6 +1722,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             // give the spending account some stx
@@ -1951,6 +1953,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             conn.connection().as_transaction(|tx| {
@@ -2065,6 +2068,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2156,6 +2160,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let contract_id = QualifiedContractIdentifier::new(
@@ -2219,6 +2224,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let contracts = vec![
@@ -2327,6 +2333,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let mut next_nonce = 0;
@@ -2418,6 +2425,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let contracts = vec![
@@ -2537,6 +2545,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let contract_id = QualifiedContractIdentifier::new(
@@ -2651,6 +2660,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2790,6 +2800,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2900,6 +2911,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             let contract_id = QualifiedContractIdentifier::new(
@@ -3025,6 +3037,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
             let (_fee, _) = StacksChainState::process_transaction(
                 &mut conn,
@@ -3135,6 +3148,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
             let (_fee, _) = StacksChainState::process_transaction(
                 &mut conn,
@@ -3204,6 +3218,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
         let (_fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -3348,6 +3363,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             // process both
@@ -4989,6 +5005,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             // publish contract
@@ -8121,6 +8138,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
             let (fee, _) = StacksChainState::process_transaction(
                 &mut conn,
@@ -8155,6 +8173,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -8278,6 +8297,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
@@ -8399,6 +8419,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
@@ -8493,6 +8514,7 @@ pub mod test {
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
+                true,
             );
 
             StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
@@ -8802,6 +8824,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
 
         assert_eq!(conn.get_epoch(), StacksEpochId::Epoch2_05);
@@ -9008,6 +9031,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
 
         assert_eq!(conn.get_epoch(), StacksEpochId::Epoch21);
@@ -9114,6 +9138,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9142,6 +9167,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9170,6 +9196,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9290,6 +9317,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9318,6 +9346,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9346,6 +9375,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -9603,6 +9633,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -9675,6 +9706,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -9747,6 +9779,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
 
         // make this mineable
@@ -9840,6 +9873,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([4u8; 20]),
             &BlockHeaderHash([4u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10076,6 +10110,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10121,6 +10156,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10181,6 +10217,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10226,6 +10263,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([4u8; 20]),
             &BlockHeaderHash([4u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10489,6 +10527,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10552,6 +10591,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10614,6 +10654,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10681,6 +10722,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([4u8; 20]),
             &BlockHeaderHash([4u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10748,6 +10790,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([5u8; 20]),
             &BlockHeaderHash([5u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(
@@ -10802,6 +10845,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([6u8; 20]),
             &BlockHeaderHash([6u8; 32]),
+            true,
         );
 
         let (fee, _) = StacksChainState::process_transaction(

@@ -895,6 +895,12 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_current_block_height()
     }
 
+    /// This is the tenure height of the block we are currently constructing.
+    /// It comes from the MARF.
+    pub fn get_current_tenure_height(&mut self) -> u32 {
+        self.store.get_current_tenure_height()
+    }
+
     /// Return the height for PoX v1 -> v2 auto unlocks
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {
@@ -1148,18 +1154,6 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> Result<()> {
         self.put_data("vm_pox::stx_btc_ops::processed_blocks", &processed)
-    }
-
-    pub fn get_current_tenure_height(&mut self) -> Result<u32> {
-        let cur_stacks_height = self.store.get_current_block_height();
-        let last_mined_bhh = match self.get_index_block_header_hash(cur_stacks_height) {
-            Ok(x) => x,
-            Err(_) => return Ok(1),
-        };
-        // FIXME: This only works on a previous block, but not for a block that is currently being built.
-        self.headers_db
-            .get_tenure_height_for_block(&last_mined_bhh)
-            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 }
 

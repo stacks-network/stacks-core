@@ -40,8 +40,10 @@ use crate::chainstate::stacks::index::{
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
+pub const BLOCK_HASH_TO_TENURE_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_TENURE";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
+pub const OWN_TENURE_HEIGHT_KEY: &str = "__MARF_TENURE_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -57,7 +59,8 @@ pub struct MarfTransaction<'a, T: MarfTrieId> {
 #[derive(Clone)]
 struct WriteChainTip<T> {
     block_hash: T,
-    height: u32,
+    block_height: u32,
+    tenure_height: u32,
 }
 
 /// Options for opening a MARF
@@ -278,7 +281,11 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
     }
 
     pub fn get_open_chain_tip_height(&self) -> Option<u32> {
-        self.open_chain_tip.as_ref().map(|tip| tip.height)
+        self.open_chain_tip.as_ref().map(|tip| tip.block_height)
+    }
+
+    pub fn get_open_chain_tip_tenure(&self) -> Option<u32> {
+        self.open_chain_tip.as_ref().map(|tip| tip.tenure_height)
     }
 
     pub fn get_block_height_of(
@@ -290,6 +297,18 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Ok(self.get_open_chain_tip_height());
         } else {
             MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
+        }
+    }
+
+    pub fn get_tenure_height_of(
+        &mut self,
+        bhh: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_tenure());
+        } else {
+            MARF::get_tenure_height_miner_tip(&mut self.storage, bhh, current_block_hash)
         }
     }
 
@@ -329,7 +348,12 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
+    pub fn begin(
+        &mut self,
+        chain_tip: &T,
+        next_chain_tip: &T,
+        new_tenure: bool,
+    ) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -341,9 +365,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Err(Error::ExistsError);
         }
 
-        let block_height = self.inner_get_extension_height(chain_tip, next_chain_tip)?;
+        let (block_height, tenure_height) =
+            self.inner_get_extension_height(chain_tip, next_chain_tip, new_tenure)?;
         MARF::extend_trie(&mut self.storage, next_chain_tip)?;
-        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
+        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, tenure_height, true)
     }
 
     /// Set up the trie extension we're making.
@@ -353,7 +378,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         &mut self,
         chain_tip: &T,
         next_chain_tip: &T,
-    ) -> Result<u32, Error> {
+        new_tenure: bool,
+    ) -> Result<(u32, u32), Error> {
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &T::sentinel();
         if !is_parent_sentinel {
@@ -364,20 +390,36 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
         self.storage.open_block(chain_tip)?;
 
-        let block_height = if !is_parent_sentinel {
-            let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip)?
-                .ok_or(Error::CorruptionError(format!(
-                    "Failed to find block height for `{:?}`",
-                    chain_tip
-                )))?;
-            height
-                .checked_add(1)
-                .expect("FATAL: block height overflow!")
-        } else {
-            0
-        };
+        let heights =
+            if !is_parent_sentinel {
+                let mut block_height =
+                    MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip)?
+                        .ok_or(Error::CorruptionError(format!(
+                            "Failed to find block height for `{:?}`",
+                            chain_tip
+                        )))?;
+                block_height = block_height
+                    .checked_add(1)
+                    .expect("FATAL: block height overflow!");
 
-        Ok(block_height)
+                let mut tenure_height =
+                    MARF::get_tenure_height_miner_tip(&mut self.storage, chain_tip, chain_tip)?
+                        .ok_or(Error::CorruptionError(format!(
+                            "Failed to find block height for `{:?}`",
+                            chain_tip
+                        )))?;
+                if new_tenure {
+                    tenure_height = tenure_height
+                        .checked_add(1)
+                        .expect("FATAL: tenure height overflow!");
+                }
+
+                (block_height, tenure_height)
+            } else {
+                (0, 0)
+            };
+
+        Ok(heights)
     }
 
     /// Set up a new extension.
@@ -387,16 +429,18 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         chain_tip: &T,
         next_chain_tip: &T,
         block_height: u32,
+        tenure_height: u32,
         new_extension: bool,
     ) -> Result<(), Error> {
         self.storage.open_block(next_chain_tip)?;
         self.open_chain_tip.replace(WriteChainTip {
             block_hash: next_chain_tip.clone(),
-            height: block_height,
+            block_height,
+            tenure_height,
         });
 
         if new_extension {
-            self.set_block_heights(chain_tip, next_chain_tip, block_height)
+            self.set_block_heights(chain_tip, next_chain_tip, block_height, tenure_height)
                 .map_err(|e| {
                     self.open_chain_tip.take();
                     e
@@ -411,7 +455,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         &mut self,
         block_hash: &T,
         next_block_hash: &T,
-        height: u32,
+        block_height: u32,
+        tenure_height: u32,
     ) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -419,50 +464,62 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         let mut keys = vec![];
         let mut values = vec![];
 
-        let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
-        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
+        let block_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, block_height);
+        let hash_to_height_key =
+            format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
+        let hash_to_tenure_key =
+            format!("{}::{}", BLOCK_HASH_TO_TENURE_MAPPING_KEY, next_block_hash);
 
         debug!(
             "Set {}::{} = {}",
-            BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash
+            BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, block_height, next_block_hash
         );
         debug!(
             "Set {}::{} = {}",
-            BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height
+            BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, block_height
         );
-        debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
+        debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, block_height);
+        debug!("Set {} = {}", OWN_TENURE_HEIGHT_KEY, tenure_height);
 
         keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
-        values.push(MARFValue::from(height));
+        values.push(MARFValue::from(block_height));
 
-        keys.push(height_key);
+        keys.push(OWN_TENURE_HEIGHT_KEY.to_string());
+        values.push(MARFValue::from(tenure_height));
+
+        keys.push(block_height_key);
         values.push(MARFValue::from(next_block_hash.clone()));
 
-        keys.push(hash_key);
-        values.push(MARFValue::from(height));
+        keys.push(hash_to_height_key);
+        values.push(MARFValue::from(block_height));
 
-        if height > 0 {
-            let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
-            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
+        keys.push(hash_to_tenure_key);
+        values.push(MARFValue::from(tenure_height));
+
+        if block_height > 0 {
+            let prev_height_key =
+                format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, block_height - 1);
+            let prev_hash_to_height_key =
+                format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
 
             debug!(
                 "Set {}::{} = {}",
                 BLOCK_HEIGHT_TO_HASH_MAPPING_KEY,
-                height - 1,
+                block_height - 1,
                 block_hash
             );
             debug!(
                 "Set {}::{} = {}",
                 BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
                 block_hash,
-                height - 1
+                block_height - 1
             );
 
             keys.push(prev_height_key);
             values.push(MARFValue::from(block_hash.clone()));
 
-            keys.push(prev_hash_key);
-            values.push(MARFValue::from(height - 1));
+            keys.push(prev_hash_to_height_key);
+            values.push(MARFValue::from(block_height - 1));
         }
 
         self.insert_batch(&keys, values)?;
@@ -516,14 +573,21 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(chain_tip);
 
-        let block_height = self.inner_get_extension_height(chain_tip, &unconfirmed_tip)?;
+        let (block_height, tenure_height) =
+            self.inner_get_extension_height(chain_tip, &unconfirmed_tip, false)?;
 
         let created = self.storage.extend_to_unconfirmed_block(&unconfirmed_tip)?;
         if created {
             MARF::root_copy(&mut self.storage, chain_tip)?;
         }
 
-        self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created)?;
+        self.inner_setup_extension(
+            chain_tip,
+            &unconfirmed_tip,
+            block_height,
+            tenure_height,
+            created,
+        )?;
         Ok(unconfirmed_tip)
     }
 
@@ -579,7 +643,8 @@ impl<T: MarfTrieId> MARF<T> {
             storage,
             open_chain_tip: Some(WriteChainTip {
                 block_hash: opened_to.clone(),
-                height: 0,
+                block_height: 0,
+                tenure_height: 0,
             }),
         }
     }
@@ -587,7 +652,7 @@ impl<T: MarfTrieId> MARF<T> {
     #[cfg(test)]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
-        tx.begin(chain_tip, next_chain_tip)?;
+        tx.begin(chain_tip, next_chain_tip, true)?;
         tx.commit_tx();
         Ok(())
     }
@@ -1184,6 +1249,38 @@ impl<T: MarfTrieId> MARF<T> {
         MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
+    pub fn get_tenure_height_miner_tip(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        let hash_key = format!("{}::{}", BLOCK_HASH_TO_TENURE_MAPPING_KEY, block_hash);
+        #[cfg(test)]
+        {
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            if storage.test_genesis_block.as_ref() == Some(current_block_hash) {
+                return Ok(Some(0));
+            }
+        }
+
+        let marf_value = if block_hash == current_block_hash {
+            MARF::get_by_key(storage, current_block_hash, OWN_TENURE_HEIGHT_KEY)?
+        } else {
+            MARF::get_by_key(storage, current_block_hash, &hash_key)?
+        };
+
+        Ok(marf_value.map(u32::from))
+    }
+
+    pub fn get_tenure_height(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        MARF::get_tenure_height_miner_tip(storage, block_hash, current_block_hash)
+    }
+
     pub fn get_block_at_height(
         storage: &mut TrieStorageConnection<T>,
         height: u32,
@@ -1483,14 +1580,35 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    pub fn get_tenure_height_of(
+        &mut self,
+        bhh: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_tenure_height());
+        } else {
+            MARF::get_tenure_height_miner_tip(
+                &mut self.storage.connection(),
+                bhh,
+                current_block_hash,
+            )
+        }
+    }
+
     /// Get open chain tip
     pub fn get_open_chain_tip(&self) -> Option<&T> {
         self.open_chain_tip.as_ref().map(|x| &x.block_hash)
     }
 
-    /// Get open chain tip
+    /// Get open chain tip block height
     pub fn get_open_chain_tip_height(&self) -> Option<u32> {
-        self.open_chain_tip.as_ref().map(|x| x.height)
+        self.open_chain_tip.as_ref().map(|x| x.block_height)
+    }
+
+    /// Get open chain tip tenure height
+    pub fn get_open_chain_tip_tenure_height(&self) -> Option<u32> {
+        self.open_chain_tip.as_ref().map(|x| x.tenure_height)
     }
 
     /// Access internal storage

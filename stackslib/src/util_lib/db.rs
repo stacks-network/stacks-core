@@ -915,11 +915,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         header_hash: &T,
         keys: &Vec<String>,
         values: &Vec<String>,
+        new_tenure: bool,
     ) -> Result<TrieHash, Error> {
         assert_eq!(keys.len(), values.len());
         match self.block_linkage {
             None => {
-                self.index_mut().begin(parent_header_hash, header_hash)?;
+                self.index_mut()
+                    .begin(parent_header_hash, header_hash, new_tenure)?;
                 self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
             }
             Some(_) => panic!("Tried to put_indexed_all twice!"),

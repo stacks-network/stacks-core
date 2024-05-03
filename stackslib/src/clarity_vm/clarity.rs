@@ -276,8 +276,9 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
+        new_tenure: bool,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let mut datastore = self.datastore.begin(current, next);
+        let mut datastore = self.datastore.begin(current, next, new_tenure);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
@@ -312,7 +313,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let datastore = self.datastore.begin(current, next);
+        let datastore = self.datastore.begin(current, next, true);
 
         let epoch = GENESIS_EPOCH;
 
@@ -338,7 +339,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let writable = self.datastore.begin(current, next);
+        let writable = self.datastore.begin(current, next, true);
 
         let epoch = GENESIS_EPOCH;
 
@@ -434,7 +435,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let writable = self.datastore.begin(current, next);
+        let writable = self.datastore.begin(current, next, true);
 
         let epoch = StacksEpochId::Epoch21;
 
@@ -1919,6 +1920,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -1972,6 +1974,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
@@ -2033,6 +2036,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             {
@@ -2145,6 +2149,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -2236,7 +2241,11 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
 
-        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin(
+            &StacksBlockId::sentinel(),
+            &StacksBlockId([0 as u8; 32]),
+            true,
+        );
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
@@ -2424,6 +2433,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             let contract = "
@@ -2644,6 +2654,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             conn.as_transaction(|clarity_tx| {
@@ -2797,6 +2808,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
+                true,
             );
 
             let contract = "
@@ -2839,6 +2851,7 @@ mod tests {
                 &StacksBlockId([2 as u8; 32]),
                 &TEST_HEADER_DB,
                 &burn_state_db,
+                true,
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(

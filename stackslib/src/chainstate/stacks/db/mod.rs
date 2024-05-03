@@ -1654,7 +1654,7 @@ impl StacksChainState {
             );
 
             let first_root_hash =
-                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
+                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![], true)?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -1983,6 +1983,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        new_tenure: bool,
     ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
@@ -1994,6 +1995,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            new_tenure,
         )
     }
 
@@ -2006,6 +2008,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        new_tenure: bool,
     ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
@@ -2017,6 +2020,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            new_tenure,
         )
     }
 
@@ -2247,6 +2251,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        new_tenure: bool,
     ) -> ClarityTx<'a, 'b> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -2279,6 +2284,7 @@ impl StacksChainState {
             &new_index_block,
             headers_db,
             burn_dbconn,
+            new_tenure,
         );
 
         test_debug!("Got clarity TX!");
@@ -2589,6 +2595,7 @@ impl StacksChainState {
             &new_tip.index_block_hash(new_consensus_hash),
             &vec![],
             &vec![],
+            true,
         )?;
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
@@ -2769,6 +2776,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
+            true,
         );
 
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {

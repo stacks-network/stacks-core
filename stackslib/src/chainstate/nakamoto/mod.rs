@@ -2370,8 +2370,13 @@ impl NakamotoChainState {
 
         // store each indexed field
         test_debug!("Headers index_put_begin {parent_hash}-{index_block_hash}");
-        let root_hash =
-            headers_tx.put_indexed_all(&parent_hash, &index_block_hash, &vec![], &vec![])?;
+        let root_hash = headers_tx.put_indexed_all(
+            &parent_hash,
+            &index_block_hash,
+            &vec![],
+            &vec![],
+            new_tenure,
+        )?;
         test_debug!("Headers index_indexed_all finished {parent_hash}-{index_block_hash}");
 
         let new_tip_info = StacksHeaderInfo {
@@ -2573,6 +2578,7 @@ impl NakamotoChainState {
             &parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
+            new_tenure,
         );
 
         // now that we have access to the ClarityVM, we can account for reward deductions from

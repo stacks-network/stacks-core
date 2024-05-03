@@ -109,7 +109,7 @@ pub fn lookup_reserved_variable(
                     let block_height = env.global_context.database.get_current_block_height();
                     Ok(Some(Value::UInt(block_height as u128)))
                 } else {
-                    let tenure_height = env.global_context.database.get_current_tenure_height()?;
+                    let tenure_height = env.global_context.database.get_current_tenure_height();
                     Ok(Some(Value::UInt(tenure_height as u128)))
                 }
             }
@@ -148,7 +148,7 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::TenureHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let tenure_height = env.global_context.database.get_current_tenure_height()?;
+                let tenure_height = env.global_context.database.get_current_tenure_height();
                 Ok(Some(Value::UInt(tenure_height as u128)))
             }
         }

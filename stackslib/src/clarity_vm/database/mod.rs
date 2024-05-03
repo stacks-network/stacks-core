@@ -797,4 +797,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         }
         Ok(())
     }
+
+    fn get_current_tenure_height(&mut self) -> u32 {
+        0
+    }
 }
