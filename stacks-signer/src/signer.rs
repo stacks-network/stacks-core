@@ -1406,10 +1406,11 @@ impl Signer {
         &mut self,
         aggregate_key: Point,
     ) -> Result<Option<v2::Signer>, PersistenceError> {
-        Ok(
-            get_signer_state(self.load_encrypted_signer_states()?, aggregate_key)
-                .map(|state| v2::Signer::load(&state)),
-        )
+        Ok(self
+            .load_encrypted_signer_states()?
+            .into_iter()
+            .find(|state| state.group_key == aggregate_key)
+            .map(|state| v2::Signer::load(&state)))
     }
 
     /// Load the entire encrypted signer state
@@ -1714,15 +1715,6 @@ fn load_encrypted_signer_state<S: SignerStateStorage>(
     let serialized_state = decrypt(private_key, &encrypted_state)?;
 
     Ok(serde_json::from_slice(&serialized_state)?)
-}
-
-fn get_signer_state(
-    loaded_signers: StoredSignerStates,
-    aggregate_key: Point,
-) -> Option<SignerState> {
-    loaded_signers
-        .into_iter()
-        .find(|state| state.group_key == aggregate_key)
 }
 
 trait SignerStateStorage {
