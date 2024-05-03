@@ -30,6 +30,7 @@ use libsigner::{
     BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
     SignerMessage,
 };
+use rand::{CryptoRng, RngCore};
 use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -1288,7 +1289,7 @@ impl Signer {
 
     /// Persist signer state in both SignerDB and StackerDB
     fn save_signer_state(&mut self) -> Result<(), PersistenceError> {
-        let rng = &mut OsRng;
+        let rng = &mut crypto_rng();
 
         let mut saved_states = self.load_encrypted_signer_states().unwrap_or_else(|err| {
             warn!("{self}: Failed to load previous dkg state: {err}");
@@ -1369,7 +1370,7 @@ impl Signer {
         info!("{self}: Loading saved state for key: {aggregate_key}");
         if let Some(state) = self.load_saved_state_for_aggregate_key(aggregate_key)? {
             let party_id = state.party_id;
-            let poly_commitment = state.get_poly_commitment(&mut OsRng);
+            let poly_commitment = state.get_poly_commitment(&mut crypto_rng());
 
             let party_polynomials = poly_commitment
                 .as_ref()
@@ -1775,6 +1776,11 @@ fn derive_encryption_key(private_key: &Scalar) -> Sha512Trunc256Sum {
     Sha512Trunc256Sum::from_data(&prefixed_key)
 }
 
+/// This is the RNG implementation that the signer uses when randomness is required for cryptographic operations. Currently, this is OsRng, which is also the RNG used by WSTS when initializing signer state.
+pub(crate) const fn crypto_rng() -> impl CryptoRng + RngCore {
+    OsRng
+}
+
 /// Error stemming from a persistence operation
 #[derive(Debug, thiserror::Error)]
 pub enum PersistenceError {
@@ -1810,9 +1816,9 @@ mod tests {
     #[test]
     fn encrypted_messages_should_be_possible_to_decrypt() {
         let msg = "Nobody's gonna know".as_bytes();
-        let key = Scalar::random(&mut OsRng);
+        let key = Scalar::random(&mut crypto_rng());
 
-        let encrypted = encrypt(&key, msg, &mut OsRng).unwrap();
+        let encrypted = encrypt(&key, msg, &mut crypto_rng()).unwrap();
 
         assert_ne!(encrypted, msg);
 

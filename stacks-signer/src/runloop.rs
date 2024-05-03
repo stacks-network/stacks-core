@@ -22,7 +22,6 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
-use rand_core::OsRng;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
@@ -30,7 +29,7 @@ use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
+use crate::signer::{self, Command as SignerCommand, Signer, SignerSlotID};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -251,7 +250,9 @@ impl RunLoop {
                     .map_err(backoff::Error::transient)
             })?;
 
-            new_signer.state_machine.reset(dkg_id, &mut OsRng);
+            new_signer
+                .state_machine
+                .reset(dkg_id, &mut signer::crypto_rng());
             new_signer.approved_aggregate_public_key = approved_aggregate_key;
             new_signer
                 .load_saved_state()
