@@ -39,9 +39,9 @@ use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
+/// This module contains all burn-chain operations
 pub mod delegate_stx;
 pub mod leader_block_commit;
-/// This module contains all burn-chain operations
 pub mod leader_key_register;
 pub mod stack_stx;
 pub mod transfer_stx;
@@ -269,7 +269,7 @@ pub struct DelegateStxOp {
     pub sender: StacksAddress,
     pub delegate_to: StacksAddress,
     /// a tuple representing the output index of the reward address in the BTC transaction,
-    //  and the actual  PoX reward address.
+    ///  and the actual  PoX reward address.
     /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
     pub reward_addr: Option<(u32, PoxAddress)>,
