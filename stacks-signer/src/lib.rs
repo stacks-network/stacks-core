@@ -34,3 +34,5 @@ pub mod runloop;
 pub mod signer;
 /// The state module for the signer
 pub mod signerdb;
+/// Utilities for storing and loading signer data
+pub mod storage;

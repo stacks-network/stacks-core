@@ -29,7 +29,8 @@ use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{self, Command as SignerCommand, Signer, SignerSlotID};
+use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
+use crate::storage;
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -252,7 +253,7 @@ impl RunLoop {
 
             new_signer
                 .state_machine
-                .reset(dkg_id, &mut signer::crypto_rng());
+                .reset(dkg_id, &mut storage::crypto_rng());
             new_signer.approved_aggregate_public_key = approved_aggregate_key;
             new_signer
                 .load_saved_state()
