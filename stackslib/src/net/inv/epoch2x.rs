@@ -52,10 +52,7 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 #[cfg(test)]
 pub const INV_SYNC_INTERVAL: u64 = 3;
 
-#[cfg(not(test))]
 pub const INV_REWARD_CYCLES: u64 = 2;
-#[cfg(test)]
-pub const INV_REWARD_CYCLES: u64 = 1;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {
@@ -1756,7 +1753,7 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+    fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
         // start scaning at the reward cycle just before that.
         let am_rescan_rc = self
@@ -1783,18 +1780,15 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let start_reward_cycle = cmp::min(
-            stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
-        );
+        let start_reward_cycle =
+            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
 
         let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
 
         test_debug!(
-            "begin blocks inv scan at {} = min({},{},{})",
+            "begin blocks inv scan at {} = min({},{})",
             rescan_rc,
             stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
             am_rescan_rc
         );
         rescan_rc
@@ -1814,12 +1808,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start_rc = self.get_block_scan_start(
-                    sortdb,
-                    self.burnchain
-                        .block_height_to_reward_cycle(stats.inv.get_block_height())
-                        .unwrap_or(0),
-                );
+                let scan_start_rc = self.get_block_scan_start(sortdb);
 
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
                 stats.reset_block_scan(scan_start_rc);
@@ -1876,12 +1865,7 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start_rc = self.get_block_scan_start(
-                    sortdb,
-                    self.burnchain
-                        .block_height_to_reward_cycle(stats.inv.get_block_height())
-                        .unwrap_or(0),
-                );
+                let scan_start_rc = self.get_block_scan_start(sortdb);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
                     &self.local_peer, nk, scan_start_rc, ibd
@@ -1982,12 +1966,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(
-                sortdb,
-                self.burnchain
-                    .block_height_to_reward_cycle(stats.inv.get_block_height())
-                    .unwrap_or(0),
-            );
+            let scan_start = self.get_block_scan_start(sortdb);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2368,7 +2347,6 @@ impl PeerNetwork {
                     .unwrap_or(network.burnchain.reward_cycle_to_block_height(
                         network.get_block_scan_start(
                             sortdb,
-                            network.pox_id.num_inventory_reward_cycles() as u64,
                         ),
                     ))
                     .saturating_sub(sortdb.first_block_height);
