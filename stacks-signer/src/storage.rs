@@ -4,13 +4,12 @@ use blockstack_lib::util_lib::db::Error as DBError;
 use rand::{CryptoRng, RngCore};
 use rand_core::OsRng;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::{curve::scalar::Scalar, traits::SignerState};
+use wsts::curve::scalar::Scalar;
+use wsts::traits::SignerState;
 
-use crate::{
-    client::{ClientError, StackerDB},
-    signer::SignerSlotID,
-    signerdb::SignerDb,
-};
+use crate::client::{ClientError, StackerDB};
+use crate::signer::SignerSlotID;
+use crate::signerdb::SignerDb;
 
 /// The persisted signer states
 pub type StoredSignerStates = VecDeque<SignerState>;
