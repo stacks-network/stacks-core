@@ -50,9 +50,9 @@ use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
-    BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
-    PoxConstants, PublicKey, Txid,
+    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
+    BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView,
+    Error as BurnchainError, PoxConstants, PublicKey, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
@@ -744,7 +744,7 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     );"#,
 ];
 
-const LAST_SORTITION_DB_INDEX: &'static str = "index_vote_for_aggregate_key_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -766,6 +766,8 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_vote_for_aggregate_key_burn_header_hash ON vote_for_aggregate_key(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_by_burn_height ON block_commits(block_height);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_by_sender ON block_commits(apparent_sender);"
 ];
 
 pub struct SortitionDB {
@@ -3612,6 +3614,18 @@ impl SortitionDB {
             .unwrap_or(0)
             .try_into()
             .ok()
+    }
+
+    /// Get the last block-commit from a given sender
+    pub fn get_last_block_commit_by_sender(
+        conn: &DBConn,
+        sender: &BurnchainSigner,
+    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let apparent_sender_str =
+            serde_json::to_string(sender).map_err(|e| db_error::SerializationError(e))?;
+        let sql = "SELECT * FROM block_commits WHERE apparent_sender = ?1 ORDER BY block_height DESC LIMIT 1";
+        let args = rusqlite::params![&apparent_sender_str];
+        query_row(conn, sql, args)
     }
 }
 
