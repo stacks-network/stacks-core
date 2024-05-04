@@ -296,16 +296,32 @@ impl DBConfig {
                     || self.version == "2"
                     || self.version == "3"
                     || self.version == "4"
+                    || self.version == "5"
             }
             StacksEpochId::Epoch2_05 => {
-                self.version == "2" || self.version == "3" || self.version == "4"
+                self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
             }
-            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch21 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch22 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch23 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch24 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch25 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch30 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
         }
     }
 }
