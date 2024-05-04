@@ -674,7 +674,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "4";
+pub const CHAINSTATE_VERSION: &'static str = "5";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
