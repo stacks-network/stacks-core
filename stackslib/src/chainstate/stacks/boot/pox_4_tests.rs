@@ -6397,7 +6397,7 @@ fn test_scenario_one() {
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
     let default_initial_balances: u64 = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
@@ -6806,7 +6806,7 @@ fn test_scenario_two() {
     let mut dave = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),
@@ -7147,7 +7147,7 @@ fn test_scenario_three() {
     // Bob stacker signer setup
     let mut bob = StackerSignerInfo::new();
     // Carl service signer setup
-    let mut carl = StackerSignerInfo::new();
+    let carl = StackerSignerInfo::new();
     // David stacking pool operator setup
     let mut david = StackerSignerInfo::new();
     // Eve pool stacker setup
@@ -7624,7 +7624,7 @@ fn test_scenario_four() {
     let mut bob = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
     ];
@@ -8564,7 +8564,7 @@ fn test_scenario_five() {
     let mut mallory = StackerSignerInfo::new();
 
     let default_initial_balances = 1_000_000_000_000_000_000;
-    let mut initial_balances = vec![
+    let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
         (carl.principal.clone(), default_initial_balances),

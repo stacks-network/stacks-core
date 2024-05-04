@@ -116,6 +116,7 @@ impl ClarityTestSim {
             let mut store = marf.begin(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
+                true,
             );
 
             let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
@@ -140,7 +141,7 @@ impl ClarityTestSim {
         }
     }
 
-    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, f: F, new_tenure: bool) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
@@ -148,6 +149,7 @@ impl ClarityTestSim {
             let mut store = self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+                new_tenure,
             );
 
             let headers_db = TestSimHeadersDB {
@@ -173,13 +175,21 @@ impl ClarityTestSim {
         r
     }
 
-    pub fn execute_next_block<F, R>(&mut self, f: F) -> R
+    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut ClarityBlockConnection) -> R,
+    {
+        self.execute_next_block_as_conn_with_tenure(f, true)
+    }
+
+    pub fn execute_next_block_with_tenure<F, R>(&mut self, f: F, new_tenure: bool) -> R
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+            new_tenure,
         );
 
         let r = {
@@ -204,6 +214,13 @@ impl ClarityTestSim {
         self.height += 1;
 
         r
+    }
+
+    pub fn execute_next_block<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut OwnedEnvironment) -> R,
+    {
+        self.execute_next_block_with_tenure(f, true)
     }
 
     fn check_and_bump_epoch(
@@ -237,6 +254,7 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
+            true,
         );
 
         let r = {
@@ -370,7 +388,10 @@ impl BurnStateDB for TestSimBurnStateDB {
             2 => StacksEpochId::Epoch21,
             3 => StacksEpochId::Epoch22,
             4 => StacksEpochId::Epoch23,
-            _ => panic!("Epoch unknown"),
+            5 => StacksEpochId::Epoch24,
+            6 => StacksEpochId::Epoch25,
+            7 => StacksEpochId::Epoch30,
+            _ => panic!("Invalid epoch index"),
         };
 
         Some(StacksEpoch {

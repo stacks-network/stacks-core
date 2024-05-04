@@ -175,6 +175,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let tokens_contract = SIMPLE_TOKENS;
@@ -340,6 +341,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 &test_block_headers(i + 1),
                 &TEST_HEADER_DB,
                 burn_db,
+                true,
             );
             block.commit_block();
         }
@@ -351,6 +353,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             &test_block_headers(26),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
         assert!(is_committed(
             &block
@@ -681,6 +684,7 @@ pub fn rollback_log_memory_test(
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let define_data_var = "(define-data-var XZ (buff 1048576) 0x00)";
@@ -751,6 +755,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -829,6 +834,7 @@ pub fn argument_memory_test(
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -905,6 +911,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -1023,6 +1030,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
+            true,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)\n";

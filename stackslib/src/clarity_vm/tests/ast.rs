@@ -47,6 +47,7 @@ fn dependency_edge_counting_runtime(
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
+            true,
         )
         .commit_block();
 
