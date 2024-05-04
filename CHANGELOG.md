@@ -7,6 +7,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Added
+
+- Added support for Clarity 3, with new keywords, `tenure-height` and `stacks-block-height`, and removal of `block-height`
+
 ### Changed
 
 - Downgraded log messages about transactions from warning to info (#4697)
@@ -53,7 +57,6 @@ Activating Nakamoto will include two epochs:
   first_burn_block_timestamp = 1710780828
   first_burn_block_hash = "000000000000001a17c68d43cb577d62074b63a09805e4a07e829ee717507f66"
   ```
-  - Added support for Clarity 3, with new keywords, `tenure-height` and `stacks-block-height`, and removal of `block-height`
 
 ### Modified
 
