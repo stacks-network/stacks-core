@@ -669,7 +669,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         anchored_header: StacksBlockHeaderTypes::Epoch2(epoch2_header.clone()),
         microblock_tail: None,
         stacks_block_height: epoch2_header.total_work.work,
-        tenure_height: None,
+        tenure_height: Some(epoch2_header.total_work.work),
         index_root: TrieHash([0x56; 32]),
         consensus_hash: epoch2_consensus_hash.clone(),
         burn_header_hash: BurnchainHeaderHash([0x77; 32]),
