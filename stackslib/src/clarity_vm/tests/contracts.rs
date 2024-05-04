@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::types::StacksEpochId;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::Error as ClarityError;
@@ -30,7 +31,7 @@ use clarity::vm::tests::{
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-    StandardPrincipalData, TypeSignature, Value,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use clarity::vm::Value::Sequence;
 use clarity::vm::{ast, execute as vm_execute, ClarityVersion};
@@ -416,7 +417,7 @@ fn trait_invocation_cross_epoch() {
 
     let sender = StacksAddress::burn_address(false).into();
 
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
@@ -425,7 +426,7 @@ fn trait_invocation_cross_epoch() {
         publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
     });
     // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block(|_| {});
     // now in Stacks 2.1
     sim.execute_next_block_as_conn(|conn| {
@@ -435,7 +436,7 @@ fn trait_invocation_cross_epoch() {
         publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version).unwrap();
     });
 
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -452,7 +453,7 @@ fn trait_invocation_cross_epoch() {
         });
     });
 
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     // now in Stacks 2.2
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
@@ -476,7 +477,7 @@ fn trait_invocation_cross_epoch() {
         });
     });
 
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -500,7 +501,7 @@ fn trait_invocation_cross_epoch() {
     });
 
     // should now be in Stacks 2.3, so the invocation should work again!
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -517,7 +518,7 @@ fn trait_invocation_cross_epoch() {
         });
     });
 
-    info!("Sim height = {}", sim.height);
+    info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -880,5 +881,232 @@ fn trait_with_trait_invocation_cross_epoch() {
                 )
                 .unwrap();
         });
+    });
+}
+
+#[test]
+fn test_block_heights() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let contract_identifier1 = QualifiedContractIdentifier::local("test-contract-1").unwrap();
+    let contract_identifier2 = QualifiedContractIdentifier::local("test-contract-2").unwrap();
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        assert_eq!(epoch, StacksEpochId::Epoch30);
+
+        // This version uses the Clarity 1 / 2 keywords
+        let contract_clarity1 =
+            "(define-private (test-func) { burn-block-height: burn-block-height, block-height: block-height })";
+        // This version uses the Clarity 3 keywords
+        let contract_clarity3 =
+            "(define-private (test-func) { burn-block-height: burn-block-height, stacks-block-height: stacks-block-height, tenure-height: tenure-height })";
+
+        // Check both contracts in Clarity 1, publish the Clarity 1 contract
+        conn.as_transaction(|clarity_db| {
+            // Analyse the contracts as Clarity 1
+            let (ast, analysis) = clarity_db.analyze_smart_contract(
+                &contract_identifier1,
+                ClarityVersion::Clarity1,
+                &contract_clarity1,
+                ASTRules::PrecheckSize,
+            ).unwrap();
+
+            let res = clarity_db.analyze_smart_contract(
+                &contract_identifier2,
+                ClarityVersion::Clarity1,
+                &contract_clarity3,
+                ASTRules::PrecheckSize,
+            );
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                    assert_eq!(var_name, "stacks-block-height");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+
+            // Publish the Clarity 1 contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier1,
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    contract_clarity1,
+                    None,
+                    |_, _| false,
+                ).unwrap();
+
+            // Analyse the contracts as Clarity 2
+            let (ast, analysis) = clarity_db.analyze_smart_contract(
+                &contract_identifier1,
+                ClarityVersion::Clarity2,
+                &contract_clarity1,
+                ASTRules::PrecheckSize,
+            ).unwrap();
+
+            let res = clarity_db.analyze_smart_contract(
+                &contract_identifier2,
+                ClarityVersion::Clarity2,
+                &contract_clarity3,
+                ASTRules::PrecheckSize,
+            );
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                    assert_eq!(var_name, "stacks-block-height");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+
+            // Analyse the contracts as Clarity 3
+            let res = clarity_db.analyze_smart_contract(
+                &contract_identifier1,
+                ClarityVersion::Clarity3,
+                &contract_clarity1,
+                ASTRules::PrecheckSize,
+            );
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                    assert_eq!(var_name, "block-height");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+
+            let (ast, analysis) = clarity_db.analyze_smart_contract(
+                &contract_identifier2,
+                ClarityVersion::Clarity3,
+                &contract_clarity3,
+                ASTRules::PrecheckSize,
+            ).unwrap();
+
+            // Publish the Clarity 3 contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier2,
+                    ClarityVersion::Clarity3,
+                    &ast,
+                    contract_clarity3,
+                    None,
+                    |_, _| false,
+                ).unwrap();
+        });
+
+        // Call the contracts and validate the results
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::Tuple(TupleData::from_data(vec![
+                ("burn-block-height".into(), Value::UInt(8)),
+                ("block-height".into(), Value::UInt(9))
+            ]).unwrap()),
+            tx.eval_read_only(&contract_identifier1, "(test-func)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::Tuple(TupleData::from_data(vec![
+                ("burn-block-height".into(), Value::UInt(8)),
+                ("stacks-block-height".into(), Value::UInt(9)),
+                ("tenure-height".into(), Value::UInt(9))
+            ]).unwrap()),
+            tx.eval_read_only(&contract_identifier2, "(test-func)")
+                .unwrap()
+        );
+    });
+
+    // Call the contracts in the next block and validate the results
+    sim.execute_next_block_as_conn(|conn| {
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(9)),
+                    ("block-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier1, "(test-func)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(9)),
+                    ("stacks-block-height".into(), Value::UInt(10)),
+                    ("tenure-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier2, "(test-func)")
+                .unwrap()
+        );
+    });
+
+    // Call the contracts in the next block with no new tenure and validate the results
+    sim.execute_next_block_as_conn_with_tenure(false, |conn| {
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(10)),
+                    ("block-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier1, "(test-func)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(10)),
+                    ("stacks-block-height".into(), Value::UInt(11)),
+                    ("tenure-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier2, "(test-func)")
+                .unwrap()
+        );
+    });
+
+    // Call the contracts in the next block with no new tenure and validate the results
+    sim.execute_next_block_as_conn_with_tenure(false, |conn| {
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(11)),
+                    ("block-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier1, "(test-func)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("burn-block-height".into(), Value::UInt(11)),
+                    ("stacks-block-height".into(), Value::UInt(12)),
+                    ("tenure-height".into(), Value::UInt(10))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier2, "(test-func)")
+                .unwrap()
+        );
     });
 }

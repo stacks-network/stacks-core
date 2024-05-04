@@ -84,7 +84,8 @@ lazy_static! {
 
 pub struct ClarityTestSim {
     marf: MarfedKV,
-    pub height: u64,
+    pub block_height: u64,
+    pub tenure_height: u64,
     fork: u64,
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
@@ -135,30 +136,31 @@ impl ClarityTestSim {
 
         ClarityTestSim {
             marf,
-            height: 0,
+            block_height: 0,
+            tenure_height: 0,
             fork: 0,
             epoch_bounds: vec![0, u64::MAX],
         }
     }
 
-    pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, f: F, new_tenure: bool) -> R
+    pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
         let r = {
             let mut store = self.marf.begin(
-                &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
-                &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
                 new_tenure,
             );
 
             let headers_db = TestSimHeadersDB {
-                height: self.height + 1,
+                height: self.block_height + 1,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap(),
+                height: (self.tenure_height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -171,7 +173,10 @@ impl ClarityTestSim {
             r
         };
 
-        self.height += 1;
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
         r
     }
 
@@ -179,27 +184,27 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
-        self.execute_next_block_as_conn_with_tenure(f, true)
+        self.execute_next_block_as_conn_with_tenure(true, f)
     }
 
-    pub fn execute_next_block_with_tenure<F, R>(&mut self, f: F, new_tenure: bool) -> R
+    pub fn execute_next_block_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
         let mut store = self.marf.begin(
-            &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
-            &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
             new_tenure,
         );
 
         let r = {
             let headers_db = TestSimHeadersDB {
-                height: self.height + 1,
+                height: self.block_height + 1,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap(),
+                height: (self.tenure_height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -211,7 +216,10 @@ impl ClarityTestSim {
         };
 
         store.test_commit();
-        self.height += 1;
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
 
         r
     }
@@ -220,7 +228,7 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        self.execute_next_block_with_tenure(f, true)
+        self.execute_next_block_with_tenure(true, f)
     }
 
     fn check_and_bump_epoch(
@@ -271,7 +279,7 @@ impl ClarityTestSim {
         };
 
         store.test_commit();
-        self.height = parent_height + 1;
+        self.block_height = parent_height + 1;
         self.fork += 1;
 
         r
@@ -2738,7 +2746,7 @@ fn test_vote_fail() {
         );
     });
 
-    let fork_start = sim.height;
+    let fork_start = sim.block_height;
 
     for i in 0..25 {
         sim.execute_next_block(|env| {
