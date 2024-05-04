@@ -223,6 +223,10 @@ lazy_static! {
       ALTER TABLE block_headers ADD COLUMN tenure_height INTEGER;
     "#.into(),
     r#"
+      -- Add a `tenure_height` column to the nakamoto_block_headers table.
+      ALTER TABLE nakamoto_block_headers ADD COLUMN tenure_height INTEGER;
+    "#.into(),
+    r#"
       UPDATE db_config SET version = "5";
      "#.into(),
     ];
@@ -2233,6 +2237,7 @@ impl NakamotoChainState {
             stacks_block_height,
             burn_header_height,
             burn_header_timestamp,
+            tenure_height,
             ..
         } = tip_info;
 
@@ -2243,6 +2248,15 @@ impl NakamotoChainState {
         let index_block_hash = StacksBlockId::new(&consensus_hash, &block_hash);
 
         assert!(*stacks_block_height < u64::try_from(i64::MAX).unwrap());
+        let tenure_height = match tenure_height {
+            Some(th) => th,
+            None => {
+                // This can only be the case if the parent is an epoch 2.x block that was stored
+                // before the tenure height was added to the header info. In that case, the tenure
+                // height is the parent's block height.
+                stacks_block_height
+            }
+        };
 
         let vrf_proof_bytes = vrf_proof.map(|proof| proof.to_hex());
 
@@ -2271,6 +2285,7 @@ impl NakamotoChainState {
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
             &header.signer_bitvec,
+            &u64_to_sql(*tenure_height)?,
         ];
 
         chainstate_tx.execute(
@@ -2291,9 +2306,10 @@ impl NakamotoChainState {
                      parent_block_id,
                      tenure_changed,
                      vrf_proof,
-                     signer_bitvec
+                     signer_bitvec,
+                     tenure_height
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             args
         )?;
 
