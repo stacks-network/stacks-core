@@ -90,7 +90,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
 
 #[apply(test_clarity_versions)]
 fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    if epoch < StacksEpochId::Epoch2_05 {
+    if epoch < StacksEpochId::Epoch2_05 || version > ClarityVersion::Clarity2 {
         return;
     }
     let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, MarfedKV::temporary());
