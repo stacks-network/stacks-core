@@ -167,7 +167,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.node.mock_mining {
+        let leader_key_registration_state = if config.get_node_config().mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {

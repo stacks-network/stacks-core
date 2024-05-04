@@ -271,6 +271,32 @@ mod tests {
         // Should default add xenon affirmation overrides
         assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
     }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
+    }
 }
 
 impl ConfigFile {
@@ -530,6 +556,19 @@ impl Config {
             return self.miner.clone();
         };
         return config.miner;
+    }
+
+    pub fn get_node_config(&self) -> NodeConfig {
+        let Some(path) = &self.config_path else {
+            return self.node.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.node.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.node.clone();
+        };
+        return config.node;
     }
 
     /// Apply any test settings to this burnchain config struct
@@ -1194,6 +1233,26 @@ impl Config {
         self.events_observers.len() > 0
     }
 
+    pub fn make_nakamoto_block_builder_settings(
+        &self,
+        miner_status: Arc<Mutex<MinerStatus>>,
+    ) -> BlockBuilderSettings {
+        let miner_config = self.get_miner_config();
+        BlockBuilderSettings {
+            max_miner_time_ms: miner_config.nakamoto_attempt_time_ms,
+            mempool_settings: MemPoolWalkSettings {
+                max_walk_time_ms: miner_config.nakamoto_attempt_time_ms,
+                consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
+                nonce_cache_size: miner_config.nonce_cache_size,
+                candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
+                txs_to_consider: miner_config.txs_to_consider,
+                filter_origins: miner_config.filter_origins,
+            },
+            miner_status,
+            confirm_microblocks: false,
+        }
+    }
+
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -1470,7 +1529,6 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}");
         assert_eq!(
             u64::try_from(affirmations_pre_2_5.len()).unwrap(),
             last_present_cycle - 1
@@ -1481,10 +1539,12 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}, last_override = {last_override}");
+        let override_values = ["a", "n"];
 
         for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
-            let affirmation = format!("{affirmations_pre_2_5}{}", "a".repeat(override_index + 1));
+            assert!(override_values.len() > override_index);
+            let overrides = override_values[..(override_index + 1)].join("");
+            let affirmation = format!("{affirmations_pre_2_5}{overrides}");
             default_overrides.push(AffirmationOverride {
                 reward_cycle,
                 affirmation,
@@ -1493,7 +1553,10 @@ impl BurnchainConfigFile {
 
         if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
             for affirmation in default_overrides {
-                affirmation_overrides.push(affirmation);
+                // insert at front, so that the hashmap uses the configured overrides
+                //  instead of the defaults (the configured overrides will write over the
+                //  the defaults because they come later in the list).
+                affirmation_overrides.insert(0, affirmation);
             }
         } else {
             self.affirmation_overrides = Some(default_overrides);
@@ -2162,6 +2225,8 @@ pub struct MinerConfig {
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
+    /// Max time to assemble Nakamoto block
+    pub nakamoto_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
@@ -2212,6 +2277,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
+            nakamoto_attempt_time_ms: 10_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
@@ -2537,6 +2603,7 @@ pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
+    pub nakamoto_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
     pub segwit: Option<bool>,
@@ -2570,6 +2637,9 @@ impl MinerConfigFile {
             microblock_attempt_time_ms: self
                 .microblock_attempt_time_ms
                 .unwrap_or(miner_default_config.microblock_attempt_time_ms),
+            nakamoto_attempt_time_ms: self
+                .nakamoto_attempt_time_ms
+                .unwrap_or(miner_default_config.nakamoto_attempt_time_ms),
             probability_pick_no_estimate_tx: self
                 .probability_pick_no_estimate_tx
                 .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),

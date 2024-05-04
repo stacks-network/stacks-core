@@ -23,6 +23,7 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
+use libstackerdb::StackerDBChunkData;
 use rand::{thread_rng, RngCore};
 use rusqlite::{Connection, ToSql};
 use stacks_common::address::AddressHashMode;
@@ -2023,31 +2024,26 @@ fn test_make_miners_stackerdb_config() {
             txs: vec![],
         };
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let miner_privkey = &miner_keys[i];
+        let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
+        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &miner_pubkey)
+            .expect("Failed to get miner slot");
         if sortition {
-            let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
-                &sort_db,
-                &tip,
-                &stackerdbs,
-                &block,
-                &miner_keys[i],
-                &miners_contract_id,
-            )
-            .unwrap()
-            .unwrap();
+            let slot_id = slot_id.expect("No miner slot exists for this miner").start;
+            let slot_version = stackerdbs
+                .get_slot_version(&miners_contract_id, slot_id)
+                .expect("Failed to get slot version")
+                .unwrap_or(0)
+                .saturating_add(1);
+            let block_bytes = block.serialize_to_vec();
+            let mut chunk = StackerDBChunkData::new(slot_id, slot_version, block_bytes);
+            chunk.sign(&miner_keys[i]).expect("Failed to sign chunk");
             assert_eq!(chunk.slot_version, 1);
             assert_eq!(chunk.data, block.serialize_to_vec());
             stackerdb_chunks.push(chunk);
         } else {
-            assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
-                &sort_db,
-                &tip,
-                &stackerdbs,
-                &block,
-                &miner_keys[i],
-                &miners_contract_id,
-            )
-            .unwrap()
-            .is_none());
+            // We are not a miner anymore and should not have any slot
+            assert!(slot_id.is_none());
         }
     }
     // miners are "stable" across snapshots

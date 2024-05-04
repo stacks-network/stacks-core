@@ -72,6 +72,10 @@ impl std::fmt::Display for SignerSlotID {
 pub struct BlockInfo {
     /// The block we are considering
     pub block: NakamotoBlock,
+    /// The burn block height at which the block was proposed
+    pub burn_block_height: u64,
+    /// The reward cycle the block belongs to
+    pub reward_cycle: u64,
     /// Our vote on the block if we have one yet
     pub vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
@@ -82,27 +86,29 @@ pub struct BlockInfo {
     pub signed_over: bool,
 }
 
-impl BlockInfo {
-    /// Create a new BlockInfo
-    pub const fn new(block: NakamotoBlock) -> Self {
+impl From<BlockProposalSigners> for BlockInfo {
+    fn from(value: BlockProposalSigners) -> Self {
         Self {
-            block,
+            block: value.block,
+            burn_block_height: value.burn_height,
+            reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
             nonce_request: None,
             signed_over: false,
         }
     }
-
+}
+impl BlockInfo {
     /// Create a new BlockInfo with an associated nonce request packet
-    pub const fn new_with_request(block: NakamotoBlock, nonce_request: NonceRequest) -> Self {
-        Self {
-            block,
-            vote: None,
-            valid: None,
-            nonce_request: Some(nonce_request),
-            signed_over: true,
-        }
+    pub fn new_with_request(
+        block_proposal: BlockProposalSigners,
+        nonce_request: NonceRequest,
+    ) -> Self {
+        let mut block_info = BlockInfo::from(block_proposal);
+        block_info.nonce_request = Some(nonce_request);
+        block_info.signed_over = true;
+        block_info
     }
 
     /// Return the block's signer signature hash
@@ -119,7 +125,7 @@ pub enum Command {
     /// Sign a message
     Sign {
         /// The block to sign over
-        block: NakamotoBlock,
+        block_proposal: BlockProposalSigners,
         /// Whether to make a taproot signature
         is_taproot: bool,
         /// Taproot merkle root
@@ -139,6 +145,8 @@ pub enum Operation {
 /// The Signer state
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum State {
+    /// The signer is uninitialized and should read stackerdb to restore state
+    Uninitialized,
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
@@ -228,6 +236,43 @@ impl Signer {
     fn get_coordinator_dkg(&self) -> (u32, PublicKey) {
         self.coordinator_selector.get_coordinator()
     }
+
+    /// Read stackerdb messages in case the signer was started late or restarted and missed incoming DKG messages
+    pub fn read_dkg_stackerdb_messages(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        if self.state != State::Uninitialized {
+            // We should only read stackerdb if we are uninitialized
+            return Ok(());
+        }
+        let ordered_packets = self
+            .stackerdb
+            .get_dkg_packets(&self.signer_slot_ids)?
+            .iter()
+            .filter_map(|packet| {
+                let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                    self.get_coordinator_dkg().1
+                } else {
+                    debug!(
+                        "{self}: Received a non-DKG message in the DKG message queue. Ignoring it."
+                    );
+                    return None;
+                };
+                self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
+            })
+            .collect::<Vec<_>>();
+        // We successfully read stackerdb so we are no longer uninitialized
+        self.state = State::Idle;
+        debug!(
+            "{self}: Processing {} DKG messages from stackerdb: {ordered_packets:?}",
+            ordered_packets.len()
+        );
+        self.handle_packets(stacks_client, res, &ordered_packets, current_reward_cycle);
+        Ok(())
+    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -291,7 +336,7 @@ impl From<SignerConfig> for Signer {
 
         if let Some(state) = load_encrypted_signer_state(
             &mut stackerdb,
-            signer_config.signer_slot_id.into(),
+            signer_config.signer_slot_id,
             &state_machine.network_private_key,
         ).or_else(|err| {
                 warn!("Failed to load encrypted signer state from StackerDB, falling back to SignerDB: {err}");
@@ -306,7 +351,7 @@ impl From<SignerConfig> for Signer {
         Self {
             coordinator,
             state_machine,
-            state: State::Idle,
+            state: State::Uninitialized,
             commands: VecDeque::new(),
             stackerdb,
             mainnet: signer_config.mainnet,
@@ -397,9 +442,10 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Dkg);
             }
             Command::Sign {
-                block,
+                block_proposal,
                 is_taproot,
                 merkle_root,
             } => {
@@ -407,23 +453,23 @@ impl Signer {
                     debug!("{self}: Cannot sign a block without an approved aggregate public key. Ignore it.");
                     return;
                 }
-                let signer_signature_hash = block.header.signer_signature_hash();
+                let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
                 let mut block_info = self
                     .signer_db
                     .block_lookup(self.reward_cycle, &signer_signature_hash)
-                    .unwrap_or_else(|_| Some(BlockInfo::new(block.clone())))
-                    .unwrap_or_else(|| BlockInfo::new(block.clone()));
+                    .unwrap_or_else(|_| Some(BlockInfo::from(block_proposal.clone())))
+                    .unwrap_or_else(|| BlockInfo::from(block_proposal.clone()));
                 if block_info.signed_over {
                     debug!("{self}: Received a sign command for a block we are already signing over. Ignore it.");
                     return;
                 }
                 info!("{self}: Signing block";
-                         "block_consensus_hash" => %block.header.consensus_hash,
-                         "block_height" => block.header.chain_length,
-                         "pre_sign_block_id" => %block.block_id(),
+                         "block_consensus_hash" => %block_proposal.block.header.consensus_hash,
+                         "block_height" => block_proposal.block.header.chain_length,
+                         "pre_sign_block_id" => %block_proposal.block.block_id(),
                 );
                 match self.coordinator.start_signing_round(
-                    &block.serialize_to_vec(),
+                    &block_proposal.serialize_to_vec(),
                     *is_taproot,
                     *merkle_root,
                 ) {
@@ -432,7 +478,7 @@ impl Signer {
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
-                            .insert_block(self.reward_cycle, &block_info)
+                            .insert_block(&block_info)
                             .unwrap_or_else(|e| {
                                 error!("{self}: Failed to insert block in DB: {e:?}");
                             });
@@ -443,6 +489,7 @@ impl Signer {
                         return;
                     }
                 }
+                self.update_operation(Operation::Sign);
             }
         }
     }
@@ -454,6 +501,10 @@ impl Signer {
         current_reward_cycle: u64,
     ) {
         match &self.state {
+            State::Uninitialized => {
+                // We cannot process any commands until we have restored our state
+                warn!("{self}: Cannot process commands until state is restored. Waiting...");
+            }
             State::Idle => {
                 let Some(command) = self.commands.front() else {
                     debug!("{self}: Nothing to process. Waiting for command...");
@@ -517,7 +568,7 @@ impl Signer {
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 self.signer_db
-                    .insert_block(self.reward_cycle, &block_info)
+                    .insert_block(&block_info)
                     .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                 info!(
                     "{self}: Treating block validation for block {} as valid: {:?}",
@@ -574,7 +625,7 @@ impl Signer {
             "signed_over" => block_info.signed_over,
         );
         self.signer_db
-            .insert_block(self.reward_cycle, &block_info)
+            .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
@@ -605,63 +656,6 @@ impl Signer {
             })
             .collect();
         self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
-    }
-
-    /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(
-        &mut self,
-        stacks_client: &StacksClient,
-        proposals: &[BlockProposalSigners],
-    ) {
-        for proposal in proposals {
-            if proposal.reward_cycle != self.reward_cycle {
-                debug!(
-                    "{self}: Received proposal for block outside of my reward cycle, ignoring.";
-                    "proposal_reward_cycle" => proposal.reward_cycle,
-                    "proposal_burn_height" => proposal.burn_height,
-                );
-                continue;
-            }
-            let sig_hash = proposal.block.header.signer_signature_hash();
-            match self.signer_db.block_lookup(self.reward_cycle, &sig_hash) {
-                Ok(Some(block)) => {
-                    debug!(
-                        "{self}: Received proposal for block already known, ignoring new proposal.";
-                        "signer_sighash" => %sig_hash,
-                        "proposal_burn_height" => proposal.burn_height,
-                        "vote" => ?block.vote.as_ref().map(|v| {
-                            if v.rejected {
-                                "REJECT"
-                            } else {
-                                "ACCEPT"
-                            }
-                        }),
-                        "signed_over" => block.signed_over,
-                    );
-                    continue;
-                }
-                Ok(None) => {
-                    // Store the block in our cache
-                    self.signer_db
-                        .insert_block(self.reward_cycle, &BlockInfo::new(proposal.block.clone()))
-                        .unwrap_or_else(|e| {
-                            error!("{self}: Failed to insert block in DB: {e:?}");
-                        });
-                    // Submit the block for validation
-                    stacks_client
-                        .submit_block_for_validation(proposal.block.clone())
-                        .unwrap_or_else(|e| {
-                            warn!("{self}: Failed to submit block for validation: {e:?}");
-                        });
-                }
-                Err(e) => {
-                    error!(
-                        "{self}: Failed to lookup block in DB: {e:?}. Dropping proposal request."
-                    );
-                    continue;
-                }
-            }
-        }
     }
 
     /// Helper function for determining if the provided message is a DKG specific message
@@ -736,13 +730,13 @@ impl Signer {
             }
         }
 
-        if packets.iter().any(|packet| match packet.msg {
-            Message::DkgEnd(_) => true,
-            _ => false,
-        }) {
+        if packets
+            .iter()
+            .any(|packet| matches!(packet.msg, Message::DkgEnd(_)))
+        {
             debug!("{self}: Saving signer state");
             self.save_signer_state()
-                .expect(&format!("{self}: Failed to save signer state"));
+                .unwrap_or_else(|_| panic!("{self}: Failed to save signer state"));
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -808,26 +802,35 @@ impl Signer {
         stacks_client: &StacksClient,
         nonce_request: &mut NonceRequest,
     ) -> Option<BlockInfo> {
-        let Some(block) =
-            NakamotoBlock::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
+        let Some(block_proposal) =
+            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
         else {
-            // We currently reject anything that is not a block
+            // We currently reject anything that is not a valid block proposal
             warn!("{self}: Received a nonce request for an unknown message stream. Reject it.",);
             return None;
         };
-        let signer_signature_hash = block.header.signer_signature_hash();
+        if block_proposal.reward_cycle != self.reward_cycle {
+            // We are not signing for this reward cycle. Reject the block
+            warn!(
+                "{self}: Received a nonce request for a different reward cycle. Reject it.";
+                "requested_reward_cycle" => block_proposal.reward_cycle,
+            );
+            return None;
+        }
+        // TODO: could add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let Some(mut block_info) = self
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         else {
             debug!(
-                "{self}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...";
-                "signer_sighash" => %block.header.signer_signature_hash(),
+                "{self}: received a nonce request for a new block. Submit block for validation. ";
+                "signer_sighash" => %signer_signature_hash,
             );
-            let block_info = BlockInfo::new_with_request(block.clone(), nonce_request.clone());
+            let block_info = BlockInfo::new_with_request(block_proposal, nonce_request.clone());
             stacks_client
-                .submit_block_for_validation(block)
+                .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}",);
                 });
@@ -1000,7 +1003,7 @@ impl Signer {
                         return None;
                     };
                     self.signer_db
-                        .insert_block(self.reward_cycle, &updated_block_info)
+                        .insert_block(&updated_block_info)
                         .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
                     let process_request = updated_block_info.vote.is_some();
                     if !process_request {
@@ -1358,14 +1361,44 @@ impl Signer {
         }
     }
 
-    /// Refresh DKG value and queue DKG command if necessary
-    pub fn refresh_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
-        // First check if we should queue DKG based on contract vote state and stackerdb transactions
-        let should_queue = self.should_queue_dkg(stacks_client)?;
-        // Before queueing the command, check one last time if DKG has been
-        // approved. It could have happened after the last call to
-        // `get_approved_aggregate_key` but before the theshold check in
-        // `should_queue_dkg`.
+    /// Refresh DKG and queue it if required
+    pub fn refresh_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
+        // First attempt to retrieve the aggregate key from the contract.
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        // Check stackerdb for any missed DKG messages to catch up our state.
+        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        // Check if we should still queue DKG
+        if !self.should_queue_dkg(stacks_client)? {
+            return Ok(());
+        }
+        // Because there could be a slight delay in reading pending transactions and a key being approved by the contract,
+        // check one last time if the approved key was set since we finished the should queue dkg call
+        self.update_approved_aggregate_key(stacks_client)?;
+        if self.approved_aggregate_public_key.is_some() {
+            return Ok(());
+        }
+        if self.commands.front() != Some(&Command::Dkg) {
+            info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
+            self.commands.push_front(Command::Dkg);
+        } else {
+            debug!("{self}: DKG command already queued...");
+        }
+        Ok(())
+    }
+
+    /// Overwrites the approved aggregate key to the value in the contract, updating state accordingly
+    pub fn update_approved_aggregate_key(
+        &mut self,
+        stacks_client: &StacksClient,
+    ) -> Result<(), ClientError> {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
@@ -1373,27 +1406,33 @@ impl Signer {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
+            let internal_dkg = self.coordinator.aggregate_public_key;
+            if internal_dkg != self.approved_aggregate_public_key {
+                warn!("{self}: we do not support changing the internal DKG key yet. Expected {internal_dkg:?} got {:?}", self.approved_aggregate_public_key);
+            }
             self.coordinator
                 .set_aggregate_public_key(self.approved_aggregate_public_key);
             if old_dkg != self.approved_aggregate_public_key {
                 warn!(
-                    "{self}: updated DKG value to {:?}.",
+                    "{self}: updated DKG value from {old_dkg:?} to {:?}.",
                     self.approved_aggregate_public_key
                 );
             }
-            if let State::OperationInProgress(Operation::Dkg) = self.state {
-                debug!(
-                    "{self}: DKG has already been set. Aborting DKG operation {}.",
-                    self.coordinator.current_dkg_id
-                );
-                self.finish_operation();
-            }
-        } else if should_queue {
-            if self.commands.front() != Some(&Command::Dkg) {
-                info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-                self.commands.push_front(Command::Dkg);
-            } else {
-                debug!("{self}: DKG command already queued...");
+            match self.state {
+                State::OperationInProgress(Operation::Dkg) => {
+                    debug!(
+                        "{self}: DKG has already been set. Aborting DKG operation {}.",
+                        self.coordinator.current_dkg_id
+                    );
+                    self.finish_operation();
+                }
+                State::Uninitialized => {
+                    // If we successfully load the DKG value, we are fully initialized
+                    self.state = State::Idle;
+                }
+                _ => {
+                    // do nothing
+                }
             }
         }
         Ok(())
@@ -1475,7 +1514,7 @@ impl Signer {
                 else {
                     continue;
                 };
-                let Some(dkg_public_key) = self.coordinator.aggregate_public_key.clone() else {
+                let Some(dkg_public_key) = self.coordinator.aggregate_public_key else {
                     break;
                 };
                 if params.aggregate_key == dkg_public_key
@@ -1533,7 +1572,7 @@ impl Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::MinerMessages(blocks, messages, miner_key)) => {
+            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
                 if let Some(miner_key) = miner_key {
                     let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
                         .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
@@ -1545,13 +1584,11 @@ impl Signer {
                     return Ok(());
                 }
                 debug!(
-                    "{self}: Received {} block proposals and {} messages from the miner",
-                    blocks.len(),
+                    "{self}: Received {} messages from the miner",
                     messages.len();
                     "miner_key" => ?miner_key,
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
-                self.handle_proposed_blocks(stacks_client, blocks);
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")
