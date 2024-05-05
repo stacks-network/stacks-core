@@ -6005,9 +6005,23 @@ pub mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
             let sortdb = peer.sortdb.take().unwrap();
-            let node = peer.stacks_node.take().unwrap();
-            // incorrect transaction was filtered and no error in the block will appear
-            assert_eq!(stacks_block.txs.len(), 1);
+            let mut node = peer.stacks_node.take().unwrap();
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    eprintln!("{:?}", &stacks_block);
+                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
+                }
+                Err(chainstate_error::InvalidStacksBlock(_)) => {}
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
         }

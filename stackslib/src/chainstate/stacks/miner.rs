@@ -1279,14 +1279,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                 // Make the block from the transactions we did manage to get
                                                 debug!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
                                                 if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                    debug!("Block budget exceeded while mining microblock";
                                                         "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Switch to mining stx-transfers only");
                                                     block_limit_hit =
                                                         BlockLimitFunction::CONTRACT_LIMIT_HIT;
                                                 } else if block_limit_hit
                                                     == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                                 {
-                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                    debug!("Block budget exceeded while mining microblock";
                                                         "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Stop mining microblock");
                                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                                     return Ok(None);
@@ -2580,11 +2580,9 @@ impl BlockBuilder for StacksBlockBuilder {
             }
 
             // preemptively skip problematic transactions
-            let epoch_id = clarity_tx.get_epoch();
-
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
-                epoch_id,
+                clarity_tx.get_epoch(),
                 &tx,
                 ast_rules,
             ) {
@@ -2594,19 +2592,6 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
-
-            if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch_id) {
-                let msg = format!(
-                    "Invalid transaction {}: target epoch is not activated",
-                    tx.txid()
-                );
-                warn!("{msg}");
-                return TransactionResult::skipped_due_to_error(
-                    tx,
-                    Error::InvalidStacksTransaction(msg, false),
-                );
-            }
-
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
             ) {
