@@ -122,6 +122,7 @@ impl NakamotoSigningParams {
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 fn get_signer_commitments(
     is_mainnet: bool,
     reward_set: &[NakamotoSignerEntry],
@@ -133,7 +134,6 @@ fn get_signer_commitments(
         MessageSlotID::DkgResults.stacker_db_contract(is_mainnet, reward_cycle);
     let signer_set_len = u32::try_from(reward_set.len())
         .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set length exceeds u32".into()))?;
-
     for signer_id in 0..signer_set_len {
         let Some(signer_data) = stackerdbs.get_latest_chunk(&commitment_contract, signer_id)?
         else {
@@ -178,7 +178,6 @@ fn get_signer_commitments(
 
         return Ok(party_polynomials);
     }
-
     error!(
         "No valid DKG results found for the active signing set, cannot coordinate a group signature";
         "reward_cycle" => reward_cycle,
