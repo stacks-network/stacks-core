@@ -186,6 +186,7 @@ fn fix_to_pox_contract() {
         u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
         pox_3_activation_height as u32,
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -824,6 +825,7 @@ fn verify_auto_unlock_behavior() {
         u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
         pox_3_activation_height as u32,
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -981,7 +983,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -1000,7 +1002,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,

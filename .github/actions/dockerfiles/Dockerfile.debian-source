@@ -1,10 +1,13 @@
-FROM rust:bullseye as build
+FROM rust:bookworm as build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 ARG BUILD_DIR=/build
 ARG TARGET=x86_64-unknown-linux-gnu
+# Allow us to override the default `--target-cpu` for the given target triplet
+ARG TARGET_CPU
+ENV RUSTFLAGS="${TARGET_CPU:+${RUSTFLAGS} -Ctarget-cpu=${TARGET_CPU}}"
 WORKDIR /src
 
 COPY . .
@@ -12,7 +15,7 @@ COPY . .
 RUN apt-get update && apt-get install -y git libclang-dev
 
 # Run all the build steps in ramdisk in an attempt to speed things up
-RUN target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
+RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
     && rustup component add rustfmt \
@@ -20,6 +23,6 @@ RUN target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
-FROM --platform=${TARGETPLATFORM} debian:bullseye
-COPY --from=build /out/stacks-node /bin/
+FROM --platform=${TARGETPLATFORM} debian:bookworm
+COPY --from=build /out/stacks-node /out/stacks-signer /bin/
 CMD ["stacks-node", "mainnet"]

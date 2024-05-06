@@ -77,6 +77,10 @@ impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
         )).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/stackerdb/:principal/:contract_name/:slot_id/:slot_version"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -153,7 +157,16 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
                 };
 
                 match chunk_res {
-                    Ok(Some(chunk)) => Ok(chunk),
+                    Ok(Some(chunk)) => {
+                        debug!(
+                            "Loaded {}-byte chunk for {} slot {} version {:?}",
+                            chunk.len(),
+                            &contract_identifier,
+                            slot_id,
+                            &slot_version
+                        );
+                        Ok(chunk)
+                    }
                     Ok(None) | Err(NetError::NoSuchStackerDB(..)) => {
                         // not found
                         Err(StacksHttpResponse::new_error(

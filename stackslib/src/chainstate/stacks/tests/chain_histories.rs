@@ -42,7 +42,7 @@ use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
@@ -152,7 +152,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -228,7 +228,7 @@ where
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
-                &chain_tip.anchored_header
+                chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
             ));
         }
 
@@ -338,7 +338,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -412,7 +412,7 @@ where
         assert!(check_block_state_index_root(
             &mut node.chainstate,
             &fork_snapshot.consensus_hash,
-            &chain_tip.anchored_header
+            chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
         ));
 
         sortition_winners.push(miner_1.origin_address().unwrap());
@@ -485,7 +485,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -533,7 +533,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -822,7 +822,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -870,7 +870,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1087,7 +1087,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1136,7 +1136,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1435,7 +1435,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1480,7 +1480,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1682,7 +1682,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1730,7 +1730,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -1824,7 +1824,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -1845,7 +1845,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -1990,7 +1990,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -2035,7 +2035,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -2237,7 +2237,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -2285,7 +2285,7 @@ where
 
                 let sort_iconn = sortdb.index_conn();
                 let mut miner_epoch_info = builder
-                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                    .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
                 let mut epoch = builder
                     .epoch_begin(&sort_iconn, &mut miner_epoch_info)
@@ -2379,7 +2379,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -2400,7 +2400,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -2961,7 +2961,7 @@ pub fn mine_smart_contract_block_contract_call_microblock(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+    if burnchain_height > 0 && builder.chain_tip.anchored_header.height() > 0 {
         // find previous contract in this fork
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
@@ -2969,7 +2969,8 @@ pub fn mine_smart_contract_block_contract_call_microblock(
                 ContractName::try_from(
                     format!(
                         "hello-world-{}-{}",
-                        i, builder.chain_tip.anchored_header.total_work.work
+                        i,
+                        builder.chain_tip.anchored_header.height()
                     )
                     .as_str(),
                 )
@@ -3046,7 +3047,7 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+    if burnchain_height > 0 && builder.chain_tip.anchored_header.height() > 0 {
         // find previous contract in this fork
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
@@ -3054,7 +3055,8 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
                 ContractName::try_from(
                     format!(
                         "hello-world-{}-{}",
-                        i, builder.chain_tip.anchored_header.total_work.work
+                        i,
+                        builder.chain_tip.anchored_header.height(),
                     )
                     .as_str(),
                 )

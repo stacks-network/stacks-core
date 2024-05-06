@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
-use std::convert::TryInto;
 use std::fmt::Write;
 use std::{fmt, mem};
 
@@ -181,7 +180,7 @@ impl Hash160 {
     }
 
     /// Create a hash by hashing some data
-    /// (borrwed from Andrew Poelstra)
+    // (borrowed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
         let sha2_result = Sha256::digest(data);
         let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
@@ -302,13 +301,13 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
 
 impl Keccak256Hash {
     pub fn from_data(data: &[u8]) -> Keccak256Hash {
-        Keccak256Hash(Keccak256::digest(data).try_into().unwrap())
+        Keccak256Hash(Keccak256::digest(data).into())
     }
 }
 
 impl Sha256Sum {
     pub fn from_data(data: &[u8]) -> Sha256Sum {
-        Sha256Sum(Sha256::digest(data).try_into().unwrap())
+        Sha256Sum(Sha256::digest(data).into())
     }
     pub fn zero() -> Sha256Sum {
         Sha256Sum([0u8; 32])
@@ -318,7 +317,7 @@ impl Sha256Sum {
 impl DoubleSha256 {
     pub fn from_data(data: &[u8]) -> DoubleSha256 {
         let hashed = Sha256::digest(Sha256::digest(data));
-        DoubleSha256(hashed.try_into().unwrap())
+        DoubleSha256(hashed.into())
     }
 
     /// Converts a hash to a little-endian Uint256
@@ -419,8 +418,8 @@ where
         loop {
             // next row
             let i = nodes.len() - 1;
-            let mut row_hashes = vec![];
-            row_hashes.reserve(nodes[i].len() / 2);
+            let capacity = nodes[i].len().saturating_add(1) / 2;
+            let mut row_hashes = Vec::with_capacity(capacity);
 
             for j in 0..(nodes[i].len() / 2) {
                 let h = MerkleTree::get_node_hash(&nodes[i][2 * j], &nodes[i][2 * j + 1]);
@@ -451,10 +450,10 @@ where
 
     /// Get a non-leaf hash
     pub fn get_node_hash(left: &H, right: &H) -> H {
-        let mut buf = vec![];
-        buf.extend_from_slice(left.bits());
-        buf.extend_from_slice(right.bits());
-        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf[..])
+        let iter = left.bits().iter();
+        let iter = iter.chain(right.bits().iter());
+        let buf = iter.copied().collect::<Vec<_>>();
+        H::from_tagged_data(MERKLE_PATH_NODE_TAG, &buf)
     }
 
     /// Find a given hash in a merkle tree row
@@ -536,15 +535,9 @@ where
     /// will be None if the data isn't a leaf.
     pub fn path(&self, data: &[u8]) -> Option<MerklePath<H>> {
         let leaf_hash = MerkleTree::get_leaf_hash(data);
-        let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
-            None => {
-                return None;
-            }
-            Some(i) => i,
-        };
+        let mut hash_index = self.find_hash_index(&leaf_hash, 0)?;
 
-        let mut path: MerklePath<H> = vec![];
-        path.reserve(self.nodes.len());
+        let mut path: MerklePath<H> = Vec::with_capacity(self.nodes.len());
 
         let mut next_hash = leaf_hash;
 
@@ -565,12 +558,7 @@ where
             }
 
             next_hash = MerkleTree::get_node_hash(&left, &right);
-            hash_index = match self.find_hash_index(&next_hash, i + 1) {
-                None => {
-                    return None;
-                }
-                Some(hi) => hi,
-            };
+            hash_index = self.find_hash_index(&next_hash, i + 1)?;
         }
 
         Some(path)

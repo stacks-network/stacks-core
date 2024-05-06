@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
@@ -50,7 +49,7 @@ impl TraitChecker {
 
     pub fn run(
         &mut self,
-        contract_analysis: &mut ContractAnalysis,
+        contract_analysis: &ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
         for trait_identifier in &contract_analysis.implemented_traits {

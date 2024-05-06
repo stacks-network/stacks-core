@@ -14,12 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{From, TryInto};
 use std::{error, fmt, fs, io};
 
+use clarity::vm::types::PrincipalData;
+use serde::Deserialize;
+use serde_json::json;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
@@ -42,7 +45,10 @@ pub mod leader_block_commit;
 pub mod leader_key_register;
 pub mod stack_stx;
 pub mod transfer_stx;
-pub mod user_burn_support;
+pub mod vote_for_aggregate_key;
+
+#[cfg(test)]
+mod test;
 
 #[derive(Debug)]
 pub enum Error {
@@ -69,11 +75,6 @@ pub enum Error {
     // leader key register related errors
     LeaderKeyAlreadyRegistered,
 
-    // user burn supports related errors
-    UserBurnSupportBadConsensusHash,
-    UserBurnSupportNoLeaderKey,
-    UserBurnSupportNotSupported,
-
     // transfer stx related errors
     TransferStxMustBePositive,
     TransferStxSelfSend,
@@ -81,9 +82,16 @@ pub enum Error {
     // stack stx related errors
     StackStxMustBePositive,
     StackStxInvalidCycles,
+    StackStxInvalidKey,
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
+
+    // sBTC errors
+    AmountMustBePositive,
+
+    // vote-for-aggregate-public-key errors
+    VoteForAggregateKeyInvalidKey,
 }
 
 impl fmt::Display for Error {
@@ -128,16 +136,6 @@ impl fmt::Display for Error {
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }
-            Error::UserBurnSupportBadConsensusHash => {
-                write!(f, "User burn support has an invalid consensus hash")
-            }
-            Error::UserBurnSupportNoLeaderKey => write!(
-                f,
-                "User burn support does not match a registered leader key"
-            ),
-            Error::UserBurnSupportNotSupported => {
-                write!(f, "User burn operations are not supported")
-            }
             Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
             Error::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
             Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
@@ -145,7 +143,12 @@ impl fmt::Display for Error {
                 f,
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
+            Error::StackStxInvalidKey => write!(f, "Signer key is invalid"),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
+            Error::VoteForAggregateKeyInvalidKey => {
+                write!(f, "Aggregate key is invalid")
+            }
+            Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
     }
 }
@@ -189,6 +192,9 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
+    pub signer_key: Option<StacksPublicKeyBuffer>,
+    pub max_amount: Option<u128>,
+    pub auth_id: Option<u32>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -258,24 +264,6 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
-/// NOTE: this struct is currently not used
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub struct UserBurnSupportOp {
-    pub address: StacksAddress,
-    pub consensus_hash: ConsensusHash,
-    pub public_key: VRFPublicKey,
-    pub key_block_ptr: u32,
-    pub key_vtxindex: u16,
-    pub block_header_hash_160: Hash160,
-    pub burn_fee: u64,
-
-    // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    pub burn_header_hash: BurnchainHeaderHash, // hash of burnchain block with this tx
-}
-
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct DelegateStxOp {
     pub sender: StacksAddress,
@@ -295,15 +283,65 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct VoteForAggregateKeyOp {
+    pub sender: StacksAddress,
+    pub aggregate_key: StacksPublicKeyBuffer,
+    pub round: u32,
+    pub reward_cycle: u64,
+    pub signer_index: u16,
+    pub signer_key: StacksPublicKeyBuffer,
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+fn hex_ser_memo<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+    let inst = to_hex(bytes);
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deser_memo<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    hex_bytes(&inst_str).map_err(serde::de::Error::custom)
+}
+
+fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
+    let inst = bhh.to_hex();
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BurnchainHeaderHash, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    BurnchainHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
+}
+
+fn principal_serialize<S: serde::Serializer>(pd: &PrincipalData, s: S) -> Result<S::Ok, S::Error> {
+    let inst = pd.to_string();
+    s.serialize_str(inst.as_str())
+}
+
+fn principal_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<PrincipalData, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    PrincipalData::parse(&inst_str).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
-    UserBurnSupport(UserBurnSupportOp),
     PreStx(PreStxOp),
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
     DelegateStx(DelegateStxOp),
+    VoteForAggregateKey(VoteForAggregateKeyOp),
 }
 
 // serialization helpers for blockstack_op_to_json function
@@ -326,11 +364,11 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(_) => Opcodes::LeaderKeyRegister,
             BlockstackOperationType::LeaderBlockCommit(_) => Opcodes::LeaderBlockCommit,
-            BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
             BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
             BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
             BlockstackOperationType::DelegateStx(_) => Opcodes::DelegateStx,
+            BlockstackOperationType::VoteForAggregateKey(_) => Opcodes::VoteForAggregateKey,
         }
     }
 
@@ -342,11 +380,11 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => &data.txid,
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
-            BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
             BlockstackOperationType::StackStx(ref data) => &data.txid,
             BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
             BlockstackOperationType::DelegateStx(ref data) => &data.txid,
+            BlockstackOperationType::VoteForAggregateKey(ref data) => &data.txid,
         }
     }
 
@@ -354,11 +392,11 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.vtxindex,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.vtxindex,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
             BlockstackOperationType::StackStx(ref data) => data.vtxindex,
             BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
             BlockstackOperationType::DelegateStx(ref data) => data.vtxindex,
+            BlockstackOperationType::VoteForAggregateKey(ref data) => data.vtxindex,
         }
     }
 
@@ -366,11 +404,11 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.block_height,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.block_height,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
             BlockstackOperationType::StackStx(ref data) => data.block_height,
             BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
             BlockstackOperationType::DelegateStx(ref data) => data.block_height,
+            BlockstackOperationType::VoteForAggregateKey(ref data) => data.block_height,
         }
     }
 
@@ -378,11 +416,11 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::VoteForAggregateKey(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -393,11 +431,13 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::DelegateStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::VoteForAggregateKey(ref mut data) => {
+                data.block_height = height
+            }
         };
     }
 
@@ -410,11 +450,13 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.burn_header_hash = hash
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DelegateStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::VoteForAggregateKey(ref mut data) => {
+                data.burn_header_hash = hash
+            }
         };
     }
 
@@ -441,6 +483,9 @@ impl BlockstackOperationType {
                 "stacked_ustx": op.stacked_ustx,
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
+                "signer_key": op.signer_key.as_ref().map(|k| serde_json::Value::String(k.to_hex())).unwrap_or(serde_json::Value::Null),
+                "max_amount": op.max_amount.map_or(serde_json::Value::Null, |amount| serde_json::Value::Number(serde_json::Number::from(amount))),
+                "auth_id": op.auth_id.map_or(serde_json::Value::Null, |id| serde_json::Value::Number(serde_json::Number::from(id))),
             }
         })
     }
@@ -477,6 +522,23 @@ impl BlockstackOperationType {
         })
     }
 
+    pub fn vote_for_aggregate_key_to_json(op: &VoteForAggregateKeyOp) -> serde_json::Value {
+        json!({
+            "vote_for_aggregate_key": {
+                "burn_block_height": op.block_height,
+                "burn_header_hash": &op.burn_header_hash.to_hex(),
+                "aggregate_key": op.aggregate_key.to_hex(),
+                "reward_cycle": op.reward_cycle,
+                "round": op.round,
+                "sender": stacks_addr_serialize(&op.sender),
+                "signer_index": op.signer_index,
+                "signer_key": op.signer_key.to_hex(),
+                "burn_txid": op.txid,
+                "vtxindex": op.vtxindex,
+            }
+        })
+    }
+
     // An explicit JSON serialization function is used (instead of using the default serialization
     // function) for the Blockstack ops. This is because (a) we wanted the serialization to be
     // more readable, and (b) the serialization used to display PoxAddress as a string is lossy,
@@ -488,9 +550,12 @@ impl BlockstackOperationType {
             BlockstackOperationType::StackStx(op) => Self::stack_stx_to_json(op),
             BlockstackOperationType::TransferStx(op) => Self::transfer_stx_to_json(op),
             BlockstackOperationType::DelegateStx(op) => Self::delegate_stx_to_json(op),
+            BlockstackOperationType::VoteForAggregateKey(op) => {
+                Self::vote_for_aggregate_key_to_json(op)
+            }
             // json serialization for the remaining op types is not implemented for now. This function
             // is currently only used to json-ify burnchain ops executed as Stacks transactions (so,
-            // stack_stx, transfer_stx, and delegate_stx).
+            // stack_stx, transfer_stx, delegate_stx, and vote_for_aggregate_key).
             _ => json!(null),
         }
     }
@@ -503,9 +568,9 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::VoteForAggregateKey(ref op) => write!(f, "{:?}", op),
         }
     }
 }
@@ -525,183 +590,4 @@ pub fn parse_u32_from_be(bytes: &[u8]) -> Option<u32> {
 
 pub fn parse_u16_from_be(bytes: &[u8]) -> Option<u16> {
     bytes.try_into().ok().map(u16::from_be_bytes)
-}
-
-mod test {
-    use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-    use stacks_common::types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed,
-    };
-    use stacks_common::types::Address;
-    use stacks_common::util::hash::Hash160;
-
-    use crate::burnchains::Txid;
-    use crate::chainstate::burn::operations::{
-        BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
-    };
-    use crate::chainstate::stacks::address::PoxAddress;
-
-    #[test]
-    fn test_serialization_transfer_stx_op() {
-        let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
-        let sender = StacksAddress::from_string(sender_addr).unwrap();
-        let recipient_addr = "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K";
-        let recipient = StacksAddress::from_string(recipient_addr).unwrap();
-        let op = TransferStxOp {
-            sender,
-            recipient,
-            transfered_ustx: 10,
-            memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
-            txid: Txid([10u8; 32]),
-            vtxindex: 10,
-            block_height: 10,
-            burn_header_hash: BurnchainHeaderHash([0x10; 32]),
-        };
-        let serialized_json = BlockstackOperationType::transfer_stx_to_json(&op);
-        let constructed_json = json!({
-            "transfer_stx": {
-                "burn_block_height": 10,
-                "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
-                "memo": "0x000102030405",
-                "recipient": {
-                    "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
-                    "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
-                    "address_version": 22,
-                },
-                "sender": {
-                    "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
-                    "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
-                    "address_version": 26,
-                },
-                "transfered_ustx": 10,
-                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-                "vtxindex": 10,
-            }
-        });
-
-        assert_json_eq!(serialized_json, constructed_json);
-    }
-
-    #[test]
-    fn test_serialization_stack_stx_op() {
-        let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
-        let sender = StacksAddress::from_string(sender_addr).unwrap();
-        let reward_addr = PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20]),
-            },
-            None,
-        );
-
-        let op = StackStxOp {
-            sender,
-            reward_addr,
-            stacked_ustx: 10,
-            txid: Txid([10u8; 32]),
-            vtxindex: 10,
-            block_height: 10,
-            burn_header_hash: BurnchainHeaderHash([0x10; 32]),
-            num_cycles: 10,
-        };
-        let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
-        let constructed_json = json!({
-            "stack_stx": {
-                "burn_block_height": 10,
-                "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
-                "num_cycles": 10,
-                "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
-                "sender": {
-                    "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
-                    "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
-                    "address_version": 26,
-                },
-                "stacked_ustx": 10,
-                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-                "vtxindex": 10,
-            }
-        });
-
-        assert_json_eq!(serialized_json, constructed_json);
-    }
-
-    #[test]
-    fn test_serialization_pre_stx_op() {
-        let output_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
-        let output = StacksAddress::from_string(output_addr).unwrap();
-
-        let op = PreStxOp {
-            output,
-            txid: Txid([10u8; 32]),
-            vtxindex: 10,
-            block_height: 10,
-            burn_header_hash: BurnchainHeaderHash([0x10; 32]),
-        };
-        let serialized_json = BlockstackOperationType::pre_stx_to_json(&op);
-        let constructed_json = json!({
-            "pre_stx": {
-                "burn_block_height": 10,
-                "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
-                "output": {
-                    "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
-                    "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
-                    "address_version": 26,
-                },
-                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-                "vtxindex": 10,
-            }
-        });
-
-        assert_json_eq!(serialized_json, constructed_json);
-    }
-
-    #[test]
-    fn test_serialization_delegate_stx_op() {
-        let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
-        let sender = StacksAddress::from_string(sender_addr).unwrap();
-        let delegate_to_addr = "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K";
-        let delegate_to = StacksAddress::from_string(delegate_to_addr).unwrap();
-        let pox_addr = PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20]),
-            },
-            None,
-        );
-        let op = DelegateStxOp {
-            sender,
-            delegate_to,
-            reward_addr: Some((10, pox_addr)),
-            delegated_ustx: 10,
-            until_burn_height: None,
-            txid: Txid([10u8; 32]),
-            vtxindex: 10,
-            block_height: 10,
-            burn_header_hash: BurnchainHeaderHash([0x10; 32]),
-        };
-        let serialized_json = BlockstackOperationType::delegate_stx_to_json(&op);
-        let constructed_json = json!({
-            "delegate_stx": {
-                "burn_block_height": 10,
-                "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
-                "delegate_to": {
-                    "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
-                    "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
-                    "address_version": 22,
-                },
-                "delegated_ustx": 10,
-                "sender": {
-                    "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
-                    "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
-                    "address_version": 26,
-                },
-                "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
-                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-                "until_burn_height": null,
-                "vtxindex": 10,
-            }
-        });
-
-        assert_json_eq!(serialized_json, constructed_json);
-    }
 }

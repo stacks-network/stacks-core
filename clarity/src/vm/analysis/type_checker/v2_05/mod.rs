@@ -18,9 +18,9 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
+use std::collections::BTreeMap;
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -111,14 +111,15 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
 }
 
-impl AnalysisPass for TypeChecker<'_, '_> {
-    fn run_pass(
+impl TypeChecker<'_, '_> {
+    pub fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        build_type_map: bool,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command = TypeChecker::new(analysis_db, cost_track);
+        let mut command = TypeChecker::new(analysis_db, cost_track, build_type_map);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -343,13 +344,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
+        build_type_map: bool,
     ) -> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
-            type_map: TypeMap::new(),
+            type_map: TypeMap::new(build_type_map),
         }
     }
 
@@ -393,7 +395,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // charge for the eventual storage cost of the analysis --
         //  it is linear in the size of the AST.
         let mut size: u64 = 0;
@@ -525,7 +527,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> CheckResult<Vec<TypeSignature>> {
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
             result.push(self.type_check(arg, context)?)
@@ -561,7 +563,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs::<()>(StacksEpochId::Epoch2_05, args, &mut ())
+        let args = parse_name_type_pairs::<()>(StacksEpochId::Epoch2_05, args, &mut ())
             .map_err(|_| CheckErrors::BadSyntaxBinding)?;
 
         if self.function_return_tracker.is_some() {
@@ -617,7 +619,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 self.function_return_tracker = None;
 
                 let func_args: Vec<FunctionArg> = args
-                    .drain(..)
+                    .into_iter()
                     .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name))
                     .collect();
 

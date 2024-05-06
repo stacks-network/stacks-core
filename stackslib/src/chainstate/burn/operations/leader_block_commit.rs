@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -33,7 +33,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -42,10 +42,12 @@ use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{
     StacksEpoch, StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER,
     STACKS_EPOCH_2_2_MARKER, STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER,
+    STACKS_EPOCH_2_5_MARKER, STACKS_EPOCH_3_0_MARKER,
 };
 use crate::net::Error as net_error;
 
 // return type from parse_data below
+#[derive(Debug)]
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
@@ -75,9 +77,12 @@ impl LeaderBlockCommitOp {
             sunset_burn: 0,
             block_height: block_height,
             burn_parent_modulus: if block_height > 0 {
-                ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
+                u8::try_from((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS)
+                    .expect("FATAL: unreachable: unable to form u8 from 3-bit number")
             } else {
-                BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
+                u8::try_from(BURN_BLOCK_MINED_AT_MODULUS)
+                    .expect("FATAL: unreachable: 5 is not a u8")
+                    - 1
             },
             new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
@@ -128,7 +133,9 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
-            burn_parent_modulus: BURN_BLOCK_MINED_AT_MODULUS as u8 - 1,
+            burn_parent_modulus: u8::try_from(BURN_BLOCK_MINED_AT_MODULUS)
+                .expect("FATAL: unreachable: 5 is not a u8")
+                - 1,
 
             burn_header_hash: BurnchainHeaderHash::zero(),
         }
@@ -137,11 +144,13 @@ impl LeaderBlockCommitOp {
     #[cfg(test)]
     pub fn set_burn_height(&mut self, height: u64) {
         self.block_height = height;
-        self.burn_parent_modulus = if height > 0 {
+        let new_burn_parent_modulus = if height > 0 {
             (height - 1) % BURN_BLOCK_MINED_AT_MODULUS
         } else {
             BURN_BLOCK_MINED_AT_MODULUS - 1
-        } as u8;
+        };
+        self.burn_parent_modulus = u8::try_from(new_burn_parent_modulus)
+            .expect("FATAL: unreachable: 3-bit number is not a u8");
     }
 
     pub fn expected_chained_utxo(burn_only: bool) -> u32 {
@@ -154,7 +163,13 @@ impl LeaderBlockCommitOp {
     }
 
     pub fn burn_block_mined_at(&self) -> u64 {
-        self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
+        u64::from(self.burn_parent_modulus) % BURN_BLOCK_MINED_AT_MODULUS
+    }
+
+    /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
+    /// block of the last tenure (the "tenure id"). This helper obtains it.
+    pub fn last_tenure_id(&self) -> StacksBlockId {
+        StacksBlockId(self.block_header_hash.0.clone())
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -190,8 +205,10 @@ impl LeaderBlockCommitOp {
 
         let burn_parent_modulus_and_memo_byte = data[76];
 
-        let burn_parent_modulus = ((burn_parent_modulus_and_memo_byte & 0b111) as u64
-            % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+        let burn_parent_modulus = u8::try_from(
+            u64::from(burn_parent_modulus_and_memo_byte & 0b111) % BURN_BLOCK_MINED_AT_MODULUS,
+        )
+        .expect("FATAL: unreachable: could not make u8 from a 3-bit number");
         let memo = (burn_parent_modulus_and_memo_byte >> 3) & 0x1f;
 
         Some(ParsedData {
@@ -221,6 +238,7 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn is_parent_genesis(&self) -> bool {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }
@@ -274,7 +292,7 @@ impl LeaderBlockCommitOp {
             // the genesis block.
         }
 
-        if data.parent_block_ptr as u64 >= block_height {
+        if u64::from(data.parent_block_ptr) >= block_height {
             warn!(
                 "Invalid tx: parent block back-pointer {} exceeds block height {}",
                 data.parent_block_ptr, block_height
@@ -287,7 +305,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-        if data.key_block_ptr as u64 >= block_height {
+        if u64::from(data.key_block_ptr) >= block_height {
             warn!(
                 "Invalid tx: key block back-pointer {} exceeds block height {}",
                 data.key_block_ptr, block_height
@@ -365,7 +383,7 @@ impl LeaderBlockCommitOp {
             //   is expected given the amount transfered.
             let burn_fee = pox_fee
                 .expect("A 0-len output should have already errored")
-                .checked_mul(OUTPUTS_PER_COMMIT as u64) // total commitment is the pox_amount * outputs
+                .checked_mul(u64::try_from(OUTPUTS_PER_COMMIT).expect(">2^64 outputs per commit")) // total commitment is the pox_amount * outputs
                 .ok_or_else(|| op_error::ParseError)?;
 
             if burn_fee == 0 {
@@ -546,7 +564,7 @@ impl LeaderBlockCommitOp {
         tx: &mut SortitionHandleTx,
         reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<(), op_error> {
-        let parent_block_height = self.parent_block_ptr as u64;
+        let parent_block_height = u64::from(self.parent_block_ptr);
 
         if PoxConstants::has_pox_sunset(epoch_id) {
             // sunset only applies in epochs prior to 2.1.  After 2.1, miners can put whatever they
@@ -665,9 +683,9 @@ impl LeaderBlockCommitOp {
                             op_error::BlockCommitAnchorCheck})?;
                     if descended_from_anchor != expect_pox_descendant {
                         if descended_from_anchor {
-                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                            warn!("Invalid block commit: descended from PoX anchor {}, but used burn outputs", &reward_set_info.anchor_block);
                         } else {
-                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
+                            warn!("Invalid block commit: not descended from PoX anchor {}, but used PoX outputs", &reward_set_info.anchor_block);
                         }
                         return Err(op_error::BlockCommitBadOutputs);
                     }
@@ -753,6 +771,8 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch22 => self.check_epoch_commit_marker(STACKS_EPOCH_2_2_MARKER),
             StacksEpochId::Epoch23 => self.check_epoch_commit_marker(STACKS_EPOCH_2_3_MARKER),
             StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
+            StacksEpochId::Epoch25 => self.check_epoch_commit_marker(STACKS_EPOCH_2_5_MARKER),
+            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
         }
     }
 
@@ -770,7 +790,9 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height
@@ -836,8 +858,8 @@ impl LeaderBlockCommitOp {
         epoch_id: StacksEpochId,
         tx: &mut SortitionHandleTx,
     ) -> Result<(), op_error> {
-        let leader_key_block_height = self.key_block_ptr as u64;
-        let parent_block_height = self.parent_block_ptr as u64;
+        let leader_key_block_height = u64::from(self.key_block_ptr);
+        let parent_block_height = u64::from(self.parent_block_ptr);
 
         let tx_tip = tx.context.chain_tip.clone();
         let apparent_sender_repr = format!("{}", &self.apparent_sender);
@@ -864,7 +886,8 @@ impl LeaderBlockCommitOp {
 
         let is_already_committed = tx.expects_stacks_block_in_fork(&self.block_header_hash)?;
 
-        if is_already_committed {
+        // in Epoch3.0+, block commits can include Stacks blocks already accepted in the fork.
+        if is_already_committed && epoch_id < StacksEpochId::Epoch30 {
             warn!(
                 "Invalid block commit: already committed to {}",
                 self.block_header_hash;
@@ -957,10 +980,12 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitBadInput);
         }
-        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-            "FATAL: impossible block height: no epoch defined for {}",
-            self.block_height
-        ));
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.unwrap_or_else(|| {
+            panic!(
+                "FATAL: impossible block height: no epoch defined for {}",
+                self.block_height
+            )
+        });
 
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
@@ -1274,6 +1299,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1326,6 +1353,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1401,6 +1430,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1443,6 +1474,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1494,6 +1527,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1569,6 +1604,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1686,6 +1723,8 @@ mod tests {
             );
 
             let mut burnchain = Burnchain::regtest("nope");
+            burnchain.pox_constants.prepare_length = 1;
+            burnchain.pox_constants.anchor_threshold = 1;
             burnchain.pox_constants.sunset_start = block_height;
             burnchain.pox_constants.sunset_end = block_height + 1;
 
@@ -1722,6 +1761,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn pox_constants() -> PoxConstants {
+        PoxConstants::new(
+            6,
+            2,
+            2,
+            25,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
     }
 
     #[test]
@@ -1762,18 +1817,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1956,6 +2000,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
@@ -2306,18 +2351,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -3007,18 +3041,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -3079,6 +3102,7 @@ mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();

@@ -90,6 +90,10 @@ impl HttpRequest for RPCBlocksRequestHandler {
         Regex::new(r#"^/v2/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/blocks/:block_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -206,6 +210,7 @@ impl HttpChunkGenerator for StacksBlockStream {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         let block_path =
             StacksChainState::get_index_block_path(&self.blocks_path, &self.index_block_hash)

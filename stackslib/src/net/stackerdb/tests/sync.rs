@@ -124,7 +124,7 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
         .tx_begin(stackerdb_config.clone())
         .unwrap();
 
-    tx.create_stackerdb(contract_id, &slots).unwrap();
+    tx.reconfigure_stackerdb(contract_id, &slots).unwrap();
 
     if fill {
         for i in 0..num_slots {

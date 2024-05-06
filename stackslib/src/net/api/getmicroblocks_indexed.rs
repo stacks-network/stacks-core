@@ -112,6 +112,10 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
         Regex::new(r#"^/v2/microblocks/(?P<tail_microblock_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/microblocks/:microblock_id"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -223,6 +227,7 @@ impl HttpChunkGenerator for StacksIndexedMicroblockStream {
     /// Stream back microblock chunks.
     /// The first chunk is a 4-byte length prefix
     /// Subsequent chunks are microblocks
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.num_items_ptr == 0 {
             // send length prefix

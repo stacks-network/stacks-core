@@ -220,6 +220,11 @@ impl PeerAddress {
         }
     }
 
+    /// Is this a local loopback address?
+    pub fn is_loopback(&self) -> bool {
+        self.to_socketaddr(0).ip().is_loopback()
+    }
+
     pub fn to_bin(&self) -> String {
         to_bin(&self.0)
     }

@@ -10,7 +10,7 @@ use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{
@@ -141,6 +141,7 @@ impl BurnchainController for MocknetController {
             get_epoch_time_secs(),
             &epoch_vector,
             self.burnchain.pox_constants.clone(),
+            None,
             true,
         ) {
             Ok(db) => db,
@@ -221,21 +222,6 @@ impl BurnchainController for MocknetController {
                         burn_header_hash: next_block_header.block_hash,
                     })
                 }
-                BlockstackOperationType::UserBurnSupport(payload) => {
-                    BlockstackOperationType::UserBurnSupport(UserBurnSupportOp {
-                        address: payload.address,
-                        consensus_hash: payload.consensus_hash,
-                        public_key: payload.public_key,
-                        key_block_ptr: payload.key_block_ptr,
-                        key_vtxindex: payload.key_vtxindex,
-                        block_header_hash_160: payload.block_header_hash_160,
-                        burn_fee: payload.burn_fee,
-                        txid: payload.txid,
-                        vtxindex: payload.vtxindex,
-                        block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
-                    })
-                }
                 BlockstackOperationType::PreStx(payload) => {
                     BlockstackOperationType::PreStx(PreStxOp {
                         block_height: next_block_header.block_height,
@@ -259,6 +245,13 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::VoteForAggregateKey(payload) => {
+                    BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload

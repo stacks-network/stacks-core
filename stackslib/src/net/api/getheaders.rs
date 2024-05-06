@@ -109,6 +109,10 @@ impl HttpRequest for RPCHeadersRequestHandler {
         Regex::new(r#"^/v2/headers/(?P<quantity>[0-9]+)$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/headers/:height"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -231,6 +235,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
         4096
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         if self.total_bytes == 0 {
             // headers are a JSON array.  Start by writing '[', then write each header, and

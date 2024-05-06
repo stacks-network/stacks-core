@@ -61,6 +61,10 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
         Regex::new("^/v2/attachments/inv$").unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/attachments/inv"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -93,7 +97,7 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
                 index_block_hash = StacksBlockId::from_hex(&value).ok();
             } else if key == "pages_indexes" {
                 if let Ok(pages_indexes_value) = value.parse::<String>() {
-                    for entry in pages_indexes_value.split(",") {
+                    for entry in pages_indexes_value.split(',') {
                         if let Ok(page_index) = entry.parse::<u32>() {
                             page_indexes.insert(page_index);
                         }

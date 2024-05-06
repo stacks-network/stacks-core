@@ -3,7 +3,7 @@
 Stacks tokens (STX) are mined by transferring BTC via PoX. To run as a miner,
 you should make sure to add the following config fields to your config file:
 
-```
+```toml
 [node]
 # Run as a miner
 miner = True
@@ -25,6 +25,8 @@ first_attempt_time_ms = 1000
 subsequent_attempt_time_ms = 60000
 # Time to spend mining a microblock, in milliseconds.
 microblock_attempt_time_ms = 30000
+# Time to spend mining a Nakamoto block, in milliseconds.
+nakamoto_attempt_time_ms = 10000
 ```
 
 You can verify that your node is operating as a miner by checking its log output
@@ -40,7 +42,7 @@ INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] U
 
 Fee and cost estimators can be configured via the config section `[fee_estimation]`:
 
-```
+```toml
 [fee_estimation]
 cost_estimator = naive_pessimistic
 fee_estimator = fuzzed_weighted_median_fee_rate

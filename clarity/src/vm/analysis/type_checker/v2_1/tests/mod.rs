@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
-
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -1690,8 +1688,8 @@ fn test_replace_at_buff() {
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
         CheckErrors::TypeError(
-            SequenceType(BufferType(buff_len.clone())),
-            SequenceType(BufferType(buff_len_two.clone())),
+            SequenceType(BufferType(buff_len)),
+            SequenceType(BufferType(buff_len_two)),
         ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -1746,8 +1744,8 @@ fn test_replace_at_ascii() {
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
         CheckErrors::TypeError(
-            SequenceType(StringType(ASCII(buff_len.clone()))),
-            SequenceType(StringType(ASCII(buff_len_two.clone()))),
+            SequenceType(StringType(ASCII(buff_len))),
+            SequenceType(StringType(ASCII(buff_len_two))),
         ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -1796,14 +1794,14 @@ fn test_replace_at_utf8() {
         ),
         CheckErrors::TypeError(
             SequenceType(StringType(UTF8(str_len.clone()))),
-            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(BufferType(buff_len)),
         ),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
         CheckErrors::TypeError(
-            SequenceType(StringType(UTF8(str_len.clone()))),
-            SequenceType(StringType(UTF8(str_len_two.clone()))),
+            SequenceType(StringType(UTF8(str_len))),
+            SequenceType(StringType(UTF8(str_len_two))),
         ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -3399,7 +3397,7 @@ fn test_trait_args() {
         },
         TraitIdentifier {
             name: ClarityName::from("trait-bar"),
-            contract_identifier: contract_identifier.clone(),
+            contract_identifier: contract_identifier,
         },
     )];
 

@@ -26,6 +26,7 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityVersion, Value};
+use lazy_static::lazy_static;
 use rand::RngCore;
 use rusqlite::Connection;
 use stacks_common::address::AddressHashMode;
@@ -37,7 +38,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 use stacks_common::{address, types, util};
 
@@ -53,12 +56,13 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
     PoxStartCycleInfo, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
@@ -226,7 +230,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
     block_hash
 }
 
-fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     let pk = StacksPublicKey::from_private(sk);
     StacksAddress::from_public_keys(
         chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -237,7 +241,7 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     .unwrap()
 }
 
-fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
+pub fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
     let stacks_addr = p2pkh_from(sk);
     PoxAddress::Standard(stacks_addr, Some(AddressHashMode::SerializeP2PKH))
 }
@@ -304,6 +308,7 @@ pub fn setup_states_with_epochs(
             burnchain.first_block_timestamp.into(),
             &epochs,
             burnchain.pox_constants.clone(),
+            None,
             true,
         )
         .unwrap();
@@ -410,7 +415,7 @@ pub struct NullEventDispatcher;
 impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_block(
         &self,
-        _block: &StacksBlock,
+        _block: &StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
@@ -423,6 +428,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
         _pox_constants: &PoxConstants,
+        _reward_set_data: &Option<RewardSetData>,
+        _signer_bitvec: &Option<BitVec<4000>>,
     ) {
         assert!(
             false,
@@ -444,15 +451,22 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         indexer,
     )
 }
@@ -461,15 +475,22 @@ pub fn make_coordinator_atlas<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new_full(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         None,
         indexer,
         atlas_config,
@@ -492,7 +513,20 @@ impl RewardSetProvider for StubbedRewardSetProvider {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
+            signers: None,
+            pox_ustx_threshold: None,
         })
+    }
+
+    fn get_reward_set_nakamoto(
+        &self,
+        cycle_start_burn_height: u64,
+        chainstate: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+    ) -> Result<RewardSet, CoordError> {
+        panic!("Stubbed reward set provider cannot be invoked in nakamoto")
     }
 }
 
@@ -524,6 +558,7 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
             5,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -568,6 +603,7 @@ pub fn get_chainstate(path: &str) -> StacksChainState {
 }
 
 fn make_genesis_block(
+    burnchain: &Burnchain,
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
     parent_block: &BlockHeaderHash,
@@ -577,6 +613,7 @@ fn make_genesis_block(
     key_index: u32,
 ) -> (BlockstackOperationType, StacksBlock) {
     make_genesis_block_with_recipients(
+        burnchain,
         sort_db,
         state,
         parent_block,
@@ -591,6 +628,7 @@ fn make_genesis_block(
 /// build a stacks block with just the coinbase off of
 ///  parent_block, in the canonical sortition fork.
 fn make_genesis_block_with_recipients(
+    burnchain: &Burnchain,
     sort_db: &SortitionDB,
     state: &mut StacksChainState,
     parent_block: &BlockHeaderHash,
@@ -605,7 +643,7 @@ fn make_genesis_block_with_recipients(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -621,6 +659,7 @@ fn make_genesis_block_with_recipients(
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+        burnchain,
         &parent_stacks_header,
         proof.clone(),
         0,
@@ -629,7 +668,7 @@ fn make_genesis_block_with_recipients(
     .unwrap();
 
     let iconn = sort_db.index_conn();
-    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
     let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
@@ -837,7 +876,7 @@ fn make_stacks_block_with_input(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -886,13 +925,14 @@ fn make_stacks_block_with_input(
     let iconn = sort_db.index_conn();
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+        burnchain,
         &parent_stacks_header,
         proof.clone(),
         total_burn,
         next_hash160(),
     )
     .unwrap();
-    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
     let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
@@ -971,6 +1011,7 @@ fn missed_block_commits_2_05() {
         5,
         7010,
         sunset_ht,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1097,6 +1138,7 @@ fn missed_block_commits_2_05() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -1294,6 +1336,7 @@ fn missed_block_commits_2_1() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -1424,6 +1467,7 @@ fn missed_block_commits_2_1() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -1638,6 +1682,7 @@ fn late_block_commits_2_1() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -1765,6 +1810,7 @@ fn late_block_commits_2_1() {
 
         let (mut good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2028,6 +2074,7 @@ fn test_simple_setup() {
 
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2295,6 +2342,7 @@ fn test_sortition_with_reward_set() {
         let b = get_burnchain(path, None);
         let (good_op, mut block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2564,6 +2612,7 @@ fn test_sortition_with_burner_reward_set() {
         let b = get_burnchain(path, None);
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2695,6 +2744,7 @@ fn test_pox_btc_ops() {
     let sunset_ht = 8000;
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
+    let pox_v3_unlock_ht = u32::MAX;
     let pox_consts = Some(PoxConstants::new(
         5,
         3,
@@ -2705,6 +2755,7 @@ fn test_pox_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
+        pox_v3_unlock_ht,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -2805,6 +2856,7 @@ fn test_pox_btc_ops() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -2847,6 +2899,9 @@ fn test_pox_btc_ops() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 4,
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0u32),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -2887,7 +2942,8 @@ fn test_pox_btc_ops() {
                         .get_available_balance_at_burn_block(
                             burn_height as u64,
                             pox_v1_unlock_ht,
-                            pox_v2_unlock_ht
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht
                         )
                         .unwrap(),
                     balance as u128,
@@ -2979,6 +3035,7 @@ fn test_stx_transfer_btc_ops() {
 
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
+    let pox_v3_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         5,
@@ -2990,6 +3047,7 @@ fn test_stx_transfer_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
+        pox_v3_unlock_ht,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -3085,6 +3143,7 @@ fn test_stx_transfer_btc_ops() {
         let b = get_burnchain(path, pox_consts.clone());
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -3195,7 +3254,8 @@ fn test_stx_transfer_btc_ops() {
                         .get_available_balance_at_burn_block(
                             burn_height as u64,
                             pox_v1_unlock_ht,
-                            pox_v2_unlock_ht
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
                         )
                         .unwrap(),
                     (balance as u128) - transfer_amt,
@@ -3206,7 +3266,8 @@ fn test_stx_transfer_btc_ops() {
                         .get_available_balance_at_burn_block(
                             burn_height as u64,
                             pox_v1_unlock_ht,
-                            pox_v2_unlock_ht
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
                         )
                         .unwrap(),
                     transfer_amt,
@@ -3218,7 +3279,8 @@ fn test_stx_transfer_btc_ops() {
                         .get_available_balance_at_burn_block(
                             burn_height as u64,
                             pox_v1_unlock_ht,
-                            pox_v2_unlock_ht
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
                         )
                         .unwrap(),
                     balance as u128,
@@ -3228,7 +3290,8 @@ fn test_stx_transfer_btc_ops() {
                         .get_available_balance_at_burn_block(
                             burn_height as u64,
                             pox_v1_unlock_ht,
-                            pox_v2_unlock_ht
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
                         )
                         .unwrap(),
                     0,
@@ -3416,6 +3479,7 @@ fn test_delegate_stx_btc_ops() {
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3497,6 +3561,7 @@ fn test_delegate_stx_btc_ops() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -3721,6 +3786,7 @@ fn test_initial_coinbase_reward_distributions() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3830,6 +3896,7 @@ fn test_initial_coinbase_reward_distributions() {
             let b = get_burnchain(path, pox_consts.clone());
             let (good_op, block) = if ix == 0 {
                 make_genesis_block_with_recipients(
+                    &b,
                     &sort_db,
                     &mut chainstate,
                     &parent,
@@ -3960,6 +4027,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4024,6 +4092,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4161,6 +4230,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         10,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4226,6 +4296,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4354,7 +4425,19 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10, 14, 16));
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        10,
+        14,
+        u32::MAX,
+        16,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
@@ -4419,6 +4502,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4556,6 +4640,7 @@ fn atlas_stop_start() {
         10,
         sunset_ht,
         10,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -4706,6 +4791,7 @@ fn atlas_stop_start() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -4867,6 +4953,7 @@ fn test_epoch_verify_active_pox_contract() {
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
         u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4958,6 +5045,7 @@ fn test_epoch_verify_active_pox_contract() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5015,6 +5103,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 1,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -5030,6 +5121,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 2,
                 num_cycles: 5,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -5043,6 +5137,9 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 4,
                 num_cycles: 1,
+                signer_key: None,
+                max_amount: None,
+                auth_id: None,
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
@@ -5155,6 +5252,7 @@ fn test_sortition_with_sunset() {
         5,
         10,
         sunset_ht,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5320,6 +5418,7 @@ fn test_sortition_with_sunset() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5465,6 +5564,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         10,
         sunset_ht,
         v1_unlock_ht,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -5657,6 +5757,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &parent,
@@ -5816,6 +5917,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     let b = get_burnchain(path, pox_consts.clone());
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
@@ -5886,6 +5988,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),
@@ -5935,7 +6038,10 @@ fn test_pox_processable_block_in_different_pox_forks() {
         );
 
         loop {
-            let missing_anchor_opt = coord.handle_new_burnchain_block().unwrap();
+            let missing_anchor_opt = coord
+                .handle_new_burnchain_block()
+                .unwrap()
+                .into_missing_block_hash();
             if let Some(missing_anchor) = missing_anchor_opt {
                 eprintln!(
                     "Unblinded database reports missing anchor block {:?} (ix={})",
@@ -6168,6 +6274,7 @@ fn test_pox_no_anchor_selected() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),
@@ -6382,6 +6489,7 @@ fn test_pox_fork_out_of_order() {
         eprintln!("Making block {}", ix);
         let (op, block) = if ix == 0 {
             make_genesis_block(
+                &b,
                 &sort_db,
                 &mut chainstate,
                 &BlockHeaderHash([0; 32]),

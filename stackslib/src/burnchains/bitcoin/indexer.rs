@@ -14,11 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::net::Shutdown;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs, net, path, time};
@@ -46,7 +45,8 @@ use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
-    StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+    StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
+    STACKS_EPOCHS_TESTNET,
 };
 use crate::util_lib::db::Error as DBError;
 
@@ -91,7 +91,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Get the default epochs definitions for the given BitcoinNetworkType.
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
-fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
     match network_id {
         BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
         BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
@@ -338,6 +338,12 @@ impl BitcoinIndexer {
         let mut initiated = false;
 
         while keep_going {
+            if let Some(ref should_keep_running) = self.should_keep_running {
+                if !should_keep_running.load(Ordering::SeqCst) {
+                    return Err(btc_error::TimedOut);
+                }
+            }
+
             if do_handshake {
                 debug!("(Re)establish peer connection");
 
@@ -562,7 +568,9 @@ impl BitcoinIndexer {
                         test_debug!("Copy interval {} to {}", interval, &reorg_headers_path);
                         let work_score = canonical_spv_client
                             .find_interval_work(interval)?
-                            .expect(&format!("FATAL: no work score for interval {}", interval));
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no work score for interval {}", interval)
+                            });
                         reorg_spv_client.store_interval_work(interval, work_score)?;
                     }
                 }
@@ -837,7 +845,11 @@ impl BitcoinIndexer {
                 }
             } else {
                 // ignore the reorg
-                test_debug!("Reorg chain does not overtake original Bitcoin chain");
+                test_debug!(
+                    "Reorg chain does not overtake original Bitcoin chain ({} >= {})",
+                    orig_total_work,
+                    reorg_total_work
+                );
                 new_tip = orig_spv_client.get_headers_height()?;
             }
         }
@@ -1030,13 +1042,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        match self.config.epochs {
-            Some(ref epochs) => {
-                assert!(self.runtime.network_id != BitcoinNetworkType::Mainnet);
-                epochs.clone()
-            }
-            None => get_bitcoin_stacks_epochs(self.runtime.network_id),
-        }
+        StacksEpoch::get_epochs(self.runtime.network_id, self.config.epochs.as_ref())
     }
 
     /// Read downloaded headers within a range

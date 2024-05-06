@@ -23,6 +23,7 @@ on:
           - Epoch Tests
           - Slow Tests
           - Stacks-Core Tests
+          - SBTC Tests
 
 ## Set the display name to the test being run
 run-name: ${{ inputs.workflow }}
@@ -113,3 +114,19 @@ jobs:
     needs:
       - create-cache
     uses: ./.github/workflows/slow-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'SBTC Tests'
+  sbtc-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'SBTC Tests'
+      )
+    name: SBTC Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/sbtc-tests.yml
+

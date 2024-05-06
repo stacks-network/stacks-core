@@ -19,10 +19,11 @@ pub mod serialization;
 #[allow(clippy::result_large_err)]
 pub mod signatures;
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::{char, cmp, fmt, str};
 
+use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
@@ -105,6 +106,11 @@ impl QualifiedContractIdentifier {
             issuer: StandardPrincipalData::transient(),
             name,
         }
+    }
+
+    /// Was this contract issued by the null issuer address? (i.e., is it a "boot contract")
+    pub fn is_boot(&self) -> bool {
+        self.issuer.1 == [0; 20]
     }
 
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
@@ -1034,12 +1040,14 @@ impl Value {
             Ok(string) => string,
             _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
         };
-        let mut data = vec![];
-        for char in validated_utf8_str.chars() {
-            let mut encoded_char: Vec<u8> = vec![0; char.len_utf8()];
-            char.encode_utf8(&mut encoded_char[..]);
-            data.push(encoded_char);
-        }
+        let data = validated_utf8_str
+            .chars()
+            .map(|char| {
+                let mut encoded_char = vec![0u8; char.len_utf8()];
+                char.encode_utf8(&mut encoded_char);
+                encoded_char
+            })
+            .collect::<Vec<_>>();
         // check the string size
         StringUTF8Length::try_from(data.len())?;
 
@@ -1521,29 +1529,37 @@ impl TupleData {
         self.data_map.is_empty()
     }
 
-    pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
+    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
+    /// Ok((Default::default()))    
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
+    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
-        for (name, value) in data.drain(..) {
+        for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
-            if type_map.contains_key(&name) {
-                return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
-            } else {
-                type_map.insert(name.clone(), type_info);
-            }
+            let entry = type_map.entry(name.clone());
+            match entry {
+                Entry::Vacant(e) => e.insert(type_info),
+                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
+            };
             data_map.insert(name, value);
         }
 
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
+    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
+    /// Ok((Default::default()))
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
-        mut data: Vec<(ClarityName, Value)>,
+        data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
     ) -> Result<TupleData> {
         let mut data_map = BTreeMap::new();
-        for (name, value) in data.drain(..) {
+        for (name, value) in data.into_iter() {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
@@ -1676,7 +1692,7 @@ mod test {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
         assert_eq!(
-            Value::some(inner_value.clone()),
+            Value::some(inner_value),
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
 
@@ -1764,7 +1780,7 @@ mod test {
         );
         assert_eq!(buff.clone().expect_buff(10).unwrap(), vec![1, 2, 3, 4, 5]);
         assert_eq!(
-            buff.clone().expect_buff_padded(10, 1).unwrap(),
+            buff.expect_buff_padded(10, 1).unwrap(),
             vec![1, 2, 3, 4, 5, 1, 1, 1, 1, 1]
         );
     }

@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use std::fs::read_to_string;
 
+use assert_json_diff::assert_json_eq;
+use serde_json;
 use stacks_common::types::StacksEpochId;
-use {assert_json_diff, serde_json};
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
@@ -81,6 +81,7 @@ pub fn type_check_version(
         LimitedCostTracker::new_free(),
         epoch,
         version,
+        false,
     )
     .map_err(|(e, _)| e)
 }

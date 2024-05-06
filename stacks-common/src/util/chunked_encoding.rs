@@ -498,13 +498,8 @@ mod test {
         }
     }
 
-    fn vec_u8(mut v: Vec<&str>) -> Vec<Vec<u8>> {
-        let mut ret = vec![];
-        for s_vec in v.drain(..) {
-            let v_u8 = s_vec.as_bytes().to_vec();
-            ret.push(v_u8);
-        }
-        ret
+    fn vec_u8(v: Vec<&str>) -> Vec<Vec<u8>> {
+        v.into_iter().map(|s| s.as_bytes().to_vec()).collect()
     }
 
     #[test]

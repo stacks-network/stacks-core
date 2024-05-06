@@ -232,7 +232,6 @@
 ///
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::Write;
 use std::sync::mpsc::SyncSender;
@@ -370,6 +369,7 @@ impl AffirmationMap {
         self.affirmations.push(entry)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn pop(&mut self) -> Option<AffirmationMapEntry> {
         self.affirmations.pop()
     }
@@ -554,10 +554,12 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
     let mut ret = vec![];
     for header in headers.into_iter() {
         let blk = BurnchainDB::get_burnchain_block(&burnchain_tx.conn(), &header.block_hash)
-            .expect(&format!(
-                "BUG: failed to load prepare-phase block {} ({})",
-                &header.block_hash, header.block_height
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "BUG: failed to load prepare-phase block {} ({})",
+                    &header.block_hash, header.block_height
+                )
+            });
 
         let mut block_ops = vec![];
         for op in blk.ops.into_iter() {
@@ -639,10 +641,12 @@ pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
 
             let mut found = false;
             let blk = BurnchainDB::get_burnchain_block(burnchain_tx.conn(), &hdr.block_hash)
-                .expect(&format!(
-                    "BUG: failed to load existing block {} ({})",
-                    &hdr.block_hash, &hdr.block_height
-                ));
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "BUG: failed to load existing block {} ({})",
+                        &hdr.block_hash, &hdr.block_height
+                    )
+                });
 
             for parent_op in blk.ops.into_iter() {
                 if let BlockstackOperationType::LeaderBlockCommit(parent_opdata) = parent_op {
@@ -784,7 +788,14 @@ fn inner_find_heaviest_block_commit_ptr(
             }
 
             if let Some(last_vtxindex) = last_vtxindex.as_mut() {
-                assert!(*last_vtxindex < opdata.vtxindex);
+                assert!(
+                    *last_vtxindex < opdata.vtxindex,
+                    "{} !< {} at block {} (op {:?})",
+                    *last_vtxindex,
+                    opdata.vtxindex,
+                    opdata.block_height,
+                    &opdata
+                );
                 *last_vtxindex = opdata.vtxindex;
             } else {
                 last_vtxindex = Some(opdata.vtxindex);
@@ -942,18 +953,17 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     let heaviest_ancestor_header = indexer
         .read_burnchain_headers(ancestor_block, ancestor_block + 1)?
         .first()
-        .expect(&format!(
-            "BUG: no block headers for height {}",
-            ancestor_block
-        ))
+        .unwrap_or_else(|| panic!("BUG: no block headers for height {}", ancestor_block))
         .to_owned();
 
     let heaviest_ancestor_block =
         BurnchainDB::get_burnchain_block(burnchain_tx.conn(), &heaviest_ancestor_header.block_hash)
-            .expect(&format!(
-                "BUG: no ancestor block {:?} ({})",
-                &heaviest_ancestor_header.block_hash, heaviest_ancestor_header.block_height
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "BUG: no ancestor block {:?} ({})",
+                    &heaviest_ancestor_header.block_hash, heaviest_ancestor_header.block_height
+                )
+            });
 
     // find the PoX anchor block-commit, if it exists at all
     // (note that it may not -- a rich attacker can force F*w confirmations with lots of BTC on a

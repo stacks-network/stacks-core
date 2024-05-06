@@ -58,7 +58,7 @@ pub struct MinerReward {
 }
 
 impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
-    fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
+    fn from_row(row: &Row) -> Result<MinerPaymentSchedule, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let recipient_str: Option<String> = row.get_unwrap("recipient");
         let recipient = recipient_str
@@ -70,27 +70,37 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
 
         let coinbase_text: String = row.get_unwrap("coinbase");
-        let tx_fees_anchored_text: String = row.get_unwrap("tx_fees_anchored");
-        let tx_fees_streamed_text: String = row.get_unwrap("tx_fees_streamed");
-        let burns_text: String = row.get_unwrap("stx_burns");
+        let db_tx_fees_anchored_text: String = row.get_unwrap("tx_fees_anchored");
+        let db_tx_fees_streamed_text: String = row.get_unwrap("tx_fees_streamed");
         let burnchain_commit_burn = u64::from_column(row, "burnchain_commit_burn")?;
         let burnchain_sortition_burn = u64::from_column(row, "burnchain_sortition_burn")?;
         let miner: bool = row.get_unwrap("miner");
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
 
+        let schedule_type: HeaderTypeNames = row
+            .get("schedule_type")
+            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+
         let coinbase = coinbase_text
             .parse::<u128>()
             .map_err(|_e| db_error::ParseError)?;
-        let tx_fees_anchored = tx_fees_anchored_text
+        let db_tx_fees_anchored = db_tx_fees_anchored_text
             .parse::<u128>()
             .map_err(|_e| db_error::ParseError)?;
-        let tx_fees_streamed = tx_fees_streamed_text
+        let db_tx_fees_streamed = db_tx_fees_streamed_text
             .parse::<u128>()
             .map_err(|_e| db_error::ParseError)?;
-        let stx_burns = burns_text
-            .parse::<u128>()
-            .map_err(|_e| db_error::ParseError)?;
+
+        let tx_fees = match schedule_type {
+            HeaderTypeNames::Nakamoto => MinerPaymentTxFees::Nakamoto {
+                parent_fees: db_tx_fees_anchored,
+            },
+            HeaderTypeNames::Epoch2 => MinerPaymentTxFees::Epoch2 {
+                anchored: db_tx_fees_anchored,
+                streamed: db_tx_fees_streamed,
+            },
+        };
 
         let payment_data = MinerPaymentSchedule {
             address,
@@ -100,9 +110,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
             parent_block_hash,
             parent_consensus_hash,
             coinbase,
-            tx_fees_anchored,
-            tx_fees_streamed,
-            stx_burns,
+            tx_fees,
             burnchain_commit_burn,
             burnchain_sortition_burn,
             miner,
@@ -202,13 +210,21 @@ impl MinerPaymentSchedule {
     /// If this is a MinerPaymentSchedule for a miner who _confirmed_ a microblock stream, then
     /// this calculates the percentage of that stream this miner is entitled to
     pub fn streamed_tx_fees_confirmed(&self) -> u128 {
-        (self.tx_fees_streamed * 3) / 5
+        let tx_fees_streamed = match self.tx_fees {
+            MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
+            MinerPaymentTxFees::Nakamoto { .. } => 0,
+        };
+        (tx_fees_streamed * 3) / 5
     }
 
     /// If this is a MinerPaymentSchedule for a miner who _produced_ a microblock stream, then
     /// this calculates the percentage of that stream this miner is entitled to
     pub fn streamed_tx_fees_produced(&self) -> u128 {
-        (self.tx_fees_streamed * 2) / 5
+        let tx_fees_streamed = match self.tx_fees {
+            MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
+            MinerPaymentTxFees::Nakamoto { .. } => 0,
+        };
+        (tx_fees_streamed * 2) / 5
     }
 
     /// Empty miner payment schedule -- i.e. for the genesis block
@@ -221,35 +237,16 @@ impl MinerPaymentSchedule {
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             coinbase: 0,
-            tx_fees_anchored: 0,
-            tx_fees_streamed: 0,
-            stx_burns: 0,
+            tx_fees: MinerPaymentTxFees::Epoch2 {
+                anchored: 0,
+                streamed: 0,
+            },
             burnchain_commit_burn: 0,
             burnchain_sortition_burn: 0,
             miner: true,
             stacks_block_height: 0,
             vtxindex: 0,
         }
-    }
-
-    /// Calculate the total reward for this block, excluding the microblocks produced off of it.
-    /// This is the value reported by `get-block-info? block-reward`.
-    /// Note that this *undercounts* the true reward, which will not be known until the microblock
-    /// stream produced by this block gets confirmed.
-    pub fn block_reward_so_far(&self) -> u128 {
-        test_debug!(
-            "reward so far for {}/{}: {} + {} + {}",
-            &self.consensus_hash,
-            &self.block_hash,
-            self.coinbase,
-            self.tx_fees_anchored,
-            self.streamed_tx_fees_confirmed()
-        );
-        self.streamed_tx_fees_confirmed()
-            .checked_add(self.tx_fees_anchored)
-            .expect("reward overflow")
-            .checked_add(self.coinbase)
-            .expect("reward overflow")
     }
 }
 
@@ -396,10 +393,9 @@ impl StacksChainState {
 
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
-    pub fn insert_miner_payment_schedule<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_miner_payment_schedule(
+        tx: &mut DBTx,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &[StagingUserBurnSupport],
     ) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
@@ -408,6 +404,15 @@ impl StacksChainState {
         let index_block_hash =
             StacksBlockId::new(&block_reward.consensus_hash, &block_reward.block_hash);
 
+        let (payment_type, db_tx_fees_anchored, db_tx_fees_streamed) = match block_reward.tx_fees {
+            MinerPaymentTxFees::Epoch2 { anchored, streamed } => {
+                (HeaderTypeNames::Epoch2, anchored, streamed)
+            }
+            MinerPaymentTxFees::Nakamoto { parent_fees } => {
+                (HeaderTypeNames::Nakamoto, parent_fees, 0)
+            }
+        };
+
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(),
             &block_reward.recipient.to_string(),
@@ -415,16 +420,17 @@ impl StacksChainState {
             &block_reward.consensus_hash,
             &block_reward.parent_block_hash,
             &block_reward.parent_consensus_hash,
-            &format!("{}", block_reward.coinbase),
-            &format!("{}", block_reward.tx_fees_anchored),
-            &format!("{}", block_reward.tx_fees_streamed),
-            &format!("{}", block_reward.stx_burns),
+            &block_reward.coinbase.to_string(),
+            &db_tx_fees_anchored.to_string(),
+            &db_tx_fees_streamed.to_string(),
             &u64_to_sql(block_reward.burnchain_commit_burn)?,
             &u64_to_sql(block_reward.burnchain_sortition_burn)?,
             &u64_to_sql(block_reward.stacks_block_height)?,
             &true,
             &0i64,
             &index_block_hash,
+            &payment_type,
+            &"0".to_string(),
         ];
 
         tx.execute(
@@ -438,63 +444,19 @@ impl StacksChainState {
                         coinbase,
                         tx_fees_anchored,
                         tx_fees_streamed,
-                        stx_burns,
                         burnchain_commit_burn,
                         burnchain_sortition_burn,
                         stacks_block_height,
                         miner,
                         vtxindex,
-                        index_block_hash) \
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                        index_block_hash,
+                        schedule_type,
+                        stx_burns
+                    )
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
             args,
         )
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        for user_support in user_burns.iter() {
-            assert!(user_support.burn_amount < i64::MAX as u64);
-
-            let args: &[&dyn ToSql] = &[
-                &user_support.address.to_string(),
-                &user_support.address.to_string(),
-                &block_reward.block_hash,
-                &block_reward.consensus_hash,
-                &block_reward.parent_block_hash,
-                &block_reward.parent_consensus_hash,
-                &format!("{}", block_reward.coinbase),
-                &"0".to_string(),
-                &"0".to_string(),
-                &"0".to_string(),
-                &u64_to_sql(user_support.burn_amount)?,
-                &u64_to_sql(block_reward.burnchain_sortition_burn)?,
-                &u64_to_sql(block_reward.stacks_block_height)?,
-                &false,
-                &user_support.vtxindex,
-                &index_block_hash,
-            ];
-
-            tx.execute(
-                "INSERT INTO payments (
-                            address,
-                            recipient,
-                            block_hash,
-                            consensus_hash,
-                            parent_block_hash,
-                            parent_consensus_hash,
-                            coinbase,
-                            tx_fees_anchored,
-                            tx_fees_streamed,
-                            stx_burns,
-                            burnchain_commit_burn,
-                            burnchain_sortition_burn,
-                            stacks_block_height,
-                            miner,
-                            vtxindex,
-                            index_block_hash) \
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
-                args,
-            )
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
 
         Ok(())
     }
@@ -750,8 +712,8 @@ impl StacksChainState {
     }
 
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
-    pub fn get_scheduled_block_rewards<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_scheduled_block_rewards(
+        tx: &mut StacksDBTx,
         tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         if tip.stacks_block_height < MINER_REWARD_MATURITY {
@@ -905,31 +867,38 @@ impl StacksChainState {
             if participant.miner {
                 // only award tx fees to the miner, and only if the miner was not punished.
                 // parent gets its produced tx fees regardless of punishment.
-                (
-                    // tx_fees_anchored
-                    if !punished {
-                        participant.tx_fees_anchored
-                    } else {
-                        0
-                    },
-                    // parent_tx_fees_streamed_produced
-                    if parent_block_epoch < StacksEpochId::Epoch21 {
-                        // this is wrong, per #3140.  It should be
-                        // `participant.streamed_tx_fees_produced()`, since
-                        // `participant.tx_fees_streamed` contains the sum of the microblock
-                        // transaction fees that `participant` confirmed (and thus `participant`'s
-                        // parent produced).  But we're stuck with it for earlier epochs.
-                        parent.streamed_tx_fees_produced()
-                    } else {
-                        participant.streamed_tx_fees_produced()
-                    },
-                    // tx_fees_streamed_confirmed
-                    if !punished {
-                        participant.streamed_tx_fees_confirmed()
-                    } else {
-                        0
-                    },
-                )
+
+                match participant.tx_fees {
+                    MinerPaymentTxFees::Epoch2 {
+                        anchored,
+                        streamed: _,
+                    } => {
+                        // if the payment type is Epoch2, then reward fees according to old Epoch2 rules
+                        let anchored_fees = if !punished { anchored } else { 0 };
+                        let parent_streamed_fees = if parent_block_epoch < StacksEpochId::Epoch21 {
+                            // this is wrong, per #3140.  It should be
+                            // `participant.streamed_tx_fees_produced()`, since
+                            // `participant.tx_fees_streamed` contains the sum of the microblock
+                            // transaction fees that `participant` confirmed (and thus `participant`'s
+                            // parent produced).  But we're stuck with it for earlier epochs.
+                            parent.streamed_tx_fees_produced()
+                        } else {
+                            participant.streamed_tx_fees_produced()
+                        };
+                        let streamed_confirmed_fees = if !punished {
+                            participant.streamed_tx_fees_confirmed()
+                        } else {
+                            0
+                        };
+                        (anchored_fees, parent_streamed_fees, streamed_confirmed_fees)
+                    }
+                    MinerPaymentTxFees::Nakamoto { parent_fees } => {
+                        // in nakamoto, tx fees in the payment schedule correspond to the
+                        //  tx fees of the *parent tenure* (because the full tenure is only known
+                        //  once the next tenure change occurs).
+                        (0, parent_fees, 0)
+                    }
+                }
             } else {
                 // users get no tx fees
                 (0, 0, 0)
@@ -976,17 +945,17 @@ impl StacksChainState {
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
         sortdb_conn: &Connection,
-        tip: &StacksHeaderInfo,
+        tip_stacks_height: u64,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
-        if tip.stacks_block_height <= MINER_REWARD_MATURITY {
+        if tip_stacks_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let reward_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
+        let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
@@ -1096,9 +1065,10 @@ mod test {
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             coinbase,
-            tx_fees_anchored,
-            tx_fees_streamed,
-            stx_burns: 0,
+            tx_fees: MinerPaymentTxFees::Epoch2 {
+                anchored: tx_fees_anchored,
+                streamed: tx_fees_streamed,
+            },
             burnchain_commit_burn: commit_burn,
             burnchain_sortition_burn: sortition_burn,
             miner: true,
@@ -1129,31 +1099,19 @@ mod test {
         sched
     }
 
-    impl StagingUserBurnSupport {
-        pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
-            StagingUserBurnSupport {
-                consensus_hash: user.consensus_hash.clone(),
-                anchored_block_hash: user.block_hash.clone(),
-                address: user.address.clone(),
-                burn_amount: user.burnchain_commit_burn,
-                vtxindex: user.vtxindex,
-            }
-        }
-    }
-
     fn advance_tip(
         chainstate: &mut StacksChainState,
         parent_header_info: &StacksHeaderInfo,
         block_reward: &mut MinerPaymentSchedule,
-        user_burns: &mut Vec<StagingUserBurnSupport>,
     ) -> StacksHeaderInfo {
         let mut new_tip = parent_header_info.clone();
 
-        new_tip.anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
-        new_tip.anchored_header.microblock_pubkey_hash =
-            Hash160::from_data(&parent_header_info.anchored_header.microblock_pubkey_hash.0);
-        new_tip.anchored_header.total_work.work =
-            parent_header_info.anchored_header.total_work.work + 1;
+        let mut anchored_header = new_tip.anchored_header.as_stacks_epoch2().unwrap().clone();
+        anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
+        anchored_header.microblock_pubkey_hash =
+            Hash160::from_data(&anchored_header.microblock_pubkey_hash.0);
+        anchored_header.total_work.work = anchored_header.total_work.work + 1;
+        new_tip.anchored_header = anchored_header.into();
         new_tip.microblock_tail = None;
         new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;
         new_tip.consensus_hash = ConsensusHash(
@@ -1172,24 +1130,21 @@ mod test {
         block_reward.block_hash = new_tip.anchored_header.block_hash();
         block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
-        for ref mut user_burn in user_burns.iter_mut() {
-            user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
-            user_burn.consensus_hash = new_tip.consensus_hash.clone();
-        }
-
         let mut tx = chainstate.index_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(
             &mut tx,
-            &parent_header_info.anchored_header,
+            parent_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .unwrap(),
             &parent_header_info.consensus_hash,
-            &new_tip.anchored_header,
+            new_tip.anchored_header.as_stacks_epoch2().unwrap(),
             &new_tip.consensus_hash,
             &new_tip.burn_header_hash,
             new_tip.burn_header_height,
             new_tip.burn_header_timestamp,
             new_tip.microblock_tail.clone(),
             &block_reward,
-            &user_burns,
             None,
             &ExecutionCost::zero(),
             123,
@@ -1197,7 +1152,8 @@ mod test {
             vec![],
             vec![],
             vec![],
-            parent_header_info.anchored_header.total_work.work + 1,
+            vec![],
+            parent_header_info.anchored_header.height() + 1,
         )
         .unwrap();
         tx.commit().unwrap();
@@ -1229,9 +1185,6 @@ mod test {
             0,
         );
 
-        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
-        let mut user_supports = vec![user_support];
-
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
@@ -1247,7 +1200,6 @@ mod test {
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut user_supports,
         );
 
         {
@@ -1261,7 +1213,7 @@ mod test {
             assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
         }
 
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
@@ -1284,23 +1236,15 @@ mod test {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
-        let user_1 =
-            StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
-                .unwrap();
 
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
         let initial_tip = StacksHeaderInfo::regtest_genesis();
-
-        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
-        let mut user_supports = vec![user_support];
 
         let parent_tip = advance_tip(
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut user_supports,
         );
 
         // dummy reward
@@ -1315,7 +1259,7 @@ mod test {
             0,
             0,
         );
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
@@ -1329,15 +1273,8 @@ mod test {
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
                     .unwrap();
 
-            let mut expected_user_support = user_reward.clone();
-            expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
-            expected_user_support.parent_consensus_hash =
-                miner_reward.parent_consensus_hash.clone();
-            expected_user_support.block_hash = miner_reward.block_hash.clone();
-            expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
-
             assert_eq!(payments_0, vec![]);
-            assert_eq!(payments_1, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_1, vec![miner_reward]);
             assert_eq!(payments_2, vec![tip_reward]);
         };
     }
@@ -1358,7 +1295,6 @@ mod test {
             &mut chainstate,
             &StacksHeaderInfo::regtest_genesis(),
             &mut miner_reward,
-            &mut vec![],
         );
 
         // dummy reward
@@ -1373,7 +1309,7 @@ mod test {
             0,
             0,
         );
-        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
             let mut tx = chainstate.index_tx_begin().unwrap();
