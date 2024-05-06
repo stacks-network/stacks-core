@@ -770,13 +770,30 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_commits_by_sender ON block_commits(apparent_sender);"
 ];
 
+/// Handle to the sortition database, a MARF'ed sqlite DB on disk.
+/// It stores information pertaining to cryptographic sortitions performed in each Bitcoin block --
+/// either to select the next Stacks block (in epoch 2.5 and earlier), or to choose the next Stacks
+/// miner (epoch 3.0 and later).
 pub struct SortitionDB {
+    /// Whether or not write operations are permitted.  Pertains to whether or not transaction
+    /// objects can be created or schema migrations can happen on this SortitionDB instance.
     pub readwrite: bool,
+    /// If true, then while write operations will be permitted, they will not be committed (and may
+    /// even be skipped).  This is not used in production; it's used in the `stacks-inspect` tool
+    /// to simulate what could happen (e.g. to replay sortitions with different anti-MEV strategies
+    /// without corrupting the underlying DB).
     pub dryrun: bool,
+    /// Handle to the MARF which stores an index over each burnchain and PoX fork.
     pub marf: MARF<SortitionId>,
+    /// First burnchain block height at which sortitions will be considered.  All Stacks epochs
+    /// besides epoch 1.0 must start at or after this height.
     pub first_block_height: u64,
+    /// Hash of the first burnchain block at which sortitions will be considered.
     pub first_burn_header_hash: BurnchainHeaderHash,
+    /// PoX constants that pertain to this DB, for purposes of (but not limited to) evaluating PoX
+    /// reward cycles and evaluating block-commit validity within a PoX reward cycle
     pub pox_constants: PoxConstants,
+    /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
 }
 
@@ -3614,18 +3631,6 @@ impl SortitionDB {
             .unwrap_or(0)
             .try_into()
             .ok()
-    }
-
-    /// Get the last block-commit from a given sender
-    pub fn get_last_block_commit_by_sender(
-        conn: &DBConn,
-        sender: &BurnchainSigner,
-    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let apparent_sender_str =
-            serde_json::to_string(sender).map_err(|e| db_error::SerializationError(e))?;
-        let sql = "SELECT * FROM block_commits WHERE apparent_sender = ?1 ORDER BY block_height DESC LIMIT 1";
-        let args = rusqlite::params![&apparent_sender_str];
-        query_row(conn, sql, args)
     }
 }
 
@@ -6770,6 +6775,18 @@ pub mod tests {
                 ret.push((sort_id, consensus_hash, block_hash, block_height));
             }
             Ok(ret)
+        }
+
+        /// Get the last block-commit from a given sender
+        pub fn get_last_block_commit_by_sender(
+            conn: &DBConn,
+            sender: &BurnchainSigner,
+        ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+            let apparent_sender_str =
+                serde_json::to_string(sender).map_err(|e| db_error::SerializationError(e))?;
+            let sql = "SELECT * FROM block_commits WHERE apparent_sender = ?1 ORDER BY block_height DESC LIMIT 1";
+            let args = rusqlite::params![&apparent_sender_str];
+            query_row(conn, sql, args)
         }
     }
 

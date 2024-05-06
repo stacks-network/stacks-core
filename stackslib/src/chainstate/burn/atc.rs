@@ -63,11 +63,16 @@ impl AtcRational {
         (self.0 >> 64).low_u64()
     }
 
+    /// Is this value overflowed?
+    pub fn is_overflowed(&self) -> bool {
+        self.0 > Self::max().0
+    }
+
     /// Checked addition
     pub fn add(&self, other: &AtcRational) -> Option<Self> {
         // NOTE: this is always safe since u128::MAX + u128::MAX < Uint256::max()
         let sum = AtcRational(self.0 + other.0);
-        if sum.0 > Self::max().0 {
+        if sum.is_overflowed() {
             return None;
         }
         Some(sum)
@@ -85,7 +90,7 @@ impl AtcRational {
     pub fn mul(&self, other: &AtcRational) -> Option<Self> {
         // NOTE: this is always safe since u128::MAX * u128::MAX < Uint256::max()
         let prod = AtcRational((self.0 * other.0) >> 64);
-        if prod.0 > Self::max().0 {
+        if prod.is_overflowed() {
             return None;
         }
         Some(prod)
@@ -105,262 +110,14 @@ impl AtcRational {
         self.0.to_hex_be()
     }
 
+    /// Inner u256 ref
+    pub fn inner(&self) -> &Uint256 {
+        &self.0
+    }
+
     /// Inner u256, for conversion to something a BurnSamplePoint can use
     pub fn into_inner(self) -> Uint256 {
         self.0
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use stacks_common::util::hash::to_hex;
-    use stacks_common::util::uint::Uint256;
-
-    use crate::chainstate::burn::atc::AtcRational;
-    use crate::chainstate::burn::BlockSnapshot;
-
-    impl AtcRational {
-        /// Convert to f64, and panic on conversion failure
-        pub fn to_f64(&self) -> f64 {
-            let ipart = self.ipart() as f64;
-            let fpart = self.0.low_u64() as f64;
-            ipart + (fpart / (u64::MAX as f64))
-        }
-
-        /// Convert from f64 between 0 and 1, panicking on conversion failure.  Scales up the f64 so that its
-        /// fractional parts reside in the lower 64 bits of the AtcRational.
-        pub fn from_f64_unit(value: f64) -> Self {
-            if value < 0.0 || value >= 1.0 {
-                panic!("only usable for values in [0.0, 1.0) range");
-            }
-
-            // NOTE: this only changes the exponent, not the mantissa.
-            // Moreover, u128::from(u64::MAX) + 1 has f64 representation 0x43f0000000000000, so these conversions are safe.
-            let scaled_value = value * ((u128::from(u64::MAX) + 1) as f64);
-
-            // this is safe, because 0.0 <= value < 1.0, so scaled_value <= u64::MAX
-            let value_u64 = scaled_value as u64;
-            Self(Uint256::from_u64(value_u64))
-        }
-    }
-
-    #[test]
-    fn test_atc_rational() {
-        assert_eq!(AtcRational::frac(1, 1), AtcRational::one());
-        assert_eq!(
-            AtcRational::frac(1, 2).0,
-            Uint256::from_u64(u64::MAX / 2) + Uint256::from_u64(1)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 4).0,
-            Uint256::from_u64(u64::MAX / 4) + Uint256::from_u64(1)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 8).0,
-            Uint256::from_u64(u64::MAX / 8) + Uint256::from_u64(1)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 16).0,
-            Uint256::from_u64(u64::MAX / 16) + Uint256::from_u64(1)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 32).0,
-            Uint256::from_u64(u64::MAX / 32) + Uint256::from_u64(1)
-        );
-
-        assert_eq!(
-            AtcRational::frac(1, 2)
-                .add(&AtcRational::frac(1, 2))
-                .unwrap(),
-            AtcRational::one()
-        );
-        assert_eq!(
-            AtcRational::frac(1, 4)
-                .add(&AtcRational::frac(1, 4))
-                .unwrap(),
-            AtcRational::frac(1, 2)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 8)
-                .add(&AtcRational::frac(1, 8))
-                .unwrap(),
-            AtcRational::frac(1, 4)
-        );
-        assert_eq!(
-            AtcRational::frac(3, 8)
-                .add(&AtcRational::frac(3, 8))
-                .unwrap(),
-            AtcRational::frac(3, 4)
-        );
-        assert_eq!(
-            AtcRational::max().add(&AtcRational(Uint256::from_u64(1))),
-            None
-        );
-
-        assert_eq!(
-            AtcRational::frac(1, 2)
-                .sub(&AtcRational::frac(1, 2))
-                .unwrap(),
-            AtcRational::zero()
-        );
-
-        assert_eq!(
-            AtcRational::one().sub(&AtcRational::frac(1, 2)).unwrap(),
-            AtcRational::frac(1, 2)
-        );
-        assert_eq!(
-            AtcRational::one().sub(&AtcRational::frac(1, 32)).unwrap(),
-            AtcRational::frac(31, 32)
-        );
-
-        assert_eq!(
-            AtcRational::frac(1, 2)
-                .mul(&AtcRational::frac(1, 2))
-                .unwrap(),
-            AtcRational::frac(1, 4)
-        );
-        assert_eq!(
-            AtcRational::frac(5, 6)
-                .mul(&AtcRational::frac(7, 8))
-                .unwrap(),
-            AtcRational::frac(35, 48)
-        );
-        assert_eq!(
-            AtcRational::frac(100, 2)
-                .mul(&AtcRational::frac(200, 4))
-                .unwrap(),
-            AtcRational::frac(20000, 8)
-        );
-        assert_eq!(
-            AtcRational::frac(1, 2)
-                .mul(&AtcRational::frac(1024, 1))
-                .unwrap(),
-            AtcRational::frac(512, 1)
-        );
-
-        assert_eq!(
-            AtcRational::frac(1, 2).min(&AtcRational::frac(15, 32)),
-            AtcRational::frac(15, 32)
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn print_functions() {
-        let mut grid: Vec<Vec<char>> = vec![vec![' '; 100]; 102];
-        for i in 0..100 {
-            let f_atc = (i as f64) / 100.0;
-            let atc = AtcRational::frac(i as u64, 100);
-            let l_atc = BlockSnapshot::null_miner_logistic(atc).to_f64();
-            let p_atc = BlockSnapshot::null_miner_probability(atc).to_f64();
-
-            // NOTE: columns increase downwards, so flip this
-            let l_atc_100 = 100 - ((l_atc * 100.0) as usize);
-            let p_atc_100 = 100 - ((p_atc * 100.0) as usize);
-            let a_atc_100 = 100 - (((1.0 - f_atc) * 100.0) as usize);
-            grid[a_atc_100][i] = '$';
-            grid[l_atc_100][i] = '#';
-            grid[p_atc_100][i] = '^';
-        }
-        for j in 0..100 {
-            grid[101][j] = '_';
-        }
-
-        println!("");
-        for row in grid.iter() {
-            let grid_str: String = row.clone().into_iter().collect();
-            println!("|{}", &grid_str);
-        }
-    }
-
-    /// Calculate the logic advantage curve for the null miner.
-    /// This function's parameters are chosen such that:
-    /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
-    /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
-    /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
-    /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
-    /// than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
-    /// (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
-    /// * If the ATC carryover is less than 20%, the null miner has an overwhelmingly likely chance
-    /// of winning (>95%).
-    ///
-    /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and (atc=0.8, null_prob=0.01).
-    fn null_miner_logistic(atc: f64) -> f64 {
-        // recall the inverted logistic function:
-        //
-        //                 L
-        // f(x) = ---------------------
-        //                -k * (x0 - x)
-        //           1 + e
-        //
-        // It is shaped like a *backwards* "S" -- it approaches L as `x` tends towards negative
-        // infinity, and it approaches 0 as `x` tends towards positive infinity.  This function is
-        // the null miner advantage function, where `x` is the ATC carryover value.
-        //
-        // We need to drive x0 and k from our two points:
-        //
-        // (x1, y1) = (0.2, 0.75)
-        // (x2, y2) = (0.8, 0.01)
-        //
-        // to derive L, x0, and k:
-        // L = 0.8
-        // z = ln(L/y1 - 1) / ln(L/y2 - 1)
-        // x0 = (x1 - z * x2) / (1 - z)
-        // k = ln(L/y1 - 1) / (x1 - x0)
-        //
-        // The values for x0 and k were generated with the following GNU bc script:
-        // ```
-        // $ cat /tmp/variables.bc
-        // scale=32
-        // supremum=0.8   /* this is L */
-        // x1=0.2
-        // y1=0.75
-        // x2=0.8
-        // y2=0.01
-        // z=l(supremum/y1 - 1)/l(supremum/y2 -1)
-        // x0=(x1 - z * x2)/(1 - z)
-        // k=l(supremum/y1 - 1)/(x1 - x0)
-        // print "x0 = "; x0
-        // print "k = "; k
-        // ```
-        //
-        // This script evaluates to:
-        // ```
-        // $ bc -l < /tmp/variables.bc
-        // x0 = .42957690816204645842320195118064
-        // k = 11.79583008928205260028158351938437
-        // ```
-
-        let L: f64 = 0.8;
-
-        // truncated f64
-        let x0: f64 = 0.42957690816204647;
-        let k: f64 = 11.795830089282052;
-
-        // natural logarithm constant
-        let e: f64 = 2.718281828459045;
-
-        let adv = L / (1.0 + e.powf(-k * (x0 - atc)));
-        adv
-    }
-
-    #[test]
-    fn make_null_miner_lookup_table() {
-        use crate::chainstate::burn::atc::ATC_LOOKUP;
-        let mut lookup_table = Vec::with_capacity(1024);
-        for atc in 0..1024 {
-            let fatc = (atc as f64) / 1024.0;
-            let lgst_fatc = null_miner_logistic(fatc);
-            let lgst_rational = AtcRational::from_f64_unit(lgst_fatc);
-            assert_eq!(ATC_LOOKUP[atc], lgst_rational);
-            lookup_table.push(lgst_rational);
-        }
-        println!("[");
-        for lt in lookup_table.into_iter() {
-            let inner = lt.into_inner();
-            println!("   AtcRational(Uint256({:?})),", &inner.0);
-        }
-        println!("]");
     }
 }
 
@@ -1401,3 +1158,314 @@ pub(crate) const ATC_LOOKUP: [AtcRational; 1024] = [
     AtcRational(Uint256([18041977930440052, 0, 0, 0])),
     AtcRational(Uint256([17835588001385282, 0, 0, 0])),
 ];
+
+#[cfg(test)]
+mod test {
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::uint::Uint256;
+
+    use crate::chainstate::burn::atc::AtcRational;
+    use crate::chainstate::burn::BlockSnapshot;
+    use crate::stacks_common::util::uint::BitArray;
+
+    impl AtcRational {
+        /// Convert to f64, and panic on conversion failure
+        pub fn to_f64(&self) -> f64 {
+            let ipart = self.ipart() as f64;
+            let fpart = self.0.low_u64() as f64;
+            ipart + (fpart / (u64::MAX as f64))
+        }
+
+        /// Convert from f64 between 0 and 1, panicking on conversion failure.  Scales up the f64 so that its
+        /// fractional parts reside in the lower 64 bits of the AtcRational.
+        pub fn from_f64_unit(value: f64) -> Self {
+            if value < 0.0 || value >= 1.0 {
+                panic!("only usable for values in [0.0, 1.0) range");
+            }
+
+            // NOTE: this only changes the exponent, not the mantissa.
+            // Moreover, u128::from(u64::MAX) + 1 has f64 representation 0x43f0000000000000, so these conversions are safe.
+            let scaled_value = value * ((u128::from(u64::MAX) + 1) as f64);
+
+            // this is safe, because 0.0 <= value < 1.0, so scaled_value <= u64::MAX
+            let value_u64 = scaled_value as u64;
+            Self(Uint256::from_u64(value_u64))
+        }
+    }
+
+    #[test]
+    fn test_atc_rational() {
+        // zero
+        assert_eq!(AtcRational::zero().into_inner(), Uint256::from_u64(0));
+
+        // one
+        assert_eq!(AtcRational::one().into_inner(), Uint256::one() << 64);
+
+        // one_sup
+        assert_eq!(
+            AtcRational::one_sup().into_inner(),
+            (Uint256::one() << 64) - Uint256::from_u64(1)
+        );
+
+        // max
+        assert_eq!(
+            AtcRational::max().into_inner(),
+            (Uint256::from_u64(u64::MAX) << 64) | Uint256::from_u64(u64::MAX)
+        );
+
+        // ipart
+        assert_eq!(AtcRational::one().ipart(), 1);
+        assert_eq!(AtcRational::frac(1, 2).ipart(), 0);
+        assert_eq!(AtcRational::frac(3, 2).ipart(), 1);
+        assert_eq!(AtcRational::frac(4, 2).ipart(), 2);
+        assert_eq!(AtcRational::frac(9999, 10000).ipart(), 0);
+
+        // to_f64
+        assert_eq!(AtcRational::one().to_f64(), 1.0);
+        assert_eq!(AtcRational::zero().to_f64(), 0.0);
+        assert_eq!(AtcRational::frac(1, 2).to_f64(), 0.5);
+        assert_eq!(AtcRational::frac(1, 32).to_f64(), 0.03125);
+
+        // from_f64_unit
+        assert_eq!(AtcRational::from_f64_unit(0.0), AtcRational::zero());
+        assert_eq!(AtcRational::from_f64_unit(0.5), AtcRational::frac(1, 2));
+        assert_eq!(
+            AtcRational::from_f64_unit(0.03125),
+            AtcRational::frac(1, 32)
+        );
+
+        // is_overflowed
+        assert!(!AtcRational::max().is_overflowed());
+        assert!(
+            AtcRational(AtcRational::max().into_inner() + Uint256::from_u64(1)).is_overflowed()
+        );
+        assert!(AtcRational::max()
+            .add(&AtcRational(Uint256::from_u64(1)))
+            .is_none());
+
+        // frac constructor produces values between 0 and u64::MAX
+        assert_eq!(AtcRational::frac(1, 1), AtcRational::one());
+        assert_eq!(
+            AtcRational::frac(1, 2).0,
+            Uint256::from_u64(u64::MAX / 2) + Uint256::from_u64(1)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 4).0,
+            Uint256::from_u64(u64::MAX / 4) + Uint256::from_u64(1)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 8).0,
+            Uint256::from_u64(u64::MAX / 8) + Uint256::from_u64(1)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 16).0,
+            Uint256::from_u64(u64::MAX / 16) + Uint256::from_u64(1)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 32).0,
+            Uint256::from_u64(u64::MAX / 32) + Uint256::from_u64(1)
+        );
+
+        // fractions auto-normalize
+        assert_eq!(AtcRational::frac(2, 4), AtcRational::frac(1, 2));
+        assert_eq!(AtcRational::frac(100, 400), AtcRational::frac(1, 4));
+        assert_eq!(AtcRational::frac(5, 25), AtcRational::frac(1, 5));
+
+        // fractions can be added
+        assert_eq!(
+            AtcRational::frac(1, 2)
+                .add(&AtcRational::frac(1, 2))
+                .unwrap(),
+            AtcRational::one()
+        );
+        assert_eq!(
+            AtcRational::frac(1, 4)
+                .add(&AtcRational::frac(1, 4))
+                .unwrap(),
+            AtcRational::frac(1, 2)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 8)
+                .add(&AtcRational::frac(1, 8))
+                .unwrap(),
+            AtcRational::frac(1, 4)
+        );
+        assert_eq!(
+            AtcRational::frac(3, 8)
+                .add(&AtcRational::frac(3, 8))
+                .unwrap(),
+            AtcRational::frac(3, 4)
+        );
+        assert_eq!(
+            AtcRational::max().add(&AtcRational(Uint256::from_u64(1))),
+            None
+        );
+
+        // fractions can be subtracted
+        assert_eq!(
+            AtcRational::frac(1, 2)
+                .sub(&AtcRational::frac(1, 2))
+                .unwrap(),
+            AtcRational::zero()
+        );
+        assert_eq!(
+            AtcRational::one().sub(&AtcRational::frac(1, 2)).unwrap(),
+            AtcRational::frac(1, 2)
+        );
+        assert_eq!(
+            AtcRational::one().sub(&AtcRational::frac(1, 32)).unwrap(),
+            AtcRational::frac(31, 32)
+        );
+
+        // fractions can be multiplied
+        assert_eq!(
+            AtcRational::frac(1, 2)
+                .mul(&AtcRational::frac(1, 2))
+                .unwrap(),
+            AtcRational::frac(1, 4)
+        );
+        assert_eq!(
+            AtcRational::frac(5, 6)
+                .mul(&AtcRational::frac(7, 8))
+                .unwrap(),
+            AtcRational::frac(35, 48)
+        );
+        assert_eq!(
+            AtcRational::frac(100, 2)
+                .mul(&AtcRational::frac(200, 4))
+                .unwrap(),
+            AtcRational::frac(20000, 8)
+        );
+        assert_eq!(
+            AtcRational::frac(1, 2)
+                .mul(&AtcRational::frac(1024, 1))
+                .unwrap(),
+            AtcRational::frac(512, 1)
+        );
+
+        assert_eq!(
+            AtcRational::frac(1, 2).min(&AtcRational::frac(15, 32)),
+            AtcRational::frac(15, 32)
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn print_functions() {
+        let mut grid: Vec<Vec<char>> = vec![vec![' '; 100]; 102];
+        for i in 0..100 {
+            let f_atc = (i as f64) / 100.0;
+            let atc = AtcRational::frac(i as u64, 100);
+            let l_atc = BlockSnapshot::null_miner_logistic(atc).to_f64();
+            let p_atc = BlockSnapshot::null_miner_probability(atc).to_f64();
+
+            // NOTE: columns increase downwards, so flip this
+            let l_atc_100 = 100 - ((l_atc * 100.0) as usize);
+            let p_atc_100 = 100 - ((p_atc * 100.0) as usize);
+            let a_atc_100 = 100 - (((1.0 - f_atc) * 100.0) as usize);
+            grid[a_atc_100][i] = '$';
+            grid[l_atc_100][i] = '#';
+            grid[p_atc_100][i] = '^';
+        }
+        for j in 0..100 {
+            grid[101][j] = '_';
+        }
+
+        println!("");
+        for row in grid.iter() {
+            let grid_str: String = row.clone().into_iter().collect();
+            println!("|{}", &grid_str);
+        }
+    }
+
+    /// Calculate the logic advantage curve for the null miner.
+    /// This function's parameters are chosen such that:
+    /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
+    /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
+    /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
+    /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
+    /// than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
+    /// (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
+    /// * If the ATC carryover is less than 20%, the null miner has an overwhelmingly likely chance
+    /// of winning (>95%).
+    ///
+    /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and (atc=0.8, null_prob=0.01).
+    fn null_miner_logistic(atc: f64) -> f64 {
+        // recall the inverted logistic function:
+        //
+        //                 L
+        // f(x) = ---------------------
+        //                -k * (x0 - x)
+        //           1 + e
+        //
+        // It is shaped like a *backwards* "S" -- it approaches L as `x` tends towards negative
+        // infinity, and it approaches 0 as `x` tends towards positive infinity.  This function is
+        // the null miner advantage function, where `x` is the ATC carryover value.
+        //
+        // We need to drive x0 and k from our two points:
+        //
+        // (x1, y1) = (0.2, 0.75)
+        // (x2, y2) = (0.8, 0.01)
+        //
+        // to derive L, x0, and k:
+        // L = 0.8
+        // z = ln(L/y1 - 1) / ln(L/y2 - 1)
+        // x0 = (x1 - z * x2) / (1 - z)
+        // k = ln(L/y1 - 1) / (x1 - x0)
+        //
+        // The values for x0 and k were generated with the following GNU bc script:
+        // ```
+        // $ cat /tmp/variables.bc
+        // scale=32
+        // supremum=0.8   /* this is L */
+        // x1=0.2
+        // y1=0.75
+        // x2=0.8
+        // y2=0.01
+        // z=l(supremum/y1 - 1)/l(supremum/y2 -1)
+        // x0=(x1 - z * x2)/(1 - z)
+        // k=l(supremum/y1 - 1)/(x1 - x0)
+        // print "x0 = "; x0
+        // print "k = "; k
+        // ```
+        //
+        // This script evaluates to:
+        // ```
+        // $ bc -l < /tmp/variables.bc
+        // x0 = .42957690816204645842320195118064
+        // k = 11.79583008928205260028158351938437
+        // ```
+
+        let L: f64 = 0.8;
+
+        // truncated f64
+        let x0: f64 = 0.42957690816204647;
+        let k: f64 = 11.795830089282052;
+
+        // natural logarithm constant
+        let e: f64 = 2.718281828459045;
+
+        let adv = L / (1.0 + e.powf(-k * (x0 - atc)));
+        adv
+    }
+
+    #[test]
+    fn make_null_miner_lookup_table() {
+        use crate::chainstate::burn::atc::ATC_LOOKUP;
+        let mut lookup_table = Vec::with_capacity(1024);
+        for atc in 0..1024 {
+            let fatc = (atc as f64) / 1024.0;
+            let lgst_fatc = null_miner_logistic(fatc);
+            let lgst_rational = AtcRational::from_f64_unit(lgst_fatc);
+            assert_eq!(ATC_LOOKUP[atc], lgst_rational);
+            assert_eq!(ATC_LOOKUP[atc].to_f64(), lgst_fatc);
+            lookup_table.push(lgst_rational);
+        }
+        println!("[");
+        for lt in lookup_table.into_iter() {
+            let inner = lt.into_inner();
+            println!("   AtcRational(Uint256({:?})),", &inner.0);
+        }
+        println!("]");
+    }
+}

@@ -221,7 +221,7 @@ impl BurnchainStateTransition {
         .unwrap_or_else(|| {
             panic!(
                 "FATAL: no epoch defined at burn height {}",
-                parent_snapshot.block_height + 1
+                parent_snapshot.block_height - u64::from(epoch_id.mining_commitment_window())
             )
         })
         .epoch_id;

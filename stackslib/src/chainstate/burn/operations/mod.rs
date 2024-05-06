@@ -39,7 +39,6 @@ use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
-/// This module contains all burn-chain operations
 pub mod delegate_stx;
 pub mod leader_block_commit;
 pub mod leader_key_register;
@@ -49,6 +48,8 @@ pub mod vote_for_aggregate_key;
 
 #[cfg(test)]
 mod test;
+
+/// This module contains all burn-chain operations
 
 #[derive(Debug)]
 pub enum Error {

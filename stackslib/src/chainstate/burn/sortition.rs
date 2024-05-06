@@ -453,7 +453,7 @@ impl BlockSnapshot {
         // AtcRational's integer part is only 64 bits, so we need to scale it up so that it occupes the
         // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
         // of mining power the null miner has.
-        let null_prob_u256 = if null_prob.0 >= AtcRational::one().0 {
+        let null_prob_u256 = if null_prob.inner() >= AtcRational::one().inner() {
             // prevent left-shift overflow
             AtcRational::one_sup().into_inner() << 192
         } else {
@@ -1060,6 +1060,13 @@ mod test {
         );
     }
 
+    /// This test runs 100 sortitions, and in each sortition, it verifies that the null miner will
+    /// win for the range of ATC-C values which put the sortition index into the null miner's
+    /// BurnSamplePoint range.  The ATC-C values directly influence the null miner's
+    /// BurnSamplePoint range, so given a fixed sortition index, we can verify that the
+    /// `null_miner_wins()` function returns `true` exactly when the sortition index falls into the
+    /// null miner's range.  The ATC-C values are sampled through linear interpolation between 0.0
+    /// and 1.0 in steps of 0.01.
     #[test]
     fn test_null_miner_wins() {
         let first_burn_hash = BurnchainHeaderHash([0xfe; 32]);
@@ -1139,7 +1146,7 @@ mod test {
             for j in 0..100 {
                 let atc = AtcRational::from_f64_unit((j as f64) / 100.0);
                 let null_prob = BlockSnapshot::null_miner_probability(atc);
-                let null_prob_u256 = if null_prob.0 >= AtcRational::one().0 {
+                let null_prob_u256 = if null_prob.inner() >= AtcRational::one().inner() {
                     // prevent left-shift overflow
                     AtcRational::one_sup().into_inner() << 192
                 } else {
