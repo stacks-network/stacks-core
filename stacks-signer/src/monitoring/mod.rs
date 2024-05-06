@@ -148,6 +148,19 @@ pub fn new_rpc_call_timer(full_path: &str, origin: &String) -> HistogramTimer {
     histogram.start_timer()
 }
 
+/// NoOp timer uses for monitoring when the monitoring feature is not enabled.
+pub struct NoOpTimer;
+impl NoOpTimer {
+    /// NoOp method to stop recording when the monitoring feature is not enabled.
+    pub fn stop_and_record(&self) {}
+}
+
+/// Stop and record the no-op timer.
+#[cfg(not(feature = "monitoring_prom"))]
+pub fn new_rpc_call_timer(_full_path: &str, _origin: &String) -> NoOpTimer {
+    NoOpTimer
+}
+
 /// Start serving monitoring metrics.
 /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
 #[allow(unused_variables)]
@@ -161,14 +174,15 @@ pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), Stri
             .name("signer_metrics".to_string())
             .spawn(move || {
                 if let Err(monitoring_err) = server::MonitoringServer::start(&config) {
-                    error!(
-                        "Monitoring: Error starting metrics server: {:?}",
-                        monitoring_err
-                    );
+                    error!("Monitoring: Error in metrics server: {:?}", monitoring_err);
                 }
             });
     }
     #[cfg(not(feature = "monitoring_prom"))]
-    warn!("Not starting monitoring metrics server as the monitoring_prom feature is not enabled");
+    {
+        if config.metrics_endpoint.is_some() {
+            warn!("Not starting monitoring metrics server as the monitoring_prom feature is not enabled");
+        }
+    }
     Ok(())
 }
