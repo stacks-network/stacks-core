@@ -37,8 +37,8 @@ use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
-use crate::messages::SignerMessage;
-use crate::{Signer, SignerEventReceiver, SignerRunLoop};
+use crate::messages::StackerDBMessage;
+use crate::{Signer, SignerEventReceiver, SignerMessage, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
@@ -107,7 +107,10 @@ fn test_simple_signer() {
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
-        let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
+        let message = SignerMessage {
+            reward_cycle: 0,
+            message: StackerDBMessage::Packet(Packet { msg, sig: vec![] }),
+        };
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();

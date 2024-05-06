@@ -28,7 +28,7 @@ use blockstack_lib::util_lib::db::Error as DBError;
 use hashbrown::HashSet;
 use libsigner::{
     BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
-    SignerMessage,
+    SignerMessage, StackerDBMessage,
 };
 use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
@@ -637,24 +637,33 @@ impl Signer {
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
-        let packets: Vec<Packet> = messages
-            .iter()
-            .filter_map(|msg| match msg {
-                SignerMessage::DkgResults { .. }
-                | SignerMessage::BlockResponse(_)
-                | SignerMessage::EncryptedSignerState(_)
-                | SignerMessage::Transactions(_) => None,
-                // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
-                SignerMessage::Packet(packet) => {
-                    let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
-                        self.get_coordinator_dkg().1
-                    } else {
-                        self.get_coordinator_sign(current_reward_cycle).1
-                    };
-                    self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
-                }
-            })
-            .collect();
+        let packets: Vec<Packet> =
+            messages
+                .iter()
+                .filter_map(|msg| {
+                    if msg.reward_cycle != self.reward_cycle {
+                        debug!(
+                            "{self}: Received a message for a different reward cycle. Ignoring it.",
+                        );
+                        return None;
+                    }
+                    match &msg.message {
+                        StackerDBMessage::DkgResults { .. }
+                        | StackerDBMessage::BlockResponse(_)
+                        | StackerDBMessage::EncryptedSignerState(_)
+                        | StackerDBMessage::Transactions(_) => None,
+                        // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
+                        StackerDBMessage::Packet(packet) => {
+                            let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
+                                self.get_coordinator_dkg().1
+                            } else {
+                                self.get_coordinator_sign(current_reward_cycle).1
+                            };
+                            self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
+                        }
+                    }
+                })
+                .collect();
         self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
     }
 
@@ -1066,6 +1075,7 @@ impl Signer {
         );
         if let Err(e) = SignerMessage::serialize_dkg_result(
             &mut dkg_results_bytes,
+            self.reward_cycle,
             dkg_public_key,
             self.coordinator.party_polynomials.iter(),
         ) {
@@ -1202,7 +1212,7 @@ impl Signer {
         }
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         signer_transactions.push(new_transaction);
-        let signer_message = SignerMessage::Transactions(signer_transactions);
+        let signer_message = StackerDBMessage::Transactions(signer_transactions);
         self.stackerdb.send_message_with_retry(signer_message)?;
         info!("{self}: Broadcasted DKG vote transaction ({txid}) to stacker DB");
         Ok(())
@@ -1321,7 +1331,7 @@ impl Signer {
         &mut self,
         encrypted_state: Vec<u8>,
     ) -> Result<(), PersistenceError> {
-        let message = SignerMessage::EncryptedSignerState(encrypted_state);
+        let message = StackerDBMessage::EncryptedSignerState(encrypted_state);
 
         self.stackerdb.send_message_with_retry(message)?;
 
@@ -1374,7 +1384,7 @@ impl Signer {
             return Ok(());
         }
         // Check stackerdb for any missed DKG messages to catch up our state.
-        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        self.read_dkg_stackerdb_messages(stacks_client, res, current_reward_cycle)?;
         // Check if we should still queue DKG
         if !self.should_queue_dkg(stacks_client)? {
             return Ok(());

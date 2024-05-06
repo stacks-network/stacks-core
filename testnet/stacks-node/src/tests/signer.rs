@@ -10,7 +10,7 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
 use libsigner::{
     BlockProposalSigners, BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer,
-    SignerEntries, SignerEventReceiver, SignerMessage,
+    SignerEntries, SignerEventReceiver, SignerMessage, StackerDBMessage,
 };
 use rand::thread_rng;
 use rand_core::RngCore;
@@ -1110,14 +1110,18 @@ fn stackerdb_sign_request_rejected() {
         }
         thread::sleep(Duration::from_secs(1));
     };
-    if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = signer_message {
+    if let SignerMessage {
+        message: StackerDBMessage::BlockResponse(BlockResponse::Rejected(rejection)),
+        ..
+    } = signer_message
+    {
         assert!(matches!(
             rejection.reason_code,
             RejectCode::ValidationFailed(_)
         ));
     } else {
         panic!("Received unexpected message: {:?}", &signer_message);
-    }
+    };
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
 }
 
@@ -1491,7 +1495,7 @@ fn stackerdb_filter_bad_transactions() {
 
     // Submit transactions to stackerdb for the signers and miners to pick up during block verification
     stackerdb
-        .send_message_with_retry(SignerMessage::Transactions(invalid_txs))
+        .send_message_with_retry(invalid_txs.into())
         .expect("Failed to write expected transactions to stackerdb");
 
     info!("------------------------- Verify Nakamoto Block Mined -------------------------");

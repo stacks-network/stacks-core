@@ -17,7 +17,7 @@
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use hashbrown::HashMap;
-use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBMessage, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -93,10 +93,14 @@ impl StackerDB {
     /// Sends messages to the .signers stacker-db with an exponential backoff retry
     pub fn send_message_with_retry(
         &mut self,
-        message: SignerMessage,
+        message: StackerDBMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let msg_id = message.msg_id();
-        let message_bytes = message.serialize_to_vec();
+        let signer_message = SignerMessage {
+            reward_cycle: self.reward_cycle,
+            message,
+        };
+        let message_bytes = signer_message.serialize_to_vec();
         self.send_message_bytes_with_retry(&msg_id, message_bytes)
     }
 
@@ -181,9 +185,11 @@ impl StackerDB {
     }
 
     /// Get all signer messages from stackerdb for the given slot IDs
+    /// and reward cycle number
     fn get_messages(
         session: &mut StackerDBSession,
         slot_ids: &[u32],
+        reward_cycle: u64,
     ) -> Result<Vec<SignerMessage>, ClientError> {
         let mut messages = vec![];
         let send_request = || {
@@ -198,11 +204,14 @@ impl StackerDB {
             };
             let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
                 if !data.is_empty() {
-                    warn!("Failed to deserialize chunk data into a SignerMessage");
+                    warn!("Failed to deserialize chunk data into a StackerDBMessage");
                     debug!("slot #{i}: Failed chunk ({}): {data:?}", &data.len(),);
                 }
                 continue;
             };
+            if message.reward_cycle != reward_cycle {
+                continue;
+            }
             messages.push(message);
         }
         Ok(messages)
@@ -228,9 +237,9 @@ impl StackerDB {
                 .signers_message_stackerdb_sessions
                 .get_mut(packet_slot)
                 .ok_or(ClientError::NotConnected)?;
-            let messages = Self::get_messages(session, &slot_ids)?;
-            for message in messages {
-                let SignerMessage::Packet(packet) = message else {
+            let signer_messages = Self::get_messages(session, &slot_ids, self.reward_cycle)?;
+            for signer_message in signer_messages {
+                let StackerDBMessage::Packet(packet) = signer_message.message else {
                     warn!("Found an unexpected type in a packet slot {packet_slot}");
                     continue;
                 };
@@ -240,19 +249,21 @@ impl StackerDB {
         Ok(packets)
     }
 
-    /// Get the transactions from stackerdb for the signers
+    /// Get the transactions from stackerdb for the signers and the given reward cycle
     fn get_transactions(
         transactions_session: &mut StackerDBSession,
         signer_ids: &[SignerSlotID],
+        reward_cycle: u64,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
-        let messages = Self::get_messages(transactions_session, &slot_ids)?;
+        let signer_messages = Self::get_messages(transactions_session, &slot_ids, reward_cycle)?;
         let mut transactions = vec![];
-        for message in messages {
-            let SignerMessage::Transactions(chunk_transactions) = message else {
+        for signer_message in signer_messages {
+            let StackerDBMessage::Transactions(chunk_transactions) = signer_message.message else {
                 warn!("Signer wrote an unexpected type to the transactions slot");
                 continue;
             };
+
             transactions.extend(chunk_transactions);
         }
         Ok(transactions)
@@ -266,7 +277,11 @@ impl StackerDB {
         else {
             return Err(ClientError::NotConnected);
         };
-        Self::get_transactions(transactions_session, &[self.signer_slot_id])
+        Self::get_transactions(
+            transactions_session,
+            &[self.signer_slot_id],
+            self.reward_cycle,
+        )
     }
 
     /// Get the latest signer transactions from signer ids for the next reward cycle
@@ -275,7 +290,11 @@ impl StackerDB {
         signer_ids: &[SignerSlotID],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
-        Self::get_transactions(&mut self.next_transaction_session, signer_ids)
+        Self::get_transactions(
+            &mut self.next_transaction_session,
+            signer_ids,
+            self.reward_cycle.wrapping_add(1),
+        )
     }
 
     /// Get the encrypted state for the given signer
@@ -313,8 +332,8 @@ impl StackerDB {
             return Ok(None);
         }
 
-        let SignerMessage::EncryptedSignerState(state) =
-            read_next::<SignerMessage, _>(&mut chunk.as_slice())?
+        let StackerDBMessage::EncryptedSignerState(state) =
+            read_next::<StackerDBMessage, _>(&mut chunk.as_slice())?
         else {
             error!("Wrong message type stored in signer state slot for signer {signer_id}");
             return Ok(None);
@@ -371,7 +390,11 @@ mod tests {
             ),
         };
 
-        let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
+        let reward_cycle = stackerdb.reward_cycle;
+        let signer_message = SignerMessage {
+            reward_cycle: reward_cycle.wrapping_add(1),
+            message: vec![tx.clone()].into(),
+        };
         let message = signer_message.serialize_to_vec();
 
         let signer_slot_ids = vec![SignerSlotID(0), SignerSlotID(1)];
@@ -381,7 +404,10 @@ mod tests {
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, response_bytes.as_slice());
 
-        let signer_message = SignerMessage::Transactions(vec![]);
+        let signer_message = SignerMessage {
+            reward_cycle,
+            message: vec![].into(),
+        };
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
@@ -415,7 +441,6 @@ mod tests {
             ),
         };
 
-        let signer_message = SignerMessage::Transactions(vec![tx]);
         let ack = StackerDBChunkAckData {
             accepted: true,
             reason: None,
@@ -423,7 +448,7 @@ mod tests {
             code: None,
         };
         let mock_server = mock_server_from_config(&config);
-        let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
+        let h = spawn(move || stackerdb.send_message_with_retry(vec![tx].into()));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());

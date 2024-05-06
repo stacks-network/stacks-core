@@ -16,12 +16,12 @@
 
 //! Messages in the signer-miner interaction have a multi-level hierarchy.
 //! Signers send messages to each other through Packet messages. These messages,
-//! as well as `BlockResponse`, `Transactions`, and `DkgResults` messages are stored
+//! as well as `BlockResponse`, `Transactions`,`DkgResults`, and `EncryptedSignerShares` messages are stored
 //! StackerDBs based on the `MessageSlotID` for the particular message type. This is a
 //! shared identifier space between the four message kinds and their subtypes.
 //!
-//! These four message kinds are differentiated with a `SignerMessageTypePrefix`
-//! and the `SignerMessage` enum.
+//! These five message kinds are differentiated with a `StackerDBMessageTypePrefix`
+//! and the `StackerDBMessage` enum.
 
 use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
@@ -100,7 +100,7 @@ MessageSlotID {
     EncryptedSignerState = 13
 });
 
-define_u8_enum!(SignerMessageTypePrefix {
+define_u8_enum!(StackerDBMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
     Transactions = 2,
@@ -130,7 +130,7 @@ impl Display for MessageSlotID {
     }
 }
 
-impl TryFrom<u8> for SignerMessageTypePrefix {
+impl TryFrom<u8> for StackerDBMessageTypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::from_u8(value).ok_or_else(|| {
@@ -139,15 +139,17 @@ impl TryFrom<u8> for SignerMessageTypePrefix {
     }
 }
 
-impl From<&SignerMessage> for SignerMessageTypePrefix {
+impl From<&StackerDBMessage> for StackerDBMessageTypePrefix {
     #[cfg_attr(test, mutants::skip)]
-    fn from(message: &SignerMessage) -> Self {
+    fn from(message: &StackerDBMessage) -> Self {
         match message {
-            SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
-            SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
-            SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
-            SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
-            SignerMessage::EncryptedSignerState(_) => SignerMessageTypePrefix::EncryptedSignerState,
+            StackerDBMessage::Packet(_) => StackerDBMessageTypePrefix::Packet,
+            StackerDBMessage::BlockResponse(_) => StackerDBMessageTypePrefix::BlockResponse,
+            StackerDBMessage::Transactions(_) => StackerDBMessageTypePrefix::Transactions,
+            StackerDBMessage::DkgResults { .. } => StackerDBMessageTypePrefix::DkgResults,
+            StackerDBMessage::EncryptedSignerState(_) => {
+                StackerDBMessageTypePrefix::EncryptedSignerState
+            }
         }
     }
 }
@@ -224,9 +226,53 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
     }
 }
 
-/// The messages being sent through the stacker db contracts
+/// The Signer message to be stored in the StackerDB contracts for a given reward cycle
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SignerMessage {
+    /// The reward cycle the message belongs to
+    pub reward_cycle: u64,
+    /// The message itself to be stored
+    pub message: StackerDBMessage,
+}
+
+impl SignerMessage {
+    /// Provide an interface for consensus serializing a DkgResults `StackerDBMessage`
+    ///  without constructing the DkgResults struct (this eliminates a clone)
+    pub fn serialize_dkg_result<'a, W: Write, I>(
+        fd: &mut W,
+        reward_cycle: u64,
+        aggregate_key: &Point,
+        party_polynomials: I,
+    ) -> Result<(), CodecError>
+    where
+        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
+    {
+        write_next(fd, &reward_cycle)?;
+        StackerDBMessageTypePrefix::DkgResults
+            .to_u8()
+            .consensus_serialize(fd)?;
+        StackerDBMessage::serialize_dkg_result_components(fd, aggregate_key, party_polynomials)
+    }
+}
+impl StacksMessageCodec for SignerMessage {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.reward_cycle)?;
+        self.message.consensus_serialize(fd)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let reward_cycle = read_next::<u64, _>(fd)?;
+        let message = StackerDBMessage::consensus_deserialize(fd)?;
+        Ok(Self {
+            reward_cycle,
+            message,
+        })
+    }
+}
+
+/// The message types being sent through the stacker db contracts
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum SignerMessage {
+pub enum StackerDBMessage {
     /// The signed/validated Nakamoto block for miners to observe
     BlockResponse(BlockResponse),
     /// DKG and Signing round data for other signers to observe
@@ -244,7 +290,7 @@ pub enum SignerMessage {
     EncryptedSignerState(Vec<u8>),
 }
 
-impl Debug for SignerMessage {
+impl Debug for StackerDBMessage {
     #[cfg_attr(test, mutants::skip)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -271,7 +317,7 @@ impl Debug for SignerMessage {
     }
 }
 
-impl SignerMessage {
+impl StackerDBMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> MessageSlotID {
@@ -293,24 +339,6 @@ impl SignerMessage {
             Self::DkgResults { .. } => MessageSlotID::DkgResults,
             Self::EncryptedSignerState(_) => MessageSlotID::EncryptedSignerState,
         }
-    }
-}
-
-impl SignerMessage {
-    /// Provide an interface for consensus serializing a DkgResults `SignerMessage`
-    ///  without constructing the DkgResults struct (this eliminates a clone)
-    pub fn serialize_dkg_result<'a, W: Write, I>(
-        fd: &mut W,
-        aggregate_key: &Point,
-        party_polynomials: I,
-    ) -> Result<(), CodecError>
-    where
-        I: ExactSizeIterator + Iterator<Item = (&'a u32, &'a PolyCommitment)>,
-    {
-        SignerMessageTypePrefix::DkgResults
-            .to_u8()
-            .consensus_serialize(fd)?;
-        Self::serialize_dkg_result_components(fd, aggregate_key, party_polynomials)
     }
 
     /// Serialize the internal components of DkgResults (this eliminates a clone)
@@ -336,20 +364,20 @@ impl SignerMessage {
     }
 }
 
-impl StacksMessageCodec for SignerMessage {
+impl StacksMessageCodec for StackerDBMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(SignerMessageTypePrefix::from(self) as u8))?;
+        write_next(fd, &(StackerDBMessageTypePrefix::from(self) as u8))?;
         match self {
-            SignerMessage::Packet(packet) => {
+            StackerDBMessage::Packet(packet) => {
                 packet.inner_consensus_serialize(fd)?;
             }
-            SignerMessage::BlockResponse(block_response) => {
+            StackerDBMessage::BlockResponse(block_response) => {
                 write_next(fd, block_response)?;
             }
-            SignerMessage::Transactions(transactions) => {
+            StackerDBMessage::Transactions(transactions) => {
                 write_next(fd, transactions)?;
             }
-            SignerMessage::DkgResults {
+            StackerDBMessage::DkgResults {
                 aggregate_key,
                 party_polynomials,
             } => {
@@ -359,7 +387,7 @@ impl StacksMessageCodec for SignerMessage {
                     party_polynomials.iter().map(|(a, b)| (a, b)),
                 )?;
             }
-            SignerMessage::EncryptedSignerState(encrypted_state) => {
+            StackerDBMessage::EncryptedSignerState(encrypted_state) => {
                 write_next(fd, encrypted_state)?;
             }
         };
@@ -369,21 +397,21 @@ impl StacksMessageCodec for SignerMessage {
     #[cfg_attr(test, mutants::skip)]
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let type_prefix_byte = read_next::<u8, _>(fd)?;
-        let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
+        let type_prefix = StackerDBMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
-            SignerMessageTypePrefix::Packet => {
+            StackerDBMessageTypePrefix::Packet => {
                 let packet = Packet::inner_consensus_deserialize(fd)?;
-                SignerMessage::Packet(packet)
+                Self::from(packet)
             }
-            SignerMessageTypePrefix::BlockResponse => {
+            StackerDBMessageTypePrefix::BlockResponse => {
                 let block_response = read_next::<BlockResponse, _>(fd)?;
-                SignerMessage::BlockResponse(block_response)
+                Self::from(block_response)
             }
-            SignerMessageTypePrefix::Transactions => {
+            StackerDBMessageTypePrefix::Transactions => {
                 let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
-                SignerMessage::Transactions(transactions)
+                Self::from(transactions)
             }
-            SignerMessageTypePrefix::DkgResults => {
+            StackerDBMessageTypePrefix::DkgResults => {
                 let aggregate_key = Point::inner_consensus_deserialize(fd)?;
                 let party_polynomial_len = u32::consensus_deserialize(fd)?;
                 let mut party_polynomials = Vec::with_capacity(
@@ -401,14 +429,14 @@ impl StacksMessageCodec for SignerMessage {
                     party_polynomials,
                 }
             }
-            SignerMessageTypePrefix::EncryptedSignerState => {
+            StackerDBMessageTypePrefix::EncryptedSignerState => {
                 // Typically the size of the signer state is much smaller, but in the fully degenerate case the size of the persisted state is
                 // 2800 * 32 * 4 + C for some small constant C.
                 // To have some margin, we're expanding the left term with an additional factor 4
                 let max_encrypted_state_size = 2800 * 32 * 4 * 4;
                 let mut bound_reader = BoundReader::from_reader(fd, max_encrypted_state_size);
                 let encrypted_state = read_next::<_, _>(&mut bound_reader)?;
-                SignerMessage::EncryptedSignerState(encrypted_state)
+                StackerDBMessage::EncryptedSignerState(encrypted_state)
             }
         };
         Ok(message)
@@ -1299,25 +1327,31 @@ impl std::fmt::Display for RejectCode {
     }
 }
 
-impl From<Packet> for SignerMessage {
+impl From<Vec<StacksTransaction>> for StackerDBMessage {
+    fn from(transactions: Vec<StacksTransaction>) -> Self {
+        Self::Transactions(transactions)
+    }
+}
+
+impl From<Packet> for StackerDBMessage {
     fn from(packet: Packet) -> Self {
         Self::Packet(packet)
     }
 }
 
-impl From<BlockResponse> for SignerMessage {
+impl From<BlockResponse> for StackerDBMessage {
     fn from(block_response: BlockResponse) -> Self {
         Self::BlockResponse(block_response)
     }
 }
 
-impl From<BlockRejection> for SignerMessage {
+impl From<BlockRejection> for StackerDBMessage {
     fn from(block_rejection: BlockRejection) -> Self {
         Self::BlockResponse(BlockResponse::Rejected(block_rejection))
     }
 }
 
-impl From<BlockValidateReject> for SignerMessage {
+impl From<BlockValidateReject> for StackerDBMessage {
     fn from(rejection: BlockValidateReject) -> Self {
         Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
     }
@@ -1330,7 +1364,7 @@ mod test {
         TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
-    use rand::Rng;
+    use rand::{thread_rng, Rng, RngCore};
     use rand_core::OsRng;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksPrivateKey;
@@ -1690,31 +1724,31 @@ mod test {
     }
 
     #[test]
-    fn serde_signer_message() {
+    fn serde_stackerdb_message() {
         let rng = &mut OsRng;
-        let signer_message = SignerMessage::Packet(Packet {
+        let stackerdb_message = StackerDBMessage::Packet(Packet {
             msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
             sig: vec![1u8; 20],
         });
 
-        let serialized_signer_message = signer_message.serialize_to_vec();
-        let deserialized_signer_message =
-            read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
-                .expect("Failed to deserialize SignerMessage");
-        assert_eq!(signer_message, deserialized_signer_message);
+        let serialized_stackerdb_message = stackerdb_message.serialize_to_vec();
+        let deserialized_stackerdb_message =
+            read_next::<StackerDBMessage, _>(&mut &serialized_stackerdb_message[..])
+                .expect("Failed to deserialize StackerDBMessage");
+        assert_eq!(stackerdb_message, deserialized_stackerdb_message);
 
-        let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted((
+        let stackerdb_message = StackerDBMessage::BlockResponse(BlockResponse::Accepted((
             Sha512Trunc256Sum([2u8; 32]),
             ThresholdSignature(Signature {
                 R: Point::from(Scalar::random(rng)),
                 z: Scalar::random(rng),
             }),
         )));
-        let serialized_signer_message = signer_message.serialize_to_vec();
-        let deserialized_signer_message =
-            read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
-                .expect("Failed to deserialize SignerMessage");
-        assert_eq!(signer_message, deserialized_signer_message);
+        let serialized_stackerdb_message = stackerdb_message.serialize_to_vec();
+        let deserialized_stackerdb_message =
+            read_next::<StackerDBMessage, _>(&mut &serialized_stackerdb_message[..])
+                .expect("Failed to deserialize StackerDBMessage");
+        assert_eq!(stackerdb_message, deserialized_stackerdb_message);
 
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
@@ -1732,7 +1766,29 @@ mod test {
                 None,
             ),
         };
-        let signer_message = SignerMessage::Transactions(vec![tx]);
+        let stackerdb_message = StackerDBMessage::Transactions(vec![tx]);
+        let serialized_stackerdb_message = stackerdb_message.serialize_to_vec();
+        let deserialized_stackerdb_message =
+            read_next::<StackerDBMessage, _>(&mut &serialized_stackerdb_message[..])
+                .expect("Failed to deserialize StackerDBMessage");
+        assert_eq!(stackerdb_message, deserialized_stackerdb_message);
+    }
+
+    #[test]
+    fn serde_signer_message() {
+        let rng = &mut OsRng;
+        let message = StackerDBMessage::BlockResponse(BlockResponse::Accepted((
+            Sha512Trunc256Sum([2u8; 32]),
+            ThresholdSignature(Signature {
+                R: Point::from(Scalar::random(rng)),
+                z: Scalar::random(rng),
+            }),
+        )));
+        let reward_cycle = thread_rng().next_u64();
+        let signer_message = SignerMessage {
+            reward_cycle,
+            message,
+        };
         let serialized_signer_message = signer_message.serialize_to_vec();
         let deserialized_signer_message =
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])

@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::{MessageSlotID, SignerMessage};
+use libsigner::{MessageSlotID, SignerMessage, StackerDBMessage};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -428,8 +428,11 @@ impl BlockMinerThread {
             .unwrap_or_default();
         let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
-            match signer_message {
-                SignerMessage::Transactions(transactions) => {
+            if signer_message.reward_cycle != next_reward_cycle {
+                continue;
+            }
+            match signer_message.message {
+                StackerDBMessage::Transactions(transactions) => {
                     NakamotoSigners::update_filtered_transactions(
                         &mut filtered_transactions,
                         &account_nonces,

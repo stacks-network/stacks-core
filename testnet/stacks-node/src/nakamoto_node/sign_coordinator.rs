@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
     BlockProposalSigners, MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession,
-    StackerDBSession,
+    StackerDBMessage, StackerDBSession,
 };
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -142,9 +142,13 @@ fn get_signer_commitments(
             );
             continue;
         };
-        let Ok(SignerMessage::DkgResults {
-            aggregate_key,
-            party_polynomials,
+        let Ok(SignerMessage {
+            reward_cycle: message_reward_cycle,
+            message:
+                StackerDBMessage::DkgResults {
+                    aggregate_key,
+                    party_polynomials,
+                },
         }) = SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
         else {
             warn!(
@@ -153,6 +157,10 @@ fn get_signer_commitments(
             );
             continue;
         };
+
+        if reward_cycle != message_reward_cycle {
+            continue;
+        }
 
         if &aggregate_key != expected_aggregate_key {
             warn!(
@@ -404,7 +412,10 @@ impl SignCoordinator {
             sortdb,
             burn_tip,
             &stackerdbs,
-            nonce_req_msg.into(),
+            SignerMessage {
+                reward_cycle: reward_cycle_id,
+                message: nonce_req_msg.into(),
+            },
             self.is_mainnet,
             &mut self.miners_session,
         )
@@ -484,14 +495,21 @@ impl SignCoordinator {
             })?;
             let packets: Vec<_> = messages
                 .into_iter()
-                .filter_map(|msg| match msg {
-                    SignerMessage::DkgResults { .. }
-                    | SignerMessage::BlockResponse(_)
-                    | SignerMessage::EncryptedSignerState(_)
-                    | SignerMessage::Transactions(_) => None,
-                    SignerMessage::Packet(packet) => {
+                .filter_map(|msg| match msg.message {
+                    StackerDBMessage::DkgResults { .. }
+                    | StackerDBMessage::BlockResponse(_)
+                    | StackerDBMessage::EncryptedSignerState(_)
+                    | StackerDBMessage::Transactions(_) => None,
+                    StackerDBMessage::Packet(packet) => {
                         debug!("Received signers packet: {packet:?}");
-                        if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {
+                        if msg.reward_cycle != reward_cycle_id {
+                            warn!(
+                                "Received signer packet for different reward cycle. Ignoring.";
+                                "expected" => reward_cycle_id,
+                                "received" => msg.reward_cycle
+                            );
+                            None
+                        } else if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {
                             warn!("Failed to verify StackerDB packet: {packet:?}");
                             None
                         } else {
@@ -555,7 +573,10 @@ impl SignCoordinator {
                     sortdb,
                     burn_tip,
                     stackerdbs,
-                    msg.into(),
+                    SignerMessage {
+                        reward_cycle: reward_cycle_id,
+                        message: msg.into(),
+                    },
                     self.is_mainnet,
                     &mut self.miners_session,
                 ) {

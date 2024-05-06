@@ -26,7 +26,9 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{BlockProposalSigners, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{
+    BlockProposalSigners, SignerMessage, SignerSession, StackerDBMessage, StackerDBSession,
+};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -308,12 +310,15 @@ pub fn get_latest_block_proposal(
     let proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        let message: SignerMessage = miners_stackerdb
+        let signer_message: SignerMessage = miners_stackerdb
             .get_latest(miner_slot_id.start)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found");
-        let SignerMessage::Packet(packet) = message else {
-            panic!("Expected a signer message packet. Got {message:?}");
+        let StackerDBMessage::Packet(packet) = signer_message.message else {
+            panic!(
+                "Expected a signer message packet. Got {:?}",
+                signer_message.message
+            );
         };
         let Message::NonceRequest(nonce_request) = packet.msg else {
             panic!("Expected a nonce request. Got {:?}", packet.msg);

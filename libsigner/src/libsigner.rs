@@ -50,7 +50,7 @@ pub use crate::events::{
     SignerStopSignaler,
 };
 pub use crate::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage, StackerDBMessage,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

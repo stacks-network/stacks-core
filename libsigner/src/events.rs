@@ -51,7 +51,7 @@ use wsts::net::{
 use wsts::state_machine::signer;
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::{EventError, SignerMessage};
+use crate::{EventError, SignerMessage, StackerDBMessage};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// BlockProposal sent to signers
