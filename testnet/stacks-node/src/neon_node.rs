@@ -1712,7 +1712,7 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        let vrf_proof = if self.config.get_node_config().mock_mining {
+        let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
                 self.burn_block.sortition_hash.as_bytes(),
@@ -2535,7 +2535,7 @@ impl BlockMinerThread {
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         if res.is_none() {
             self.failed_to_submit_last_attempt = true;
-            if !self.config.get_node_config().mock_mining {
+            if !self.config.get_node_config(false).mock_mining {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
                 return None;
             }
@@ -3518,7 +3518,7 @@ impl RelayerThread {
             return false;
         }
 
-        if !self.config.get_node_config().mock_mining {
+        if !self.config.get_node_config(false).mock_mining {
             // mock miner can't mine microblocks yet, so don't stop it from trying multiple
             // anchored blocks
             if self.mined_stacks_block && self.config.node.mine_microblocks {
@@ -4777,7 +4777,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.get_node_config().mock_mining {
+        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
