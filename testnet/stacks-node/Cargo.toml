@@ -65,5 +65,4 @@ path = "src/stacks_events.rs"
 monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
-portable = []
 default = []
