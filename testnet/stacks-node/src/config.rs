@@ -101,7 +101,8 @@ mod tests {
                     seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -115,7 +116,8 @@ mod tests {
                     local_peer_seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -130,6 +132,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .unwrap_err();
         assert_eq!(
@@ -137,7 +140,7 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
     }
 
     #[test]
@@ -195,6 +198,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .expect("Expected to be able to parse block proposal token from file");
 
@@ -218,6 +222,7 @@ mod tests {
                 "#
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -241,7 +246,7 @@ mod tests {
         ))
         .expect("Expected to be able to parse config file from string");
 
-        assert!(Config::from_config_file(file).is_err());
+        assert!(Config::from_config_file(file, false).is_err());
     }
 
     #[test]
@@ -249,6 +254,7 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(r#""#)
                 .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -266,10 +272,38 @@ mod tests {
                 "#,
             )
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
         assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+    }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
     }
 }
 
@@ -511,7 +545,7 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.burnchain.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.burnchain.clone();
         };
         config.burnchain
@@ -526,10 +560,23 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.miner.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.miner.clone();
         };
         return config.miner;
+    }
+
+    pub fn get_node_config(&self, resolve_bootstrap_nodes: bool) -> NodeConfig {
+        let Some(path) = &self.config_path else {
+            return self.node.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.node.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file, resolve_bootstrap_nodes) else {
+            return self.node.clone();
+        };
+        return config.node;
     }
 
     /// Apply any test settings to this burnchain config struct
@@ -902,11 +949,18 @@ impl Config {
         Ok(out_epochs)
     }
 
-    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        Self::from_config_default(config_file, Config::default())
+    pub fn from_config_file(
+        config_file: ConfigFile,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
+        Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
     }
 
-    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+    fn from_config_default(
+        config_file: ConfigFile,
+        default: Config,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
         let Config {
             node: default_node_config,
             burnchain: default_burnchain_config,
@@ -957,9 +1011,15 @@ impl Config {
         };
 
         if let Some(bootstrap_node) = bootstrap_node {
-            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+            if resolve_bootstrap_nodes {
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         } else {
-            if is_mainnet {
+            if is_mainnet && resolve_bootstrap_nodes {
                 let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
                 node.set_bootstrap_nodes(
                     bootstrap_node,
@@ -1490,7 +1550,6 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}");
         assert_eq!(
             u64::try_from(affirmations_pre_2_5.len()).unwrap(),
             last_present_cycle - 1
@@ -1501,10 +1560,12 @@ impl BurnchainConfigFile {
                 BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
             )
             .unwrap();
-        eprintln!("last_present_cycle = {last_present_cycle}, last_override = {last_override}");
+        let override_values = ["a", "n"];
 
         for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
-            let affirmation = format!("{affirmations_pre_2_5}{}", "a".repeat(override_index + 1));
+            assert!(override_values.len() > override_index);
+            let overrides = override_values[..(override_index + 1)].join("");
+            let affirmation = format!("{affirmations_pre_2_5}{overrides}");
             default_overrides.push(AffirmationOverride {
                 reward_cycle,
                 affirmation,
@@ -1513,7 +1574,10 @@ impl BurnchainConfigFile {
 
         if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
             for affirmation in default_overrides {
-                affirmation_overrides.push(affirmation);
+                // insert at front, so that the hashmap uses the configured overrides
+                //  instead of the defaults (the configured overrides will write over the
+                //  the defaults because they come later in the list).
+                affirmation_overrides.insert(0, affirmation);
             }
         } else {
             self.affirmation_overrides = Some(default_overrides);

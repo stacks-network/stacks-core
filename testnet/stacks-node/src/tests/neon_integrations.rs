@@ -10,7 +10,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
-use rand::Rng;
+use rand::{Rng, RngCore};
 use rusqlite::types::ToSql;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -42,6 +42,7 @@ use stacks::core::{
     BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
     PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
+    PEER_VERSION_TESTNET,
 };
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
@@ -148,7 +149,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
 
-    let magic_bytes = Config::from_config_file(cfile)
+    let magic_bytes = Config::from_config_file(cfile, false)
         .unwrap()
         .burnchain
         .magic_bytes;
@@ -12258,4 +12259,203 @@ fn bitcoin_reorg_flap() {
     assert_eq!(channel.get_sortitions_processed(), 225);
     btcd_controller.stop_bitcoind().unwrap();
     channel.stop_chains_coordinator();
+}
+
+fn next_block_and_wait_all(
+    btc_controller: &mut BitcoinRegtestController,
+    miner_blocks_processed: &Arc<AtomicU64>,
+    follower_blocks_processed: &[&Arc<AtomicU64>],
+) -> bool {
+    let followers_current: Vec<_> = follower_blocks_processed
+        .iter()
+        .map(|blocks_processed| blocks_processed.load(Ordering::SeqCst))
+        .collect();
+
+    if !next_block_and_wait(btc_controller, miner_blocks_processed) {
+        return false;
+    }
+
+    // wait for followers to catch up
+    loop {
+        let finished = follower_blocks_processed
+            .iter()
+            .zip(followers_current.iter())
+            .map(|(blocks_processed, current)| blocks_processed.load(Ordering::SeqCst) <= *current)
+            .fold(true, |acc, loaded| acc && loaded);
+
+        if finished {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    true
+}
+
+#[test]
+#[ignore]
+fn bitcoin_reorg_flap_with_follower() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, _miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut miner_run_loop = neon::RunLoop::new(conf.clone());
+    let miner_blocks_processed = miner_run_loop.get_blocks_processed_arc();
+    let miner_channel = miner_run_loop.get_coordinator_channel().unwrap();
+
+    let mut follower_conf = conf.clone();
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
+
+    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
+    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+
+    thread::spawn(move || miner_run_loop.start(None, 0));
+    wait_for_runloop(&miner_blocks_processed);
+
+    // figure out the started node's port
+    let node_info = get_chain_info(&conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            conf.node.p2p_bind
+        ),
+        CHAIN_ID_TESTNET,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = neon::RunLoop::new(follower_conf.clone());
+    let follower_blocks_processed = follower_run_loop.get_blocks_processed_arc();
+    let follower_channel = follower_run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || follower_run_loop.start(None, 0));
+    wait_for_runloop(&follower_blocks_processed);
+
+    eprintln!("Follower bootup complete!");
+
+    // first block wakes up the run loop
+    next_block_and_wait_all(&mut btc_regtest_controller, &miner_blocks_processed, &[]);
+
+    // first block will hold our VRF registration
+    next_block_and_wait_all(
+        &mut btc_regtest_controller,
+        &miner_blocks_processed,
+        &[&follower_blocks_processed],
+    );
+
+    let mut miner_sort_height = miner_channel.get_sortitions_processed();
+    let mut follower_sort_height = follower_channel.get_sortitions_processed();
+    eprintln!(
+        "Miner sort height: {}, follower sort height: {}",
+        miner_sort_height, follower_sort_height
+    );
+
+    while miner_sort_height < 210 && follower_sort_height < 210 {
+        next_block_and_wait_all(
+            &mut btc_regtest_controller,
+            &miner_blocks_processed,
+            &[&follower_blocks_processed],
+        );
+        miner_sort_height = miner_channel.get_sortitions_processed();
+        follower_sort_height = miner_channel.get_sortitions_processed();
+        eprintln!(
+            "Miner sort height: {}, follower sort height: {}",
+            miner_sort_height, follower_sort_height
+        );
+    }
+
+    // stop bitcoind and copy its DB to simulate a chain flap
+    btcd_controller.stop_bitcoind().unwrap();
+    thread::sleep(Duration::from_secs(5));
+
+    let btcd_dir = conf.get_burnchain_path_str();
+    let mut new_conf = conf.clone();
+    new_conf.node.working_dir = format!("{}.new", &conf.node.working_dir);
+    fs::create_dir_all(&new_conf.node.working_dir).unwrap();
+
+    copy_dir_all(&btcd_dir, &new_conf.get_burnchain_path_str()).unwrap();
+
+    // resume
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    thread::sleep(Duration::from_secs(5));
+
+    info!("\n\nBegin fork A\n\n");
+
+    // make fork A
+    for _i in 0..3 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from A to B\n\n");
+
+    // carry out the flap to fork B -- new_conf's state was the same as before the reorg
+    let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(new_conf.clone(), None);
+
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    for _i in 0..5 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    btcd_controller.stop_bitcoind().unwrap();
+
+    info!("\n\nBegin reorg flap from B to A\n\n");
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    // carry out the flap back to fork A
+    for _i in 0..7 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    assert_eq!(miner_channel.get_sortitions_processed(), 225);
+    assert_eq!(follower_channel.get_sortitions_processed(), 225);
+
+    btcd_controller.stop_bitcoind().unwrap();
+    miner_channel.stop_chains_coordinator();
+    follower_channel.stop_chains_coordinator();
 }

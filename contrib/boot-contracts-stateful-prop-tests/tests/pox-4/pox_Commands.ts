@@ -2,7 +2,8 @@ import fc from "fast-check";
 import { Real, Stacker, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
-import { StackStxCommand } from "./pox_StackStxCommand";
+import { StackStxSigCommand } from "./pox_StackStxSigCommand";
+import { StackStxAuthCommand } from "./pox_StackStxAuthCommand";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
@@ -17,6 +18,10 @@ import { StackAggregationCommitIndexedSigCommand } from "./pox_StackAggregationC
 import { StackAggregationCommitIndexedAuthCommand } from "./pox_StackAggregationCommitIndexedAuthCommand";
 import { StackAggregationIncreaseCommand } from "./pox_StackAggregationIncreaseCommand";
 import { DisallowContractCallerCommand } from "./pox_DisallowContractCallerCommand";
+import { StackExtendAuthCommand } from "./pox_StackExtendAuthCommand";
+import { StackExtendSigCommand } from "./pox_StackExtendSigCommand";
+import { StackIncreaseAuthCommand } from "./pox_StackIncreaseAuthCommand";
+import { StackIncreaseSigCommand } from "./pox_StackIncreaseSigCommand";
 
 export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
@@ -36,7 +41,7 @@ export function PoxCommands(
         r.wallet,
       )
     ),
-    // StackStxCommand
+    // StackStxSigCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       authId: fc.nat(),
@@ -50,13 +55,110 @@ export function PoxCommands(
         margin: number;
       },
     ) =>
-      new StackStxCommand(
+      new StackStxSigCommand(
         r.wallet,
         r.authId,
         r.period,
         r.margin,
       )
     ),
+    // StackStxAuthCommand
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      period: fc.integer({ min: 1, max: 12 }),
+      margin: fc.integer({ min: 1, max: 9 }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        authId: number;
+        period: number;
+        margin: number;
+      },
+    ) =>
+      new StackStxAuthCommand(
+        r.wallet,
+        r.authId,
+        r.period,
+        r.margin,
+      )
+    ),
+    // StackExtendAuthCommand
+    fc
+      .record({
+        wallet: fc.constantFrom(...wallets.values()),
+        authId: fc.nat(),
+        extendCount: fc.integer({ min: 1, max: 12 }),
+        currentCycle: fc.constant(currentCycle(network)),
+      })
+      .map(
+        (r: {
+          wallet: Wallet;
+          extendCount: number;
+          authId: number;
+          currentCycle: number;
+        }) =>
+          new StackExtendAuthCommand(
+            r.wallet,
+            r.extendCount,
+            r.authId,
+            r.currentCycle,
+          ),
+      ),
+    // StackExtendSigCommand
+    fc
+      .record({
+        wallet: fc.constantFrom(...wallets.values()),
+        authId: fc.nat(),
+        extendCount: fc.integer({ min: 1, max: 12 }),
+        currentCycle: fc.constant(currentCycle(network)),
+      })
+      .map(
+        (r: {
+          wallet: Wallet;
+          extendCount: number;
+          authId: number;
+          currentCycle: number;
+        }) =>
+          new StackExtendSigCommand(
+            r.wallet,
+            r.extendCount,
+            r.authId,
+            r.currentCycle,
+          ),
+      ),
+    // StackIncreaseAuthCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+      authId: fc.nat(),
+    })
+      .map((r) => {
+        return new StackIncreaseAuthCommand(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+        );
+      }),
+    // StackIncreaseSigCommand
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+      authId: fc.nat(),
+    })
+      .map((r) => {
+        return new StackIncreaseSigCommand(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+        );
+      }),
+    // GetStackingMinimumCommand
+    fc
+      .record({
+        wallet: fc.constantFrom(...wallets.values()),
+      })
+      .map((r: { wallet: Wallet }) => new GetStackingMinimumCommand(r.wallet)),
     // DelegateStxCommand
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),

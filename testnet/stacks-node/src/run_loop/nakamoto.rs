@@ -195,7 +195,7 @@ impl RunLoop {
                     return true;
                 }
             }
-            if self.config.node.mock_mining {
+            if self.config.get_node_config(false).mock_mining {
                 info!("No UTXOs found, but configured to mock mine");
                 return true;
             } else {

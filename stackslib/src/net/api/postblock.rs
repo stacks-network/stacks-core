@@ -95,6 +95,10 @@ impl HttpRequest for RPCPostBlockRequestHandler {
         Regex::new(r#"^/v2/blocks/upload/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/blocks/upload/:block"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

@@ -1050,3 +1050,70 @@ fn test_http_parse_proof_request_query() {
         .get_with_proof();
     assert!(proof_req);
 }
+
+#[test]
+fn test_metrics_identifiers() {
+    let convo = ConversationHttp::new(
+        "127.0.0.1:12345".parse().unwrap(),
+        None,
+        PeerHost::DNS("localhost".to_string(), 12345),
+        &ConnectionOptions::default(),
+        100,
+        32,
+    );
+
+    let fixtures = vec![
+        // Valid requests
+        (("GET", "/v2/info"), ("/v2/info", true)),
+        (
+            ("GET", "/v2/info?param1=value&param2=other_value"),
+            ("/v2/info", true),
+        ),
+        (
+            (
+                "GET",
+                "/v2/blocks/d8bd3c7e7cf7a9d783560a71356d3d9dbc84dc2f0c1a0001be8b141927c9d7ab",
+            ),
+            ("/v2/blocks/:block_id", true),
+        ),
+        // Invalid requests
+        (("POST", "/v2/info"), ("<err-handler-not-found>", false)),
+        (("GET", "!@#%&^$#!&^(@&+++"), ("<err-url-decode>", false)),
+        (
+            ("GET", "/some/nonexistent/endpoint"),
+            ("<err-handler-not-found>", false),
+        ),
+        (
+            (
+                "GET",
+                "/v2/blocks/dsviawevasigngawuqajauharpqjumzkalfuwgfkwpdhtbefgxkdhdfduskafdgh",
+            ),
+            ("<err-handler-not-found>", false),
+        ),
+    ];
+
+    for (input, output) in fixtures {
+        // Destructure fixture data
+        let (verb, path_and_query_string) = input;
+        let (metrics_identifier_expected, should_have_handler) = output;
+
+        // Create request from data
+        let preamble = HttpRequestPreamble::new(
+            HttpVersion::Http11,
+            verb.to_string(),
+            path_and_query_string.to_string(),
+            "localhost".to_string(),
+            12345,
+            true,
+        );
+
+        let mut request = StacksHttpRequest::new(preamble, HttpRequestContents::new());
+
+        let metrics_identifier = convo.metrics_identifier(&mut request);
+        let response_handler_index = request.get_response_handler_index();
+
+        // Check that we get expected metrics identifier and request handler
+        assert_eq!(metrics_identifier, metrics_identifier_expected);
+        assert_eq!(response_handler_index.is_some(), should_have_handler);
+    }
+}

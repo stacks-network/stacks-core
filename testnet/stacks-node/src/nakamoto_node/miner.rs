@@ -656,7 +656,7 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        let vrf_proof = if self.config.node.mock_mining {
+        let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
                 self.burn_block.sortition_hash.as_bytes(),

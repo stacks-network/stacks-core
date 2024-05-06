@@ -99,6 +99,10 @@ impl HttpRequest for GetStackersRequestHandler {
         Regex::new(r#"^/v2/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/stacker_set/:cycle_num"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(

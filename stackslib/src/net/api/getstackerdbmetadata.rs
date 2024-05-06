@@ -73,6 +73,10 @@ impl HttpRequest for RPCGetStackerDBMetadataRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/stackerdb/:principal/:contract_name"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
