@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -30,7 +30,6 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
-use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;

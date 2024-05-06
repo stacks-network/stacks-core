@@ -30,7 +30,6 @@ use wsts::state_machine::OperationResult;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
-use crate::storage;
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -236,28 +235,7 @@ impl RunLoop {
                     }
                 }
             }
-            let mut new_signer = Signer::from(new_signer_config);
-
-            let dkg_id = retry_with_exponential_backoff(|| {
-                self.stacks_client
-                    .get_last_round(reward_cycle)
-                    .map_err(backoff::Error::transient)
-            })?
-            .unwrap_or(0);
-
-            let approved_aggregate_key = retry_with_exponential_backoff(|| {
-                self.stacks_client
-                    .get_approved_aggregate_key(reward_cycle)
-                    .map_err(backoff::Error::transient)
-            })?;
-
-            new_signer
-                .state_machine
-                .reset(dkg_id, &mut storage::crypto_rng());
-            new_signer.approved_aggregate_public_key = approved_aggregate_key;
-            new_signer
-                .load_saved_state()
-                .expect("Failed to load signer state");
+            let new_signer = Signer::from(new_signer_config);
             info!("{new_signer} initialized.");
             self.stacks_signers.insert(reward_index, new_signer);
         } else {

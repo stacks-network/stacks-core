@@ -1052,21 +1052,6 @@ impl Signer {
 
     /// Process a dkg result by broadcasting a vote to the stacks node
     fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
-        // Abort if an aggregate key has already been set for the current rewards cycle
-        if let Some(aggregate_key) = stacks_client
-            .get_approved_aggregate_key(self.reward_cycle)
-            .map_err(|e| error!("{self}: Unable to get approved aggregate key: {e}"))
-            .unwrap_or_default()
-        {
-            self.approved_aggregate_public_key = Some(aggregate_key);
-            match self.load_saved_state() {
-                Err(e) => error!("{self}: Failed to load saved state: {e}"),
-                Ok(()) => (),
-            };
-
-            return;
-        }
-
         debug!(
             "{self}: Received DKG result. Broadcasting vote to the stacks node...";
             "dkg_public_key" => %dkg_public_key
@@ -1344,32 +1329,23 @@ impl Signer {
         Ok(())
     }
 
-    /// Load the saved signer state for the current dkg round
-    pub fn load_saved_state(&mut self) -> Result<(), storage::PersistenceError> {
-        let Some(aggregate_key) = self.approved_aggregate_public_key else {
-            return Ok(());
-        };
-
-        info!("{self}: Loading saved state for key: {aggregate_key}");
-        if let Some(state) = self.load_saved_state_for_aggregate_key(aggregate_key)? {
+    /// Load the saved state for a particular aggregate key.
+    pub fn load_saved_state_for_aggregate_key(
+        &mut self,
+        aggregate_key: Point,
+    ) -> Result<(), storage::PersistenceError> {
+        if let Some(state) = self
+            .load_encrypted_signer_states()?
+            .into_iter()
+            .find(|state| state.group_key == aggregate_key)
+            .map(|state| v2::Signer::load(&state))
+        {
             self.state_machine.signer = state;
         } else {
             warn!("{self}: Signer unable to load state for key {aggregate_key}");
         };
 
         Ok(())
-    }
-
-    /// Load the saved state for a particular aggregate key.
-    fn load_saved_state_for_aggregate_key(
-        &mut self,
-        aggregate_key: Point,
-    ) -> Result<Option<v2::Signer>, storage::PersistenceError> {
-        Ok(self
-            .load_encrypted_signer_states()?
-            .into_iter()
-            .find(|state| state.group_key == aggregate_key)
-            .map(|state| v2::Signer::load(&state)))
     }
 
     /// Load the entire encrypted signer state
