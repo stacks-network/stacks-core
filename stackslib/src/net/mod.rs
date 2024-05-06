@@ -3004,7 +3004,7 @@ pub mod test {
                                                 .saturating_sub(CONTRACT_MAX_NAME_LENGTH),
                                         )
                                         .collect::<String>()
-                                        .trim_start_matches('-') // Remove leading '-'
+                                        .trim_start_matches(|c: char| !c.is_alphabetic())
                                         .to_string(),
                                 )
                                 .expect("FATAL: invalid boot-code contract name"),
