@@ -1,4 +1,5 @@
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use clarity::vm::ClarityVersion;
 use hashbrown::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
@@ -139,7 +140,11 @@ If your name is in a namespace where names do not expire, then you never need to
 
 pub fn make_json_boot_contracts_reference() -> String {
     let contract_supporting_docs = make_contract_support_docs();
-    let api_out = produce_docs_refs(&*STACKS_BOOT_CODE_MAINNET, &contract_supporting_docs);
+    let api_out = produce_docs_refs(
+        &*STACKS_BOOT_CODE_MAINNET,
+        &contract_supporting_docs,
+        ClarityVersion::Clarity1,
+    );
     format!(
         "{}",
         serde_json::to_string(&api_out).expect("Failed to serialize documentation")
