@@ -1753,7 +1753,7 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
+    pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
         // start scaning at the reward cycle just before that.
         let am_rescan_rc = self
@@ -1786,10 +1786,12 @@ impl PeerNetwork {
         let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
 
         test_debug!(
-            "begin blocks inv scan at {} = min({},{})",
+            "begin blocks inv scan at {} = min({},{}) stacks_tip_am={} heaviest_am={}",
             rescan_rc,
-            stacks_tip_rc,
-            am_rescan_rc
+            am_rescan_rc,
+            start_reward_cycle,
+            &self.stacks_tip_affirmation_map,
+            &self.heaviest_affirmation_map
         );
         rescan_rc
     }

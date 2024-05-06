@@ -1242,6 +1242,56 @@ fn test_sync_inv_diagnose_nack() {
 }
 
 #[test]
+fn test_inv_sync_start_reward_cycle() {
+    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    peer_1_config.connection_opts.inv_reward_cycles = 0;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
+    for i in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let _ = peer_1.step();
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 7);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 1;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 7);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 2;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 6);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 3;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 5);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 300;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 0);
+}
+
+#[test]
 #[ignore]
 fn test_sync_inv_2_peers_plain() {
     with_timeout(600, || {
