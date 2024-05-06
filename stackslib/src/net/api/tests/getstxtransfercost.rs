@@ -25,6 +25,7 @@ use stacks_common::types::Address;
 use super::test_rpc;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::net::api::getstxtransfercost::SINGLESIG_TX_TRANSFER_LEN;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -64,9 +65,12 @@ fn test_try_parse_request() {
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let request = StacksHttpRequest::new_get_stx_transfer_cost(addr.into());
+    let request_with_len =
+        StacksHttpRequest::new_get_stx_transfer_cost_with_len(addr.into(), Some(240));
 
-    let mut responses = test_rpc(function_name!(), vec![request]);
-    assert_eq!(responses.len(), 1);
+    let mut responses = test_rpc(function_name!(), vec![request, request_with_len]);
+    assert_eq!(responses.len(), 2);
+    responses.reverse();
 
     let response = responses.pop().unwrap();
     debug!(
@@ -80,5 +84,24 @@ fn test_try_make_response() {
     );
 
     let fee_rate = response.decode_stx_transfer_fee().unwrap();
-    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE);
+    debug!("fee_rate = {:?}", &fee_rate);
+    assert_eq!(
+        fee_rate,
+        MINIMUM_TX_FEE_RATE_PER_BYTE * SINGLESIG_TX_TRANSFER_LEN
+    );
+
+    let response = responses.pop().unwrap();
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    assert_eq!(
+        response.preamble().get_canonical_stacks_tip_height(),
+        Some(1)
+    );
+
+    let fee_rate = response.decode_stx_transfer_fee().unwrap();
+    debug!("fee_rate = {:?}", &fee_rate);
+    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE * 240);
 }
