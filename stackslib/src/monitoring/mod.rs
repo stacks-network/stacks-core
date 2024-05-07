@@ -48,7 +48,8 @@ pub fn increment_rpc_calls_counter() {
 
 pub fn instrument_http_request_handler<F, R>(
     conv_http: &mut ConversationHttp,
-    req: StacksHttpRequest,
+    // mut is needed when feature = "monitoring_prom"
+    #[allow(unused_mut)] mut req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
