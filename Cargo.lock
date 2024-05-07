@@ -741,19 +741,6 @@ checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=chore/update-clarity#d08b7628206b36f6d7a5e7a92a786ac007c8e7e6"
-dependencies = [
- "clap 4.5.1",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "lazy_static",
- "regex",
- "walrus",
- "wat",
-]
-
-[[package]]
-name = "clar2wasm"
-version = "0.1.0"
 source = "git+https://github.com/stacks-network/clarity-wasm.git?rev=7e6d4be#7e6d4beb64ab19714ae27ec76420aeeab4ed875d"
 dependencies = [
  "chrono",
@@ -798,7 +785,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.3.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "getrandom 0.2.12",
  "hashbrown 0.14.3",
@@ -818,28 +805,6 @@ dependencies = [
  "sha2-asm 0.5.5",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "wasmtime",
-]
-
-[[package]]
-name = "clarity"
-version = "2.3.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#35cce11f4a7e49f29dd1cf06680abfbd31099669"
-dependencies = [
- "hashbrown 0.14.3",
- "integer-sqrt",
- "lazy_static",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "regex",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2-asm 0.5.5",
- "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "wasmtime",
 ]
 
@@ -2026,7 +1991,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.6",
  "tokio",
  "tower-service",
  "tracing",
@@ -2390,13 +2355,13 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "thiserror",
  "tiny_http",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "hashbrown 0.14.3",
@@ -2414,7 +2379,7 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "thiserror",
  "tiny_http",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -2444,7 +2409,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "secp256k1",
@@ -3003,7 +2968,7 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "slog",
@@ -4036,13 +4001,13 @@ dependencies = [
  "slog-term",
  "time 0.3.34",
  "winapi 0.3.9",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "chrono",
  "curve25519-dalek 2.0.0",
@@ -4068,37 +4033,7 @@ dependencies = [
  "slog-term",
  "time 0.3.34",
  "winapi 0.3.9",
- "wsts 9.0.0",
-]
-
-[[package]]
-name = "stacks-common"
-version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#35cce11f4a7e49f29dd1cf06680abfbd31099669"
-dependencies = [
- "chrono",
- "curve25519-dalek 2.0.0",
- "ed25519-dalek",
- "hashbrown 0.14.3",
- "lazy_static",
- "libc",
- "nix",
- "percent-encoding",
- "rand 0.8.5",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.8",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "time 0.3.34",
- "winapi 0.3.9",
- "wsts 8.1.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4139,7 +4074,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4174,13 +4109,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "backoff",
  "clap 4.5.1",
@@ -4206,7 +4141,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4215,7 +4150,7 @@ version = "0.0.1"
 dependencies = [
  "assert-json-diff",
  "chrono",
- "clar2wasm 0.1.0 (git+https://github.com/stacks-network/clarity-wasm.git?rev=7e6d4be)",
+ "clar2wasm",
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "criterion",
  "curve25519-dalek 2.0.0",
@@ -4256,16 +4191,16 @@ dependencies = [
  "time 0.3.34",
  "url",
  "winapi 0.3.9",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "chrono",
- "clar2wasm 0.1.0 (git+https://github.com/stacks-network/clarity-wasm.git?branch=chore/update-clarity)",
+ "clar2wasm",
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
@@ -4300,7 +4235,7 @@ dependencies = [
  "time 0.3.34",
  "url",
  "winapi 0.3.9",
- "wsts 9.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4390,7 +4325,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#b141dd00fc753e14ad93e43d9681a3d65e4805f0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#77fa85aee443a1ecaa0bebaed710ecd36ccabfdc"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
@@ -5796,28 +5731,6 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
-]
-
-[[package]]
-name = "wsts"
-version = "8.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "467aa8e40ed0277d19922fd0e7357c16552cb900e5138f61a48ac23c4b7878e0"
-dependencies = [
- "aes-gcm 0.10.3",
- "bs58 0.5.0",
- "hashbrown 0.14.3",
- "hex",
- "num-traits",
- "p256k1",
- "polynomial",
- "primitive-types",
- "rand_core 0.6.4",
- "serde",
- "sha2 0.10.8",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
