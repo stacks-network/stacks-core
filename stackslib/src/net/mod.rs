@@ -2641,6 +2641,26 @@ pub mod test {
             &self.network.local_peer
         }
 
+        pub fn add_neighbor(
+            &mut self,
+            n: &mut Neighbor,
+            stacker_dbs: Option<&[QualifiedContractIdentifier]>,
+            bootstrap: bool,
+        ) {
+            let mut tx = self.network.peerdb.tx_begin().unwrap();
+            n.save(&mut tx, stacker_dbs).unwrap();
+            if bootstrap {
+                PeerDB::set_initial_peer(
+                    &tx,
+                    self.config.network_id,
+                    &n.addr.addrbytes,
+                    n.addr.port,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+
         // TODO: DRY up from PoxSyncWatchdog
         pub fn infer_initial_burnchain_block_download(
             burnchain: &Burnchain,
@@ -2849,7 +2869,15 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true);
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, false);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_diverge(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, true);
             (x.0, x.1, x.2)
         }
 
@@ -2862,14 +2890,14 @@ pub mod test {
             ConsensusHash,
             Option<BlockHeaderHash>,
         ) {
-            self.inner_next_burnchain_block(blockstack_ops, true, true, true)
+            self.inner_next_burnchain_block(blockstack_ops, true, true, true, false)
         }
 
         pub fn next_burnchain_block_raw(
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, true);
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, true, false);
             (x.0, x.1, x.2)
         }
 
@@ -2877,7 +2905,7 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, false);
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, false, false);
             (x.0, x.1, x.2)
         }
 
@@ -2890,7 +2918,7 @@ pub mod test {
             ConsensusHash,
             Option<BlockHeaderHash>,
         ) {
-            self.inner_next_burnchain_block(blockstack_ops, false, false, true)
+            self.inner_next_burnchain_block(blockstack_ops, false, false, true, false)
         }
 
         pub fn set_ops_consensus_hash(
@@ -2921,6 +2949,7 @@ pub mod test {
             tip_block_height: u64,
             tip_block_hash: &BurnchainHeaderHash,
             num_ops: u64,
+            ops_determine_block_header: bool,
         ) -> BurnchainBlockHeader {
             test_debug!(
                 "make_next_burnchain_block: tip_block_height={} tip_block_hash={} num_ops={}",
@@ -2939,8 +2968,16 @@ pub mod test {
 
             let now = BURNCHAIN_TEST_BLOCK_TIME;
             let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
-                &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
-                    .bitcoin_hash(),
+                &BitcoinIndexer::mock_bitcoin_header(
+                    &parent_hdr.block_hash,
+                    (now as u32)
+                        + if ops_determine_block_header {
+                            num_ops as u32
+                        } else {
+                            0
+                        },
+                )
+                .bitcoin_hash(),
             );
             test_debug!(
                 "Block header hash at {} is {}",
@@ -3012,6 +3049,7 @@ pub mod test {
             set_consensus_hash: bool,
             set_burn_hash: bool,
             update_burnchain: bool,
+            ops_determine_block_header: bool,
         ) -> (
             u64,
             BurnchainHeaderHash,
@@ -3035,6 +3073,7 @@ pub mod test {
                     tip.block_height,
                     &tip.burn_header_hash,
                     blockstack_ops.len() as u64,
+                    ops_determine_block_header,
                 );
 
                 if set_burn_hash {
