@@ -125,9 +125,9 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
 }
 
-/// TODO: #4587 create default for `BurnchainParameters`, then check if mutation tests are caught for these case:
-/// Default::default()
-/// Or keep the skip and remove the comment
+// TODO: #4587 create default for `BurnchainParameters`, then check if mutation tests are caught for these case:
+// Default::default()
+// Or keep the skip and remove the comment
 #[cfg_attr(test, mutants::skip)]
 pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
     let (network, _) = config.get_bitcoin_network();
@@ -140,9 +140,9 @@ pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParame
 }
 
 /// Helper method to create a BitcoinIndexer
-/// TODO: #4587 create default for `BitcoinIndexer`, then check if mutation tests are caught for these case:
-/// Default::default()
-/// Or keep the skip and remove the comment
+// TODO: #4587 create default for `BitcoinIndexer`, then check if mutation tests are caught for these case:
+// Default::default()
+// Or keep the skip and remove the comment
 #[cfg_attr(test, mutants::skip)]
 pub fn make_bitcoin_indexer(
     config: &Config,
@@ -280,9 +280,9 @@ impl BitcoinRegtestController {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
     }
 
-    /// TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
-    /// Default::default()
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn with_burnchain(
         config: Config,
@@ -355,9 +355,9 @@ impl BitcoinRegtestController {
 
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
-    /// TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
-    /// Default::default()
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `BitcoinRegtestController`, then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn new_dummy(config: Config) -> Self {
         let burnchain_params = burnchain_params_from_config(&config.burnchain);
@@ -1634,9 +1634,9 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// TODO: #4587 create default for `Transaction` and `UTXOSet`, then check if mutation tests are caught for these case:
-    /// Some((Default::default(), Default::default()))
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `Transaction` and `UTXOSet`, then check if mutation tests are caught for these case:
+    // Some((Default::default(), Default::default()))
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     fn prepare_tx(
         &mut self,
@@ -2005,9 +2005,9 @@ impl BitcoinRegtestController {
         self.config.miner.segwit = segwit;
     }
 
-    /// TODO: #4587 create default for `SerializedTx`, then check if mutation tests are caught for these case:
-    /// Some(Default::default())
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `SerializedTx`, then check if mutation tests are caught for these case:
+    // Some(Default::default())
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn make_operation_tx(
         &mut self,

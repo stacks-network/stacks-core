@@ -372,9 +372,9 @@ fn ack_dispatcher(request: HttpRequest) {
 }
 
 /// Process a stackerdb event from the node
-/// TODO: #4587 create default for `SignerEvent` and `EventError`, then check if mutation tests are caught for these case:
-/// Ok(Default::default())
-/// Or keep the skip and remove the comment
+// TODO: #4587 create default for `SignerEvent` and `EventError`, then check if mutation tests are caught for these case:
+// Ok(Default::default())
+// Or keep the skip and remove the comment
 #[cfg_attr(test, mutants::skip)]
 fn process_stackerdb_event(
     local_addr: Option<SocketAddr>,

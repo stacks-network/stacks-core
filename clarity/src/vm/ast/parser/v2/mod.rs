@@ -211,15 +211,15 @@ impl<'a> Parser<'a> {
     ///
     /// Returns Some(node) if the open node is finished and should be popped from the stack.
     /// Returns None if the open node is not finished and should remain on the parser stack.
-    /// TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
-    /// ParseResult::from_iter([Some(Default::default())])
-    /// ParseResult::new(None)
-    /// ParseResult::from_iter([None])
-    /// ParseResult::new(Some(Default::default()))
-    /// ParseResult::from(None)
-    /// ParseResult::from(Some(Default::default()))
-    /// ParseResult::new()
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
+    // ParseResult::from_iter([Some(Default::default())])
+    // ParseResult::new(None)
+    // ParseResult::from_iter([None])
+    // ParseResult::new(Some(Default::default()))
+    // ParseResult::from(None)
+    // ParseResult::from(Some(Default::default()))
+    // ParseResult::new()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     fn handle_open_node(
         &mut self,
@@ -285,15 +285,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
-    /// ParseResult::from_iter([Some(Default::default())])
-    /// ParseResult::new(None)
-    /// ParseResult::from_iter([None])
-    /// ParseResult::new(Some(Default::default()))
-    /// ParseResult::from(None)
-    /// ParseResult::from(Some(Default::default()))
-    /// ParseResult::new()
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
+    // ParseResult::from_iter([Some(Default::default())])
+    // ParseResult::new(None)
+    // ParseResult::from_iter([None])
+    // ParseResult::new(Some(Default::default()))
+    // ParseResult::from(None)
+    // ParseResult::from(Some(Default::default()))
+    // ParseResult::new()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     fn handle_open_tuple(
         &mut self,

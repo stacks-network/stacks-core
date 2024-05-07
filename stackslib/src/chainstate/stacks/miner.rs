@@ -170,9 +170,9 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
-    /// TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
-    /// Default::default()
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
@@ -183,9 +183,9 @@ impl BlockBuilderSettings {
         }
     }
 
-    /// TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
-    /// Default::default()    
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
@@ -1808,9 +1808,9 @@ impl StacksBlockBuilder {
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
-    /// TODO: #4587 create default for MinerEpochInfo, then check if mutation tests are caught for these case:
-    /// Ok(Default::default())
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for MinerEpochInfo, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn pre_epoch_begin<'a>(
         &mut self,
@@ -2060,9 +2060,9 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for mining
-    /// TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
-    /// Ok(Default::default())
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2118,9 +2118,9 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for regtest mining
-    /// TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
-    /// Ok(Default::default())
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2403,10 +2403,10 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-    /// TODO: #4587 create default for `StacksBlock` and `ExecutionCost`, then check if mutation tests are caught for these cases:
-    /// Ok((Default::default(), Default::default(), 1))
-    /// Ok((Default::default(), Default::default(), 0))
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 create default for `StacksBlock` and `ExecutionCost`, then check if mutation tests are caught for these cases:
+    // Ok((Default::default(), Default::default(), 1))
+    // Ok((Default::default(), Default::default(), 0))
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates

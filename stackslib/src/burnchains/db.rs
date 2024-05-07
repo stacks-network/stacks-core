@@ -942,8 +942,8 @@ impl<'a> BurnchainDBTransaction<'a> {
 
     /// You'd only do this in network emergencies, where node operators are expected to declare an
     /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
-    /// TODO: #4587 add tests for `Ok(())` returning case
-    /// Or keep the skip and remove the comment
+    // TODO: #4587 add tests for `Ok(())` returning case
+    // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
     pub fn set_override_affirmation_map(
         &self,

@@ -508,15 +508,15 @@ fn handle_expression(
     }
 }
 
-/// TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
-/// ParseResult::from(vec![Default::default()])
-/// ParseResult::from(vec![])
-/// ParseResult::new()
-/// ParseResult::from_iter([vec![Default::default()]])
-/// ParseResult::new(vec![Default::default()])
-/// ParseResult::new(vec![])
-/// ParseResult::from_iter([vec![]])
-/// Or keep the skip and remove the comment
+// TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
+// ParseResult::from(vec![Default::default()])
+// ParseResult::from(vec![])
+// ParseResult::new()
+// ParseResult::from_iter([vec![Default::default()]])
+// ParseResult::new(vec![Default::default()])
+// ParseResult::new(vec![])
+// ParseResult::from_iter([vec![]])
+// Or keep the skip and remove the comment
 #[cfg_attr(test, mutants::skip)]
 pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
