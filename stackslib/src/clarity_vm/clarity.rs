@@ -299,6 +299,7 @@ impl ClarityInstance {
         // need to increment the tenure height in the Clarity DB.
         if new_tenure && epoch.epoch_id >= StacksEpochId::Epoch30 {
             let mut clarity_db = datastore.as_clarity_db(header_db, burn_state_db);
+            clarity_db.begin();
             let tenure_height = clarity_db
                 .get_tenure_height()
                 .expect("FAIL: unable to get tenure height from Clarity database");
@@ -309,6 +310,9 @@ impl ClarityInstance {
                         .expect("FAIL: tenure height overflow"),
                 )
                 .expect("FAIL: unable to set tenure height in Clarity database");
+            clarity_db
+                .commit()
+                .expect("FAIL: unable to commit tenure height");
         }
 
         ClarityBlockConnection {

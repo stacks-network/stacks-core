@@ -114,6 +114,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     gb.as_transaction(|tx| {
         tx.with_clarity_db(|db| {
+            db.begin();
+            db.set_tenure_height(1).unwrap();
             db.set_clarity_epoch_version(epoch).unwrap();
             Ok(())
         })
