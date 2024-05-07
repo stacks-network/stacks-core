@@ -19,7 +19,6 @@ where
         let mut store = marf_kv.begin(
             &StacksBlockId::sentinel(),
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            true,
         );
 
         store
@@ -32,7 +31,6 @@ where
         let mut store = marf_kv.begin(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
-            true,
         );
 
         let mut owned_env = OwnedEnvironment::new(

@@ -194,7 +194,6 @@ impl MarfedKV {
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        new_tenure: bool,
     ) -> WritableMarfStore<'a> {
         let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
             panic!(
@@ -202,7 +201,7 @@ impl MarfedKV {
                 current, next
             )
         });
-        tx.begin(current, next, new_tenure).unwrap_or_else(|_| {
+        tx.begin(current, next).unwrap_or_else(|_| {
             panic!(
                 "ERROR: Failed to begin new MARF block {} - {})",
                 current, next
@@ -360,41 +359,6 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             Err(e) => {
                 let msg = format!(
                     "Unexpected MARF failure: Failed to get current block height of {}: {:?}",
-                    &self.chain_tip, &e
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-        }
-    }
-
-    fn get_current_tenure_height(&mut self) -> u32 {
-        match self
-            .marf
-            .get_tenure_height_of(&self.chain_tip, &self.chain_tip)
-        {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                let first_tip =
-                    StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-                if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
-                    // the current block height should always work, except if it's the first block
-                    // height (in which case, the current chain tip should match the first-ever
-                    // index block hash).
-                    return 0;
-                }
-
-                // should never happen
-                let msg = format!(
-                    "Failed to obtain current tenure height of {} (got None)",
-                    &self.chain_tip
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-            Err(e) => {
-                let msg = format!(
-                    "Unexpected MARF failure: Failed to get current tenure height of {}: {:?}",
                     &self.chain_tip, &e
                 );
                 error!("{}", &msg);
@@ -727,40 +691,5 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         self.marf
             .insert_batch(&keys, values)
             .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure".into()).into())
-    }
-
-    fn get_current_tenure_height(&mut self) -> u32 {
-        match self
-            .marf
-            .get_tenure_height_of(&self.chain_tip, &self.chain_tip)
-        {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                let first_tip =
-                    StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-                if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
-                    // the current tenure height should always work, except if it's the first tenure
-                    // height (in which case, the current chain tip should match the first-ever
-                    // index block hash).
-                    return 0;
-                }
-
-                // should never happen
-                let msg = format!(
-                    "Failed to obtain current tenure height of {} (got None)",
-                    &self.chain_tip
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-            Err(e) => {
-                let msg = format!(
-                    "Unexpected MARF failure: Failed to get current tenure height of {}: {:?}",
-                    &self.chain_tip, &e
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-        }
     }
 }

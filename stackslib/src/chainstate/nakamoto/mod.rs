@@ -216,20 +216,6 @@ lazy_static! {
         UPDATE db_config SET version = "4";
         "#.into(),
     ];
-
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
-    r#"
-      -- Add a `tenure_height` column to the block_headers table.
-      ALTER TABLE block_headers ADD COLUMN tenure_height INTEGER;
-    "#.into(),
-    r#"
-      -- Add a `tenure_height` column to the nakamoto_block_headers table.
-      ALTER TABLE nakamoto_block_headers ADD COLUMN tenure_height INTEGER;
-    "#.into(),
-    r#"
-      UPDATE db_config SET version = "5";
-     "#.into(),
-    ];
 }
 
 /// Matured miner reward schedules
@@ -2237,7 +2223,6 @@ impl NakamotoChainState {
             stacks_block_height,
             burn_header_height,
             burn_header_timestamp,
-            tenure_height,
             ..
         } = tip_info;
 
@@ -2248,15 +2233,6 @@ impl NakamotoChainState {
         let index_block_hash = StacksBlockId::new(&consensus_hash, &block_hash);
 
         assert!(*stacks_block_height < u64::try_from(i64::MAX).unwrap());
-        let tenure_height = match tenure_height {
-            Some(th) => th,
-            None => {
-                // This can only be the case if the parent is an epoch 2.x block that was stored
-                // before the tenure height was added to the header info. In that case, the tenure
-                // height is the parent's block height.
-                stacks_block_height
-            }
-        };
 
         let vrf_proof_bytes = vrf_proof.map(|proof| proof.to_hex());
 
@@ -2285,7 +2261,6 @@ impl NakamotoChainState {
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
             &header.signer_bitvec,
-            &u64_to_sql(*tenure_height)?,
         ];
 
         chainstate_tx.execute(
@@ -2306,10 +2281,9 @@ impl NakamotoChainState {
                      parent_block_id,
                      tenure_changed,
                      vrf_proof,
-                     signer_bitvec,
-                     tenure_height
+                     signer_bitvec
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             args
         )?;
 
@@ -2370,31 +2344,10 @@ impl NakamotoChainState {
         let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
-        let parent_header_info =
-            NakamotoChainState::get_block_header(headers_tx.deref(), &new_tip.parent_block_id)
-                .and_then(|x| x.ok_or(ChainstateError::NoSuchBlockError))?;
-        let tenure_height = if let Some(th) = parent_header_info.tenure_height {
-            if new_tenure {
-                th + 1
-            } else {
-                th
-            }
-        } else {
-            // This can only be the case if the parent is an epoch 2.x block that was stored
-            // before the tenure height was added to the header info. In that case, the tenure
-            // height is the parent's block height + 1.
-            parent_header_info.stacks_block_height + 1
-        };
-
         // store each indexed field
         test_debug!("Headers index_put_begin {parent_hash}-{index_block_hash}");
-        let root_hash = headers_tx.put_indexed_all(
-            &parent_hash,
-            &index_block_hash,
-            &vec![],
-            &vec![],
-            new_tenure,
-        )?;
+        let root_hash =
+            headers_tx.put_indexed_all(&parent_hash, &index_block_hash, &vec![], &vec![])?;
         test_debug!("Headers index_indexed_all finished {parent_hash}-{index_block_hash}");
 
         let new_tip_info = StacksHeaderInfo {
@@ -2402,7 +2355,6 @@ impl NakamotoChainState {
             microblock_tail: None,
             index_root: root_hash,
             stacks_block_height: new_tip.chain_length,
-            tenure_height: Some(tenure_height),
             consensus_hash: new_tip.consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,

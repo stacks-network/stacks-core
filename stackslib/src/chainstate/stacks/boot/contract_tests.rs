@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -117,7 +117,6 @@ impl ClarityTestSim {
             let mut store = marf.begin(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
-                true,
             );
 
             let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
@@ -151,7 +150,6 @@ impl ClarityTestSim {
             let mut store = self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-                new_tenure,
             );
 
             let headers_db = TestSimHeadersDB {
@@ -164,6 +162,13 @@ impl ClarityTestSim {
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut db = store.as_clarity_db(&headers_db, &burn_db);
+            db.begin();
+            db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                .expect("FAIL: unable to set tenure height in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit tenure height in Clarity database");
 
             let mut block_conn =
                 ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
@@ -194,7 +199,6 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-            new_tenure,
         );
 
         let r = {
@@ -210,7 +214,12 @@ impl ClarityTestSim {
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
             debug!("Execute block in epoch {}", &cur_epoch);
 
-            let db = store.as_clarity_db(&headers_db, &burn_db);
+            let mut db = store.as_clarity_db(&headers_db, &burn_db);
+            db.begin();
+            db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                .expect("FAIL: unable to set tenure height in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit tenure height in Clarity database");
             let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };
@@ -262,7 +271,6 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
-            true,
         );
 
         let r = {
@@ -280,6 +288,7 @@ impl ClarityTestSim {
 
         store.test_commit();
         self.block_height = parent_height + 1;
+        self.tenure_height = parent_height + 1;
         self.fork += 1;
 
         r
@@ -587,20 +596,6 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
-    }
-
-    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
-            Some(0)
-        } else {
-            let input_height = test_sim_hash_to_height(&id_bhh.0)?;
-            if input_height > self.height {
-                eprintln!("{} > {}", input_height, self.height);
-                None
-            } else {
-                Some(input_height as u32)
-            }
-        }
     }
 }
 

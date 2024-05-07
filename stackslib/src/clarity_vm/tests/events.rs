@@ -89,7 +89,6 @@ fn helper_execute_epoch(
             &FIRST_STACKS_BLOCK_HASH,
         ),
         &StacksBlockId([1 as u8; 32]),
-        true,
     );
 
     let mut owned_env = OwnedEnvironment::new_max_limit(

@@ -98,7 +98,6 @@ pub trait HeadersDB {
     fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
     fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
-    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
 }
 
 pub trait BurnStateDB {
@@ -183,9 +182,6 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
         (*self).get_tokens_earned_for_block(id_bhh)
-    }
-    fn get_tenure_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        (*self).get_tenure_height_for_block(id_bhh)
     }
 }
 
@@ -336,9 +332,6 @@ impl HeadersDB for NullHeadersDB {
         None
     }
     fn get_tokens_earned_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
-        None
-    }
-    fn get_tenure_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
         None
     }
 }
@@ -862,6 +855,31 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    fn tenure_height_key() -> &'static str {
+        "_stx-data::tenure_height"
+    }
+
+    /// Returns the tenure height of the current block.
+    pub fn get_tenure_height(&mut self) -> Result<u32> {
+        self.get_data(&Self::tenure_height_key())?
+            .ok_or_else(|| {
+                InterpreterError::Expect("No tenure height in stored Clarity state".into()).into()
+            })
+            .and_then(|x| {
+                u32::try_into(x).map_err(|_| {
+                    InterpreterError::Expect("Bad tenure height in stored Clarity state".into())
+                        .into()
+                })
+            })
+    }
+
+    /// Set the tenure height of the current block. In the first block of a new
+    /// tenure, this height must be incremented before evaluating any
+    /// transactions in the block.
+    pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
+        self.put_data(Self::tenure_height_key(), &height)
+    }
+
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
@@ -893,12 +911,6 @@ impl<'a> ClarityDatabase<'a> {
     /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
-    }
-
-    /// This is the tenure height of the block we are currently constructing.
-    /// It comes from the MARF.
-    pub fn get_current_tenure_height(&mut self) -> u32 {
-        self.store.get_current_tenure_height()
     }
 
     /// Return the height for PoX v1 -> v2 auto unlocks

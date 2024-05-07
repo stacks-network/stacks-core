@@ -123,7 +123,6 @@ pub fn make_block(
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
         stacks_block_height: block_height,
-        tenure_height: Some(block_height),
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
@@ -142,7 +141,6 @@ pub fn make_block(
             &new_index_hash,
             &vec![],
             &vec![],
-            true,
         )
         .unwrap();
 

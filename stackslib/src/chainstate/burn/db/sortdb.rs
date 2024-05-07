@@ -6079,7 +6079,6 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.sortition_id,
             &keys,
             &values,
-            true,
         )?;
 
         // pox payout addrs must include burn addresses

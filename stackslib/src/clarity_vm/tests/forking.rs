@@ -287,11 +287,7 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     let mut marf_kv = MarfedKV::temporary();
 
     {
-        let mut store = marf_kv.begin(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0 as u8; 32]),
-            true,
-        );
+        let mut store = marf_kv.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         store
             .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
             .initialize();
@@ -299,11 +295,7 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     }
 
     {
-        let mut store = marf_kv.begin(
-            &StacksBlockId([0 as u8; 32]),
-            &StacksBlockId([1 as u8; 32]),
-            true,
-        );
+        let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new(
             store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
             epoch,
@@ -315,11 +307,7 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     // Now, we can do our forking.
 
     {
-        let mut store = marf_kv.begin(
-            &StacksBlockId([1 as u8; 32]),
-            &StacksBlockId([2 as u8; 32]),
-            true,
-        );
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new(
             store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
             epoch,
@@ -329,11 +317,7 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     }
 
     {
-        let mut store = marf_kv.begin(
-            &StacksBlockId([1 as u8; 32]),
-            &StacksBlockId([3 as u8; 32]),
-            true,
-        );
+        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new(
             store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
             epoch,
@@ -343,11 +327,7 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     }
 
     {
-        let mut store = marf_kv.begin(
-            &StacksBlockId([2 as u8; 32]),
-            &StacksBlockId([4 as u8; 32]),
-            true,
-        );
+        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new(
             store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
             epoch,

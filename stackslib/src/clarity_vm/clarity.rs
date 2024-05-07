@@ -278,7 +278,7 @@ impl ClarityInstance {
         burn_state_db: &'b dyn BurnStateDB,
         new_tenure: bool,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let mut datastore = self.datastore.begin(current, next, new_tenure);
+        let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
@@ -294,6 +294,22 @@ impl ClarityInstance {
                 .expect("FAIL: problem instantiating cost tracking"),
             )
         };
+
+        // If we're starting a new tenure, and we're in epoch 3.09, then we
+        // need to increment the tenure height in the Clarity DB.
+        if new_tenure && epoch.epoch_id >= StacksEpochId::Epoch30 {
+            let mut clarity_db = datastore.as_clarity_db(header_db, burn_state_db);
+            let tenure_height = clarity_db
+                .get_tenure_height()
+                .expect("FAIL: unable to get tenure height from Clarity database");
+            clarity_db
+                .set_tenure_height(
+                    tenure_height
+                        .checked_add(1)
+                        .expect("FAIL: tenure height overflow"),
+                )
+                .expect("FAIL: unable to set tenure height in Clarity database");
+        }
 
         ClarityBlockConnection {
             datastore,
@@ -313,7 +329,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let datastore = self.datastore.begin(current, next, true);
+        let datastore = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
 
@@ -339,7 +355,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let writable = self.datastore.begin(current, next, true);
+        let writable = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
 
@@ -435,7 +451,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let writable = self.datastore.begin(current, next, true);
+        let writable = self.datastore.begin(current, next);
 
         let epoch = StacksEpochId::Epoch21;
 
@@ -1521,6 +1537,15 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch30;
             });
 
+            // beginning in epoch 3.0, we need to track the tenure height,
+            // which is initialized to the current block height
+            let block_height = self.with_clarity_db_readonly(|db| db.get_current_block_height());
+            self.as_transaction(|tx_conn| {
+                tx_conn
+                    .with_clarity_db(|db| Ok(db.set_tenure_height(block_height)?))
+                    .unwrap();
+            });
+
             debug!("Epoch 3.0 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
@@ -2241,11 +2266,7 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
 
-        let mut conn = marf.begin(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0 as u8; 32]),
-            true,
-        );
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),

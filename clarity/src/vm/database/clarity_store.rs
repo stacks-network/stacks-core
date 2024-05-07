@@ -80,10 +80,6 @@ pub trait ClarityBackingStore {
     ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
     ///   return data about the chain tip that is currently open for writing.
     fn get_current_block_height(&mut self) -> u32;
-    /// this function returns the current tenure height, as viewed by this marfed-kv structure,
-    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
-    ///   return data about the chain tip that is currently open for writing.
-    fn get_current_tenure_height(&mut self) -> u32;
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
@@ -264,10 +260,6 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn get_current_tenure_height(&mut self) -> u32 {
-        panic!("NullBackingStore can't get current tenure height")
-    }
-
     fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
@@ -338,10 +330,6 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        1
-    }
-
-    fn get_current_tenure_height(&mut self) -> u32 {
         1
     }
 
