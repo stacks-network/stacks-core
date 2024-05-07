@@ -96,7 +96,7 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
                     len = value.parse::<u64>().ok();
                 }
             }
-            len.unwrap_or(SINGLESIG_TX_TRANSFER_LEN)
+            len.unwrap_or(SINGLESIG_TX_TRANSFER_LEN).min(1)
         } else {
             SINGLESIG_TX_TRANSFER_LEN
         };

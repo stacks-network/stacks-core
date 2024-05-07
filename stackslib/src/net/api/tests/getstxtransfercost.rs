@@ -67,10 +67,30 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_get_stx_transfer_cost(addr.into());
     let request_with_len =
         StacksHttpRequest::new_get_stx_transfer_cost_with_len(addr.into(), Some(180 * 2));
+    let request_with_zero_len =
+        StacksHttpRequest::new_get_stx_transfer_cost_with_len(addr.into(), Some(0));
 
-    let mut responses = test_rpc(function_name!(), vec![request, request_with_len]);
-    assert_eq!(responses.len(), 2);
+    let mut responses = test_rpc(
+        function_name!(),
+        vec![request, request_with_len, request_with_zero_len],
+    );
+    assert_eq!(responses.len(), 3);
     responses.reverse();
+
+    let response = responses.pop().unwrap();
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    assert_eq!(
+        response.preamble().get_canonical_stacks_tip_height(),
+        Some(1)
+    );
+
+    let fee_rate = response.decode_stx_transfer_fee().unwrap();
+    debug!("fee_rate = {:?}", &fee_rate);
+    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE);
 
     let response = responses.pop().unwrap();
     debug!(
