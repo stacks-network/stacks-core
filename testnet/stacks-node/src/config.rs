@@ -101,7 +101,8 @@ mod tests {
                     seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -115,7 +116,8 @@ mod tests {
                     local_peer_seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -130,6 +132,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .unwrap_err();
         assert_eq!(
@@ -137,7 +140,7 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
     }
 
     #[test]
@@ -195,6 +198,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .expect("Expected to be able to parse block proposal token from file");
 
@@ -218,6 +222,7 @@ mod tests {
                 "#
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -241,7 +246,7 @@ mod tests {
         ))
         .expect("Expected to be able to parse config file from string");
 
-        assert!(Config::from_config_file(file).is_err());
+        assert!(Config::from_config_file(file, false).is_err());
     }
 
     #[test]
@@ -249,6 +254,7 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(r#""#)
                 .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -266,6 +272,7 @@ mod tests {
                 "#,
             )
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
@@ -291,6 +298,7 @@ mod tests {
                 "#,
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides, but overwrite with the configured one above
@@ -537,7 +545,7 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.burnchain.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.burnchain.clone();
         };
         config.burnchain
@@ -552,20 +560,20 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.miner.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.miner.clone();
         };
         return config.miner;
     }
 
-    pub fn get_node_config(&self) -> NodeConfig {
+    pub fn get_node_config(&self, resolve_bootstrap_nodes: bool) -> NodeConfig {
         let Some(path) = &self.config_path else {
             return self.node.clone();
         };
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.node.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, resolve_bootstrap_nodes) else {
             return self.node.clone();
         };
         return config.node;
@@ -941,11 +949,18 @@ impl Config {
         Ok(out_epochs)
     }
 
-    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        Self::from_config_default(config_file, Config::default())
+    pub fn from_config_file(
+        config_file: ConfigFile,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
+        Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
     }
 
-    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+    fn from_config_default(
+        config_file: ConfigFile,
+        default: Config,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
         let Config {
             node: default_node_config,
             burnchain: default_burnchain_config,
@@ -996,9 +1011,15 @@ impl Config {
         };
 
         if let Some(bootstrap_node) = bootstrap_node {
-            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+            if resolve_bootstrap_nodes {
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         } else {
-            if is_mainnet {
+            if is_mainnet && resolve_bootstrap_nodes {
                 let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
                 node.set_bootstrap_nodes(
                     bootstrap_node,
