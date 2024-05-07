@@ -1,5 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -17,10 +19,12 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::RewardSet;
+use stacks::chainstate::stacks::boot::{
+    NakamotoSignerEntry, PoxStartCycleInfo, RewardSet, RewardSetData, SIGNERS_NAME,
+};
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
     TransactionOrigin,
@@ -36,9 +40,12 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
+use stacks::util::hash::to_hex;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::util::hash::bytes_to_hex;
+use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::MessageSignature;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
@@ -72,7 +79,31 @@ pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
-pub const PATH_POX_ANCHOR: &str = "new_pox_set";
+
+pub static STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
+
+/// This struct receives StackerDB event callbacks without registering
+/// over the JSON/RPC interface. To ensure that any event observer
+/// uses the same channel, we use a lazy_static global for the channel (this
+/// implements a singleton using STACKER_DB_CHANNEL).
+///
+/// This is in place because a Nakamoto miner needs to receive
+/// StackerDB events. It could either poll the database (seems like a
+/// bad idea) or listen for events. Registering for RPC callbacks
+/// seems bad. So instead, it uses a singleton sync channel.
+pub struct StackerDBChannel {
+    sender_info: Mutex<Option<InnerStackerDBChannel>>,
+}
+
+#[derive(Clone)]
+struct InnerStackerDBChannel {
+    /// A channel for sending the chunk events to the listener
+    sender: Sender<StackerDBChunksEvent>,
+    /// Does the listener want to receive `.signers` chunks?
+    interested_in_signers: bool,
+    /// Which StackerDB contracts is the listener interested in?
+    other_interests: Vec<QualifiedContractIdentifier>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -97,12 +128,170 @@ pub struct MinedMicroblockEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedNakamotoBlockEvent {
     pub target_burn_height: u64,
+    pub parent_block_id: String,
     pub block_hash: String,
     pub block_id: String,
     pub stacks_height: u64,
     pub block_size: u64,
     pub cost: ExecutionCost,
+    pub miner_signature: MessageSignature,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
+    pub signer_bitvec: String,
+}
+
+impl InnerStackerDBChannel {
+    pub fn new_miner_receiver() -> (Receiver<StackerDBChunksEvent>, Self) {
+        let (sender, recv) = channel();
+        let sender_info = Self {
+            sender,
+            interested_in_signers: true,
+            other_interests: vec![],
+        };
+
+        (recv, sender_info)
+    }
+}
+
+impl StackerDBChannel {
+    pub const fn new() -> Self {
+        Self {
+            sender_info: Mutex::new(None),
+        }
+    }
+
+    /// Consume the receiver for the StackerDBChannel and drop the senders. This should be done
+    /// before another interested thread can subscribe to events, but it is not absolutely necessary
+    /// to do so (it would just result in temporary over-use of memory while the prior channel is still
+    /// open).
+    ///
+    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
+    /// be taken by different threads without unsafety.
+    pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
+        // not strictly necessary, but do this rather than mark the `receiver` argument as unused
+        // so that we're explicit about the fact that `replace_receiver` consumes.
+        drop(receiver);
+        let mut guard = self
+            .sender_info
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        guard.take();
+    }
+
+    /// Create a new event receiver channel for receiving events relevant to the miner coordinator,
+    /// dropping the old StackerDB event sender channels if they are still registered.
+    ///  Returns the new receiver channel and a bool indicating whether or not sender channels were
+    ///   still in place.
+    ///
+    /// The StackerDBChannel senders are guarded by mutexes so that they can be replaced
+    /// by different threads without unsafety.
+    pub fn register_miner_coordinator(&self) -> (Receiver<StackerDBChunksEvent>, bool) {
+        let mut sender_info = self
+            .sender_info
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        let (recv, new_sender) = InnerStackerDBChannel::new_miner_receiver();
+        let replaced_receiver = sender_info.replace(new_sender).is_some();
+
+        (recv, replaced_receiver)
+    }
+
+    /// Is there a thread holding the receiver, and is it interested in chunks events from `stackerdb`?
+    /// Returns the a sending channel to broadcast the event to if so, and `None` if not.
+    pub fn is_active(
+        &self,
+        stackerdb: &QualifiedContractIdentifier,
+    ) -> Option<Sender<StackerDBChunksEvent>> {
+        // if the receiver field is empty (i.e., None), then there is no listening thread, return None
+        let guard = self
+            .sender_info
+            .lock()
+            .expect("FATAL: poisoned StackerDBChannel lock");
+        let sender_info = guard.as_ref()?;
+        if sender_info.interested_in_signers
+            && stackerdb.is_boot()
+            && stackerdb.name.starts_with(SIGNERS_NAME)
+        {
+            return Some(sender_info.sender.clone());
+        }
+        if sender_info.other_interests.contains(stackerdb) {
+            return Some(sender_info.sender.clone());
+        }
+        None
+    }
+}
+
+fn serialize_u128_as_string<S>(value: &u128, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+fn serialize_pox_addresses<S>(value: &Vec<PoxAddress>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.collect_seq(value.iter().cloned().map(|a| a.to_b58()))
+}
+
+fn serialize_optional_u128_as_string<S>(
+    value: &Option<u128>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(v) => serializer.serialize_str(&v.to_string()),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn hex_serialize<S: serde::Serializer>(addr: &[u8; 33], s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&to_hex(addr))
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct RewardSetEventPayload {
+    #[serde(serialize_with = "serialize_pox_addresses")]
+    pub rewarded_addresses: Vec<PoxAddress>,
+    pub start_cycle_state: PoxStartCycleInfo,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    // only generated for nakamoto reward sets
+    pub signers: Option<Vec<NakamotoSignerEntryPayload>>,
+    #[serde(serialize_with = "serialize_optional_u128_as_string")]
+    pub pox_ustx_threshold: Option<u128>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct NakamotoSignerEntryPayload {
+    #[serde(serialize_with = "hex_serialize")]
+    pub signing_key: [u8; 33],
+    #[serde(serialize_with = "serialize_u128_as_string")]
+    pub stacked_amt: u128,
+    pub weight: u32,
+}
+
+impl RewardSetEventPayload {
+    pub fn signer_entry_to_payload(entry: &NakamotoSignerEntry) -> NakamotoSignerEntryPayload {
+        NakamotoSignerEntryPayload {
+            signing_key: entry.signing_key,
+            stacked_amt: entry.stacked_amt,
+            weight: entry.weight,
+        }
+    }
+    pub fn from_reward_set(reward_set: &RewardSet) -> Self {
+        Self {
+            rewarded_addresses: reward_set.rewarded_addresses.clone(),
+            start_cycle_state: reward_set.start_cycle_state.clone(),
+            signers: reward_set
+                .signers
+                .as_ref()
+                .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
+            pox_ustx_threshold: reward_set.pox_ustx_threshold,
+        }
+    }
 }
 
 impl EventObserver {
@@ -388,6 +577,8 @@ impl EventObserver {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec_opt: &Option<BitVec<4000>>,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -407,8 +598,22 @@ impl EventObserver {
             tx_index += 1;
         }
 
+        let signer_bitvec_value = signer_bitvec_opt
+            .as_ref()
+            .map(|bitvec| serde_json::to_value(bitvec).unwrap_or_default())
+            .unwrap_or_default();
+
+        let (reward_set_value, cycle_number_value) = match &reward_set_data {
+            Some(data) => (
+                serde_json::to_value(&RewardSetEventPayload::from_reward_set(&data.reward_set))
+                    .unwrap_or_default(),
+                serde_json::to_value(data.cycle_number).unwrap_or_default(),
+            ),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
+
         // Wrap events
-        json!({
+        let mut payload = json!({
             "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
@@ -431,7 +636,33 @@ impl EventObserver {
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
             "pox_v3_unlock_height": pox_constants.v3_unlock_height,
-        })
+            "signer_bitvec": signer_bitvec_value,
+            "reward_set": reward_set_value,
+            "cycle_number": cycle_number_value,
+        });
+
+        let as_object_mut = payload.as_object_mut().unwrap();
+
+        if let StacksBlockHeaderTypes::Nakamoto(ref header) = &metadata.anchored_header {
+            as_object_mut.insert(
+                "signer_signature_hash".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "miner_signature".into(),
+                format!("0x{}", &header.miner_signature).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                format!("0x{}", &header.signer_signature).into(),
+            );
+        }
+
+        payload
     }
 }
 
@@ -449,7 +680,6 @@ pub struct EventDispatcher {
     mined_microblocks_observers_lookup: HashSet<u16>,
     stackerdb_observers_lookup: HashSet<u16>,
     block_proposal_observers_lookup: HashSet<u16>,
-    pox_stacker_set_observers_lookup: HashSet<u16>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -589,6 +819,8 @@ impl BlockEventDispatcher for EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     ) {
         self.process_chain_tip(
             block,
@@ -604,7 +836,9 @@ impl BlockEventDispatcher for EventDispatcher {
             anchored_consumed,
             mblock_confirmed_consumed,
             pox_constants,
-        )
+            reward_set_data,
+            signer_bitvec,
+        );
     }
 
     fn announce_burn_block(
@@ -623,15 +857,6 @@ impl BlockEventDispatcher for EventDispatcher {
             recipient_info,
         )
     }
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        self.process_stacker_set(reward_set, block_id, cycle_number)
-    }
 }
 
 impl EventDispatcher {
@@ -649,7 +874,6 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
-            pox_stacker_set_observers_lookup: HashSet::new(),
         }
     }
 
@@ -794,6 +1018,8 @@ impl EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -843,6 +1069,8 @@ impl EventDispatcher {
                         anchored_consumed,
                         mblock_confirmed_consumed,
                         pox_constants,
+                        reward_set_data,
+                        signer_bitvec,
                     );
 
                 // Send payload
@@ -931,30 +1159,6 @@ impl EventDispatcher {
             .collect()
     }
 
-    fn process_stacker_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
-    ) {
-        let interested_observers =
-            self.filter_observers(&self.pox_stacker_set_observers_lookup, false);
-
-        if interested_observers.is_empty() {
-            return;
-        }
-
-        let payload = json!({
-            "stacker_set": reward_set,
-            "block_id": block_id,
-            "cycle_number": cycle_number
-        });
-
-        for observer in interested_observers.iter() {
-            observer.send_payload(&payload, PATH_POX_ANCHOR);
-        }
-    }
-
     pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
@@ -1041,14 +1245,24 @@ impl EventDispatcher {
             return;
         }
 
+        let signer_bitvec = serde_json::to_value(block.header.signer_bitvec.clone())
+            .unwrap_or_default()
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+
         let payload = serde_json::to_value(MinedNakamotoBlockEvent {
             target_burn_height,
+            parent_block_id: block.header.parent_block_id.to_string(),
             block_hash: block.header.block_hash().to_string(),
             block_id: block.header.block_id().to_string(),
             stacks_height: block.header.chain_length,
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
+            miner_signature: block.header.miner_signature.clone(),
+            signer_signature_hash: block.header.signer_signature_hash(),
+            signer_bitvec,
         })
         .unwrap();
 
@@ -1062,19 +1276,30 @@ impl EventDispatcher {
     pub fn process_new_stackerdb_chunks(
         &self,
         contract_id: QualifiedContractIdentifier,
-        new_chunks: Vec<StackerDBChunkData>,
+        modified_slots: Vec<StackerDBChunkData>,
     ) {
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        if interested_observers.len() < 1 {
+        let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
+        if interested_observers.is_empty() && interested_receiver.is_none() {
             return;
         }
 
-        let payload = serde_json::to_value(StackerDBChunksEvent {
+        let event = StackerDBChunksEvent {
             contract_id,
-            modified_slots: new_chunks,
-        })
-        .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+            modified_slots,
+        };
+        let payload = serde_json::to_value(&event)
+            .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+
+        if let Some(channel) = interested_receiver {
+            if let Err(send_err) = channel.send(event) {
+                warn!(
+                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have exited.";
+                    "err" => ?send_err
+                );
+            }
+        }
 
         for observer in interested_observers.iter() {
             observer.send_stackerdb_chunks(&payload);
@@ -1199,9 +1424,6 @@ impl EventDispatcher {
                 EventKeyType::BlockProposal => {
                     self.block_proposal_observers_lookup.insert(observer_index);
                 }
-                EventKeyType::StackerSet => {
-                    self.pox_stacker_set_observers_lookup.insert(observer_index);
-                }
             }
         }
 
@@ -1215,6 +1437,7 @@ mod test {
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
     use stacks::chainstate::stacks::StacksBlock;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
     use crate::event_dispatcher::EventObserver;
@@ -1238,6 +1461,7 @@ mod test {
         let anchored_consumed = ExecutionCost::zero();
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
+        let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1253,6 +1477,8 @@ mod test {
             &anchored_consumed,
             &mblock_confirmed_consumed,
             &pox_constants,
+            &None,
+            &Some(signer_bitvec.clone()),
         );
         assert_eq!(
             payload
@@ -1261,6 +1487,16 @@ mod test {
                 .as_u64()
                 .unwrap(),
             pox_constants.v1_unlock_height as u64
+        );
+
+        let expected_bitvec_str = serde_json::to_value(signer_bitvec)
+            .unwrap_or_default()
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            payload.get("signer_bitvec").unwrap().as_str().unwrap(),
+            expected_bitvec_str
         );
     }
 }

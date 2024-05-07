@@ -26,13 +26,14 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
-use super::stacks::boot::RewardSet;
+use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -176,6 +177,8 @@ pub trait BlockEventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec: &Option<BitVec<4000>>,
     );
 
     /// called whenever a burn block is about to be
@@ -189,13 +192,6 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
-    );
-
-    fn announce_reward_set(
-        &self,
-        reward_set: &RewardSet,
-        block_id: &StacksBlockId,
-        cycle_number: u64,
     );
 }
 
@@ -243,6 +239,8 @@ pub struct ChainsCoordinator<
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
+    /// whether or not the canonical tip is now a Nakamoto header
+    pub in_nakamoto_epoch: bool,
 }
 
 #[derive(Debug)]
@@ -360,10 +358,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
                 error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
                 return Err(Error::PoXAnchorBlockRequired);
             }
-        }
-
-        if let Some(dispatcher) = self.0 {
-            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
         Ok(reward_set)
@@ -548,6 +542,7 @@ impl<
             config,
             burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
+            in_nakamoto_epoch: false,
         };
 
         let mut nakamoto_available = false;
@@ -709,6 +704,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
+            in_nakamoto_epoch: false,
         }
     }
 }
@@ -2493,7 +2489,7 @@ impl<
                 BurnchainDB::get_burnchain_block(&self.burnchain_blocks_db.conn(), &cursor)
                     .map_err(|e| {
                         warn!(
-                            "ChainsCoordinator: could not retrieve  block burnhash={}",
+                            "ChainsCoordinator: could not retrieve block burnhash={}",
                             &cursor
                         );
                         Error::NonContiguousBurnchainBlock(e)
@@ -3458,11 +3454,99 @@ pub fn check_chainstate_db_versions(
     Ok(true)
 }
 
+/// Sortition DB migrator.
+/// This is an opaque struct that is meant to assist migrating an epoch 2.1-2.4 chainstate to epoch
+/// 2.5.  It will not work for 2.5 to 3.0+
+pub struct SortitionDBMigrator {
+    chainstate: Option<StacksChainState>,
+    burnchain: Burnchain,
+    burnchain_db: BurnchainDB,
+}
+
+impl SortitionDBMigrator {
+    /// Instantiate the migrator.
+    /// The chainstate must already exist
+    pub fn new(
+        burnchain: Burnchain,
+        chainstate_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<Self, Error> {
+        let db_config = StacksChainState::get_db_config_from_path(&chainstate_path)?;
+        let (chainstate, _) = StacksChainState::open(
+            db_config.mainnet,
+            db_config.chain_id,
+            chainstate_path,
+            marf_opts,
+        )?;
+        let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
+
+        Ok(Self {
+            chainstate: Some(chainstate),
+            burnchain,
+            burnchain_db,
+        })
+    }
+
+    /// Get the burnchain reference
+    pub fn get_burnchain(&self) -> &Burnchain {
+        &self.burnchain
+    }
+
+    /// Regenerate a reward cycle.  Do this by re-calculating the RewardSetInfo for the given
+    /// reward cycle.  This should store the preprocessed reward cycle info to the sortition DB.
+    pub fn regenerate_reward_cycle_info(
+        &mut self,
+        sort_db: &mut SortitionDB,
+        reward_cycle: u64,
+    ) -> Result<RewardCycleInfo, DBError> {
+        let rc_start = sort_db
+            .pox_constants
+            .reward_cycle_to_block_height(sort_db.first_block_height, reward_cycle)
+            .saturating_sub(1);
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
+
+        let ancestor_sn = {
+            let sort_ih = sort_db.index_handle(&sort_tip.sortition_id);
+            let sn = sort_ih
+                .get_block_snapshot_by_height(rc_start)?
+                .ok_or(DBError::NotFoundError)?;
+            sn
+        };
+
+        let mut chainstate = self
+            .chainstate
+            .take()
+            .expect("FATAL: failed to replace chainstate");
+
+        // NOTE: this stores the preprocessed reward cycle info to the sortition DB as a
+        // side-effect!
+        let rc_info_opt_res = get_reward_cycle_info(
+            ancestor_sn.block_height + 1,
+            &ancestor_sn.burn_header_hash,
+            &ancestor_sn.sortition_id,
+            &self.burnchain,
+            &self.burnchain_db,
+            &mut chainstate,
+            sort_db,
+            &OnChainRewardSetProvider::new(),
+            true,
+        )
+        .map_err(|e| DBError::Other(format!("get_reward_cycle_info: {:?}", &e)));
+
+        self.chainstate = Some(chainstate);
+
+        let rc_info = rc_info_opt_res?
+            .expect("FATAL: No reward cycle info calculated at a reward-cycle start");
+        Ok(rc_info)
+    }
+}
+
 /// Migrate all databases to their latest schemas.
 /// Verifies that this is possible as well
 #[cfg_attr(test, mutants::skip)]
 pub fn migrate_chainstate_dbs(
     epochs: &[StacksEpoch],
+    burnchain: &Burnchain,
     sortdb_path: &str,
     chainstate_path: &str,
     chainstate_marf_opts: Option<MARFOpenOpts>,
@@ -3474,7 +3558,12 @@ pub fn migrate_chainstate_dbs(
 
     if fs::metadata(&sortdb_path).is_ok() {
         info!("Migrating sortition DB to the latest schema version");
-        SortitionDB::migrate_if_exists(&sortdb_path, epochs)?;
+        let migrator = SortitionDBMigrator::new(
+            burnchain.clone(),
+            chainstate_path,
+            chainstate_marf_opts.clone(),
+        )?;
+        SortitionDB::migrate_if_exists(&sortdb_path, epochs, migrator)?;
     }
     if fs::metadata(&chainstate_path).is_ok() {
         info!("Migrating chainstate DB to the latest schema version");

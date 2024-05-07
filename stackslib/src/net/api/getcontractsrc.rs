@@ -86,6 +86,10 @@ impl HttpRequest for RPCGetContractSrcRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/contracts/source/:principal/:contract_name"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -141,12 +145,12 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                         let source = db.get_contract_src(&contract_identifier)?;
                         let contract_commit_key = make_contract_hash_key(&contract_identifier);
                         let (contract_commit, proof) = if with_proof {
-                            db.get_with_proof::<ContractCommitment>(&contract_commit_key)
+                            db.get_data_with_proof::<ContractCommitment>(&contract_commit_key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                         } else {
-                            db.get::<ContractCommitment>(&contract_commit_key)
+                            db.get_data::<ContractCommitment>(&contract_commit_key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))?

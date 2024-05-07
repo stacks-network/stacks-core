@@ -972,14 +972,14 @@ impl StacksChainState {
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
                     let msg = format!("Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions");
-                    warn!("{}", &msg);
+                    info!("{}", &msg);
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 if *addr == origin_account.principal {
                     let msg = format!("Invalid TokenTransfer: address tried to send to itself");
-                    warn!("{}", &msg);
+                    info!("{}", &msg);
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
@@ -1090,7 +1090,7 @@ impl StacksChainState {
                             if epoch_id >= StacksEpochId::Epoch21 {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
-                                warn!("Contract-call encountered an analysis error at runtime";
+                                info!("Contract-call encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
                                       "origin_nonce" => %origin_account.nonce,
@@ -1165,7 +1165,7 @@ impl StacksChainState {
                 // (because this can be checked statically by the miner before mining the block).
                 if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
                     let msg = format!("Duplicate contract '{}'", &contract_id);
-                    warn!("{}", &msg);
+                    info!("{}", &msg);
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
@@ -1227,7 +1227,7 @@ impl StacksChainState {
                                     .sub(&cost_before)
                                     .expect("BUG: total block cost decreased");
 
-                                warn!(
+                                info!(
                                     "Runtime error in contract analysis for {}: {:?}",
                                     &contract_id, &other_error;
                                     "txid" => %tx.txid(),
@@ -1344,7 +1344,7 @@ impl StacksChainState {
                             if epoch_id >= StacksEpochId::Epoch21 {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
-                                warn!("Smart-contract encountered an analysis error at runtime";
+                                info!("Smart-contract encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
@@ -1395,7 +1395,7 @@ impl StacksChainState {
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
                     let msg = format!("Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions");
-                    warn!("{}", &msg);
+                    info!("{}", &msg);
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
@@ -1427,7 +1427,7 @@ impl StacksChainState {
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
                     let msg = format!("Invalid Stacks transaction: TenureChange transactions do not support post-conditions");
-                    warn!("{msg}");
+                    info!("{msg}");
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
@@ -1490,7 +1490,7 @@ impl StacksChainState {
             // requires 2.1 and higher
             if clarity_block.get_epoch() < StacksEpochId::Epoch21 {
                 let msg = format!("Invalid transaction {}: asks for Clarity2, but not in Stacks epoch 2.1 or later", tx.txid());
-                warn!("{}", &msg);
+                info!("{}", &msg);
                 return Err(Error::InvalidStacksTransaction(msg, false));
             }
         }

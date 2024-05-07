@@ -83,26 +83,35 @@ pub mod pox4 {
     define_named_enum!(Pox4SignatureTopic {
         StackStx("stack-stx"),
         AggregationCommit("agg-commit"),
+        AggregationIncrease("agg-increase"),
         StackExtend("stack-extend"),
+        StackIncrease("stack-increase"),
     });
 
     pub fn make_pox_4_signed_data_domain(chain_id: u32) -> Value {
         make_structured_data_domain("pox-4-signer", "1.0.0", chain_id)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_pox_4_signer_key_message_hash(
         pox_addr: &PoxAddress,
         reward_cycle: u128,
         topic: &Pox4SignatureTopic,
         chain_id: u32,
         period: u128,
+        max_amount: u128,
+        auth_id: u128,
     ) -> Sha256Sum {
         let domain_tuple = make_pox_4_signed_data_domain(chain_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
                     "pox-addr".into(),
-                    pox_addr.clone().as_clarity_tuple().unwrap().into(),
+                    pox_addr
+                        .clone()
+                        .as_clarity_tuple()
+                        .expect("Error creating signature hash - invalid PoX Address")
+                        .into(),
                 ),
                 ("reward-cycle".into(), Value::UInt(reward_cycle)),
                 ("period".into(), Value::UInt(period)),
@@ -110,23 +119,28 @@ pub mod pox4 {
                     "topic".into(),
                     Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 ),
+                ("auth-id".into(), Value::UInt(auth_id)),
+                ("max-amount".into(), Value::UInt(max_amount)),
             ])
-            .unwrap(),
+            .expect("Error creating signature hash"),
         );
         structured_data_message_hash(data_tuple, domain_tuple)
     }
 
     impl Into<Pox4SignatureTopic> for &'static str {
+        #[cfg_attr(test, mutants::skip)]
         fn into(self) -> Pox4SignatureTopic {
             match self {
                 "stack-stx" => Pox4SignatureTopic::StackStx,
                 "agg-commit" => Pox4SignatureTopic::AggregationCommit,
                 "stack-extend" => Pox4SignatureTopic::StackExtend,
+                "stack-increase" => Pox4SignatureTopic::StackIncrease,
                 _ => panic!("Invalid pox-4 signature topic"),
             }
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_pox_4_signer_key_signature(
         pox_addr: &PoxAddress,
         signer_key: &StacksPrivateKey,
@@ -134,9 +148,18 @@ pub mod pox4 {
         topic: &Pox4SignatureTopic,
         chain_id: u32,
         period: u128,
+        max_amount: u128,
+        auth_id: u128,
     ) -> Result<MessageSignature, &'static str> {
-        let msg_hash =
-            make_pox_4_signer_key_message_hash(pox_addr, reward_cycle, topic, chain_id, period);
+        let msg_hash = make_pox_4_signer_key_message_hash(
+            pox_addr,
+            reward_cycle,
+            topic,
+            chain_id,
+            period,
+            max_amount,
+            auth_id,
+        );
         signer_key.sign(msg_hash.as_bytes())
     }
 
@@ -166,6 +189,8 @@ pub mod pox4 {
             topic: &Pox4SignatureTopic,
             lock_period: u128,
             sender: &PrincipalData,
+            max_amount: u128,
+            auth_id: u128,
         ) -> Vec<u8> {
             let pox_contract_id = boot_code_id(POX_4_NAME, false);
             sim.execute_next_block_as_conn(|conn| {
@@ -178,11 +203,13 @@ pub mod pox4 {
                     LimitedCostTracker::new_free(),
                     |env| {
                         let program = format!(
-                            "(get-signer-key-message-hash {} u{} \"{}\" u{})",
+                            "(get-signer-key-message-hash {} u{} \"{}\" u{} u{} u{})",
                             Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
                             reward_cycle,
                             topic.get_name_str(),
-                            lock_period
+                            lock_period,
+                            max_amount,
+                            auth_id,
                         );
                         env.eval_read_only(&pox_contract_id, &program)
                     },
@@ -243,6 +270,8 @@ pub mod pox4 {
             let reward_cycle: u128 = 1;
             let topic = Pox4SignatureTopic::StackStx;
             let lock_period = 12;
+            let auth_id = 111;
+            let max_amount = u128::MAX;
 
             let expected_hash_vec = make_pox_4_signer_key_message_hash(
                 &pox_addr,
@@ -250,6 +279,8 @@ pub mod pox4 {
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
                 lock_period,
+                max_amount,
+                auth_id,
             );
             let expected_hash = expected_hash_vec.as_bytes();
 
@@ -262,6 +293,8 @@ pub mod pox4 {
                 &topic,
                 lock_period,
                 &principal,
+                max_amount,
+                auth_id,
             );
             assert_eq!(expected_hash.clone(), result.as_slice());
 
@@ -277,6 +310,8 @@ pub mod pox4 {
                 &topic,
                 lock_period,
                 &principal,
+                max_amount,
+                auth_id,
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
 
@@ -288,6 +323,8 @@ pub mod pox4 {
                 &topic,
                 lock_period,
                 &principal,
+                max_amount,
+                auth_id,
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
 
@@ -299,6 +336,8 @@ pub mod pox4 {
                 &Pox4SignatureTopic::AggregationCommit,
                 lock_period,
                 &principal,
+                max_amount,
+                auth_id,
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
 
@@ -310,6 +349,34 @@ pub mod pox4 {
                 &topic,
                 0,
                 &principal,
+                max_amount,
+                auth_id,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+
+            // Test 5: invalid max amount
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                reward_cycle,
+                &topic,
+                lock_period,
+                &principal,
+                1010101,
+                auth_id,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+
+            // Test 6: invalid auth id
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                reward_cycle,
+                &topic,
+                lock_period,
+                &principal,
+                max_amount,
+                10101,
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
         }
@@ -317,12 +384,14 @@ pub mod pox4 {
         #[test]
         /// Fixture message hash to test against in other libraries
         fn test_sig_hash_fixture() {
-            let fixture = "3dd864afd98609df3911a7ab6f0338ace129e56ad394d85866d298a7eda3ad98";
+            let fixture = "ec5b88aa81a96a6983c26cdba537a13d253425348ffc0ba6b07130869b025a2d";
             let pox_addr = PoxAddress::standard_burn_address(false);
             let pubkey_hex = "0206952cd8813a64f7b97144c984015490a8f9c5778e8f928fbc8aa6cbf02f48e6";
             let pubkey = Secp256k1PublicKey::from_hex(pubkey_hex).unwrap();
             let reward_cycle: u128 = 1;
             let lock_period = 12;
+            let auth_id = 111;
+            let max_amount = u128::MAX;
 
             let message_hash = make_pox_4_signer_key_message_hash(
                 &pox_addr,
@@ -330,6 +399,8 @@ pub mod pox4 {
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
                 lock_period,
+                max_amount,
+                auth_id,
             );
 
             assert_eq!(to_hex(message_hash.as_bytes()), fixture);

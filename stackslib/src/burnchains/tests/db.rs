@@ -16,6 +16,7 @@
 
 use std::cmp;
 
+use rusqlite::{ToSql, NO_PARAMS};
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -27,7 +28,8 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::blocks::*;
 use crate::burnchains::bitcoin::*;
-use crate::burnchains::{PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
+use crate::burnchains::db::apply_blockstack_txs_safety_checks;
+use crate::burnchains::{Error as BurnchainError, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::next_txid;
@@ -36,6 +38,55 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::{StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH};
 use crate::util_lib::db::Error as DBError;
+
+impl BurnchainDB {
+    pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
+        let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
+        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
+        opt.ok_or(BurnchainError::MissingParentBlock)
+    }
+
+    /// Get back all of the parsed burnchain operations for a given block.
+    /// Used in testing to replay burnchain data.
+    #[cfg(test)]
+    pub fn get_burnchain_block_ops(
+        &self,
+        block_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+        let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
+        let args: &[&dyn ToSql] = &[block_hash];
+        let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
+        ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
+        Ok(ops)
+    }
+
+    pub fn raw_store_burnchain_block<B: BurnchainHeaderReader>(
+        &mut self,
+        burnchain: &Burnchain,
+        indexer: &B,
+        header: BurnchainBlockHeader,
+        mut blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> Result<(), BurnchainError> {
+        apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
+
+        let db_tx = self.tx_begin()?;
+
+        test_debug!(
+            "Store raw block {},{} (parent {}) with {} ops",
+            &header.block_hash,
+            header.block_height,
+            &header.parent_block_hash,
+            blockstack_ops.len()
+        );
+
+        db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_blockstack_ops(burnchain, indexer, &header, &blockstack_ops)?;
+
+        db_tx.commit()?;
+
+        Ok(())
+    }
+}
 
 impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     fn read_burnchain_headers(

@@ -92,6 +92,10 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/map_entry/:principal/:contract_name/:map_name"
+    }
+
     /// Try to decode this request.
     /// The body must be a hex string, encoded as a JSON string.
     /// So, something like `"123abc"`.  It encodes the map key as a serialized Clarity value.
@@ -183,7 +187,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         let (value_hex, marf_proof): (String, _) = if with_proof {
                             clarity_db
-                                .get_with_proof(&key)
+                                .get_data_with_proof(&key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
@@ -193,7 +197,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
                                 })
                         } else {
                             clarity_db
-                                .get(&key)
+                                .get_data(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))

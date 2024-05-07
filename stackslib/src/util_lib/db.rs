@@ -135,15 +135,24 @@ impl error::Error for Error {
     }
 }
 
+impl From<serde_error> for Error {
+    #[cfg_attr(test, mutants::skip)]
+    fn from(e: serde_error) -> Self {
+        Self::SerializationError(e)
+    }
+}
+
 impl From<sqlite_error> for Error {
-    fn from(e: sqlite_error) -> Error {
-        Error::SqliteError(e)
+    #[cfg_attr(test, mutants::skip)]
+    fn from(e: sqlite_error) -> Self {
+        Self::SqliteError(e)
     }
 }
 
 impl From<MARFError> for Error {
-    fn from(e: MARFError) -> Error {
-        Error::IndexError(e)
+    #[cfg_attr(test, mutants::skip)]
+    fn from(e: MARFError) -> Self {
+        Self::IndexError(e)
     }
 }
 
@@ -736,7 +745,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     block_height: u64,
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
-    assert!(block_height < u32::MAX as u64);
+    assert!(block_height <= u32::MAX as u64);
     let mut read_only = index.reopen_readonly()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)

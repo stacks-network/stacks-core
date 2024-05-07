@@ -5,7 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Next-Branch]
+## Unreleased
+
+### Changed
+
+- Downgraded log messages about transactions from warning to info (#4697)
+
+## [2.5.0.0.3]
+
+This release fixes a regression in `2.5.0.0.0` from `2.4.0.1.0` caused by git merge
+
+## [2.5.0.0.2]
+
+This release fixes two bugs in `2.5.0.0.0`, correctly setting the activation height for 2.5, and the network peer version.
+
+## [2.5.0.0.0]
+
+This release implements the 2.5 Stacks consensus rules which activates at Bitcoin block `840,360`: primarily the instantiation
+of the pox-4 contract. For more details see SIP-021.
+
+This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
+
+**This is a required release before Nakamoto rules are enabled in 3.0.**
+
+
+### Timing of Release from 2.5 to 3.0
+
+Activating Nakamoto will include two epochs:
+
+- **Epoch 2.5:** Pox-4 contract is booted up but no Nakamoto consensus rules take effect.
+- **Epoch 3:** Nakamoto consensus rules take effect.
 
 ### Added
 
@@ -13,9 +42,17 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
 - Stacker bitvec in NakamotoBlock
 - New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
-  - `stack-stx`, `stack-extend`, and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
+  - `stack-stx`, `stack-extend`, `stack-increase` and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
   - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
   - Signer key authorizations can be added via `set-signer-key-authorization` to omit the need for `signer-key` signatures
+  - A `max-amount` field is a field in signer key authorizations and defines the maximum amount of STX that can be locked in a single transaction.
+- Added configuration parameters to customize the burn block at which to start processing Stacks blocks, when running on testnet or regtest.
+  ```
+  [burnchain]
+  first_burn_block_height = 2582526
+  first_burn_block_timestamp = 1710780828
+  first_burn_block_hash = "000000000000001a17c68d43cb577d62074b63a09805e4a07e829ee717507f66"
+  ```
 
 ### Modified
 
@@ -355,7 +392,7 @@ The changelog for this release is a high-level summary of these SIPs.
 ### Added
 
 - Added prometheus output for "transactions in last block" (#3138).
-- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+- Added environment variable STACKS_LOG_FORMAT_TIME to set the time format
   stacks-node uses for logging. (#3219)
   Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
 - Added mock-miner sample config (#3225)

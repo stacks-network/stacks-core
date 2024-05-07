@@ -147,6 +147,13 @@ impl TestSigners {
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
             .expect("aggregator sig failed");
+
+        test_debug!(
+            "Signed Nakamoto block {} with {} (rc {})",
+            block.block_id(),
+            &self.aggregate_public_key,
+            cycle
+        );
         block.header.signer_signature = ThresholdSignature(signature);
     }
 

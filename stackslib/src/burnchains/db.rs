@@ -37,7 +37,7 @@ use crate::util_lib::db::{
 };
 
 pub struct BurnchainDB {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 pub struct BurnchainDBTransaction<'a> {
@@ -140,7 +140,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
 /// Apply safety checks on extracted blockstack transactions
 /// - put them in order by vtxindex
 /// - make sure there are no vtxindex duplicates
-fn apply_blockstack_txs_safety_checks(
+pub(crate) fn apply_blockstack_txs_safety_checks(
     block_height: u64,
     blockstack_txs: &mut Vec<BlockstackOperationType>,
 ) -> () {
@@ -232,6 +232,11 @@ CREATE TABLE burnchain_db_block_ops (
     -- 32-byte transaction ID
     txid TEXT NOT NULL,
 
+    -- This should have been present when we created this table, but we forgot.
+    -- So instead, query methods against this table need to use REPLACE INTO and
+    -- SELECT DISTINCT for compatibility.
+    -- PRIMARY KEY(txid,block_hash),
+
     -- ensure that the operation corresponds to an actual block
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
@@ -261,7 +266,7 @@ CREATE TABLE block_commit_metadata (
     block_height INTEGER NOT NULL,
     -- index into the list of transactions in this block at which this block-commit can be found
     vtxindex INTEGER NOT NULL,
-    
+
     -- ID of this block-commit's affirmation map
     affirmation_id INTEGER NOT NULL,
     -- if not NULL, this block-commit is an anchor block, and this value is the reward cycle for which it is an anchor block
@@ -309,11 +314,11 @@ const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
 impl<'a> BurnchainDBTransaction<'a> {
     /// Store a burnchain block header into the burnchain database.
     /// Returns the row ID on success.
-    fn store_burnchain_db_entry(
+    pub(crate) fn store_burnchain_db_entry(
         &self,
         header: &BurnchainBlockHeader,
-    ) -> Result<i64, BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_headers
+    ) -> Result<(), BurnchainError> {
+        let sql = "INSERT OR IGNORE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
@@ -323,10 +328,15 @@ impl<'a> BurnchainDBTransaction<'a> {
             &u64_to_sql(header.num_txs)?,
             &u64_to_sql(header.timestamp)?,
         ];
-        match self.sql_tx.execute(sql, args) {
-            Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
-            Err(e) => Err(e.into()),
+        let affected_rows = self.sql_tx.execute(sql, args)?;
+        if affected_rows == 0 {
+            // This means a duplicate entry was found and the insert operation was ignored
+            debug!(
+                "Duplicate entry for block_hash: {}, insert operation ignored.",
+                header.block_hash
+            );
         }
+        Ok(())
     }
 
     /// Add an affirmation map into the database.  Returns the affirmation map ID.
@@ -427,7 +437,8 @@ impl<'a> BurnchainDBTransaction<'a> {
     ) -> Result<(), BurnchainError> {
         // find all block-commits for this block
         let commits: Vec<LeaderBlockCommitOp> = {
-            let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+            let block_ops_qry =
+                "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
             let block_ops = query_rows(&self.sql_tx, block_ops_qry, &[&hdr.block_hash])?;
             block_ops
                 .into_iter()
@@ -879,14 +890,14 @@ impl<'a> BurnchainDBTransaction<'a> {
         Ok(())
     }
 
-    fn store_blockstack_ops<B: BurnchainHeaderReader>(
+    pub(crate) fn store_blockstack_ops<B: BurnchainHeaderReader>(
         &self,
         burnchain: &Burnchain,
         indexer: &B,
         block_header: &BurnchainBlockHeader,
         block_ops: &[BlockstackOperationType],
     ) -> Result<(), BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_ops
+        let sql = "REPLACE INTO burnchain_db_block_ops
                    (block_hash, txid, op) VALUES (?, ?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
@@ -943,7 +954,8 @@ impl<'a> BurnchainDBTransaction<'a> {
         affirmation_map: AffirmationMap,
     ) -> Result<(), DBError> {
         assert_eq!((affirmation_map.len() as u64) + 1, reward_cycle);
-        let qry = "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
+        let qry =
+            "INSERT OR REPLACE INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?, &affirmation_map.encode()];
 
         let mut stmt = self.sql_tx.prepare(qry)?;
@@ -1134,7 +1146,7 @@ impl BurnchainDB {
     ) -> Result<BurnchainBlockData, BurnchainError> {
         let block_header_qry =
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
-        let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+        let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
         let block_header = query_row(conn, block_header_qry, &[block])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
@@ -1151,7 +1163,8 @@ impl BurnchainDB {
         burn_header_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
-        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
+        let qry =
+            "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[txid, burn_header_hash];
 
         match query_row(conn, qry, args) {
@@ -1170,7 +1183,7 @@ impl BurnchainDB {
         indexer: &B,
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
-        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1";
+        let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1";
         let args: &[&dyn ToSql] = &[txid];
 
         let ops: Vec<BlockstackOperationType> =
@@ -1414,34 +1427,6 @@ impl BurnchainDB {
 
         self.store_new_burnchain_block_ops_unchecked(burnchain, indexer, &header, &blockstack_ops)?;
         Ok(blockstack_ops)
-    }
-
-    #[cfg(test)]
-    pub fn raw_store_burnchain_block<B: BurnchainHeaderReader>(
-        &mut self,
-        burnchain: &Burnchain,
-        indexer: &B,
-        header: BurnchainBlockHeader,
-        mut blockstack_ops: Vec<BlockstackOperationType>,
-    ) -> Result<(), BurnchainError> {
-        apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
-
-        let db_tx = self.tx_begin()?;
-
-        test_debug!(
-            "Store raw block {},{} (parent {}) with {} ops",
-            &header.block_hash,
-            header.block_height,
-            &header.parent_block_hash,
-            blockstack_ops.len()
-        );
-
-        db_tx.store_burnchain_db_entry(&header)?;
-        db_tx.store_blockstack_ops(burnchain, indexer, &header, &blockstack_ops)?;
-
-        db_tx.commit()?;
-
-        Ok(())
     }
 
     pub fn get_block_commit(

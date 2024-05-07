@@ -293,7 +293,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
             match StacksChainState::get_stacks_block_header_info_by_consensus_hash(
                 chain_state.db(),
                 &sn.consensus_hash,
-            ){
+            ) {
                 Ok(Some(x)) => return Some(Ok(x)),
                 Err(e) => return Some(Err(e)),
                 Ok(None) => {
@@ -483,6 +483,44 @@ impl<
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
             signal_mining_blocked(miner_status.clone());
             debug!("Received new Nakamoto stacks block notice");
+
+            // we may still be processing epoch 2 blocks after the Nakamoto transition, so be sure
+            // to process them so we can get to the Nakamoto blocks!
+            if !self.in_nakamoto_epoch {
+                debug!("Check to see if the system has entered the Nakamoto epoch");
+                if let Ok(Some(canonical_header)) = NakamotoChainState::get_canonical_block_header(
+                    &self.chain_state_db.db(),
+                    &self.sortition_db,
+                ) {
+                    if canonical_header.is_nakamoto_block() {
+                        // great! don't check again
+                        debug!(
+                            "The canonical Stacks tip ({}/{}) is a Nakamoto block!",
+                            &canonical_header.consensus_hash,
+                            &canonical_header.anchored_header.block_hash()
+                        );
+                        self.in_nakamoto_epoch = true;
+                    } else {
+                        // need to process epoch 2 blocks
+                        debug!("Received new epoch 2.x Stacks block notice");
+                        match self.handle_new_stacks_block() {
+                            Ok(missing_block_opt) => {
+                                if missing_block_opt.is_some() {
+                                    debug!(
+                                        "Missing affirmed anchor block: {:?}",
+                                        &missing_block_opt.as_ref().expect("unreachable")
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Error processing new stacks block: {:?}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // now we can process the nakamoto block
             match self.handle_new_nakamoto_stacks_block() {
                 Ok(new_anchor_block_opt) => {
                     if let Some(bhh) = new_anchor_block_opt {
@@ -838,19 +876,21 @@ impl<
                 // N.B. it's `- 2` because `is_reward_cycle_start` implies that `block_height % reward_cycle_length == 1`,
                 // but this call needs `block_height % reward_cycle_length == reward_cycle_length - 1` -- i.e. `block_height`
                 // must be the last block height in the last reward cycle.
+                let end_cycle_block_height = header.block_height.saturating_sub(2);
                 let reward_cycle_info =
-                    self.get_nakamoto_reward_cycle_info(header.block_height - 2)?;
+                    self.get_nakamoto_reward_cycle_info(end_cycle_block_height)?;
                 if let Some(rc_info) = reward_cycle_info.as_ref() {
                     // in nakamoto, if we have any reward cycle info at all, it will be known.
-                    assert!(
-                        rc_info.known_selected_anchor_block().is_some(),
-                        "FATAL: unknown PoX anchor block in Nakamoto"
-                    );
+                    // otherwise, we may have to process some more Stacks blocks
+                    if rc_info.known_selected_anchor_block().is_none() {
+                        warn!("Unknown PoX anchor block in Nakamoto (at height {}). Refusing to process more burnchain blocks until that changes.", end_cycle_block_height);
+                        return Ok(false);
+                    }
                 } else {
                     // have to block -- we don't have the reward cycle information
                     debug!("Do not yet have PoX anchor block for next reward cycle -- no anchor block found";
                            "next_reward_cycle" => self.burnchain.block_height_to_reward_cycle(header.block_height),
-                           "reward_cycle_end" => header.block_height - 2
+                           "reward_cycle_end" => end_cycle_block_height
                     );
                     return Ok(false);
                 }

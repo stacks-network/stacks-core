@@ -32,7 +32,7 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = { workspace = true }
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
+[target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]

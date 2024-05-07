@@ -28,6 +28,7 @@ pub mod uint;
 #[cfg(feature = "vrf")]
 pub mod vrf;
 
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 

@@ -42,6 +42,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
 use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
@@ -97,6 +98,8 @@ fn advance_to_nakamoto(
                         6,
                         &Pox4SignatureTopic::StackStx,
                         12_u128,
+                        u128::MAX,
+                        1,
                     );
                     let signing_key =
                         StacksPublicKey::from_private(&test_stacker.signer_private_key);
@@ -109,6 +112,8 @@ fn advance_to_nakamoto(
                         &signing_key,
                         34,
                         Some(signature),
+                        u128::MAX,
+                        1,
                     )
                 })
                 .collect()
@@ -399,6 +404,7 @@ fn replay_reward_cycle(
             &mut sort_handle,
             &mut node.chainstate,
             block.clone(),
+            None,
         )
         .unwrap();
         if accepted {
@@ -413,6 +419,8 @@ fn replay_reward_cycle(
 
     peer.sortdb = Some(sortdb);
     peer.stacks_node = Some(node);
+
+    peer.check_nakamoto_migration();
 }
 
 /// Mine a single Nakamoto tenure with a single Nakamoto block
@@ -467,6 +475,8 @@ fn test_simple_nakamoto_coordinator_bootup() {
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &blocks.last().unwrap().header
     );
+
+    peer.check_nakamoto_migration();
 }
 
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
@@ -583,6 +593,8 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &blocks.last().unwrap().header
     );
+
+    peer.check_nakamoto_migration();
 }
 
 /// Test chainstate getters against an instantiated epoch2/Nakamoto chain.
@@ -636,7 +648,7 @@ fn test_nakamoto_chainstate_getters() {
         assert_eq!(
             NakamotoChainState::check_sortition_exists(&mut sort_tx, &sort_tip.consensus_hash)
                 .unwrap(),
-            (sort_tip.burn_header_hash.clone(), sort_tip.block_height)
+            sort_tip
         );
     }
 
@@ -812,15 +824,19 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap()
         .is_some());
 
-        // this should fail, since it's not idempotent -- the highest tenure _is_ this tenure
-        assert!(NakamotoChainState::check_nakamoto_tenure(
-            chainstate.db(),
-            &mut sort_tx,
-            &blocks[0].header,
-            &tenure_change_payload,
-        )
-        .unwrap()
-        .is_none());
+        // this should return the previous tenure
+        assert_eq!(
+            NakamotoChainState::check_nakamoto_tenure(
+                chainstate.db(),
+                &mut sort_tx,
+                &blocks[0].header,
+                &tenure_change_payload,
+            )
+            .unwrap()
+            .unwrap()
+            .tenure_id_consensus_hash,
+            tenure_change_payload.prev_tenure_consensus_hash
+        );
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
         let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
@@ -842,14 +858,18 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap();
 
         // check works (this would be the first tenure)
-        assert!(NakamotoChainState::check_nakamoto_tenure(
-            chainstate.db(),
-            &mut sort_tx,
-            &blocks[0].header,
-            &tenure_change_payload,
-        )
-        .unwrap()
-        .is_some());
+        assert_eq!(
+            NakamotoChainState::check_nakamoto_tenure(
+                chainstate.db(),
+                &mut sort_tx,
+                &blocks[0].header,
+                &tenure_change_payload,
+            )
+            .unwrap()
+            .unwrap()
+            .tenure_id_consensus_hash,
+            tenure_change_payload.prev_tenure_consensus_hash
+        );
 
         // restore
         sort_tx
@@ -1045,24 +1065,32 @@ fn test_nakamoto_chainstate_getters() {
         )
         .unwrap();
 
-        assert!(NakamotoChainState::check_nakamoto_tenure(
-            chainstate.db(),
-            &mut sort_tx,
-            &new_blocks[0].header,
-            &tenure_change_payload,
-        )
-        .unwrap()
-        .is_some());
+        assert_eq!(
+            NakamotoChainState::check_nakamoto_tenure(
+                chainstate.db(),
+                &mut sort_tx,
+                &new_blocks[0].header,
+                &tenure_change_payload,
+            )
+            .unwrap()
+            .unwrap()
+            .tenure_id_consensus_hash,
+            tenure_change_payload.prev_tenure_consensus_hash
+        );
 
-        // checks on older confired tenures continue to fail
-        assert!(NakamotoChainState::check_nakamoto_tenure(
-            chainstate.db(),
-            &mut sort_tx,
-            &blocks[0].header,
-            &old_tenure_change_payload,
-        )
-        .unwrap()
-        .is_none());
+        // checks on older confired tenures return the prev tenure
+        assert_eq!(
+            NakamotoChainState::check_nakamoto_tenure(
+                chainstate.db(),
+                &mut sort_tx,
+                &blocks[0].header,
+                &old_tenure_change_payload,
+            )
+            .unwrap()
+            .unwrap()
+            .tenure_id_consensus_hash,
+            old_tenure_change_payload.prev_tenure_consensus_hash
+        );
 
         // restore
         sort_tx
@@ -1082,6 +1110,8 @@ fn test_nakamoto_chainstate_getters() {
         )
         .unwrap();
     }
+
+    peer.check_nakamoto_migration();
 }
 
 /// Mine a 10 Nakamoto tenures with between 1 and 10 Nakamoto blocks each.
@@ -1473,6 +1503,8 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &rc_blocks.last().unwrap().last().unwrap().header
     );
+
+    peer.check_nakamoto_migration();
     return peer;
 }
 
@@ -1814,6 +1846,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         &blocks.last().unwrap().header
     );
 
+    peer.check_nakamoto_migration();
     return peer;
 }
 
@@ -2138,6 +2171,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         &rc_blocks.last().unwrap().last().unwrap().header
     );
 
+    peer.check_nakamoto_migration();
     return peer;
 }
 

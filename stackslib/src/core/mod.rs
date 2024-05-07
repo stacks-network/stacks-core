@@ -61,7 +61,7 @@ pub const PEER_VERSION_EPOCH_3_0: u8 = 0x0b;
 
 // this should be updated to the latest network epoch version supported by
 //  this node. this will be checked by the `validate_epochs()` method.
-pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_0 as u32;
+pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_5 as u32;
 
 // set the fourth byte of the peer version
 pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
@@ -121,7 +121,7 @@ pub const BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT: u64 = 788_240;
 /// This is Epoch-2.3, now Epoch-2.4, activation height proposed in SIP-024
 pub const BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT: u64 = 791_551;
 /// This is Epoch-2.5, activation height proposed in SIP-021
-pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 1_000_000;
+pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 840_360;
 /// This is Epoch-3.0, activation height proposed in SIP-021
 pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 2_000_000;
 
@@ -134,8 +134,13 @@ pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 2_422_101;
 pub const BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT: u64 = 2_431_300;
 pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_633;
 pub const BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT: u64 = 2_432_545;
-pub const BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT: u64 = 20_000_000;
+pub const BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT: u64 = 2_583_893;
 pub const BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT: u64 = 30_000_000;
+
+/// This constant sets the approximate testnet bitcoin height at which 2.5 Xenon
+///  was reorged back to 2.5 instantiation. This is only used to calculate the
+///  expected affirmation maps (so it only must be accurate to the reward cycle).
+pub const BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT: u64 = 2_586_000;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -374,14 +379,14 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
-            end_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+            end_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            start_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
@@ -443,13 +448,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6000,
-            end_height: 7000,
+            end_height: 7001,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 7000,
+            start_height: 7001,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
@@ -1426,10 +1431,14 @@ impl StacksEpochExtension for StacksEpoch {
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        assert!(
-            max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
-            "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
-        );
+        if max_epoch.epoch_id == StacksEpochId::Epoch30 {
+            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_2_5));
+        } else {
+            assert!(
+                max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
+                "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
+            );
+        }
 
         assert!(
             StacksEpochId::latest() >= max_epoch.epoch_id,

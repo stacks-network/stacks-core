@@ -209,13 +209,19 @@ impl NakamotoBlockProposal {
         let burn_dbconn = sortdb.index_conn();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
-        let expected_burn =
+        let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+        if expected_burn_opt.is_none() {
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::UnknownParent,
+                reason: "Failed to find parent expected burns".into(),
+            });
+        };
 
         // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
-            expected_burn,
+            expected_burn_opt,
             &self.block,
             mainnet,
             self.chain_id,
@@ -251,6 +257,7 @@ impl NakamotoBlockProposal {
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
+            self.block.header.signer_bitvec.len(),
         )?;
 
         let mut miner_tenure_info =
@@ -342,11 +349,15 @@ impl NakamotoBlockProposal {
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
     pub block_proposal: Option<NakamotoBlockProposal>,
+    pub auth: Option<String>,
 }
 
 impl RPCBlockProposalRequestHandler {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            block_proposal: None,
+            auth,
+        }
     }
 
     /// Decode a JSON-encoded block proposal
@@ -366,6 +377,10 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         Regex::new(r#"^/v2/block_proposal$"#).unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/block_proposal"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -375,24 +390,22 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        // Only accept requests from localhost
-        let is_loopback = match preamble.host {
-            // Should never be DNS
-            PeerHost::DNS(..) => false,
-            PeerHost::IP(addr, ..) => addr.is_loopback(),
+        // If no authorization is set, then the block proposal endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
         };
-
-        if !is_loopback {
-            return Err(Error::Http(403, "Forbidden".into()));
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
         }
-
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected non-zero-length body for block proposal endpoint"
                     .to_string(),
             ));
         }
-
         if preamble.get_content_length() > MAX_PAYLOAD_LEN {
             return Err(Error::DecodeError(
                 "Invalid Http request: BlockProposal body is too big".to_string(),

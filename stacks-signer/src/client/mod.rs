@@ -23,7 +23,6 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
-use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -48,9 +47,6 @@ pub enum ClientError {
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
-    /// Failed to write to stacker-db due to RPC error
-    #[error("Failed to write to stacker-db instance: {0}")]
-    PutChunkFailed(#[from] RPCError),
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
@@ -72,39 +68,24 @@ pub enum ClientError {
     /// Failed to parse a Clarity value
     #[error("Received a malformed clarity value: {0}")]
     MalformedClarityValue(String),
-    /// Invalid Clarity Name
-    #[error("Invalid Clarity Name: {0}")]
-    InvalidClarityName(String),
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
     /// Not connected
     #[error("Not connected")]
     NotConnected,
-    /// Invalid signing key
-    #[error("Signing key not represented in the list of signers")]
-    InvalidSigningKey,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
     ClarityError(#[from] ClarityError),
-    /// Our stacks address does not belong to a registered signer
-    #[error("Our stacks address does not belong to a registered signer")]
-    NotRegistered,
-    /// Reward set not yet calculated for the given reward cycle
-    #[error("Reward set not yet calculated for reward cycle: {0}")]
-    RewardSetNotYetCalculated(u64),
     /// Malformed reward set
     #[error("Malformed contract data: {0}")]
     MalformedContractData(String),
-    /// No reward set exists for the given reward cycle
-    #[error("No reward set exists for reward cycle {0}")]
-    NoRewardSet(u64),
-    /// Reward set contained corrupted data
-    #[error("{0}")]
-    CorruptedRewardSet(String),
     /// Stacks node does not support a feature we need
     #[error("Stacks node does not support a required feature: {0}")]
     UnsupportedStacksFeature(String),
+    /// Invalid response from the stacks node
+    #[error("Invalid response from the stacks node: {0}")]
+    InvalidResponse(String),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
@@ -138,10 +119,13 @@ pub(crate) mod tests {
     use blockstack_lib::net::api::getpoxinfo::{
         RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
     };
+    use blockstack_lib::net::api::postfeerate::{RPCFeeEstimate, RPCFeeEstimateResponse};
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
+    use libsigner::SignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -156,7 +140,8 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, RegisteredSignersInfo, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig};
+    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -170,7 +155,7 @@ pub(crate) mod tests {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
-            config.node_host = mock_server_addr;
+            config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
             Self {
@@ -204,16 +189,7 @@ pub(crate) mod tests {
 
     /// Create a mock server on a same port as in the config
     pub fn mock_server_from_config(config: &GlobalConfig) -> TcpListener {
-        TcpListener::bind(config.node_host).unwrap()
-    }
-
-    /// Create a mock server on the same port as the config and write a response to it
-    pub fn mock_server_from_config_and_write_response(
-        config: &GlobalConfig,
-        bytes: &[u8],
-    ) -> [u8; 1024] {
-        let mock_server = mock_server_from_config(config);
-        write_response(mock_server, bytes)
+        TcpListener::bind(config.node_host.to_string()).unwrap()
     }
 
     /// Write a response to the mock server and return the request bytes
@@ -258,7 +234,7 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
-    /// Build a response to get_pox_data where it returns a specific reward cycle id and block height
+    /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
     pub fn build_get_pox_data_response(
         reward_cycle: Option<u64>,
         prepare_phase_start_height: Option<u64>,
@@ -353,7 +329,28 @@ pub(crate) mod tests {
         build_read_only_response(&clarity_value)
     }
 
-    /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
+    /// Build a response for the get_approved_aggregate_key request
+    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
+        let clarity_value = if let Some(point) = point {
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "aggregate-public-key".into(),
+                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                            .expect("BUG: Failed to create clarity value from point"),
+                    ),
+                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
+    /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
         pox_consensus_hash: Option<ConsensusHash>,
@@ -405,6 +402,44 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
+    /// Build a response for the get_medium_estimated_fee_ustx_response request with a specific medium estimate
+    pub fn build_get_medium_estimated_fee_ustx_response(
+        medium_estimate: u64,
+    ) -> (String, RPCFeeEstimateResponse) {
+        // Generate some random info
+        let fee_response = RPCFeeEstimateResponse {
+            estimated_cost: ExecutionCost {
+                write_length: thread_rng().next_u64(),
+                write_count: thread_rng().next_u64(),
+                read_length: thread_rng().next_u64(),
+                read_count: thread_rng().next_u64(),
+                runtime: thread_rng().next_u64(),
+            },
+            estimated_cost_scalar: thread_rng().next_u64(),
+            cost_scalar_change_by_byte: thread_rng().next_u32() as f64,
+            estimations: vec![
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: thread_rng().next_u64(),
+                },
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: medium_estimate,
+                },
+                RPCFeeEstimate {
+                    fee_rate: thread_rng().next_u32() as f64,
+                    fee: thread_rng().next_u64(),
+                },
+            ],
+        };
+        let fee_response_json = serde_json::to_string(&fee_response)
+            .expect("Failed to serialize fee estimate response");
+        (
+            format!("HTTP/1.1 200 OK\n\n{fee_response_json}"),
+            fee_response,
+        )
+    }
+
     /// Generate a signer config with the given number of signers and keys where the first signer is
     /// obtained from the provided global config
     pub fn generate_signer_config(
@@ -434,7 +469,7 @@ pub(crate) mod tests {
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
-        let mut signer_slot_ids = HashMap::new();
+        let mut signer_slot_ids = vec![];
         let ecdsa_private_key = config.ecdsa_private_key;
         let ecdsa_public_key =
             ecdsa::PublicKey::new(&ecdsa_private_key).expect("Failed to create ecdsa public key");
@@ -468,7 +503,7 @@ pub(crate) mod tests {
                     &StacksPublicKey::from_slice(ecdsa_public_key.to_bytes().as_slice())
                         .expect("Failed to create stacks public key"),
                 );
-                signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+                signer_slot_ids.push(SignerSlotID(signer_id));
                 signer_ids.insert(address, signer_id);
 
                 continue;
@@ -495,26 +530,26 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
-            signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
+            signer_slot_ids.push(SignerSlotID(signer_id));
             signer_ids.insert(address, signer_id);
             start_key_id = end_key_id;
         }
         SignerConfig {
             reward_cycle,
             signer_id: 0,
-            signer_slot_id: 0,
+            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
             key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-            registered_signers: RegisteredSignersInfo {
-                signer_slot_ids,
+            signer_entries: SignerEntries {
                 public_keys,
                 coordinator_key_ids,
                 signer_key_ids,
                 signer_ids,
                 signer_public_keys,
             },
+            signer_slot_ids,
             ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
-            node_host: config.node_host,
+            node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             dkg_end_timeout: config.dkg_end_timeout,
             dkg_private_timeout: config.dkg_private_timeout,
@@ -522,6 +557,32 @@ pub(crate) mod tests {
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
             tx_fee_ustx: config.tx_fee_ustx,
+            max_tx_fee_ustx: config.max_tx_fee_ustx,
+            db_path: config.db_path.clone(),
         }
+    }
+
+    pub fn build_get_round_info_response(info: Option<(u64, u64)>) -> String {
+        let clarity_value = if let Some((vote_count, vote_weight)) = info {
+            ClarityValue::some(ClarityValue::Tuple(
+                TupleData::from_data(vec![
+                    ("votes-count".into(), ClarityValue::UInt(vote_count as u128)),
+                    (
+                        "votes-weight".into(),
+                        ClarityValue::UInt(vote_weight as u128),
+                    ),
+                ])
+                .expect("BUG: Failed to create clarity value from tuple data"),
+            ))
+            .expect("BUG: Failed to create clarity value from tuple data")
+        } else {
+            ClarityValue::none()
+        };
+        build_read_only_response(&clarity_value)
+    }
+
+    pub fn build_get_weight_threshold_response(threshold: u64) -> String {
+        let clarity_value = ClarityValue::UInt(threshold as u128);
+        build_read_only_response(&clarity_value)
     }
 }

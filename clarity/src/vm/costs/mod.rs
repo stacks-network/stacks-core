@@ -793,6 +793,9 @@ impl TrackerData {
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
+    /// TODO: #4587 add test for Err cases
+    /// Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         clarity_db.begin();
         let epoch_id = clarity_db
@@ -818,9 +821,11 @@ impl TrackerData {
 
         self.contract_call_circuits = contract_call_circuits;
 
-        let mut cost_contracts = HashMap::new();
-        let mut m = HashMap::new();
-        for f in ClarityCostFunction::ALL.iter() {
+        let iter = ClarityCostFunction::ALL.iter();
+        let iter_len = iter.len();
+        let mut cost_contracts = HashMap::with_capacity(iter_len);
+        let mut m = HashMap::with_capacity(iter_len);
+        for f in iter {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
@@ -996,7 +1001,7 @@ fn compute_cost(
         )));
     }
 
-    let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
+    let function_invocation = [SymbolicExpression::list(program)];
 
     let eval_result = eval_all(
         &function_invocation,

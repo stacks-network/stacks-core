@@ -4,13 +4,14 @@ use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksPublicKeyBuffer};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
+    VoteForAggregateKeyOp,
 };
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 
@@ -76,6 +77,9 @@ fn test_serialization_stack_stx_op() {
         block_height: 10,
         burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         num_cycles: 10,
+        signer_key: None,
+        max_amount: None,
+        auth_id: None,
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
     let constructed_json = serde_json::json!({
@@ -92,6 +96,58 @@ fn test_serialization_stack_stx_op() {
             "stacked_ustx": 10,
             "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
             "vtxindex": 10,
+            "signer_key": null,
+            "max_amount": null,
+            "auth_id": null,
+        }
+    });
+
+    assert_json_diff::assert_json_eq!(serialized_json, constructed_json);
+}
+
+#[test]
+fn test_serialization_stack_stx_op_with_signer_key() {
+    let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
+    let sender = StacksAddress::from_string(sender_addr).unwrap();
+    let reward_addr = PoxAddress::Standard(
+        StacksAddress {
+            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            bytes: Hash160([0x01; 20]),
+        },
+        None,
+    );
+
+    let op = StackStxOp {
+        sender,
+        reward_addr,
+        stacked_ustx: 10,
+        txid: Txid([10u8; 32]),
+        vtxindex: 10,
+        block_height: 10,
+        burn_header_hash: BurnchainHeaderHash([0x10; 32]),
+        num_cycles: 10,
+        signer_key: Some(StacksPublicKeyBuffer([0x01; 33])),
+        max_amount: Some(10),
+        auth_id: Some(0u32),
+    };
+    let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
+    let constructed_json = serde_json::json!({
+        "stack_stx": {
+            "burn_block_height": 10,
+            "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+            "num_cycles": 10,
+            "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
+            "sender": {
+                "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+                "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+                "address_version": 26,
+            },
+            "stacked_ustx": 10,
+            "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+            "vtxindex": 10,
+            "signer_key": "01".repeat(33),
+            "max_amount": 10,
+            "auth_id": 0,
         }
     });
 
@@ -175,5 +231,49 @@ fn test_serialization_delegate_stx_op() {
         }
     });
 
+    assert_json_diff::assert_json_eq!(serialized_json, constructed_json);
+}
+
+#[test]
+fn test_serialization_vote_for_aggregate_key_op() {
+    let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
+    let sender = StacksAddress::from_string(sender_addr).unwrap();
+    let op = VoteForAggregateKeyOp {
+        sender,
+        reward_cycle: 10,
+        round: 1,
+        signer_index: 12,
+        signer_key: StacksPublicKeyBuffer([0x01; 33]),
+        aggregate_key: StacksPublicKeyBuffer([0x02; 33]),
+        txid: Txid([10u8; 32]),
+        vtxindex: 10,
+        block_height: 10,
+        burn_header_hash: BurnchainHeaderHash([0x10; 32]),
+    };
+    // Test both the generic and specific serialization fns
+    let serialized_json = BlockstackOperationType::blockstack_op_to_json(
+        &BlockstackOperationType::VoteForAggregateKey(op.clone()),
+    );
+    let specialized_json_fn = BlockstackOperationType::vote_for_aggregate_key_to_json(&op);
+    let constructed_json = serde_json::json!({
+        "vote_for_aggregate_key": {
+            "aggregate_key": "02".repeat(33),
+            "burn_block_height": 10,
+            "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+            "reward_cycle": 10,
+            "round": 1,
+            "sender": {
+                "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+                "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+                "address_version": 26,
+            },
+            "signer_index": 12,
+            "signer_key": "01".repeat(33),
+            "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+            "vtxindex": 10,
+        }
+    });
+
+    assert_json_diff::assert_json_eq!(specialized_json_fn, constructed_json.clone());
     assert_json_diff::assert_json_eq!(serialized_json, constructed_json);
 }

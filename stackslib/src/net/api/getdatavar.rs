@@ -86,6 +86,10 @@ impl HttpRequest for RPCGetDataVarRequestHandler {
         .unwrap()
     }
 
+    fn metrics_identifier(&self) -> &str {
+        "/v2/data_var/:principal/:contract_name/:var_name"
+    }
+
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
@@ -154,12 +158,16 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof(&key)
+                            .get_data_with_proof(&key)
                             .ok()
                             .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get(&key).ok().flatten().map(|a| (a, None))?
+                        clarity_db
+                            .get_data(&key)
+                            .ok()
+                            .flatten()
+                            .map(|a| (a, None))?
                     };
 
                     let data = format!("0x{}", value_hex);

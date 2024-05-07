@@ -22,7 +22,6 @@ pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;
 pub mod keychain;
-pub mod mockamoto;
 pub mod nakamoto_node;
 pub mod neon_node;
 pub mod node;
@@ -42,7 +41,7 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
 pub use self::burnchains::{
@@ -55,11 +54,10 @@ pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 use crate::chain_data::MinerStats;
-use crate::mockamoto::MockamotoNode;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
@@ -67,7 +65,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -107,7 +105,7 @@ fn cli_get_miner_spend(
 ) -> u64 {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(&config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -322,10 +320,6 @@ fn main() {
             args.finish();
             ConfigFile::mainnet()
         }
-        "mockamoto" => {
-            args.finish();
-            ConfigFile::mockamoto()
-        }
         "check-config" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
@@ -340,7 +334,7 @@ fn main() {
                     process::exit(1);
                 }
             };
-            match Config::from_config_file(config_file) {
+            match Config::from_config_file(config_file, true) {
                 Ok(_) => {
                     info!("Loaded config!");
                     process::exit(0);
@@ -371,9 +365,11 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf =
-                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
-                            .unwrap();
+                    let conf = Config::from_config_file(
+                        ConfigFile::from_path(&config_path).unwrap(),
+                        true,
+                    )
+                    .unwrap();
                     args.finish();
                     conf.node.seed
                 } else {
@@ -422,7 +418,7 @@ fn main() {
         }
     };
 
-    let conf = match Config::from_config_file(config_file) {
+    let conf = match Config::from_config_file(config_file, true) {
         Ok(conf) => conf,
         Err(e) => {
             warn!("Invalid config: {}", e);
@@ -443,16 +439,11 @@ fn main() {
             return;
         }
     } else if conf.burnchain.mode == "neon"
+        || conf.burnchain.mode == "nakamoto-neon"
         || conf.burnchain.mode == "xenon"
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
-        let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(None, mine_start.unwrap_or(0));
-    } else if conf.burnchain.mode == "mockamoto" {
-        let mut mockamoto = MockamotoNode::new(&conf).unwrap();
-        mockamoto.run();
-    } else if conf.burnchain.mode == "nakamoto-neon" {
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {

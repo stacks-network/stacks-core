@@ -765,6 +765,7 @@ dependencies = [
  "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
+ "mutants",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "regex",
@@ -2337,6 +2338,7 @@ dependencies = [
  "hashbrown 0.14.3",
  "libc",
  "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "mutants",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "secp256k1",
@@ -2352,7 +2354,7 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "thiserror",
  "tiny_http",
- "wsts",
+ "wsts 9.0.0",
 ]
 
 [[package]]
@@ -2376,7 +2378,7 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "thiserror",
  "tiny_http",
- "wsts",
+ "wsts 8.1.0",
 ]
 
 [[package]]
@@ -2431,9 +2433,9 @@ checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
 
 [[package]]
 name = "lock_api"
-version = "0.4.11"
+version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c168f8615b12bc01f9c17e2eb0cc07dcae1940121185446edc3744920e8ef45"
+checksum = "07af8b9cdd281b7915f413fa73f29ebd5d55d0d3f0155584dade1ff18cea1b17"
 dependencies = [
  "autocfg",
  "scopeguard",
@@ -2687,9 +2689,9 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
-version = "7.0.0"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a64d160b891178fb9d43d1a58ddcafb6502daeb54d810e5e92a7c3c9bfacc07"
+checksum = "a40a031a559eb38c35a14096f21c366254501a06d41c4b327d2a7515d713a5b7"
 dependencies = [
  "bitvec",
  "bs58 0.4.0",
@@ -3998,7 +4000,7 @@ dependencies = [
  "slog-term",
  "time 0.3.34",
  "winapi 0.3.9",
- "wsts",
+ "wsts 9.0.0",
 ]
 
 [[package]]
@@ -4030,7 +4032,7 @@ dependencies = [
  "slog-term",
  "time 0.3.34",
  "winapi 0.3.9",
- "wsts",
+ "wsts 8.1.0",
 ]
 
 [[package]]
@@ -4071,7 +4073,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts",
+ "wsts 9.0.0",
 ]
 
 [[package]]
@@ -4084,9 +4086,12 @@ dependencies = [
  "hashbrown 0.14.3",
  "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "num-traits",
+ "polynomial",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
+ "rusqlite",
  "secp256k1",
  "serde",
  "serde_derive",
@@ -4102,7 +4107,8 @@ dependencies = [
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "url",
+ "wsts 9.0.0",
 ]
 
 [[package]]
@@ -4132,7 +4138,7 @@ dependencies = [
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "wsts 8.1.0",
 ]
 
 [[package]]
@@ -4182,7 +4188,7 @@ dependencies = [
  "time 0.3.34",
  "url",
  "winapi 0.3.9",
- "wsts",
+ "wsts 9.0.0",
 ]
 
 [[package]]
@@ -4226,7 +4232,7 @@ dependencies = [
  "time 0.3.34",
  "url",
  "winapi 0.3.9",
- "wsts",
+ "wsts 8.1.0",
 ]
 
 [[package]]
@@ -5729,6 +5735,28 @@ name = "wsts"
 version = "8.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "467aa8e40ed0277d19922fd0e7357c16552cb900e5138f61a48ac23c4b7878e0"
+dependencies = [
+ "aes-gcm 0.10.3",
+ "bs58 0.5.0",
+ "hashbrown 0.14.3",
+ "hex",
+ "num-traits",
+ "p256k1",
+ "polynomial",
+ "primitive-types",
+ "rand_core 0.6.4",
+ "serde",
+ "sha2 0.10.8",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "wsts"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c80d57a61294350ed91e91eb20a6c34da084ec8f15d039bab79ce3efabbd1a4"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",

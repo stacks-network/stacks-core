@@ -415,6 +415,8 @@ pub struct ConnectionOptions {
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -508,6 +510,7 @@ impl std::default::Default for ConnectionOptions {
             disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
+            block_proposal_token: None,
         }
     }
 }

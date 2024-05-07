@@ -423,7 +423,7 @@ pub struct PeerNetworkComms {
     dead_connections: HashSet<NeighborKey>,
     /// Set of neighbors who misbehaved during our comms session
     broken_connections: HashSet<NeighborKey>,
-    /// Ongoing batch of requests.  Will be `None` if there are no inflight requests.
+    /// Ongoing batch of p2p requests.  Will be `None` if there are no inflight requests.
     ongoing_batch_request: Option<NeighborCommsRequest>,
 }
 
@@ -436,6 +436,49 @@ impl PeerNetworkComms {
             broken_connections: HashSet::new(),
             ongoing_batch_request: None,
         }
+    }
+
+    /// Drive socket I/O on all outstanding messages and gather up any received messages.
+    /// Remove handled messages from `state`, and perform the polling (and bookkeeping of dead/broken neighbors) via `neighbor_set`
+    fn drive_socket_io<NS: NeighborComms>(
+        network: &mut PeerNetwork,
+        state: &mut HashMap<NeighborAddress, ReplyHandleP2P>,
+        neighbor_set: &mut NS,
+    ) -> Vec<(NeighborAddress, StacksMessage)> {
+        let mut inflight = HashMap::new();
+        let mut ret = vec![];
+        let stable_block_height = network.get_chain_view().burn_stable_block_height;
+        for (naddr, rh) in state.drain() {
+            let mut req_opt = Some(rh);
+            let message = match neighbor_set.poll_next_reply(network, &naddr, &mut req_opt) {
+                Ok(Some(msg)) => msg,
+                Ok(None) => {
+                    if let Some(rh) = req_opt {
+                        // keep trying
+                        inflight.insert(naddr, rh);
+                    }
+                    continue;
+                }
+                Err(_e) => {
+                    // peer was already marked as dead in the given network set
+                    continue;
+                }
+            };
+
+            if NeighborCommsRequest::is_message_stale(&message, stable_block_height) {
+                debug!(
+                    "{:?}: Remote neighbor {:?} is still bootstrapping (at block {})",
+                    &network.get_local_peer(),
+                    &naddr,
+                    message.preamble.burn_stable_block_height
+                );
+                continue;
+            }
+
+            ret.push((naddr, message));
+        }
+        state.extend(inflight);
+        ret
     }
 }
 
@@ -526,7 +569,7 @@ impl NeighborComms for PeerNetworkComms {
         let mut clear = false;
         let mut ongoing_batch_request = self.ongoing_batch_request.take();
         if let Some(batch) = ongoing_batch_request.as_mut() {
-            ret.extend(batch.new_replies(self, network));
+            ret = Self::drive_socket_io(network, &mut batch.state, self);
             if batch.count_inflight() == 0 {
                 clear = true;
             }
@@ -588,67 +631,6 @@ pub struct NeighborCommsRequest {
     state: HashMap<NeighborAddress, ReplyHandleP2P>,
 }
 
-/// This struct represents everything we need to iterate through a set of ongoing requests, in
-/// order to pull out completed replies.
-pub struct NeighborCommsMessageIterator<'a, NS: NeighborComms> {
-    network: &'a mut PeerNetwork,
-    state: &'a mut HashMap<NeighborAddress, ReplyHandleP2P>,
-    neighbor_set: &'a mut NS,
-}
-
-/// This is an iterator over completed requests
-impl<NS: NeighborComms> Iterator for NeighborCommsMessageIterator<'_, NS> {
-    type Item = (NeighborAddress, StacksMessage);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut inflight = HashMap::new();
-        let mut ret = None;
-        let stable_block_height = self.network.get_chain_view().burn_stable_block_height;
-        for (naddr, rh) in self.state.drain() {
-            if ret.is_some() {
-                // just save for retry
-                inflight.insert(naddr, rh);
-                continue;
-            }
-
-            let mut req_opt = Some(rh);
-            let message =
-                match self
-                    .neighbor_set
-                    .poll_next_reply(self.network, &naddr, &mut req_opt)
-                {
-                    Ok(Some(msg)) => msg,
-                    Ok(None) => {
-                        assert!(req_opt.is_some());
-                        if let Some(rh) = req_opt {
-                            // keep trying
-                            inflight.insert(naddr, rh);
-                        }
-                        continue;
-                    }
-                    Err(_e) => {
-                        // peer was already marked as dead in the given network set
-                        continue;
-                    }
-                };
-
-            if NeighborCommsRequest::is_message_stale(&message, stable_block_height) {
-                debug!(
-                    "{:?}: Remote neighbor {:?} is still bootstrapping (at block {})",
-                    &self.network.get_local_peer(),
-                    &naddr,
-                    message.preamble.burn_stable_block_height
-                );
-                continue;
-            }
-
-            ret = Some((naddr, message));
-        }
-        self.state.extend(inflight);
-        ret
-    }
-}
-
 impl NeighborCommsRequest {
     pub fn new() -> NeighborCommsRequest {
         NeighborCommsRequest {
@@ -664,19 +646,6 @@ impl NeighborCommsRequest {
     /// This would be true if the node's reported burnchain block height is too far in the past.
     pub fn is_message_stale(msg: &StacksMessage, burn_block_height: u64) -> bool {
         msg.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY < burn_block_height
-    }
-
-    /// Iterate over all in-flight requests
-    pub fn new_replies<'a, NS: NeighborComms>(
-        &'a mut self,
-        neighbor_set: &'a mut NS,
-        network: &'a mut PeerNetwork,
-    ) -> NeighborCommsMessageIterator<NS> {
-        NeighborCommsMessageIterator {
-            network,
-            state: &mut self.state,
-            neighbor_set,
-        }
     }
 
     /// How many inflight requests remaining?

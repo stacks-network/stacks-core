@@ -616,16 +616,16 @@ mod test {
         //  (define a 59)
         //  (do_work a)
         //
-        let content = [SymbolicExpression::list(Box::new([
+        let content = [SymbolicExpression::list(vec![
             SymbolicExpression::atom("do_work".into()),
             SymbolicExpression::atom("a".into()),
-        ]))];
+        ])];
 
-        let func_body = SymbolicExpression::list(Box::new([
+        let func_body = SymbolicExpression::list(vec![
             SymbolicExpression::atom("+".into()),
             SymbolicExpression::atom_value(Value::Int(5)),
             SymbolicExpression::atom("x".into()),
-        ]));
+        ]);
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(

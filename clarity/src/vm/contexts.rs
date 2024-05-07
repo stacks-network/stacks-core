@@ -314,10 +314,7 @@ impl AssetMap {
         asset: AssetIdentifier,
         transfered: Value,
     ) {
-        let principal_map = self
-            .asset_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.asset_map.entry(principal.clone()).or_default();
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
             map_entry.push(transfered);
@@ -334,10 +331,7 @@ impl AssetMap {
     ) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
-        let principal_map = self
-            .token_map
-            .entry(principal.clone())
-            .or_insert_with(|| HashMap::new());
+        let principal_map = self.token_map.entry(principal.clone()).or_default();
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -370,10 +364,7 @@ impl AssetMap {
         // After this point, this function will not fail.
         for (principal, mut principal_map) in other.asset_map.drain() {
             for (asset, mut transfers) in principal_map.drain() {
-                let landing_map = self
-                    .asset_map
-                    .entry(principal.clone())
-                    .or_insert_with(|| HashMap::new());
+                let landing_map = self.asset_map.entry(principal.clone()).or_default();
                 if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 } else {
@@ -391,10 +382,7 @@ impl AssetMap {
         }
 
         for (principal, asset, amount) in to_add.into_iter() {
-            let principal_map = self
-                .token_map
-                .entry(principal)
-                .or_insert_with(|| HashMap::new());
+            let principal_map = self.token_map.entry(principal).or_default();
             principal_map.insert(asset, amount);
         }
 
@@ -402,9 +390,9 @@ impl AssetMap {
     }
 
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::new();
+        let mut map = HashMap::with_capacity(self.token_map.len());
         for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::new();
+            let mut output_map = HashMap::with_capacity(principal_map.len());
             for (asset, amount) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
@@ -412,9 +400,7 @@ impl AssetMap {
         }
 
         for (principal, stx_amount) in self.stx_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX(),
                 AssetMapEntry::STX(stx_amount as u128),
@@ -422,9 +408,7 @@ impl AssetMap {
         }
 
         for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount as u128),
@@ -432,9 +416,7 @@ impl AssetMap {
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
-            let output_map = map
-                .entry(principal.clone())
-                .or_insert_with(|| HashMap::new());
+            let output_map = map.entry(principal.clone()).or_default();
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -444,17 +426,11 @@ impl AssetMap {
     }
 
     pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.stx_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.stx_map.get(principal).copied()
     }
 
     pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
-        match self.burn_map.get(principal) {
-            Some(value) => Some(*value),
-            None => None,
-        }
+        self.burn_map.get(principal).copied()
     }
 
     pub fn get_stx_burned_total(&self) -> Result<u128> {
@@ -1002,7 +978,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         let contract = self
             .global_context
             .database
-            .get_contract(contract_identifier)?;
+            .get_contract(contract_identifier)
+            .or_else(|e| {
+                self.global_context.roll_back()?;
+                Err(e)
+            })?;
 
         let result = {
             let mut nested_env = Environment::new(
@@ -1369,6 +1349,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             LimitedCostTracker::Free,
             self.global_context.epoch_id,
             clarity_version,
+            false,
         )
         .unwrap();
 
@@ -1465,7 +1446,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
-            Ok(value) => match value.clone().expect_result() {
+            Ok(value) => match value.clone().expect_result()? {
                 Ok(_) => {
                     self.global_context.commit()?;
                     Ok(value)
@@ -1855,6 +1836,9 @@ impl<'a> GlobalContext<'a> {
         self.database.roll_back()
     }
 
+    // the allow_private parameter allows private functions calls to return any Clarity type
+    // and not just Response. It only has effect is the devtools feature is enabled. eg:
+    // clarity = { version = "*", features = ["devtools"] }
     pub fn handle_tx_result(
         &mut self,
         result: Result<Value>,
@@ -1868,7 +1852,7 @@ impl<'a> GlobalContext<'a> {
                     self.roll_back()?;
                 }
                 Ok(Value::Response(data))
-            } else if allow_private && cfg!(feature = "developer-mode") {
+            } else if allow_private && cfg!(feature = "devtools") {
                 self.commit()?;
                 Ok(result)
             } else {
@@ -2103,8 +2087,14 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::Hash160;
+
     use super::*;
     use crate::vm::callables::DefineType;
+    use crate::vm::tests::{
+        test_epochs, tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+    };
     use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
@@ -2258,6 +2248,35 @@ mod test {
 
         assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
+
+    /// Test the stx-transfer consolidation tx invalidation
+    ///  bug from 2.4.0.1.0-rc1
+    #[apply(test_epochs)]
+    fn stx_transfer_consolidate_regr_24010(
+        epoch: StacksEpochId,
+        mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+    ) {
+        let mut env = tl_env_factory.get_env(epoch);
+        let u1 = StacksAddress {
+            version: 0,
+            bytes: Hash160([1; 20]),
+        };
+        let u2 = StacksAddress {
+            version: 0,
+            bytes: Hash160([2; 20]),
+        };
+        // insufficient balance must be a non-includable transaction. it must error here,
+        //  not simply rollback the tx and squelch the error as includable.
+        let e = env
+            .stx_transfer(
+                &PrincipalData::from(u1.clone()),
+                &PrincipalData::from(u2.clone()),
+                1000,
+                &BuffData::empty(),
+            )
+            .unwrap_err();
+        assert_eq!(e.to_string(), "Interpreter(InsufficientBalance)");
     }
 
     #[test]

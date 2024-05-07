@@ -1299,6 +1299,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1351,6 +1353,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1426,6 +1430,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1468,6 +1474,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1519,6 +1527,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1594,6 +1604,8 @@ mod tests {
         });
 
         let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.prepare_length = 1;
+        burnchain.pox_constants.anchor_threshold = 1;
         burnchain.pox_constants.sunset_start = 16843019;
         burnchain.pox_constants.sunset_end = 16843020;
 
@@ -1711,6 +1723,8 @@ mod tests {
             );
 
             let mut burnchain = Burnchain::regtest("nope");
+            burnchain.pox_constants.prepare_length = 1;
+            burnchain.pox_constants.anchor_threshold = 1;
             burnchain.pox_constants.sunset_start = block_height;
             burnchain.pox_constants.sunset_end = block_height + 1;
 
@@ -3088,6 +3102,7 @@ mod tests {
                 },
             ],
             PoxConstants::test_default(),
+            None,
             true,
         )
         .unwrap();

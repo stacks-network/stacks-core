@@ -45,15 +45,14 @@ impl TraitsResolver {
         TraitsResolver {}
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn run(&mut self, contract_ast: &mut ContractAST) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
         let mut referenced_traits = HashMap::new();
 
-        for exp in exprs.iter() {
+        for exp in contract_ast.pre_expressions.iter() {
             // Top-level comment nodes have been filtered from `args` by `try_parse_pre_expr`.
-            let (define_type, args) = match self.try_parse_pre_expr(exp) {
-                Some(x) => x,
-                None => continue,
+            let Some((define_type, args)) = self.try_parse_pre_expr(&exp) else {
+                continue;
             };
 
             match define_type {
@@ -73,7 +72,7 @@ impl TraitsResolver {
 
                             // Traverse and probe for generics nested in the trait definition
                             self.probe_for_generics(
-                                trait_definition.iter().collect(),
+                                trait_definition.iter(),
                                 &mut referenced_traits,
                                 true,
                             )?;
@@ -146,7 +145,7 @@ impl TraitsResolver {
                 | DefineFunctions::PrivateFunction
                 | DefineFunctions::ReadOnlyFunction => {
                     // Traverse and probe for generics in functions type definitions
-                    self.probe_for_generics(args, &mut referenced_traits, true)?;
+                    self.probe_for_generics(args.into_iter(), &mut referenced_traits, true)?;
                 }
                 DefineFunctions::Constant
                 | DefineFunctions::Map
@@ -154,7 +153,11 @@ impl TraitsResolver {
                 | DefineFunctions::FungibleToken
                 | DefineFunctions::NonFungibleToken => {
                     if !args.is_empty() {
-                        self.probe_for_generics(args[1..].to_vec(), &mut referenced_traits, false)?;
+                        self.probe_for_generics(
+                            args[1..].to_vec().into_iter(),
+                            &mut referenced_traits,
+                            false,
+                        )?;
                     }
                 }
             };
@@ -182,31 +185,25 @@ impl TraitsResolver {
     ) -> Option<(DefineFunctions, Vec<&'a PreSymbolicExpression>)> {
         let expressions = expression.match_list()?;
         // Filter comment nodes out of the list of expressions.
-        let filtered_expressions: Vec<&PreSymbolicExpression> = expressions
+        let mut filtered_expressions = expressions
             .iter()
-            .filter(|expr| expr.match_comment().is_none())
-            .collect();
-        let (function_name, args) = filtered_expressions.split_first()?;
-        let function_name = function_name.match_atom()?;
+            .filter(|expr| expr.match_comment().is_none());
+        let function_name = filtered_expressions.next()?.match_atom()?;
         let define_type = DefineFunctions::lookup_by_name(function_name)?;
-        Some((define_type, args.to_vec()))
+        Some((define_type, filtered_expressions.collect()))
     }
 
     #[allow(clippy::only_used_in_recursion)]
-    fn probe_for_generics(
+    fn probe_for_generics<'a>(
         &mut self,
-        exprs: Vec<&PreSymbolicExpression>,
+        exprs: impl Iterator<Item = &'a PreSymbolicExpression>,
         referenced_traits: &mut HashMap<ClarityName, PreSymbolicExpression>,
         should_reference: bool,
     ) -> ParseResult<()> {
-        for &expression in exprs.iter() {
+        for expression in exprs {
             match &expression.pre_expr {
                 List(list) => {
-                    self.probe_for_generics(
-                        list.iter().collect(),
-                        referenced_traits,
-                        should_reference,
-                    )?;
+                    self.probe_for_generics(list.iter(), referenced_traits, should_reference)?;
                 }
                 TraitReference(trait_name) => {
                     if should_reference {
@@ -216,11 +213,7 @@ impl TraitsResolver {
                     }
                 }
                 Tuple(atoms) => {
-                    self.probe_for_generics(
-                        atoms.iter().collect(),
-                        referenced_traits,
-                        should_reference,
-                    )?;
+                    self.probe_for_generics(atoms.iter(), referenced_traits, should_reference)?;
                 }
                 _ => { /* no-op */ }
             }

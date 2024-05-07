@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
 use rusqlite::ToSql;
 use serde::{Deserialize, Serialize};
@@ -117,10 +133,20 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
         Ok(BitVec { data, len })
     }
 
+    /// Construct a new BitVec with all entries set to `true` and total length `len`
+    pub fn ones(len: u16) -> Result<BitVec<MAX_SIZE>, String> {
+        let mut bitvec: BitVec<MAX_SIZE> = BitVec::zeros(len)?;
+        for i in 0..len {
+            bitvec.set(i, true)?;
+        }
+        Ok(bitvec)
+    }
+
     pub fn len(&self) -> u16 {
         self.len
     }
 
+    /// Return the number of bytes needed to store `len` bits.
     fn data_len(len: u16) -> u16 {
         len / 8 + if len % 8 == 0 { 0 } else { 1 }
     }
@@ -169,12 +195,30 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
             self.data[i] = 0;
         }
     }
+
+    /// Serialize a BitVec to a string of 1s and 0s for display
+    /// purposes. For example, a BitVec with [true, false, true]
+    /// will be serialized to "101".
+    pub fn binary_str(&self) -> String {
+        self.clone()
+            .data
+            .into_iter()
+            .fold(String::new(), |acc, byte| {
+                acc + &format!("{:08b}", byte).chars().rev().collect::<String>()
+            })
+            .chars()
+            .take(self.len() as usize)
+            .collect::<String>()
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use serde_json;
+
     use super::BitVec;
     use crate::codec::StacksMessageCodec;
+    use crate::util::hash::to_hex;
 
     fn check_set_get(mut input: BitVec<{ u16::MAX }>) {
         let original_input = input.clone();
@@ -256,6 +300,31 @@ mod test {
             BitVec::<2>::zeros(3).is_err(),
             "Should fail to construct a length 3 zero vec when bound to bitlength 2"
         );
+    }
+
+    #[test]
+    fn binary_str_serialization() {
+        let mut bitvec_zero_10 = BitVec::<10>::zeros(10).unwrap();
+        bitvec_zero_10.set(0, true).unwrap();
+        bitvec_zero_10.set(5, true).unwrap();
+        bitvec_zero_10.set(3, true).unwrap();
+        assert_eq!(
+            bitvec_zero_10.binary_str(),
+            "1001010000",
+            "Binary string should be 1001010000"
+        );
+    }
+
+    #[test]
+    fn bitvec_ones() {
+        let bitvec_ones_10 = BitVec::<10>::ones(10).unwrap();
+        for i in 0..10 {
+            assert!(
+                bitvec_ones_10.get(i).unwrap(),
+                "All values of ones vec should be true"
+            );
+        }
+        info!("bitvec_ones_10: {:?}", bitvec_ones_10.binary_str());
     }
 
     #[test]

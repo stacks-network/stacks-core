@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod download;
 pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
@@ -46,7 +47,9 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::boot::{
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::{
@@ -185,9 +188,9 @@ impl NakamotoBootPlan {
                         function_name,
                         ..
                     }) => {
-                        if contract_name.as_str() == "signers-voting"
+                        if contract_name.as_str() == SIGNERS_VOTING_NAME
                             && address.is_burn()
-                            && function_name.as_str() == "vote-for-aggregate-public-key"
+                            && function_name.as_str() == SIGNERS_VOTING_FUNCTION_NAME
                         {
                             false
                         } else {
@@ -231,6 +234,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     block.clone(),
+                    None,
                 )
                 .unwrap();
                 if accepted {
@@ -246,6 +250,7 @@ impl NakamotoBootPlan {
 
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
+            peer.refresh_burnchain_view();
         }
     }
 
@@ -394,6 +399,8 @@ impl NakamotoBootPlan {
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
                     12_u128,
+                    u128::MAX,
+                    1,
                 );
                 make_pox_4_lockup(
                     &test_stacker.stacker_private_key,
@@ -404,6 +411,8 @@ impl NakamotoBootPlan {
                     &StacksPublicKey::from_private(&test_stacker.signer_private_key),
                     34,
                     Some(signature),
+                    u128::MAX,
+                    1,
                 )
             })
             .collect();
@@ -588,6 +597,7 @@ impl NakamotoBootPlan {
                             txs
                         });
 
+                    peer.refresh_burnchain_view();
                     consensus_hashes.push(next_consensus_hash);
 
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
@@ -701,6 +711,7 @@ impl NakamotoBootPlan {
                             blocks_since_last_tenure += 1;
                             txs
                         });
+                    peer.refresh_burnchain_view();
 
                     consensus_hashes.push(consensus_hash);
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
@@ -809,6 +820,11 @@ impl NakamotoBootPlan {
 
             assert_eq!(other_highest_tenure, highest_tenure);
             assert_eq!(other_sort_tip, sort_tip);
+        }
+
+        peer.check_nakamoto_migration();
+        for other_peer in other_peers.iter_mut() {
+            other_peer.check_nakamoto_migration();
         }
         (peer, other_peers)
     }

@@ -183,8 +183,8 @@ fn integration_test_get_info() {
     });
 
     conf.burnchain.commit_anchor_block_within = 5000;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     let num_rounds = 5;
 

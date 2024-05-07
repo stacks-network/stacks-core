@@ -34,8 +34,8 @@ rstest = { version = "0.17.0", optional = true }
 rstest_reuse = { version = "0.5.0", optional = true }
 wasmtime = { version = "15.0.0", optional = true }
 hashbrown = { workspace = true, features = ["serde"]}
-
 getrandom = { version = "0.2", features = ["js"], optional = true}
+mutants = "0.0.3"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -63,6 +63,7 @@ wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 testing = ["canonical", "rstest", "rstest_reuse"]
+devtools = []
 
 [target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
 sha2-asm = "0.5.3"

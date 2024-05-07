@@ -28,6 +28,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
+use super::StackerDBEventDispatcher;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX};
 use crate::net::{Error as net_error, StackerDBChunkData, StackerDBHandshakeData};
@@ -384,6 +385,20 @@ impl<'a> StackerDBTx<'a> {
         ];
 
         stmt.execute(args)?;
+        Ok(())
+    }
+
+    /// Try to upload a chunk to the StackerDB instance, notifying
+    ///  and subscribed listeners via the `dispatcher`
+    pub fn put_chunk<ED: StackerDBEventDispatcher>(
+        self,
+        contract: &QualifiedContractIdentifier,
+        chunk: StackerDBChunkData,
+        dispatcher: &ED,
+    ) -> Result<(), net_error> {
+        self.try_replace_chunk(contract, &chunk.get_slot_metadata(), &chunk.data)?;
+        self.commit()?;
+        dispatcher.new_stackerdb_chunks(contract.clone(), vec![chunk]);
         Ok(())
     }
 

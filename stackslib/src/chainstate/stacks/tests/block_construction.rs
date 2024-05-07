@@ -69,6 +69,7 @@ use crate::util_lib::db::Error as db_error;
 #[test]
 fn test_build_anchored_blocks_empty() {
     let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
+    let burnchain = peer_config.burnchain.clone();
     let mut peer = TestPeer::new(peer_config);
 
     let chainstate_path = peer.chainstate_path.clone();
@@ -138,6 +139,7 @@ fn test_build_anchored_blocks_empty() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -167,6 +169,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -260,6 +263,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -302,6 +306,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -399,6 +404,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                         ..BlockBuilderSettings::max_value()
                     },
                     None,
+                    &burnchain,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -439,6 +445,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2004, 2005);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -559,6 +566,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -603,6 +611,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2016, 2017);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -787,6 +796,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -837,6 +847,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -1042,6 +1053,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -1160,6 +1172,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2030, 2031);
     peer_config.initial_balances = initial_balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -1246,6 +1259,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
                 &coinbase_tx,
                 BlockBuilderSettings::limited(),
                 None,
+                &burnchain,
             )
             .unwrap();
             (anchored_block.0, vec![])
@@ -1344,6 +1358,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
         },
         network_epoch: PEER_VERSION_EPOCH_2_0,
     }]);
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -1492,6 +1507,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -1541,6 +1557,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2008, 2009);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -1644,6 +1661,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                         &coinbase_tx,
                         BlockBuilderSettings::limited(),
                         None,
+                        &burnchain,
                     )
                     .unwrap()
                 };
@@ -1686,6 +1704,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2010, 2011);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -1749,6 +1768,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -1827,6 +1847,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2013, 2014);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -1954,6 +1975,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -1979,6 +2001,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 #[test]
 fn test_build_anchored_blocks_invalid() {
     let peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
+    let burnchain = peer_config.burnchain.clone();
     let mut peer = TestPeer::new(peer_config);
 
     let chainstate_path = peer.chainstate_path.clone();
@@ -2110,7 +2133,7 @@ fn test_build_anchored_blocks_invalid() {
             let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
             let mut anchored_block = StacksBlockBuilder::build_anchored_block(
-                chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None,
+                chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
             ).unwrap();
 
             if tenure_id == bad_block_tenure {
@@ -2189,6 +2212,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2012, 2013);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -2388,6 +2412,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -2439,6 +2464,7 @@ fn test_build_microblock_stream_forks() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -2637,6 +2663,7 @@ fn test_build_microblock_stream_forks() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -2738,6 +2765,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
     peer_config.initial_balances = balances;
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -3062,6 +3090,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -3204,6 +3233,7 @@ fn test_contract_call_across_clarity_versions() {
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
+    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -3632,11 +3662,12 @@ fn test_contract_call_across_clarity_versions() {
                 let sort_ic = sortdb.index_conn();
 
                 let builder = StacksBlockBuilder::make_block_builder(
+                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    Hash160([tenure_id as u8; 20])
+                    Hash160([tenure_id as u8; 20]),
                 )
                 .unwrap();
 
@@ -3794,6 +3825,7 @@ fn test_is_tx_problematic() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -3876,6 +3908,7 @@ fn test_is_tx_problematic() {
                     // attempting to build an anchored block with this tx should cause this tx
                     // to get flagged as problematic
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof.clone(),
                         tip.total_burn,
@@ -4052,6 +4085,7 @@ fn test_is_tx_problematic() {
                     // attempting to build an anchored block with this tx should cause this tx
                     // to get flagged as problematic
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof.clone(),
                         tip.total_burn,
@@ -4101,6 +4135,7 @@ fn test_is_tx_problematic() {
                     // attempting to build an anchored block with this tx should cause this tx
                     // to get flagged as problematic
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof.clone(),
                         tip.total_burn,
@@ -4152,6 +4187,7 @@ fn test_is_tx_problematic() {
                     // attempting to build an anchored block with this tx should cause this tx
                     // to get flagged as problematic
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &burnchain,
                         &parent_tip,
                         vrf_proof.clone(),
                         tip.total_burn,
@@ -4202,6 +4238,7 @@ fn test_is_tx_problematic() {
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
+                    &burnchain,
                 )
                 .unwrap();
 
@@ -4271,6 +4308,7 @@ fn mempool_incorporate_pox_unlocks() {
     peer_config.burnchain.pox_constants.v1_unlock_height =
         peer_config.epochs.as_ref().unwrap()[1].end_height as u32 + 1;
     let pox_constants = peer_config.burnchain.pox_constants.clone();
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -4443,6 +4481,7 @@ fn mempool_incorporate_pox_unlocks() {
                      &coinbase_tx,
                      BlockBuilderSettings::limited(),
                      None,
+                     &burnchain,
                  )
                  .unwrap();
 
@@ -4484,6 +4523,7 @@ fn test_fee_order_mismatch_nonce_order() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -4581,6 +4621,7 @@ fn test_fee_order_mismatch_nonce_order() {
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
+                &burnchain,
             )
             .unwrap();
             (anchored_block.0, vec![])

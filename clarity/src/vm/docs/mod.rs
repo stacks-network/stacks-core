@@ -2917,7 +2917,7 @@ mod test {
                     .type_map
                     .as_ref()
                     .unwrap()
-                    .get_type(&analysis.expressions.last().unwrap())
+                    .get_type_expected(&analysis.expressions.last().unwrap())
                     .cloned(),
             );
         }

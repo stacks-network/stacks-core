@@ -39,6 +39,7 @@ use crate::run_loop::RegisteredKey;
 pub mod miner;
 pub mod peer;
 pub mod relayer;
+pub mod sign_coordinator;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
@@ -94,7 +95,11 @@ pub enum Error {
     CannotSelfSign,
     MiningFailure(ChainstateError),
     MinerSignatureError(&'static str),
-    SignerSignatureError(&'static str),
+    SignerSignatureError(String),
+    /// A failure occurred while configuring the miner thread
+    MinerConfigurationFailed(&'static str),
+    /// An error occurred while operating as the signing coordinator
+    SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }
@@ -162,7 +167,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.node.mock_mining {
+        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {

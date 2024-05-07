@@ -224,7 +224,7 @@ pub fn decode_http_body(headers: &HashMap<String, String>, mut buf: &[u8]) -> io
 /// Return the HTTP reply, decoded if it was chunked
 pub fn run_http_request<S: Read + Write>(
     sock: &mut S,
-    host: &SocketAddr,
+    host: &str,
     verb: &str,
     path: &str,
     content_type: Option<&str>,
@@ -238,12 +238,12 @@ pub fn run_http_request<S: Read + Write>(
 
     let req_txt = if let Some(content_type) = content_type {
         format!(
-            "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
             verb, path, host, content_type, content_length_hdr
         )
     } else {
         format!(
-            "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
             verb, path, host, content_length_hdr
         )
     };

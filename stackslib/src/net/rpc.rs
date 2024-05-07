@@ -156,12 +156,12 @@ impl ConversationHttp {
         let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
-            conn_id: conn_id,
+            conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
-            peer_addr: peer_addr,
-            outbound_url: outbound_url,
-            peer_host: peer_host,
+            peer_addr,
+            outbound_url,
+            peer_host,
             canonical_stacks_tip_height: None,
             pending_request: None,
             pending_response: None,
@@ -533,11 +533,8 @@ impl ConversationHttp {
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);
 
         for _i in 0..num_inbound {
-            let msg = match self.connection.next_inbox_message() {
-                None => {
-                    continue;
-                }
-                Some(m) => m,
+            let Some(msg) = self.connection.next_inbox_message() else {
+                continue;
             };
 
             match msg {
@@ -549,9 +546,11 @@ impl ConversationHttp {
                     let start_time = Instant::now();
                     let verb = req.verb().to_string();
                     let request_path = req.request_path().to_string();
-                    let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
-                        self.handle_request(req, node)
-                    })?;
+                    let msg_opt = monitoring::instrument_http_request_handler(
+                        self,
+                        req,
+                        |conv_http, req| conv_http.handle_request(req, node),
+                    )?;
 
                     info!("Handled StacksHTTPRequest";
                            "verb" => %verb,
@@ -658,5 +657,9 @@ impl ConversationHttp {
 
     pub fn get_peer_host(&self) -> PeerHost {
         self.peer_host.clone()
+    }
+
+    pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
+        self.connection.protocol.metrics_identifier(req)
     }
 }

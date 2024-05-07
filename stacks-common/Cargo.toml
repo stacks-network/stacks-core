@@ -98,3 +98,9 @@ wasm = ["libsecp256k1", "developer-mode", "getrandom"]
 developer-mode = []
 slog_json = ["slog-json"]
 testing = ["canonical"]
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
+sha2 = { version = "0.10" }

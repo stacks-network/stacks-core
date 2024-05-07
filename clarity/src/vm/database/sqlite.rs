@@ -87,16 +87,16 @@ pub fn sqlite_get_contract_hash(
     contract: &QualifiedContractIdentifier,
 ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
     let key = make_contract_hash_key(contract);
-    let contract_commitment = store
-        .get(&key)?
+    let contract_commitment = self
+        .get_data(&key)?
         .map(|x| ContractCommitment::deserialize(&x))
         .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
     let ContractCommitment {
         block_height,
         hash: contract_hash,
     } = contract_commitment?;
-    let bhh = store.get_block_at_height(block_height)
-        .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
+    let bhh = self.get_block_at_height(block_height)
+            .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
     Ok((bhh, contract_hash))
 }
 
@@ -309,15 +309,15 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
@@ -349,7 +349,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }

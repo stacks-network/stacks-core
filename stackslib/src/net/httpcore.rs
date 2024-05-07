@@ -36,6 +36,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::Url;
 
+use super::rpc::ConversationHttp;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
@@ -436,6 +437,8 @@ pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
     start_time: u128,
+    /// Cache result of `StacksHttp::find_response_handler` so we don't have to do the regex matching twice
+    response_handler_index: Option<usize>,
 }
 
 impl StacksHttpRequest {
@@ -444,6 +447,7 @@ impl StacksHttpRequest {
             preamble,
             contents,
             start_time: get_epoch_time_ms(),
+            response_handler_index: None,
         }
     }
 
@@ -479,6 +483,7 @@ impl StacksHttpRequest {
             preamble,
             contents,
             start_time: get_epoch_time_ms(),
+            response_handler_index: None,
         })
     }
 
@@ -545,6 +550,11 @@ impl StacksHttpRequest {
         let mut ret = vec![];
         self.send(&mut ret)?;
         Ok(ret)
+    }
+
+    #[cfg(test)]
+    pub fn get_response_handler_index(&self) -> Option<usize> {
+        self.response_handler_index
     }
 }
 
@@ -871,6 +881,8 @@ pub struct StacksHttp {
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 }
 
 impl StacksHttp {
@@ -886,6 +898,7 @@ impl StacksHttp {
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+            block_proposal_token: conn_opts.block_proposal_token.clone(),
         };
         http.register_rpc_methods();
         http
@@ -910,9 +923,7 @@ impl StacksHttp {
             if request_verb != verb {
                 continue;
             }
-            let _captures = if let Some(caps) = regex.captures(request_path) {
-                caps
-            } else {
+            let Some(_captures) = regex.captures(request_path) else {
                 continue;
             };
 
@@ -983,9 +994,7 @@ impl StacksHttp {
             if &preamble.verb != verb {
                 continue;
             }
-            let captures = if let Some(caps) = regex.captures(&decoded_path) {
-                caps
-            } else {
+            let Some(captures) = regex.captures(&decoded_path) else {
                 continue;
             };
 
@@ -1083,21 +1092,21 @@ impl StacksHttp {
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
-        let response_handler_index =
-            if let Some(i) = self.find_response_handler(&request.preamble().verb, &decoded_path) {
-                i
-            } else {
-                // method not found
-                return StacksHttpResponse::new_error(
-                    &request.preamble,
-                    &HttpNotFound::new(format!(
-                        "No such API endpoint '{} {}'",
-                        &request.preamble().verb,
-                        &decoded_path
-                    )),
-                )
-                .try_into_contents();
-            };
+        let Some(response_handler_index) = request
+            .response_handler_index
+            .or_else(|| self.find_response_handler(&request.preamble().verb, &decoded_path))
+        else {
+            // method not found
+            return StacksHttpResponse::new_error(
+                &request.preamble,
+                &HttpNotFound::new(format!(
+                    "No such API endpoint '{} {}'",
+                    &request.preamble().verb,
+                    &decoded_path
+                )),
+            )
+            .try_into_contents();
+        };
 
         let (_, _, request_handler) = self
             .request_handlers
@@ -1239,6 +1248,30 @@ impl StacksHttp {
             _ => [buf[i - 4], buf[i - 3], buf[i - 2], buf[i - 1]],
         };
         window
+    }
+
+    /// Get a unique `&str` identifier for each request type
+    /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
+    /// For details see https://github.com/stacks-network/stacks-core/issues/4574
+    pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
+        let Ok((decoded_path, _)) = decode_request_path(&req.request_path()) else {
+            return "<err-url-decode>";
+        };
+
+        let Some(response_handler_index) = req
+            .response_handler_index
+            .or_else(|| self.find_response_handler(&req.preamble().verb, &decoded_path))
+        else {
+            return "<err-handler-not-found>";
+        };
+        req.response_handler_index = Some(response_handler_index);
+
+        let (_, _, request_handler) = self
+            .request_handlers
+            .get(response_handler_index)
+            .expect("FATAL: request points to a nonexistent handler");
+
+        request_handler.metrics_identifier()
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).

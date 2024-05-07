@@ -61,14 +61,14 @@ pub type SpecialCaseHandler = &'static dyn Fn(
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()>;
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
-    fn get(&mut self, key: &str) -> Result<Option<String>>;
+    fn get_data(&mut self, key: &str) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
     fn has_entry(&mut self, key: &str) -> Result<bool> {
-        Ok(self.get(key)?.is_some())
+        Ok(self.get_data(key)?.is_some())
     }
 
     /// change the current MARF context to service reads from a different chain_tip
@@ -204,11 +204,11 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get(&mut self, _key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -233,7 +233,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
 

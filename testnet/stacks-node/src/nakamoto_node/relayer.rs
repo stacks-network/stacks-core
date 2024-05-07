@@ -64,6 +64,11 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
+#[cfg(test)]
+lazy_static::lazy_static! {
+    pub static ref TEST_SKIP_COMMIT_OP: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+}
+
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
@@ -244,11 +249,6 @@ impl RelayerThread {
             self.min_network_download_passes = net_result.num_download_passes + 1;
             self.min_network_inv_passes = net_result.num_inv_sync_passes + 1;
             self.last_network_block_height_ts = get_epoch_time_ms();
-            debug!(
-                "Relayer: block mining until the next download pass {}",
-                self.min_network_download_passes
-            );
-            signal_mining_blocked(self.globals.get_miner_status());
         }
 
         let net_receipts = self
@@ -567,6 +567,7 @@ impl RelayerThread {
             "Relayer: Spawn tenure thread";
             "height" => last_burn_block.block_height,
             "burn_header_hash" => %burn_header_hash,
+            "parent_tenure_id" => %parent_tenure_id,
         );
 
         let miner_thread_state =
@@ -593,14 +594,17 @@ impl RelayerThread {
         let new_miner_state = self.create_block_miner(vrf_key, burn_tip, parent_tenure_start)?;
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner-{}", self.local_peer.data_url))
+            .name(format!("miner.{parent_tenure_start}"))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 NakamotoNodeError::SpawnError(e)
             })?;
-
+        debug!(
+            "Relayer: started tenure thread ID {:?}",
+            new_miner_handle.thread().id()
+        );
         self.miner_thread.replace(new_miner_handle);
 
         Ok(())
@@ -610,8 +614,10 @@ impl RelayerThread {
         // when stopping a tenure, block the mining thread if its currently running, then join it.
         // do this in a new thread will (so that the new thread stalls, not the relayer)
         let Some(prior_tenure_thread) = self.miner_thread.take() else {
+            debug!("Relayer: no tenure thread to stop");
             return Ok(());
         };
+        let id = prior_tenure_thread.thread().id();
         let globals = self.globals.clone();
 
         let stop_handle = std::thread::Builder::new()
@@ -623,7 +629,7 @@ impl RelayerThread {
             })?;
 
         self.miner_thread.replace(stop_handle);
-
+        debug!("Relayer: stopped tenure thread ID {id:?}");
         Ok(())
     }
 
@@ -640,18 +646,35 @@ impl RelayerThread {
             MinerDirective::BeginTenure {
                 parent_tenure_start,
                 burnchain_tip,
-            } => {
-                let _ = self.start_new_tenure(parent_tenure_start, burnchain_tip);
-            }
+            } => match self.start_new_tenure(parent_tenure_start, burnchain_tip) {
+                Ok(()) => {
+                    debug!("Relayer: successfully started new tenure.");
+                }
+                Err(e) => {
+                    error!("Relayer: Failed to start new tenure: {:?}", e);
+                }
+            },
             MinerDirective::ContinueTenure { new_burn_view: _ } => {
                 // TODO: in this case, we eventually want to undergo a tenure
                 //  change to switch to the new burn view, but right now, we will
                 //  simply end our current tenure if it exists
-                let _ = self.stop_tenure();
+                match self.stop_tenure() {
+                    Ok(()) => {
+                        debug!("Relayer: successfully stopped tenure.");
+                    }
+                    Err(e) => {
+                        error!("Relayer: Failed to stop tenure: {:?}", e);
+                    }
+                }
             }
-            MinerDirective::StopTenure => {
-                let _ = self.stop_tenure();
-            }
+            MinerDirective::StopTenure => match self.stop_tenure() {
+                Ok(()) => {
+                    debug!("Relayer: successfully stopped tenure.");
+                }
+                Err(e) => {
+                    error!("Relayer: Failed to stop tenure: {:?}", e);
+                }
+            },
         }
 
         true
@@ -664,6 +687,16 @@ impl RelayerThread {
     ) -> Result<(), NakamotoNodeError> {
         let (last_committed_at, target_epoch_id, commit) =
             self.make_block_commit(&tenure_start_ch, &tenure_start_bh)?;
+        #[cfg(test)]
+        {
+            if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
+                //if let Some((last_committed, ..)) = self.last_committed.as_ref() {
+                //    if last_committed.consensus_hash == last_committed_at.consensus_hash {
+                warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+                return Ok(());
+                //}
+            }
+        }
         let mut op_signer = self.keychain.generate_op_signer();
         let txid = self
             .bitcoin_controller
