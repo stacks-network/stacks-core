@@ -125,6 +125,7 @@ impl SignerTest {
             3000,
             Some(100_000),
             None,
+            Some(9000),
         );
 
         let mut running_signers = Vec::new();
@@ -511,6 +512,23 @@ impl SignerTest {
         entries.public_keys
     }
 
+    fn get_signer_metrics(&self) -> String {
+        #[cfg(feature = "monitoring_prom")]
+        {
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get("http://localhost:9000/metrics")
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+
+            return res;
+        }
+        #[cfg(not(feature = "monitoring_prom"))]
+        return String::new();
+    }
+
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
         let host = self
             .running_nodes
@@ -741,6 +759,7 @@ impl SignerTest {
             3000 + signer_idx,
             Some(100_000),
             None,
+            Some(9000 + signer_idx),
         )
         .pop()
         .unwrap();
@@ -782,6 +801,10 @@ fn spawn_signer(
     let config = SignerConfig::load_from_str(data).unwrap();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
     let endpoint = config.endpoint;
+    #[cfg(feature = "monitoring_prom")]
+    {
+        stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
+    }
     let runloop: stacks_signer::runloop::RunLoop = stacks_signer::runloop::RunLoop::from(config);
     let mut signer: Signer<
         RunLoopCommand,
@@ -1329,7 +1352,8 @@ fn stackerdb_block_proposal() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(5);
+    let num_signers = 5;
+    let mut signer_test = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1347,6 +1371,17 @@ fn stackerdb_block_proposal() {
         .0
         .verify(&key, proposed_signer_signature_hash.as_bytes()));
 
+    // Test prometheus metrics response
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let metrics_response = signer_test.get_signer_metrics();
+
+        // Because 5 signers are running in the same process, the prometheus metrics
+        // are incremented once for every signer. This is why we expect the metric to be
+        // `5`, even though there is only one block proposed.
+        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
+        assert!(metrics_response.contains(&expected_result));
+    }
     signer_test.shutdown();
 }
 
