@@ -122,7 +122,7 @@ impl AtcRational {
 
     /// Convert to a BurnSamplePoint probability for use in calculating a sortition
     pub fn into_sortition_probability(self) -> Uint256 {
-        // AtcRational's integer part is only 64 bits, so we need to scale it up so that it occupes the
+        // AtcRational's fractional part is only 64 bits, so we need to scale it up so that it occupies the
         // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
         // of mining power the null miner has.
         let prob_u256 = if self.inner() >= Self::one().inner() {
