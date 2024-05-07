@@ -47,15 +47,11 @@ use crate::version_string;
 pub(crate) const SINGLESIG_TX_TRANSFER_LEN: u64 = 180;
 
 #[derive(Clone)]
-pub struct RPCGetStxTransferCostRequestHandler {
-    estimated_len: Option<u64>,
-}
+pub struct RPCGetStxTransferCostRequestHandler {}
 
 impl RPCGetStxTransferCostRequestHandler {
     pub fn new() -> Self {
-        Self {
-            estimated_len: None,
-        }
+        Self {}
     }
 }
 
@@ -87,30 +83,13 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
                 "Invalid Http request: expected 0-length body".to_string(),
             ));
         }
-
-        let estimated_len = if let Some(qs) = query {
-            // possibly got a length= parameter
-            let mut len: Option<u64> = None;
-            for (key, value) in form_urlencoded::parse(qs.as_bytes()) {
-                if key == "length" {
-                    len = value.parse::<u64>().ok();
-                }
-            }
-            len.unwrap_or(SINGLESIG_TX_TRANSFER_LEN).min(1)
-        } else {
-            SINGLESIG_TX_TRANSFER_LEN
-        };
-
-        self.estimated_len = Some(estimated_len);
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
 
 impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
     /// Reset internal state
-    fn restart(&mut self) {
-        self.estimated_len = None;
-    }
+    fn restart(&mut self) {}
 
     /// Make the response
     fn try_handle_request(
@@ -119,10 +98,9 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let estimated_len = self
-            .estimated_len
-            .take()
-            .ok_or(NetError::SendError("`estimated_len` not set".into()))?;
+        // NOTE: The estimated length isn't needed per se because we're returning a fee rate, but
+        // we do need an absolute length to use the estimator (so supply a common one).
+        let estimated_len = SINGLESIG_TX_TRANSFER_LEN;
 
         let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {
             let tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
@@ -191,20 +169,10 @@ impl HttpResponse for RPCGetStxTransferCostRequestHandler {
 }
 
 impl StacksHttpRequest {
-    pub fn new_get_stx_transfer_cost_with_len(
-        host: PeerHost,
-        len: Option<u64>,
-    ) -> StacksHttpRequest {
+    pub fn new_get_stx_transfer_cost(host: PeerHost) -> StacksHttpRequest {
         let mut contents = HttpRequestContents::new();
-        if let Some(l) = len {
-            contents = contents.query_arg("length".into(), format!("{}", &l));
-        }
         StacksHttpRequest::new_for_peer(host, "GET".into(), "/v2/fees/transfer".into(), contents)
             .expect("FATAL: failed to construct request from infallible data")
-    }
-
-    pub fn new_get_stx_transfer_cost(host: PeerHost) -> StacksHttpRequest {
-        Self::new_get_stx_transfer_cost_with_len(host, None)
     }
 }
 
