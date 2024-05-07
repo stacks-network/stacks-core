@@ -153,12 +153,14 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
 
                 // safety -- checked estimations.len() == 3 above
                 let median_estimation = &estimations[1];
-                Ok(median_estimation.fee)
+
+                // NOTE: this returns the fee _rate_
+                Ok(median_estimation.fee / estimated_len)
             } else {
                 // unlike `POST /v2/fees/transaction`, this method can't fail due to the
                 // unavailability of cost estimation, so just assume the minimum fee.
                 debug!("Fee and cost estimation not configured on this stacks node");
-                Ok(MINIMUM_TX_FEE_RATE_PER_BYTE * estimated_len)
+                Ok(MINIMUM_TX_FEE_RATE_PER_BYTE)
             }
         });
 

@@ -66,7 +66,7 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let request = StacksHttpRequest::new_get_stx_transfer_cost(addr.into());
     let request_with_len =
-        StacksHttpRequest::new_get_stx_transfer_cost_with_len(addr.into(), Some(240));
+        StacksHttpRequest::new_get_stx_transfer_cost_with_len(addr.into(), Some(180 * 2));
 
     let mut responses = test_rpc(function_name!(), vec![request, request_with_len]);
     assert_eq!(responses.len(), 2);
@@ -85,10 +85,7 @@ fn test_try_make_response() {
 
     let fee_rate = response.decode_stx_transfer_fee().unwrap();
     debug!("fee_rate = {:?}", &fee_rate);
-    assert_eq!(
-        fee_rate,
-        MINIMUM_TX_FEE_RATE_PER_BYTE * SINGLESIG_TX_TRANSFER_LEN
-    );
+    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE);
 
     let response = responses.pop().unwrap();
     debug!(
@@ -103,5 +100,5 @@ fn test_try_make_response() {
 
     let fee_rate = response.decode_stx_transfer_fee().unwrap();
     debug!("fee_rate = {:?}", &fee_rate);
-    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE * 240);
+    assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE);
 }
