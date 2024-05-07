@@ -101,9 +101,14 @@ impl TypeMap {
     /// [concretize]: TypeSignature::concretize
     /// [ListUnionType]: TypeSignature::ListUnionType
     pub fn concretize(&mut self) -> CheckResult<()> {
-        for ty in self.map.values_mut() {
-            *ty = ty.clone().concretize_deep()?;
-        }
+        match self.map {
+            TypeMapDataType::Map(ref mut map) => {
+                for ty in map.values_mut() {
+                    *ty = ty.clone().concretize_deep()?;
+                }
+            }
+            TypeMapDataType::Set(_) => {}
+        };
         Ok(())
     }
 }

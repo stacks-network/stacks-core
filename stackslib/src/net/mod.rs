@@ -110,7 +110,7 @@ pub mod atlas;
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
-///     * rate limiting messages  
+///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
 /// Also has functionality to sign, verify, and ensure well-formedness of messages.
@@ -118,7 +118,7 @@ pub mod codec;
 pub mod connection;
 pub mod db;
 /// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.  
+/// which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -1662,7 +1662,6 @@ pub mod test {
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -3900,11 +3899,10 @@ pub mod test {
             let tx = sortdb.tx_begin().unwrap();
             tx.execute(
                 "CREATE TABLE stacks_chain_tips_backup AS SELECT * FROM stacks_chain_tips;",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
-            tx.execute("DELETE FROM stacks_chain_tips;", NO_PARAMS)
-                .unwrap();
+            tx.execute("DELETE FROM stacks_chain_tips;", []).unwrap();
             tx.commit().unwrap();
 
             // NOTE: this considers each and every snapshot, but we only care about epoch2.x
@@ -3930,11 +3928,10 @@ pub mod test {
 
             // restore
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("DROP TABLE stacks_chain_tips;", NO_PARAMS)
-                .unwrap();
+            tx.execute("DROP TABLE stacks_chain_tips;", []).unwrap();
             tx.execute(
                 "ALTER TABLE stacks_chain_tips_backup RENAME TO stacks_chain_tips;",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
             tx.commit().unwrap();
@@ -3963,8 +3960,8 @@ pub mod test {
                     .collect();
 
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", NO_PARAMS).unwrap();
-            tx.execute("DELETE FROM preprocessed_reward_sets;", NO_PARAMS)
+            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", []).unwrap();
+            tx.execute("DELETE FROM preprocessed_reward_sets;", [])
                 .unwrap();
             tx.commit().unwrap();
 
@@ -3996,11 +3993,11 @@ pub mod test {
             assert_eq!(expected_epoch2_reward_sets, migrated_epoch2_reward_sets);
 
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("DROP TABLE preprocessed_reward_sets;", NO_PARAMS)
+            tx.execute("DROP TABLE preprocessed_reward_sets;", [])
                 .unwrap();
             tx.execute(
                 "ALTER TABLE preprocessed_reward_sets_backup RENAME TO preprocessed_reward_sets;",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
             tx.commit().unwrap();

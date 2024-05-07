@@ -43,6 +43,7 @@ pub fn mem_type_check(
         cost_tracker,
         epoch,
         version,
+        false,
     ) {
         Ok(x) => {
             // return the first type result of the type checker
@@ -50,7 +51,7 @@ pub fn mem_type_check(
                 .type_map
                 .as_ref()
                 .unwrap()
-                .get_type(&x.expressions.last().unwrap())
+                .get_type_expected(&x.expressions.last().unwrap())
                 .cloned();
             Ok((first_type, x))
         }

@@ -567,7 +567,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
-        
+
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
@@ -612,7 +612,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -629,7 +629,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         transfered_ustx TEXT NOT NULL,
         memo TEXT NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -2225,7 +2225,7 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Get a block commit by txid. In the event of a burnchain fork, this may not be unique.
     ///   this function simply returns one of those block commits: only use data that is
-    ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
+    ///   immutable across burnchain/pox forks, e.g., parent block ptr,
     pub fn get_block_commit_by_txid(
         &self,
         sort_id: &SortitionId,
@@ -2905,7 +2905,7 @@ impl SortitionDB {
         }
 
         info!("Replace existing epochs with new epochs");
-        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        db_tx.execute("DELETE FROM epochs;", [])?;
         for epoch in epochs.into_iter() {
             let args: &[&dyn ToSql] = &[
                 &(epoch.epoch_id as u32),
@@ -2966,7 +2966,7 @@ impl SortitionDB {
         height: u64,
     ) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE block_height = ?1";
-        query_rows(conn, qry, &[u64_to_sql(height)?])
+        query_rows(conn, qry, [u64_to_sql(height)?])
     }
 
     /// Get all preprocessed reward sets and their associated anchor blocks
@@ -2975,7 +2975,7 @@ impl SortitionDB {
     ) -> Result<Vec<(SortitionId, RewardCycleInfo)>, db_error> {
         let sql = "SELECT * FROM preprocessed_reward_sets;";
         let mut stmt = conn.prepare(sql)?;
-        let mut qry = stmt.query(NO_PARAMS)?;
+        let mut qry = stmt.query([])?;
         let mut ret = vec![];
         while let Some(row) = qry.next()? {
             let sort_id: SortitionId = row.get("sortition_id")?;
@@ -4843,7 +4843,7 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Option<u16>, db_error> {
-        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1 
+        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1
                     AND txid = (
                       SELECT winning_block_txid FROM snapshots WHERE sortition_id = ?2 LIMIT 1) LIMIT 1";
         let args: &[&dyn ToSql] = &[sortition, sortition];
@@ -6371,7 +6371,6 @@ pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
@@ -6711,7 +6710,7 @@ pub mod tests {
         ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
             let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
             let mut stmt = self.conn().prepare(sql)?;
-            let mut qry = stmt.query(NO_PARAMS)?;
+            let mut qry = stmt.query([])?;
             let mut ret = vec![];
             while let Some(row) = qry.next()? {
                 let sort_id: SortitionId = row.get("sortition_id")?;

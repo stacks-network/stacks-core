@@ -1113,13 +1113,6 @@ impl BurnchainDB {
         BurnchainDB::inner_get_canonical_chain_tip(&self.conn)
     }
 
-    #[cfg(test)]
-    pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
-        let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
-        let opt = query_row(&self.conn, qry, [])?;
-        opt.ok_or(BurnchainError::MissingParentBlock)
-    }
-
     pub fn has_burnchain_block_at_height(
         conn: &DBConn,
         height: u64,

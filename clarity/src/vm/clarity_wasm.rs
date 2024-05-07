@@ -453,7 +453,7 @@ pub fn initialize_contract(
         contract_analysis
             .type_map
             .as_ref()
-            .and_then(|type_map| type_map.get_type(expr))
+            .and_then(|type_map| type_map.get_type_expected(expr))
     });
 
     if let Some(return_type) = return_type {
