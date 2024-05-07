@@ -162,7 +162,7 @@ impl TopLevelMemoryEnvironmentGenerator {
     pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
         let mut owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
         if epoch >= StacksEpochId::Epoch30 {
-            owned_env.set_tenure_height(0);
+            owned_env.set_tenure_height(1);
         }
         owned_env
     }

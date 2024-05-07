@@ -821,14 +821,23 @@ pub fn argument_memory_test(
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
-    clarity_instance
-        .begin_test_genesis_block(
+    {
+        let mut gb = clarity_instance.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
-        )
-        .commit_block();
+        );
+
+        gb.as_transaction(|tx| {
+            tx.with_clarity_db(|db| {
+                db.set_tenure_height(1).unwrap();
+                Ok(())
+            })
+            .unwrap();
+        });
+        gb.commit_block();
+    }
 
     {
         let mut conn = clarity_instance.begin_block(
