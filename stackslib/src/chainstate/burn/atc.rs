@@ -119,6 +119,20 @@ impl AtcRational {
     pub fn into_inner(self) -> Uint256 {
         self.0
     }
+
+    /// Convert to a BurnSamplePoint probability for use in calculating a sortition
+    pub fn into_sortition_probability(self) -> Uint256 {
+        // AtcRational's integer part is only 64 bits, so we need to scale it up so that it occupes the
+        // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
+        // of mining power the null miner has.
+        let prob_u256 = if self.inner() >= Self::one().inner() {
+            // prevent left-shift overflow
+            Self::one_sup().into_inner() << 192
+        } else {
+            self.into_inner() << 192
+        };
+        prob_u256
+    }
 }
 
 /// Pre-calculated 1024-member lookup table for the null miner advantage function, as AtcRational
@@ -1193,6 +1207,30 @@ mod test {
         }
     }
 
+    fn check_add(num_1: u64, den_1: u64, num_2: u64, den_2: u64) {
+        assert!(
+            (AtcRational::frac(num_1, den_1)
+                .add(&AtcRational::frac(num_2, den_2))
+                .unwrap())
+            .to_f64()
+            .abs()
+                - (num_1 as f64 / den_1 as f64 + num_2 as f64 / den_2 as f64).abs()
+                < (1.0 / (1024.0 * 1024.0))
+        );
+    }
+
+    fn check_mul(num_1: u64, den_1: u64, num_2: u64, den_2: u64) {
+        assert!(
+            (AtcRational::frac(num_1, den_1)
+                .mul(&AtcRational::frac(num_2, den_2))
+                .unwrap())
+            .to_f64()
+            .abs()
+                - ((num_1 as f64 / den_1 as f64) * (num_2 as f64 / den_2 as f64)).abs()
+                < (1.0 / (1024.0 * 1024.0))
+        );
+    }
+
     #[test]
     fn test_atc_rational() {
         // zero
@@ -1347,6 +1385,26 @@ mod test {
             AtcRational::frac(1, 2).min(&AtcRational::frac(15, 32)),
             AtcRational::frac(15, 32)
         );
+
+        // we only do stuff with an AtcRational in the range [0..1), since if the ATC-C is greater
+        // than 1.0, then the null miner never wins (and thus there's no need to compute the null
+        // miner probability).
+        //
+        // The only time an AtcRational is greater than 1.0 is when we scale it up to the lookup
+        // table index, which has 1024 items.  We check that here as well.
+        for num_1 in 0..=1 {
+            for den_1 in 1..=1024 {
+                test_debug!("{}/{}", num_1, den_1);
+                for num_2 in 0..=1 {
+                    for den_2 in 1..=1024 {
+                        check_add(num_1, den_1, num_2, den_2);
+                        check_mul(num_1, den_1, num_2, den_2);
+                        check_mul(num_1, den_1, 1024, 1);
+                        check_mul(num_2, den_2, 1024, 1);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

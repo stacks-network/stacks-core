@@ -449,16 +449,7 @@ impl BlockSnapshot {
         let mut burn_sample_winner = BurnSamplePoint::zero(commit_winner.clone());
 
         let null_prob = Self::null_miner_probability(atc);
-
-        // AtcRational's integer part is only 64 bits, so we need to scale it up so that it occupes the
-        // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
-        // of mining power the null miner has.
-        let null_prob_u256 = if null_prob.inner() >= AtcRational::one().inner() {
-            // prevent left-shift overflow
-            AtcRational::one_sup().into_inner() << 192
-        } else {
-            null_prob.into_inner() << 192
-        };
+        let null_prob_u256 = null_prob.into_sortition_probability();
 
         test_debug!(
             "atc = {}, null_prob = {}, null_prob_u256 = {}, sortition_hash: {}",
@@ -1146,6 +1137,8 @@ mod test {
             for j in 0..100 {
                 let atc = AtcRational::from_f64_unit((j as f64) / 100.0);
                 let null_prob = BlockSnapshot::null_miner_probability(atc);
+
+                // NOTE: this tests .into_sortition_probability()
                 let null_prob_u256 = if null_prob.inner() >= AtcRational::one().inner() {
                     // prevent left-shift overflow
                     AtcRational::one_sup().into_inner() << 192
