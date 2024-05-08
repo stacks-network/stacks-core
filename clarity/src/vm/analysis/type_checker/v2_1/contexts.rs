@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use hashbrown::{HashMap, HashSet};
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
@@ -128,6 +129,7 @@ impl TraitContext {
 }
 
 pub struct ContractContext {
+    clarity_version: ClarityVersion,
     contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<ClarityName, TypeSignature>,
@@ -147,6 +149,7 @@ impl ContractContext {
         clarity_version: ClarityVersion,
     ) -> ContractContext {
         ContractContext {
+            clarity_version,
             contract_identifier,
             variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
@@ -168,6 +171,10 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
+        if is_reserved_word(name, self.clarity_version) {
+            return Err(CheckError::new(CheckErrors::ReservedWord(name.to_string())));
+        }
+
         if self.variable_types.contains_key(name)
             || self.persisted_variable_types.contains_key(name)
             || self.private_function_types.contains_key(name)

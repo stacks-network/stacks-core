@@ -136,6 +136,7 @@ pub enum CheckErrors {
     GetBurnBlockInfoExpectPropertyName,
 
     NameAlreadyUsed(String),
+    ReservedWord(String),
 
     // expect a function, or applying a function to a list
     NonFunctionApplication,
@@ -408,6 +409,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::GetBlockInfoExpectPropertyName => "missing property name for block info introspection".into(),
             CheckErrors::GetBurnBlockInfoExpectPropertyName => "missing property name for burn block info introspection".into(),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
+            CheckErrors::ReservedWord(name) => format!("{name} is a reserved word"),
             CheckErrors::NonFunctionApplication => "expecting expression of type function".into(),
             CheckErrors::ExpectedListApplication => "expecting expression of type list".into(),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
