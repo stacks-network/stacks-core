@@ -31,6 +31,7 @@ use libsigner::{
 };
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
+use stacks_common::codec::Error as CodecError;
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::StacksEpochId;
@@ -1036,7 +1037,9 @@ impl Signer {
                     debug!("{self}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.");
                 }
                 OperationResult::Dkg(aggregate_key) => {
-                    self.process_dkg(stacks_client, aggregate_key);
+                    if let Err(e) = self.process_dkg(stacks_client, aggregate_key) {
+                        warn!("{self}: Encountered error while tryping to process DKG operation result for key {aggregate_key}: {e}");
+                    };
                 }
                 OperationResult::SignError(e) => {
                     warn!("{self}: Received a Sign error: {e:?}");
@@ -1051,12 +1054,16 @@ impl Signer {
     }
 
     /// Process a dkg result by broadcasting a vote to the stacks node
-    fn process_dkg(&mut self, stacks_client: &StacksClient, dkg_public_key: &Point) {
+    fn process_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        dkg_public_key: &Point,
+    ) -> Result<(), ClientError> {
         debug!(
             "{self}: Received DKG result. Broadcasting vote to the stacks node...";
             "dkg_public_key" => %dkg_public_key
         );
-        self.prepare_dkg_results(dkg_public_key.clone());
+        self.prepare_dkg_results(dkg_public_key.clone())?;
 
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
@@ -1077,25 +1084,12 @@ impl Signer {
         let epoch = stacks_client
             .get_node_epoch()
             .unwrap_or(StacksEpochId::Epoch24);
-        match self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key) {
-            Ok(new_transaction) => {
-                if let Err(e) = self.broadcast_dkg_vote(
-                    stacks_client,
-                    epoch,
-                    signer_transactions,
-                    new_transaction,
-                ) {
-                    warn!(
-                        "{self}: Failed to broadcast DKG public key vote ({dkg_public_key:?}): {e:?}"
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "{self}: Failed to build DKG public key vote ({dkg_public_key:?}) transaction: {e:?}."
-                );
-            }
-        }
+        let new_transaction =
+            self.build_dkg_vote(stacks_client, &epoch, next_nonce, *dkg_public_key)?;
+
+        self.broadcast_dkg_vote(stacks_client, epoch, signer_transactions, new_transaction)?;
+
+        Ok(())
     }
 
     /// Build a signed DKG vote transaction
@@ -1406,7 +1400,7 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), DkgProcessingError> {
         // First attempt to retrieve the aggregate key from the contract.
         self.update_approved_aggregate_key(stacks_client)?;
         if self.approved_aggregate_public_key.is_some() {
@@ -1437,7 +1431,7 @@ impl Signer {
     pub fn update_approved_aggregate_key(
         &mut self,
         stacks_client: &StacksClient,
-    ) -> Result<(), ClientError> {
+    ) -> Result<(), DkgProcessingError> {
         let old_dkg = self.approved_aggregate_public_key;
         self.approved_aggregate_public_key =
             stacks_client.get_approved_aggregate_key(self.reward_cycle)?;
@@ -1454,7 +1448,7 @@ impl Signer {
                     self.approved_aggregate_public_key
                 );
                 match self.load_saved_state_for_aggregate_key(approved_aggregate_key) {
-                    Ok(()) => self.send_dkg_results(&approved_aggregate_key),
+                    Ok(()) => self.send_dkg_results(&approved_aggregate_key)?,
                     Err(e) => warn!(
                         "{self}: Failed to load saved state for key {approved_aggregate_key}: {e}"
                     ),
@@ -1481,39 +1475,34 @@ impl Signer {
     }
 
     /// Send DKG results to the miner coordinator so that it can coordinate signing rounds
-    fn send_dkg_results(&mut self, dkg_public_key: &Point) {
+    fn send_dkg_results(&mut self, dkg_public_key: &Point) -> Result<(), DkgProcessingError> {
         let Some(dkg_results_bytes) = self.pending_dkg_results.remove(dkg_public_key) else {
             warn!("{self}: No DKG results found for key: {dkg_public_key}");
-            return;
+            return Err(DkgProcessingError::NoPendingDkgResults(
+                dkg_public_key.clone(),
+            ));
         };
 
-        if let Err(e) = self
-            .stackerdb
-            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
-        {
-            error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
-                       "error" => %e);
-        };
+        self.stackerdb
+            .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)?;
+
+        Ok(())
     }
 
     /// Prepare the DKG results message to be sent once the public key is approved
-    fn prepare_dkg_results(&mut self, dkg_public_key: Point) {
+    fn prepare_dkg_results(&mut self, dkg_public_key: Point) -> Result<(), CodecError> {
         let mut dkg_results_bytes = vec![];
-        debug!(
-            "{self}: DKG public key changed. Sending DKG results";
-            "dkg_public_key" => %dkg_public_key
-        );
-        if let Err(e) = SignerMessage::serialize_dkg_result(
+
+        SignerMessage::serialize_dkg_result(
             &mut dkg_results_bytes,
             &dkg_public_key,
             self.coordinator.party_polynomials.iter(),
-        ) {
-            error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
-                   "error" => %e);
-        };
+        )?;
 
         self.pending_dkg_results
             .insert(dkg_public_key, dkg_results_bytes);
+
+        Ok(())
     }
 
     /// Should DKG be queued to the current signer's command queue
@@ -1603,7 +1592,7 @@ impl Signer {
                     if origin_nonce < account_nonce {
                         // We have already voted, but our vote nonce is outdated. Resubmit vote with updated transaction
                         warn!("{self}: DKG vote submitted with invalid nonce ({origin_nonce} < {account_nonce}). Resubmitting vote.");
-                        self.process_dkg(stacks_client, &dkg_public_key);
+                        self.process_dkg(stacks_client, &dkg_public_key)?;
                     } else {
                         debug!("{self}: Already have a pending DKG vote in StackerDB. Waiting for it to be confirmed.";
                             "txid" => %transaction.txid(),
@@ -1681,6 +1670,20 @@ impl Signer {
         }
         Ok(())
     }
+}
+
+/// Error when processing DKG results
+#[derive(Debug, thiserror::Error)]
+pub enum DkgProcessingError {
+    /// Client error
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    /// Codec error
+    #[error(transparent)]
+    Codec(#[from] CodecError),
+    /// No pending DKG results
+    #[error("No DKG results found for key: {0}")]
+    NoPendingDkgResults(Point),
 }
 
 #[cfg(test)]
