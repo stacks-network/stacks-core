@@ -55,6 +55,7 @@ use wsts::v2;
 use crate::client::{ClientError, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::coordinator::CoordinatorSelector;
+use crate::runloop::RewardCycleInfo;
 use crate::signerdb::SignerDb;
 
 /// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
@@ -213,13 +214,18 @@ impl Signer {
     /// If the current reward cycle is the active reward cycle, this is the miner,
     /// so the first element of the tuple will be None (because the miner does not have a signer index).
     /// Otherwise, the coordinator is the signer with the index returned by the coordinator selector.
-    fn get_coordinator_sign(&self, current_reward_cycle: u64) -> (Option<u32>, PublicKey) {
-        if self.reward_cycle == current_reward_cycle {
+    fn get_coordinator_sign(
+        &self,
+        current_reward_cycle_info: &RewardCycleInfo,
+    ) -> (Option<u32>, PublicKey) {
+        if self.reward_cycle == current_reward_cycle_info.reward_cycle {
             let Some(ref cur_miner) = self.miner_key else {
-                error!(
-                    "Signer #{}: Could not lookup current miner while in active reward cycle",
-                    self.signer_id
-                );
+                if current_reward_cycle_info.epoch >= StacksEpochId::Epoch30 {
+                    error!(
+                        "Signer #{}: Could not lookup current miner while in active reward cycle",
+                        self.signer_id
+                    );
+                }
                 let selected = self.coordinator_selector.get_coordinator();
                 return (Some(selected.0), selected.1);
             };
@@ -500,7 +506,7 @@ impl Signer {
     pub fn process_next_command(
         &mut self,
         stacks_client: &StacksClient,
-        current_reward_cycle: u64,
+        current_reward_cycle_info: &RewardCycleInfo,
     ) {
         match &self.state {
             State::Uninitialized => {
@@ -516,7 +522,7 @@ impl Signer {
                     // We cannot execute a DKG command if we are not the coordinator
                     Some(self.get_coordinator_dkg().0)
                 } else {
-                    self.get_coordinator_sign(current_reward_cycle).0
+                    self.get_coordinator_sign(&current_reward_cycle_info).0
                 };
                 if coordinator_id != Some(self.signer_id) {
                     debug!(
@@ -639,7 +645,7 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
-        current_reward_cycle: u64,
+        current_reward_cycle_info: &RewardCycleInfo,
     ) {
         let packets: Vec<Packet> = messages
             .iter()
@@ -653,13 +659,18 @@ impl Signer {
                     let coordinator_pubkey = if Self::is_dkg_message(&packet.msg) {
                         self.get_coordinator_dkg().1
                     } else {
-                        self.get_coordinator_sign(current_reward_cycle).1
+                        self.get_coordinator_sign(&current_reward_cycle_info).1
                     };
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
             })
             .collect();
-        self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
+        self.handle_packets(
+            stacks_client,
+            res,
+            &packets,
+            current_reward_cycle_info.reward_cycle,
+        );
     }
 
     /// Helper function for determining if the provided message is a DKG specific message
@@ -1563,9 +1574,10 @@ impl Signer {
         stacks_client: &StacksClient,
         event: Option<&SignerEvent>,
         res: Sender<Vec<OperationResult>>,
-        current_reward_cycle: u64,
+        current_reward_cycle_info: &RewardCycleInfo,
     ) -> Result<(), ClientError> {
         debug!("{self}: Processing event: {event:?}");
+        let current_reward_cycle = current_reward_cycle_info.reward_cycle;
         match event {
             Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
@@ -1585,7 +1597,12 @@ impl Signer {
                     "{self}: Received {} messages from the other signers...",
                     messages.len()
                 );
-                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
+                self.handle_signer_messages(
+                    stacks_client,
+                    res,
+                    messages,
+                    &current_reward_cycle_info,
+                );
             }
             Some(SignerEvent::MinerMessages(messages, miner_key)) => {
                 if let Some(miner_key) = miner_key {
@@ -1603,7 +1620,12 @@ impl Signer {
                     messages.len();
                     "miner_key" => ?miner_key,
                 );
-                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
+                self.handle_signer_messages(
+                    stacks_client,
+                    res,
+                    messages,
+                    &current_reward_cycle_info,
+                );
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("{self}: Received a status check event.")

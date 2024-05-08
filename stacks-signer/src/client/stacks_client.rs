@@ -240,6 +240,16 @@ impl StacksClient {
         let pox_info = self.get_pox_data()?;
         let burn_block_height = self.get_burn_block_height()?;
 
+        self.get_node_epoch_from_pox_data(&pox_info, burn_block_height)
+    }
+
+    /// Determine the stacks node current epoch based on the provided
+    /// pox data and burn block height
+    pub fn get_node_epoch_from_pox_data(
+        &self,
+        pox_info: &RPCPoxInfoData,
+        burn_block_height: u64,
+    ) -> Result<StacksEpochId, ClientError> {
         let epoch_25 = pox_info
             .epochs
             .iter()
@@ -466,12 +476,15 @@ impl StacksClient {
             .reward_phase_block_length
             .saturating_add(pox_data.prepare_phase_block_length);
         let reward_cycle = blocks_mined / reward_cycle_length;
+        let epoch =
+            self.get_node_epoch_from_pox_data(&pox_data, pox_data.current_burnchain_block_height)?;
         Ok(RewardCycleInfo {
             reward_cycle,
             reward_cycle_length,
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
             last_burnchain_block_height: pox_data.current_burnchain_block_height,
+            epoch,
         })
     }
 

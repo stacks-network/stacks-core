@@ -20,6 +20,7 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::types::StacksEpochId;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -64,6 +65,8 @@ pub struct RewardCycleInfo {
     pub first_burnchain_block_height: u64,
     /// The burnchain block height of the last query
     pub last_burnchain_block_height: u64,
+    /// Current Stacks epoch
+    pub epoch: StacksEpochId,
 }
 
 impl RewardCycleInfo {
@@ -385,11 +388,11 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 warn!("Signer may have an outdated view of the network.");
             }
         }
-        let current_reward_cycle = self
+        let current_reward_cycle_info = self
             .current_reward_cycle_info
             .as_ref()
-            .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
-            .reward_cycle;
+            .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
+        let current_reward_cycle = current_reward_cycle_info.reward_cycle;
         if self.state == State::NoRegisteredSigners {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if let Some(event) = event {
@@ -427,7 +430,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 &self.stacks_client,
                 event.as_ref(),
                 res.clone(),
-                current_reward_cycle,
+                &current_reward_cycle_info,
             ) {
                 error!("{signer}: errored processing event: {e}");
             }
@@ -450,7 +453,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
                 }
             }
             // After processing event, run the next command for each signer
-            signer.process_next_command(&self.stacks_client, current_reward_cycle);
+            signer.process_next_command(&self.stacks_client, &current_reward_cycle_info);
         }
         None
     }
@@ -459,6 +462,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
+    use clarity::types::StacksEpochId;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
@@ -519,6 +523,7 @@ mod tests {
             prepare_phase_block_length,
             first_burnchain_block_height,
             last_burnchain_block_height,
+            epoch: StacksEpochId::Epoch25,
         };
         assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
         assert!(!reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height));
@@ -574,6 +579,7 @@ mod tests {
             prepare_phase_block_length: 5,
             first_burnchain_block_height: 0,
             last_burnchain_block_height: 50,
+            epoch: StacksEpochId::Epoch25,
         };
 
         assert!(!reward_cycle_info.is_in_next_prepare_phase(49));
@@ -616,6 +622,7 @@ mod tests {
             prepare_phase_block_length,
             first_burnchain_block_height,
             last_burnchain_block_height,
+            epoch: StacksEpochId::Epoch25,
         };
 
         for i in 0..reward_cycle_length {
