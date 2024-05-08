@@ -93,7 +93,6 @@ fn setup_tracked_cost_test(
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
-            true,
         );
 
         if epoch > StacksEpochId::Epoch20 {
@@ -112,7 +111,6 @@ fn setup_tracked_cost_test(
             &StacksBlockId([2 as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
-            true,
         );
 
         assert_eq!(
@@ -151,7 +149,6 @@ fn setup_tracked_cost_test(
             &StacksBlockId([3 as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
-            true,
         );
 
         conn.as_transaction(|conn| {
@@ -228,7 +225,6 @@ fn test_tracked_costs(
             &StacksBlockId([4 + prog_id as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
-            true,
         );
 
         conn.as_transaction(|conn| {

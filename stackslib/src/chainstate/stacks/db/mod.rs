@@ -2741,7 +2741,6 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
-            true,
         );
 
         for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {

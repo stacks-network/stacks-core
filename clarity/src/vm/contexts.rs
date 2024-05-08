@@ -1964,6 +1964,18 @@ impl CallStack {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+    pub fn set_tenure_height(&mut self, tenure_height: u32) {
+        self.context.database.begin();
+        self.context
+            .database
+            .set_tenure_height(tenure_height)
+            .unwrap();
+        self.context.database.commit().unwrap();
+    }
+}
+
 #[cfg(test)]
 mod test {
     use stacks_common::types::chainstate::StacksAddress;
@@ -1976,17 +1988,6 @@ mod test {
     };
     use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
-
-    impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
-        pub fn set_tenure_height(&mut self, tenure_height: u32) {
-            self.context.database.begin();
-            self.context
-                .database
-                .set_tenure_height(tenure_height)
-                .unwrap();
-            self.context.database.commit().unwrap();
-        }
-    }
 
     #[test]
     fn test_asset_map_abort() {

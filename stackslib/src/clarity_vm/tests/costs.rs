@@ -203,13 +203,8 @@ where
 
     if epoch >= StacksEpochId::Epoch2_05 {
         let next_block = StacksBlockId([1 as u8; 32]);
-        let mut clarity_conn = clarity_instance.begin_block(
-            &tip,
-            &next_block,
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-            true,
-        );
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_05().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
@@ -217,13 +212,8 @@ where
 
     if epoch >= StacksEpochId::Epoch21 {
         let next_block = StacksBlockId([2 as u8; 32]);
-        let mut clarity_conn = clarity_instance.begin_block(
-            &tip,
-            &next_block,
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-            true,
-        );
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_1().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
@@ -1063,7 +1053,6 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
-            true,
         );
 
         let cost_definer_src = "
@@ -1316,7 +1305,6 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             burn_db,
-            true,
         );
 
         let cost_definer_src = "
