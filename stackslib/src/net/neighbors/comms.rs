@@ -403,6 +403,14 @@ pub trait NeighborComms {
         convo.is_authenticated() && convo.peer_version > 0
     }
 
+    /// Are we in the process of connecting to a neighbor?
+    fn is_neighbor_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+        let Some(event_id) = self.get_connecting(network, nk) else {
+            return false;
+        };
+        network.is_connecting(event_id)
+    }
+
     /// Reset all comms
     fn reset(&mut self) {
         let _ = self.take_broken_neighbors();
