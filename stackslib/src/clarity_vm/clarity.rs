@@ -295,7 +295,7 @@ impl ClarityInstance {
             )
         };
 
-        // If we're starting a new tenure, and we're in epoch 3.09, then we
+        // If we're starting a new tenure, and we're in epoch 3.0, then we
         // need to increment the tenure height in the Clarity DB.
         if new_tenure && epoch.epoch_id >= StacksEpochId::Epoch30 {
             let mut clarity_db = datastore.as_clarity_db(header_db, burn_state_db);

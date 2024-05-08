@@ -822,16 +822,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             self.context.eval_hooks = Some(vec![hook]);
         }
     }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn set_tenure_height(&mut self, tenure_height: u32) {
-        self.context.database.begin();
-        self.context
-            .database
-            .set_tenure_height(tenure_height)
-            .unwrap();
-        self.context.database.commit().unwrap();
-    }
 }
 
 impl CostTracker for Environment<'_, '_, '_> {
@@ -1986,6 +1976,17 @@ mod test {
     };
     use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
+
+    impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+        pub fn set_tenure_height(&mut self, tenure_height: u32) {
+            self.context.database.begin();
+            self.context
+                .database
+                .set_tenure_height(tenure_height)
+                .unwrap();
+            self.context.database.commit().unwrap();
+        }
+    }
 
     #[test]
     fn test_asset_map_abort() {

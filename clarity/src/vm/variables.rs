@@ -100,11 +100,12 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::BlockHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                // In epoch 2.x, the `block-height` keyword returns the block height, but
-                // beginning in epoch 3, it returns the tenure height instead in order to
-                // maintain a similar pace to the block  height advancement pre-Nakamoto. This
-                // keyword is removed in Clarity 3 to avoid confusion and replaced with
-                // `stacks-block-height` and `tenure-height`.
+                // In epoch 2.x, the `block-height` keyword returns the Stacks block height.
+                // For Clarity 1 and Clarity 2 contracts executing in epoch 3, `block-height`
+                // is equal to the tenure height instead of the Stacks block height. This change
+                // is made to maintain a similar pace at which this value increments (e.g. for use
+                // as an expiration). In Clarity 3, `block-height` is removed to avoid confusion.
+                // It is replaced with two new keywords: `stacks-block-height` and `tenure-height`.
                 if env.global_context.epoch_id < StacksEpochId::Epoch30 {
                     let block_height = env.global_context.database.get_current_block_height();
                     Ok(Some(Value::UInt(block_height as u128)))
