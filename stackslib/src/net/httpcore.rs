@@ -247,6 +247,17 @@ pub mod request {
         Ok(txid)
     }
 
+    /// Get and parse a MARF key from a path's captures, given the name of the regex field.
+    pub fn get_marf_key(captures: &Captures, key: &str) -> Result<String, HttpError> {
+        let marf_key = if let Some(marf_key_str) = captures.name(key) {
+            marf_key_str.as_str().to_string()
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+
+        Ok(marf_key)
+    }
+
     /// Get and parse a Clarity name from a path's captures, given the name of the regex field.
     pub fn get_clarity_name(captures: &Captures, key: &str) -> Result<ClarityName, HttpError> {
         let clarity_name = if let Some(name_str) = captures.name(key) {
