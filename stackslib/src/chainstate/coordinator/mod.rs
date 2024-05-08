@@ -1603,6 +1603,7 @@ impl<
     /// block can be re-processed in that event.
     fn undo_stacks_block_orphaning(
         burnchain_conn: &DBConn,
+        burnchain_indexer: &B,
         ic: &SortitionDBConn,
         chainstate_db_tx: &mut DBTx,
         first_invalidate_start_block: u64,
@@ -1613,8 +1614,11 @@ impl<
             first_invalidate_start_block, last_invalidate_start_block
         );
         for burn_height in first_invalidate_start_block..(last_invalidate_start_block + 1) {
-            let burn_header = match BurnchainDB::get_burnchain_header(burnchain_conn, burn_height)?
-            {
+            let burn_header = match BurnchainDB::get_burnchain_header(
+                burnchain_conn,
+                burnchain_indexer,
+                burn_height,
+            )? {
                 Some(hdr) => hdr,
                 None => {
                     continue;
@@ -1840,6 +1844,7 @@ impl<
             // sortitions
             let revalidated_burn_header = BurnchainDB::get_burnchain_header(
                 self.burnchain_blocks_db.conn(),
+                &self.burnchain_indexer,
                 first_invalidate_start_block - 1,
             )
             .expect("FATAL: failed to read burnchain DB")
@@ -1854,6 +1859,7 @@ impl<
             // invalidate all descendant sortitions, no matter what.
             let invalidated_burn_header = BurnchainDB::get_burnchain_header(
                 self.burnchain_blocks_db.conn(),
+                &self.burnchain_indexer,
                 last_invalidate_start_block - 1,
             )
             .expect("FATAL: failed to read burnchain DB")
@@ -2045,6 +2051,7 @@ impl<
             // un-orphan blocks that had been orphaned but were tied to this now-revalidated sortition history
             Self::undo_stacks_block_orphaning(
                 &self.burnchain_blocks_db.conn(),
+                &self.burnchain_indexer,
                 &ic,
                 &mut chainstate_db_tx,
                 first_invalidate_start_block,
