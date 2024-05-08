@@ -409,6 +409,7 @@ pub trait NeighborComms {
             return false;
         };
         network.is_connecting(event_id)
+            || network.is_connecting_neighbor(&nk.to_neighbor_key(network))
     }
 
     /// Reset all comms

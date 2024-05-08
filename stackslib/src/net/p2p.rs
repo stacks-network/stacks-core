@@ -210,6 +210,29 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
+pub(crate) struct ConnectingPeer {
+    socket: mio_net::TcpStream,
+    outbound: bool,
+    timestamp: u64,
+    nk: NeighborKey,
+}
+
+impl ConnectingPeer {
+    pub fn new(
+        socket: mio_net::TcpStream,
+        outbound: bool,
+        timestamp: u64,
+        nk: NeighborKey,
+    ) -> Self {
+        Self {
+            socket,
+            outbound,
+            timestamp,
+            nk,
+        }
+    }
+}
+
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -260,7 +283,7 @@ pub struct PeerNetwork {
     pub peers: PeerMap,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
     pub events: HashMap<NeighborKey, usize>,
-    pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>, // (socket, outbound?, connection sent timestamp)
+    pub connecting: HashMap<usize, ConnectingPeer>,
     pub bans: HashSet<usize>,
 
     // ongoing messages the network is sending via the p2p interface
@@ -1157,8 +1180,10 @@ impl PeerNetwork {
                 let registered_event_id =
                     network.register(self.p2p_network_handle, hint_event_id, &sock)?;
 
-                self.connecting
-                    .insert(registered_event_id, (sock, true, get_epoch_time_secs()));
+                self.connecting.insert(
+                    registered_event_id,
+                    ConnectingPeer::new(sock, true, get_epoch_time_secs(), neighbor.clone()),
+                );
                 registered_event_id
             }
         };
@@ -1554,6 +1579,14 @@ impl PeerNetwork {
         self.connecting.contains_key(&event_id)
     }
 
+    /// Is a neighbor connecting on any event?
+    pub fn is_connecting_neighbor(&self, nk: &NeighborKey) -> bool {
+        self.connecting
+            .iter()
+            .find(|(_, peer)| peer.nk == *nk)
+            .is_some()
+    }
+
     /// Is this neighbor key the same as the one that represents our p2p bind address?
     pub fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
         self.bind_nk.network_id == neighbor_key.network_id
@@ -1829,7 +1862,7 @@ impl PeerNetwork {
                     let _ = network.deregister(event_id, &socket);
                 }
                 // deregister socket if still connecting
-                if let Some((socket, ..)) = self.connecting.remove(&event_id) {
+                if let Some(ConnectingPeer { socket, .. }) = self.connecting.remove(&event_id) {
                     let _ = network.deregister(event_id, &socket);
                 }
             }
@@ -2089,7 +2122,9 @@ impl PeerNetwork {
     fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
-                let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
+                let ConnectingPeer {
+                    socket, outbound, ..
+                } = self.connecting.remove(event_id).unwrap();
                 let sock_str = format!("{:?}", &socket);
                 if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
                     debug!(
@@ -2241,9 +2276,18 @@ impl PeerNetwork {
     fn disconnect_unresponsive(&mut self) -> usize {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
-        for (event_id, (socket, _, ts)) in self.connecting.iter() {
-            if ts + self.connection_opts.connect_timeout < now {
-                debug!("{:?}: Disconnect unresponsive connecting peer {:?} (event {}): timed out after {} ({} < {})s", &self.local_peer, socket, event_id, self.connection_opts.timeout, ts + self.connection_opts.timeout, now);
+        for (event_id, peer) in self.connecting.iter() {
+            if peer.timestamp + self.connection_opts.connect_timeout < now {
+                debug!(
+                    "{:?}: Disconnect unresponsive connecting peer {:?} (event {} neighbor {}): timed out after {} ({} < {})s",
+                    &self.local_peer,
+                    &peer.socket,
+                    event_id,
+                    &peer.nk,
+                    self.connection_opts.timeout,
+                    peer.timestamp + self.connection_opts.timeout,
+                    now
+                );
                 to_remove.push(*event_id);
             }
         }
