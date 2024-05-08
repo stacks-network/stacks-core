@@ -210,7 +210,7 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-pub(crate) struct ConnectingPeer {
+pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
     outbound: bool,
     timestamp: u64,
