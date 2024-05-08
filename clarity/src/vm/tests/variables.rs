@@ -221,3 +221,466 @@ fn test_tenure_height(
         assert_eq!(Ok(Value::UInt(1)), eval_result);
     }
 }
+
+#[derive(Debug, PartialEq)]
+enum WhenError {
+    Analysis,
+    Initialization,
+    Runtime,
+    Never,
+}
+
+#[cfg(test)]
+fn expect_contract_error(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    tl_env_factory: &mut TopLevelMemoryEnvironmentGenerator,
+    name: &str,
+    contract: &str,
+    expected_errors: &[(
+        WhenError,
+        fn(ClarityVersion, StacksEpochId) -> bool,
+        CheckErrors,
+    )],
+    expected_success: Value,
+) {
+    let mut placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::local(name).unwrap(), version);
+
+    let mut owned_env = tl_env_factory.get_env(epoch);
+    let contract_identifier = QualifiedContractIdentifier::local(name).unwrap();
+
+    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let analysis = db.execute(|db| {
+        type_check_version(&contract_identifier, &mut exprs, db, true, epoch, version)
+    });
+
+    for (when, err_condition, expected_error) in expected_errors {
+        if *when == WhenError::Analysis && err_condition(version, epoch) {
+            let err = analysis.unwrap_err();
+            assert_eq!(*expected_error, err.err);
+
+            // Do not continue with the test if the analysis failed.
+            return;
+        }
+    }
+
+    // The type-checker does not report an error for the reuse of the built-in
+    // name `stacks-block-height`. It is instead caught at initialization. This
+    // matches the behavior of Clarity 1 and 2.
+    assert!(analysis.is_ok());
+
+    // Initialize the contract
+    // Note that we're ignoring the analysis failure here so that we can test
+    // the runtime behavior. In Clarity 3, if this case somehow gets past the
+    // analysis, it should fail at runtime.
+    let init_result = owned_env.initialize_versioned_contract(
+        contract_identifier.clone(),
+        version,
+        contract,
+        None,
+        ASTRules::PrecheckSize,
+    );
+
+    for (when, err_condition, expected_error) in expected_errors {
+        if *when == WhenError::Initialization && err_condition(version, epoch) {
+            let err = init_result.unwrap_err();
+            if let Error::Unchecked(inner_err) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected an Unchecked error, but got a different error");
+            }
+
+            // Do not continue with the test if the initialization failed.
+            return;
+        }
+    }
+
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+
+    // Call the function
+    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+
+    for (when, err_condition, expected_error) in expected_errors {
+        if *when == WhenError::Runtime && err_condition(version, epoch) {
+            let err = eval_result.unwrap_err();
+            if let Error::Unchecked(inner_err) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected an Unchecked error, but got a different error");
+            }
+
+            // Do not continue with the test if the evaluation failed.
+            return;
+        }
+    }
+
+    assert_eq!(Ok(expected_success), eval_result);
+}
+
+#[apply(test_clarity_versions)]
+fn reuse_block_height(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    // data var
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "data-var",
+        r#"
+        (define-data-var block-height uint u1234)
+        (define-read-only (test-func)
+            (var-get block-height)
+        )
+        "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::UInt(1234),
+    );
+
+    // map
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "map",
+        r#"
+        (define-map block-height uint uint)
+        (define-private (test-func)
+            (map-insert block-height u1 u2)
+        )
+        "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(true),
+    );
+
+    // let
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "let",
+        r#"
+        (define-private (test-func)
+            (let ((block-height 32))
+                block-height
+            )
+        )
+        "#,
+        &[
+            (
+                WhenError::Runtime,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Int(32),
+    );
+
+    // match binding
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "match-binding",
+        r#"
+        (define-read-only (test-func)
+          (let ((x (if true (ok u5) (err u7))))
+            (match x
+              block-height 3
+              e 4
+            )
+          )
+        )
+        "#,
+        &[
+            (
+                WhenError::Runtime,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Int(3),
+    );
+
+    // function
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-private (block-height) true)
+        (define-private (test-func) (block-height))
+        "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(true),
+    );
+}
+
+#[apply(test_clarity_versions)]
+fn reuse_stacks_block_height(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    // data var
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "data-var",
+        r#"
+        (define-data-var stacks-block-height uint u1234)
+        (define-read-only (test-func)
+            (var-get stacks-block-height)
+        )
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::UInt(1234),
+    );
+
+    // map
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "map",
+        r#"
+        (define-map stacks-block-height uint uint)
+        (define-private (test-func)
+            (map-insert stacks-block-height u1 u2)
+        )
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+
+    // let
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "let",
+        r#"
+        (define-private (test-func)
+            (let ((stacks-block-height 32))
+                stacks-block-height
+            )
+        )
+        "#,
+        &[(
+            WhenError::Runtime,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Int(32),
+    );
+
+    // match binding
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "match-binding",
+        r#"
+        (define-read-only (test-func)
+          (let ((x (if true (ok u5) (err u7))))
+            (match x
+              stacks-block-height 3
+              e 4
+            )
+          )
+        )
+        "#,
+        &[(
+            WhenError::Runtime,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Int(3),
+    );
+
+    // function
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-private (stacks-block-height) true)
+        (define-private (test-func) (stacks-block-height))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+}
+
+#[apply(test_clarity_versions)]
+fn reuse_tenure_height(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    // data var
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "data-var",
+        r#"
+        (define-data-var tenure-height uint u1234)
+        (define-read-only (test-func)
+            (var-get tenure-height)
+        )
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::UInt(1234),
+    );
+
+    // map
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "map",
+        r#"
+        (define-map tenure-height uint uint)
+        (define-private (test-func)
+            (map-insert tenure-height u1 u2)
+        )
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+
+    // let
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "let",
+        r#"
+        (define-private (test-func)
+            (let ((tenure-height 32))
+                tenure-height
+            )
+        )
+        "#,
+        &[(
+            WhenError::Runtime,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Int(32),
+    );
+
+    // match binding
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "match-binding",
+        r#"
+        (define-read-only (test-func)
+          (let ((x (if true (ok u5) (err u7))))
+            (match x
+              tenure-height 3
+              e 4
+            )
+          )
+        )
+        "#,
+        &[(
+            WhenError::Runtime,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Int(3),
+    );
+
+    // function
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-private (tenure-height) true)
+        (define-private (test-func) (tenure-height))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+}
