@@ -1448,7 +1448,11 @@ impl Signer {
                     self.approved_aggregate_public_key
                 );
                 match self.load_saved_state_for_aggregate_key(approved_aggregate_key) {
-                    Ok(()) => self.send_dkg_results(&approved_aggregate_key)?,
+                    Ok(()) => {
+                        if self.has_pending_dkg_results_for_key(&approved_aggregate_key) {
+                            self.send_dkg_results(&approved_aggregate_key)?
+                        }
+                    }
                     Err(e) => warn!(
                         "{self}: Failed to load saved state for key {approved_aggregate_key}: {e}"
                     ),
@@ -1472,6 +1476,11 @@ impl Signer {
             }
         }
         Ok(())
+    }
+
+    /// Check if the signer has pending DKG results to send
+    fn has_pending_dkg_results_for_key(&self, dkg_public_key: &Point) -> bool {
+        self.pending_dkg_results.contains_key(dkg_public_key)
     }
 
     /// Send DKG results to the miner coordinator so that it can coordinate signing rounds
