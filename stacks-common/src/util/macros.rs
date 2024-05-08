@@ -143,12 +143,16 @@ macro_rules! define_versioned_named_enum_internal {
                 })
             }
 
+            /// Returns the first Clarity version in which `self` is defined.
             pub fn get_min_version(&self) -> $VerType {
                 match self {
                     $(Self::$Variant => $MinVersion,)*
                 }
             }
 
+            /// Returns `Some` for the last Clarity version in which `self` is
+            /// defined, or `None` if `self` is defined for all versions after
+            /// `get_min_version()`.
             pub fn get_max_version(&self) -> Option<$VerType> {
                 match self {
                     $(Self::$Variant => $MaxVersion,)*
