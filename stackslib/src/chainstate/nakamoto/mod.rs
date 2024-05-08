@@ -2548,8 +2548,29 @@ impl NakamotoChainState {
             &parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
-            new_tenure,
         );
+
+        if new_tenure {
+            clarity_tx
+                .connection()
+                .as_free_transaction(|clarity_tx_conn| {
+                    clarity_tx_conn.with_clarity_db(|db| {
+                        let tenure_ht = db.get_tenure_height()?;
+                        db.set_tenure_height(
+                            tenure_ht
+                                .checked_add(1)
+                                .expect("FATAL: tenure height overflowed"),
+                        )?;
+                        Ok(())
+                    })
+                })
+                .map_err(|e| {
+                    error!("Failed to set tenure height during block setup";
+                        "error" => ?e,
+                    );
+                    e
+                })?;
+        }
 
         // now that we have access to the ClarityVM, we can account for reward deductions from
         // PoisonMicroblocks if we have new rewards scheduled

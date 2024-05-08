@@ -276,7 +276,6 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
-        new_tenure: bool,
     ) -> ClarityBlockConnection<'a, 'b> {
         let mut datastore = self.datastore.begin(current, next);
 
@@ -294,26 +293,6 @@ impl ClarityInstance {
                 .expect("FAIL: problem instantiating cost tracking"),
             )
         };
-
-        // If we're starting a new tenure, and we're in epoch 3.0, then we
-        // need to increment the tenure height in the Clarity DB.
-        if new_tenure && epoch.epoch_id >= StacksEpochId::Epoch30 {
-            let mut clarity_db = datastore.as_clarity_db(header_db, burn_state_db);
-            clarity_db.begin();
-            let tenure_height = clarity_db
-                .get_tenure_height()
-                .expect("FAIL: unable to get tenure height from Clarity database");
-            clarity_db
-                .set_tenure_height(
-                    tenure_height
-                        .checked_add(1)
-                        .expect("FAIL: tenure height overflow"),
-                )
-                .expect("FAIL: unable to set tenure height in Clarity database");
-            clarity_db
-                .commit()
-                .expect("FAIL: unable to commit tenure height");
-        }
 
         ClarityBlockConnection {
             datastore,
