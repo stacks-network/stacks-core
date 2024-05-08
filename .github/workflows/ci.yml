@@ -24,13 +24,6 @@ on:
       - reopened
       - synchronize
       - ready_for_review
-    paths-ignore:
-      - "**.md"
-      - "**.yml"
-    ## might be better to use inclusive v exclusive paths here, ex:
-    # paths:
-    #   - "**.rs"
-    #   - "**.clar"
 
 defaults:
   run:
