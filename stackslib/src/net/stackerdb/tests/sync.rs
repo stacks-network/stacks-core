@@ -36,7 +36,7 @@ use crate::net::relay::Relayer;
 use crate::net::stackerdb::db::SlotValidation;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::test::{TestPeer, TestPeerConfig};
-use crate::net::{Error as net_error, StackerDBChunkData};
+use crate::net::{Error as net_error, NetworkResult, StackerDBChunkData};
 use crate::util_lib::test::with_timeout;
 
 const BASE_PORT: u16 = 33000;
@@ -179,6 +179,12 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
     ret
 }
 
+fn check_sync_results(network_sync: &NetworkResult) {
+    for res in network_sync.stacker_db_sync_results.iter() {
+        assert!(res.num_connections >= res.num_attempted_connections);
+    }
+}
+
 #[test]
 fn test_stackerdb_replica_2_neighbors_1_chunk() {
     with_timeout(600, || {
@@ -235,6 +241,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
             let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
@@ -252,6 +259,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
             }
 
             if let Ok(mut res) = res_2 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
@@ -354,6 +362,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
+                check_sync_results(&res);
                 for sync_res in res.stacker_db_sync_results.iter() {
                     assert_eq!(sync_res.chunks_to_store.len(), 0);
                     if sync_res.stale.len() > 0 {
@@ -377,6 +386,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             }
 
             if let Ok(mut res) = res_2 {
+                check_sync_results(&res);
                 for sync_res in res.stacker_db_sync_results.iter() {
                     assert_eq!(sync_res.chunks_to_store.len(), 0);
                     if sync_res.stale.len() > 0 {
@@ -428,6 +438,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
@@ -445,6 +456,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             }
 
             if let Ok(mut res) = res_2 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
@@ -550,6 +562,7 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
             let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
@@ -567,6 +580,7 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
             }
 
             if let Ok(mut res) = res_2 {
+                check_sync_results(&res);
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
@@ -686,7 +700,9 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
             for i in 0..num_peers {
                 peers[i].network.stacker_db_configs = peer_db_configs[i].clone();
                 let res = peers[i].step_with_ibd(false);
+
                 if let Ok(mut res) = res {
+                    check_sync_results(&res);
                     let rc_consensus_hash =
                         peers[i].network.get_chain_view().rc_consensus_hash.clone();
                     Relayer::process_stacker_db_chunks(
