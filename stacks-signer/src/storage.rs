@@ -35,7 +35,7 @@ pub(crate) fn load_encrypted_signer_state<S: SignerStateStorage>(
     storage: S,
     id: S::IdType,
     private_key: &Scalar,
-) -> Result<StoredSignerStates, PersistenceError> {
+) -> Result<StoredSignerStates, Error> {
     let Some(encrypted_state) = storage.get_encrypted_signer_state(id)? else {
         return Ok(VecDeque::new());
     };
@@ -51,27 +51,25 @@ pub(crate) trait SignerStateStorage {
     fn get_encrypted_signer_state(
         self,
         signer_config: Self::IdType,
-    ) -> Result<Option<Vec<u8>>, PersistenceError>;
+    ) -> Result<Option<Vec<u8>>, Error>;
 }
 
 impl SignerStateStorage for &mut StackerDB {
     type IdType = SignerSlotID;
 
-    fn get_encrypted_signer_state(
-        self,
-        id: Self::IdType,
-    ) -> Result<Option<Vec<u8>>, PersistenceError> {
-        Ok(self.get_encrypted_signer_state(id)?)
+    fn get_encrypted_signer_state(self, id: Self::IdType) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self
+            .get_encrypted_signer_state(id)
+            .map_err(PersistenceError::from)?)
     }
 }
 
 impl SignerStateStorage for &SignerDb {
     type IdType = u64;
-    fn get_encrypted_signer_state(
-        self,
-        id: Self::IdType,
-    ) -> Result<Option<Vec<u8>>, PersistenceError> {
-        Ok(self.get_encrypted_signer_state(id)?)
+    fn get_encrypted_signer_state(self, id: Self::IdType) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self
+            .get_encrypted_signer_state(id)
+            .map_err(PersistenceError::from)?)
     }
 }
 
@@ -79,17 +77,18 @@ pub(crate) fn encrypt(
     private_key: &Scalar,
     msg: &[u8],
     rng: &mut impl rand_core::CryptoRngCore,
-) -> Result<Vec<u8>, EncryptionError> {
-    wsts::util::encrypt(derive_encryption_key(private_key).as_bytes(), msg, rng)
-        .map_err(|_| EncryptionError::Encrypt)
+) -> Result<Vec<u8>, Error> {
+    Ok(
+        wsts::util::encrypt(derive_encryption_key(private_key).as_bytes(), msg, rng)
+            .map_err(|_| EncryptionError::Encrypt)?,
+    )
 }
 
-pub(crate) fn decrypt(
-    private_key: &Scalar,
-    encrypted_msg: &[u8],
-) -> Result<Vec<u8>, EncryptionError> {
-    wsts::util::decrypt(derive_encryption_key(private_key).as_bytes(), encrypted_msg)
-        .map_err(|_| EncryptionError::Decrypt)
+pub(crate) fn decrypt(private_key: &Scalar, encrypted_msg: &[u8]) -> Result<Vec<u8>, Error> {
+    Ok(
+        wsts::util::decrypt(derive_encryption_key(private_key).as_bytes(), encrypted_msg)
+            .map_err(|_| EncryptionError::Decrypt)?,
+    )
 }
 
 fn derive_encryption_key(private_key: &Scalar) -> Sha512Trunc256Sum {
@@ -102,6 +101,17 @@ fn derive_encryption_key(private_key: &Scalar) -> Sha512Trunc256Sum {
 /// This is the RNG implementation that the signer uses when randomness is required for cryptographic operations. Currently, this is OsRng, which is also the RNG used by WSTS when initializing signer state.
 pub(crate) const fn crypto_rng() -> impl CryptoRng + RngCore {
     OsRng
+}
+
+/// Top-level Error for module
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Persistence error
+    #[error(transparent)]
+    Persistence(#[from] PersistenceError),
+    /// Encryption error
+    #[error(transparent)]
+    Encryption(#[from] EncryptionError),
 }
 
 /// Error stemming from a persistence operation
@@ -130,4 +140,10 @@ pub enum EncryptionError {
     /// Decryption failed
     #[error("Encryption operation failed")]
     Decrypt,
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Persistence(value.into())
+    }
 }

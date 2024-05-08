@@ -1256,7 +1256,7 @@ impl Signer {
     }
 
     /// Persist signer state in both SignerDB and StackerDB
-    fn save_signer_state(&mut self) -> Result<(), storage::PersistenceError> {
+    fn save_signer_state(&mut self) -> Result<(), storage::Error> {
         let rng = &mut storage::crypto_rng();
 
         let mut saved_states = self.load_encrypted_signer_states().unwrap_or_else(|err| {
@@ -1300,9 +1300,9 @@ impl Signer {
         if let Err(err) = &stackerdb_result {
             warn!("{self}: Failed to persist state in StackerDB: {err}");
 
-            stackerdb_result
+            Ok(stackerdb_result?)
         } else {
-            signerdb_result
+            Ok(signerdb_result?)
         }
     }
 
@@ -1333,7 +1333,7 @@ impl Signer {
     pub fn load_saved_state_for_aggregate_key(
         &mut self,
         aggregate_key: Point,
-    ) -> Result<(), storage::PersistenceError> {
+    ) -> Result<(), storage::Error> {
         if let Some(state) = self
             .load_encrypted_signer_states()?
             .into_iter()
@@ -1351,7 +1351,7 @@ impl Signer {
     /// Load the entire encrypted signer state
     fn load_encrypted_signer_states(
         &mut self,
-    ) -> Result<storage::StoredSignerStates, storage::PersistenceError> {
+    ) -> Result<storage::StoredSignerStates, storage::Error> {
         let loaded_signers = storage::load_encrypted_signer_state(
             &self.signer_db,
             self.reward_cycle,
