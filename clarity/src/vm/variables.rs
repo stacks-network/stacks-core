@@ -41,25 +41,6 @@ define_versioned_named_enum_with_max!(NativeVariables(ClarityVersion) {
     TenureHeight("tenure-height", ClarityVersion::Clarity3, None),
 });
 
-impl NativeVariables {
-    pub fn lookup_by_name_at_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeVariables> {
-        NativeVariables::lookup_by_name(name).and_then(|native_variable| {
-            match native_variable.get_max_version() {
-                Some(ref max_version)
-                    if &native_variable.get_min_version() <= version && version <= max_version =>
-                {
-                    Some(native_variable)
-                }
-                None if &native_variable.get_min_version() <= version => Some(native_variable),
-                _ => None,
-            }
-        })
-    }
-}
-
 pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
     NativeVariables::lookup_by_name_at_version(name, version).is_some()
 }

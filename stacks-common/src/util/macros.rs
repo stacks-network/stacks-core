@@ -123,6 +123,26 @@ macro_rules! define_versioned_named_enum_internal {
                 }
             }
 
+            pub fn lookup_by_name_at_version(name: &str, version: &ClarityVersion) -> Option<Self> {
+                Self::lookup_by_name(name).and_then(|variant| {
+                    let is_active = match (
+                        variant.get_min_version(),
+                        variant.get_max_version(),
+                    ) {
+                        (ref min_version, Some(ref max_version)) => {
+                            min_version <= version && version <= max_version
+                        }
+                        // No max version is set, so the function is active for all versions greater than min
+                        (ref min_version, None) => min_version <= version,
+                    };
+                    if is_active {
+                        Some(variant)
+                    } else {
+                        None
+                    }
+                })
+            }
+
             pub fn get_min_version(&self) -> $VerType {
                 match self {
                     $(Self::$Variant => $MinVersion,)*
