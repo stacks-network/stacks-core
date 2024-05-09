@@ -1520,15 +1520,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch30;
             });
 
-            // beginning in epoch 3.0, we need to track the tenure height,
-            // which is initialized to the current block height
-            let block_height = self.with_clarity_db_readonly(|db| db.get_current_block_height());
-            self.as_transaction(|tx_conn| {
-                tx_conn
-                    .with_clarity_db(|db| Ok(db.set_tenure_height(block_height)?))
-                    .unwrap();
-            });
-
             debug!("Epoch 3.0 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
