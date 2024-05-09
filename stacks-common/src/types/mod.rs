@@ -60,6 +60,16 @@ pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
 pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
 
+// sliding burnchain window over which a miner's past block-commit payouts will be used to weight
+// its current block-commit in a sortition.
+// This is the value used in epoch 2.x
+pub const MINING_COMMITMENT_WINDOW: u8 = 6;
+
+// how often a miner must commit in its mining commitment window in order to even be considered for
+// sortition.
+// Only relevant for Nakamoto (epoch 3.x)
+pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
+
 #[repr(u32)]
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
 pub enum StacksEpochId {
@@ -116,6 +126,27 @@ impl StacksEpochId {
     ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
     pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
         self < &StacksEpochId::Epoch25
+    }
+
+    /// What is the sortition mining commitment window for this epoch?
+    pub fn mining_commitment_window(&self) -> u8 {
+        MINING_COMMITMENT_WINDOW
+    }
+
+    /// How often must a miner mine in order to be considered for sortition in its commitment
+    /// window?
+    pub fn mining_commitment_frequency(&self) -> u8 {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => 0,
+            StacksEpochId::Epoch30 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
+        }
     }
 }
 
