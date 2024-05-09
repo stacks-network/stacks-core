@@ -51,8 +51,8 @@ use wsts::state_machine::OperationResult;
 
 struct SpawnedSigner {
     running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
-    _cmd_send: Sender<RunLoopCommand>,
-    _res_recv: Receiver<Vec<OperationResult>>,
+    cmd_send: Sender<RunLoopCommand>,
+    res_recv: Receiver<Vec<OperationResult>>,
 }
 
 /// Create a new stacker db session
@@ -82,8 +82,8 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
     info!("Starting signer with config: {}", config);
-    let (_cmd_send, cmd_recv) = channel();
-    let (res_send, _res_recv) = channel();
+    let (cmd_send, cmd_recv) = channel();
+    let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
     #[cfg(feature = "monitoring_prom")]
     {
@@ -95,8 +95,8 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
-        _cmd_send,
-        _res_recv,
+        cmd_send,
+        res_recv,
     }
 }
 
