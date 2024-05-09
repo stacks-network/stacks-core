@@ -5567,20 +5567,23 @@ impl PeerNetwork {
         }
 
         if burnchain_tip_changed {
-            // wake up the inv-sync and downloader -- we have potentially more sortitions
-            self.hint_sync_invs(self.chain_view.burn_stable_block_height);
+            if !ibd {
+                // wake up the inv-sync and downloader -- we have potentially more sortitions
+                self.hint_sync_invs(self.chain_view.burn_stable_block_height);
+
+                // set up the antientropy protocol to try pushing the latest block
+                // (helps if you're a miner who gets temporarily disconnected)
+                self.antientropy_last_push_ts = get_epoch_time_secs();
+                self.antientropy_start_reward_cycle =
+                    self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
+            }
+
             self.hint_download_rescan(
                 self.chain_view
                     .burn_stable_block_height
                     .saturating_sub(self.burnchain.first_block_height),
-                false,
+                ibd,
             );
-
-            // set up the antientropy protocol to try pushing the latest block
-            // (helps if you're a miner who gets temporarily disconnected)
-            self.antientropy_last_push_ts = get_epoch_time_secs();
-            self.antientropy_start_reward_cycle =
-                self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
 
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), canonical_sn.block_height)?;
