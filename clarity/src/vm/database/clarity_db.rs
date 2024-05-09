@@ -54,6 +54,7 @@ use crate::vm::types::{
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
+const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
@@ -855,13 +856,9 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    fn tenure_height_key() -> &'static str {
-        "_stx-data::tenure_height"
-    }
-
     /// Returns the tenure height of the current block.
     pub fn get_tenure_height(&mut self) -> Result<u32> {
-        self.get_data(&Self::tenure_height_key())?
+        self.get_data(TENURE_HEIGHT_KEY)?
             .ok_or_else(|| {
                 InterpreterError::Expect("No tenure height in stored Clarity state".into()).into()
             })
@@ -877,7 +874,7 @@ impl<'a> ClarityDatabase<'a> {
     /// tenure, this height must be incremented before evaluating any
     /// transactions in the block.
     pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
-        self.put_data(Self::tenure_height_key(), &height)
+        self.put_data(TENURE_HEIGHT_KEY, &height)
     }
 
     pub fn destroy(self) -> RollbackWrapper<'a> {
