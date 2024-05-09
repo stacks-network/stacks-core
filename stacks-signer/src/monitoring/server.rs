@@ -177,9 +177,7 @@ impl MonitoringServer {
     /// Update metrics by making RPC calls to the Stacks node
     fn update_metrics(&self) -> Result<(), MonitoringError> {
         debug!("{}: Updating metrics", self);
-        let peer_info = self
-            .stacks_client
-            .get_peer_info()?;
+        let peer_info = self.stacks_client.get_peer_info()?;
         if let Ok(height) = i64::try_from(peer_info.stacks_tip_height) {
             update_stacks_tip_height(height);
         } else {
@@ -188,16 +186,12 @@ impl MonitoringServer {
                 peer_info.stacks_tip_height
             );
         }
-        let pox_info = self
-            .stacks_client
-            .get_pox_data()?;
+        let pox_info = self.stacks_client.get_pox_data()?;
         if let Ok(reward_cycle) = i64::try_from(pox_info.reward_cycle_id) {
             update_reward_cycle(reward_cycle);
         }
         let signer_stx_addr = self.stacks_client.get_signer_address();
-        let account_entry = self
-            .stacks_client
-            .get_account_entry(signer_stx_addr)?;
+        let account_entry = self.stacks_client.get_account_entry(signer_stx_addr)?;
         let balance = i64::from_str_radix(&account_entry.balance[2..], 16).map_err(|e| {
             MonitoringError::FetchError(ClientError::MalformedClarityValue(format!(
                 "Failed to parse balance: {} with err: {}",
