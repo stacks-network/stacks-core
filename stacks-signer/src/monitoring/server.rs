@@ -29,17 +29,21 @@ use crate::config::{GlobalConfig, Network};
 use crate::monitoring::prometheus::gather_metrics_string;
 use crate::monitoring::{update_signer_nonce, update_stacks_tip_height};
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 /// Monitoring server errors
 pub enum MonitoringError {
     /// Already bound to an address
+    #[error("Already bound to an address")]
     AlreadyBound,
     /// Server terminated
+    #[error("Server terminated")]
     Terminated,
     /// No endpoint configured
+    #[error("Prometheus endpoint not configured.")]
     EndpointNotConfigured,
     /// Error fetching metrics from stacks node
-    FetchError(ClientError),
+    #[error("Error fetching data from stacks node: {0}")]
+    FetchError(#[from] ClientError),
 }
 
 /// Metrics and monitoring server
@@ -175,8 +179,7 @@ impl MonitoringServer {
         debug!("{}: Updating metrics", self);
         let peer_info = self
             .stacks_client
-            .get_peer_info()
-            .map_err(|e| MonitoringError::FetchError(e))?;
+            .get_peer_info()?;
         if let Ok(height) = i64::try_from(peer_info.stacks_tip_height) {
             update_stacks_tip_height(height);
         } else {
@@ -187,27 +190,21 @@ impl MonitoringServer {
         }
         let pox_info = self
             .stacks_client
-            .get_pox_data()
-            .map_err(|e| MonitoringError::FetchError(e))?;
+            .get_pox_data()?;
         if let Ok(reward_cycle) = i64::try_from(pox_info.reward_cycle_id) {
             update_reward_cycle(reward_cycle);
         }
         let signer_stx_addr = self.stacks_client.get_signer_address();
         let account_entry = self
             .stacks_client
-            .get_account_entry(&signer_stx_addr)
-            .map_err(|e| MonitoringError::FetchError(e))?;
+            .get_account_entry(signer_stx_addr)?;
         let balance = i64::from_str_radix(&account_entry.balance[2..], 16).map_err(|e| {
             MonitoringError::FetchError(ClientError::MalformedClarityValue(format!(
                 "Failed to parse balance: {} with err: {}",
                 &account_entry.balance, e,
             )))
         })?;
-        if let Ok(nonce) = u64::try_from(account_entry.nonce) {
-            update_signer_nonce(nonce);
-        } else {
-            warn!("Failed to parse nonce: {}", account_entry.nonce);
-        }
+        update_signer_nonce(account_entry.nonce);
         update_signer_stx_balance(balance);
         Ok(())
     }
@@ -226,7 +223,7 @@ impl MonitoringServer {
     /// Poll the Stacks node's `v2/info` endpoint to validate the connection
     fn heartbeat(&self) -> bool {
         let url = format!("{}/v2/info", self.stacks_node_origin);
-        let response = self.stacks_node_client.get(&url).send();
+        let response = self.stacks_node_client.get(url).send();
         match response {
             Ok(response) => {
                 if response.status().is_success() {
