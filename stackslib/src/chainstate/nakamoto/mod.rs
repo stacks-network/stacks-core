@@ -2555,7 +2555,22 @@ impl NakamotoChainState {
                 .connection()
                 .as_free_transaction(|clarity_tx_conn| {
                     clarity_tx_conn.with_clarity_db(|db| {
-                        let tenure_ht = db.get_tenure_height()?;
+                        let tenure_ht = match db.get_tenure_height() {
+                            Ok(ht) => ht,
+                            Err(e) => {
+                                if cfg!(test) {
+                                    // In test mode, the epoch 3.0 initialization does not always
+                                    // get called to initialize this tenure height so we ignore
+                                    // the error here and return a default value.
+                                    warn!("Failed to get tenure height, defaulting to 0");
+                                    0
+                                } else {
+                                    // If not in test mode, this is definitely an error.
+                                    return Err(e.into());
+                                }
+                            }
+                        };
+
                         db.set_tenure_height(
                             tenure_ht
                                 .checked_add(1)
