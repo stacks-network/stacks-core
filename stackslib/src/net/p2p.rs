@@ -646,6 +646,24 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Call `bind()` only if not already bound
+    /// Returns:
+    /// - `Ok(true)` if `bind()` call was successful
+    /// - `Ok(false)` if `bind()` call was skipped
+    /// - `Err()` if `bind()`` failed
+    #[cfg_attr(test, mutants::skip)]
+    pub fn try_bind(
+        &mut self,
+        my_addr: &SocketAddr,
+        http_addr: &SocketAddr,
+    ) -> Result<bool, net_error> {
+        if self.network.is_some() {
+            // Already bound
+            return Ok(false);
+        }
+        self.bind(my_addr, http_addr).map(|()| true)
+    }
+
     /// Get bound neighbor key. This is how this PeerNetwork appears to other nodes.
     pub fn bound_neighbor_key(&self) -> &NeighborKey {
         &self.bind_nk
