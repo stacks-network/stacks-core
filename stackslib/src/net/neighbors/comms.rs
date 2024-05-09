@@ -405,11 +405,14 @@ pub trait NeighborComms {
 
     /// Are we in the process of connecting to a neighbor?
     fn is_neighbor_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+        if network.is_connecting_neighbor(&nk.to_neighbor_key(network)) {
+            return true;
+        }
+
         let Some(event_id) = self.get_connecting(network, nk) else {
             return false;
         };
         network.is_connecting(event_id)
-            || network.is_connecting_neighbor(&nk.to_neighbor_key(network))
     }
 
     /// Reset all comms
