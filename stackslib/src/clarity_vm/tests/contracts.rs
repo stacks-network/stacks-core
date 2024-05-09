@@ -1139,7 +1139,7 @@ fn test_block_heights_across_versions() {
         r#"
         (define-read-only (call-e2 (version int))
             (if (is-eq version 1)
-                (contract-call? '{contract_id_e2c2} get-height 123 false)
+                (contract-call? '{contract_id_e2c1} get-height 123 false)
                 (contract-call? '{contract_id_e2c2} get-height 456 true)
             )
         )
@@ -1159,6 +1159,9 @@ fn test_block_heights_across_versions() {
                     &contract_e2c1_2,
                     ASTRules::PrecheckSize,
                 )
+                .unwrap();
+            clarity_db
+                .save_analysis(&contract_id_e2c1, &analysis)
                 .unwrap();
 
             // Publish the Clarity 1 contract
@@ -1186,6 +1189,9 @@ fn test_block_heights_across_versions() {
                     &contract_e2c1_2,
                     ASTRules::PrecheckSize,
                 )
+                .unwrap();
+            clarity_db
+                .save_analysis(&contract_id_e2c2, &analysis)
                 .unwrap();
 
             // Publish the Clarity 2 contract
