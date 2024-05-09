@@ -1080,7 +1080,7 @@ impl InvState {
     pub fn cull_bad_peers(&mut self) -> HashSet<NeighborKey> {
         let mut bad_peers = HashSet::new();
         for (nk, stats) in self.block_stats.iter() {
-            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
+            if stats.status == NodeStatus::Broken {
                 debug!(
                     "Peer {:?} has node status {:?}; culling...",
                     nk, &stats.status
@@ -2435,6 +2435,10 @@ impl PeerNetwork {
                         good_sync_peers_set.insert(random_sync_peers_list[i].clone());
                     }
                 } else {
+                    // make *sure* this list isn't empty
+                    for bootstrap_peer in bootstrap_peers.iter() {
+                        good_sync_peers_set.insert(bootstrap_peer.clone());
+                    }
                     debug!(
                         "{:?}: in initial block download; only inv-sync with {} always-allowed peers",
                         &network.local_peer,
@@ -2642,7 +2646,7 @@ impl PeerNetwork {
     }
 
     /// Check to see if an always-allowed peer has performed an epoch 2.x inventory sync
-    fn check_always_allowed_peer_inv_sync_epoch2x(&self) -> bool {
+    fn check_always_allowed_peer_inv_sync_epoch2x(&self, ibd: bool) -> bool {
         // only count an inv_sync as passing if there's an always-allowed node
         // in our inv state
         let always_allowed: HashSet<_> =
@@ -2682,7 +2686,15 @@ impl PeerNetwork {
                 continue;
             }
 
-            if stats.inv.num_reward_cycles >= self.pox_id.num_inventory_reward_cycles() as u64 {
+            if (!ibd
+                && stats.inv.num_reward_cycles >= self.pox_id.num_inventory_reward_cycles() as u64)
+                || (ibd
+                    && stats.inv.num_reward_cycles
+                        >= self
+                            .burnchain
+                            .block_height_to_reward_cycle(self.burnchain_tip.block_height)
+                            .expect("FATAL: sortition has no reward cycle"))
+            {
                 // we have fully sync'ed with an always-allowed peer
                 debug!(
                     "{:?}: Fully-sync'ed PoX inventory from {}",
@@ -2743,7 +2755,7 @@ impl PeerNetwork {
             return work_state;
         }
 
-        let finished_always_allowed_inv_sync = self.check_always_allowed_peer_inv_sync_epoch2x();
+        let finished_always_allowed_inv_sync = self.check_always_allowed_peer_inv_sync_epoch2x(ibd);
         if finished_always_allowed_inv_sync {
             debug!(
                 "{:?}: synchronized inventories with at least one always-allowed peer",
