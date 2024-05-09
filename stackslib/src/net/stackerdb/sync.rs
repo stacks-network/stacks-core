@@ -634,7 +634,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         for naddr in naddrs.into_iter() {
             if self.comms.is_neighbor_connecting(network, &naddr) {
                 debug!(
-                    "{:?}: connect_begin: already connecteing to StackerDB peer {:?}",
+                    "{:?}: connect_begin: already connecting to StackerDB peer {:?}",
                     network.get_local_peer(),
                     &naddr
                 );
