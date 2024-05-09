@@ -695,4 +695,6 @@ pub trait HttpRequest: Send + HttpRequestClone {
         query_str: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error>;
+    /// Get identifier from finite set to be used in metrics
+    fn metrics_identifier(&self) -> &str;
 }

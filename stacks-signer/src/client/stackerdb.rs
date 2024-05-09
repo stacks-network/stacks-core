@@ -19,10 +19,11 @@ use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use hashbrown::HashMap;
 use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_warn};
+use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::{debug, warn};
+use stacks_common::{debug, error, warn};
+use wsts::net::Packet;
 
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
@@ -130,7 +131,7 @@ impl StackerDB {
             };
 
             debug!(
-                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} to contract {:?}!\n{chunk:?}",
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} and message ID {msg_id} to contract {:?}!\n{chunk:?}",
                 &session.stackerdb_contract_id
             );
 
@@ -179,45 +180,79 @@ impl StackerDB {
         }
     }
 
-    /// Get the transactions from stackerdb for the signers
-    fn get_transactions(
-        transactions_session: &mut StackerDBSession,
-        signer_ids: &[SignerSlotID],
-    ) -> Result<Vec<StacksTransaction>, ClientError> {
+    /// Get all signer messages from stackerdb for the given slot IDs
+    fn get_messages(
+        session: &mut StackerDBSession,
+        slot_ids: &[u32],
+    ) -> Result<Vec<SignerMessage>, ClientError> {
+        let mut messages = vec![];
         let send_request = || {
-            transactions_session
-                .get_latest_chunks(&signer_ids.iter().map(|id| id.0).collect::<Vec<_>>())
+            session
+                .get_latest_chunks(slot_ids)
                 .map_err(backoff::Error::transient)
         };
         let chunk_ack = retry_with_exponential_backoff(send_request)?;
-        let mut transactions = Vec::new();
         for (i, chunk) in chunk_ack.iter().enumerate() {
-            let signer_id = *signer_ids
-                .get(i)
-                .expect("BUG: retrieved an unequal amount of chunks to requested chunks");
             let Some(data) = chunk else {
                 continue;
             };
             let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
                 if !data.is_empty() {
                     warn!("Failed to deserialize chunk data into a SignerMessage");
-                    debug!(
-                        "signer #{signer_id}: Failed chunk ({}): {data:?}",
-                        &data.len(),
-                    );
+                    debug!("slot #{i}: Failed chunk ({}): {data:?}", &data.len(),);
                 }
                 continue;
             };
+            messages.push(message);
+        }
+        Ok(messages)
+    }
 
+    /// Get the ordered DKG packets from stackerdb for the signer slot IDs.
+    pub fn get_dkg_packets(
+        &mut self,
+        signer_ids: &[SignerSlotID],
+    ) -> Result<Vec<Packet>, ClientError> {
+        let packet_slots = &[
+            MessageSlotID::DkgBegin,
+            MessageSlotID::DkgPublicShares,
+            MessageSlotID::DkgPrivateBegin,
+            MessageSlotID::DkgPrivateShares,
+            MessageSlotID::DkgEndBegin,
+            MessageSlotID::DkgEnd,
+        ];
+        let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
+        let mut packets = vec![];
+        for packet_slot in packet_slots {
+            let session = self
+                .signers_message_stackerdb_sessions
+                .get_mut(packet_slot)
+                .ok_or(ClientError::NotConnected)?;
+            let messages = Self::get_messages(session, &slot_ids)?;
+            for message in messages {
+                let SignerMessage::Packet(packet) = message else {
+                    warn!("Found an unexpected type in a packet slot {packet_slot}");
+                    continue;
+                };
+                packets.push(packet);
+            }
+        }
+        Ok(packets)
+    }
+
+    /// Get the transactions from stackerdb for the signers
+    fn get_transactions(
+        transactions_session: &mut StackerDBSession,
+        signer_ids: &[SignerSlotID],
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
+        let slot_ids = signer_ids.iter().map(|id| id.0).collect::<Vec<_>>();
+        let messages = Self::get_messages(transactions_session, &slot_ids)?;
+        let mut transactions = vec![];
+        for message in messages {
             let SignerMessage::Transactions(chunk_transactions) = message else {
                 warn!("Signer wrote an unexpected type to the transactions slot");
                 continue;
             };
-            debug!(
-                "Retrieved {} transactions from signer ID {}.",
-                chunk_transactions.len(),
-                signer_id
-            );
             transactions.extend(chunk_transactions);
         }
         Ok(transactions)
@@ -241,6 +276,51 @@ impl StackerDB {
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
         Self::get_transactions(&mut self.next_transaction_session, signer_ids)
+    }
+
+    /// Get the encrypted state for the given signer
+    pub fn get_encrypted_signer_state(
+        &mut self,
+        signer_id: SignerSlotID,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        debug!("Getting the persisted encrypted state for signer {signer_id}");
+        let Some(state_session) = self
+            .signers_message_stackerdb_sessions
+            .get_mut(&MessageSlotID::EncryptedSignerState)
+        else {
+            return Err(ClientError::NotConnected);
+        };
+
+        let send_request = || {
+            state_session
+                .get_latest_chunks(&[signer_id.0])
+                .map_err(backoff::Error::transient)
+        };
+
+        let Some(chunk) = retry_with_exponential_backoff(send_request)?.pop().ok_or(
+            ClientError::UnexpectedResponseFormat(format!(
+                "Missing response for state session request for signer {}",
+                signer_id
+            )),
+        )?
+        else {
+            debug!("No persisted state for signer {signer_id}");
+            return Ok(None);
+        };
+
+        if chunk.is_empty() {
+            debug!("Empty persisted state for signer {signer_id}");
+            return Ok(None);
+        }
+
+        let SignerMessage::EncryptedSignerState(state) =
+            read_next::<SignerMessage, _>(&mut chunk.as_slice())?
+        else {
+            error!("Wrong message type stored in signer state slot for signer {signer_id}");
+            return Ok(None);
+        };
+
+        Ok(Some(state))
     }
 
     /// Retrieve the signer set this stackerdb client is attached to

@@ -257,6 +257,7 @@ impl NakamotoBlockProposal {
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
+            self.block.header.signer_bitvec.len(),
         )?;
 
         let mut miner_tenure_info =
@@ -374,6 +375,10 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
 
     fn path_regex(&self) -> Regex {
         Regex::new(r#"^/v2/block_proposal$"#).unwrap()
+    }
+
+    fn metrics_identifier(&self) -> &str {
+        "/v2/block_proposal"
     }
 
     /// Try to decode this request.

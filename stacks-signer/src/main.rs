@@ -32,18 +32,20 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
-use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
+use libsigner::{
+    BlockProposalSigners, RunningSigner, Signer, SignerEventReceiver, SignerSession,
+    StackerDBSession,
+};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_error};
+use slog::{slog_debug, slog_error, slog_info};
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks_common::{debug, error};
+use stacks_common::{debug, error, info};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
     GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
@@ -71,11 +73,13 @@ fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> Stack
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     if let Some(chunk) = chunk_opt.as_ref() {
-        let bytes = io::stdout().write(chunk).unwrap();
-        if bytes < chunk.len() {
+        let hexed_string = to_hex(chunk);
+        let hexed_chunk = hexed_string.as_bytes();
+        let bytes = io::stdout().write(hexed_chunk).unwrap();
+        if bytes < hexed_chunk.len() {
             print!(
                 "Failed to write complete chunk to stdout. Missing {} bytes",
-                chunk.len() - bytes
+                hexed_chunk.len() - bytes
             );
         }
     }
@@ -85,9 +89,14 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
+    info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
+    #[cfg(feature = "monitoring_prom")]
+    {
+        stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
+    }
     let runloop = RunLoop::from(config);
     let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
         Signer::new(runloop, ev, cmd_recv, res_send);
@@ -175,7 +184,9 @@ fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
     let mut session = stackerdb_session(&args.host, args.contract);
     let chunk_list = session.list_chunks().unwrap();
-    println!("{}", serde_json::to_string(&chunk_list).unwrap());
+    let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
+    let hexed_json = to_hex(chunk_list_json.as_bytes());
+    println!("{}", hexed_json);
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
@@ -203,15 +214,16 @@ fn handle_dkg(args: RunDkgArgs) {
 fn handle_sign(args: SignArgs) {
     debug!("Signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
-        error!("Unable to parse provided message as a NakamotoBlock.");
+    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
+    else {
+        error!("Unable to parse provided message as a BlockProposalSigners.");
         spawned_signer.running_signer.stop();
         return;
     };
     let sign_command = RunLoopCommand {
         reward_cycle: args.reward_cycle,
         command: SignerCommand::Sign {
-            block,
+            block_proposal,
             is_taproot: false,
             merkle_root: None,
         },
@@ -225,8 +237,9 @@ fn handle_sign(args: SignArgs) {
 fn handle_dkg_sign(args: SignArgs) {
     debug!("Running DKG and signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
-        error!("Unable to parse provided message as a NakamotoBlock.");
+    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
+    else {
+        error!("Unable to parse provided message as a BlockProposalSigners.");
         spawned_signer.running_signer.stop();
         return;
     };
@@ -237,7 +250,7 @@ fn handle_dkg_sign(args: SignArgs) {
     let sign_command = RunLoopCommand {
         reward_cycle: args.reward_cycle,
         command: SignerCommand::Sign {
-            block,
+            block_proposal,
             is_taproot: false,
             merkle_root: None,
         },
@@ -296,6 +309,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         3000,
         None,
         None,
+        None,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -351,6 +365,11 @@ fn handle_generate_stacking_signature(
     signature
 }
 
+fn handle_check_config(args: RunSignerArgs) {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    println!("Config: {}", config);
+}
+
 /// Helper function for writing the given contents to filename in the given directory
 fn write_file(dir: &Path, filename: &str, contents: &str) {
     let file_path = dir.join(filename);
@@ -398,6 +417,9 @@ fn main() {
         }
         Command::GenerateStackingSignature(args) => {
             handle_generate_stacking_signature(args, true);
+        }
+        Command::CheckConfig(args) => {
+            handle_check_config(args);
         }
     }
 }

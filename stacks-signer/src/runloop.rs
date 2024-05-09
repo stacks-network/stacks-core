@@ -74,6 +74,12 @@ impl RewardCycleInfo {
         self.reward_cycle == reward_cycle
     }
 
+    /// Get the reward cycle for a specific burnchain block height
+    pub const fn get_reward_cycle(&self, burnchain_block_height: u64) -> u64 {
+        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
+        blocks_mined / self.reward_cycle_length
+    }
+
     /// Check if the provided burnchain block height is in the prepare phase
     pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         PoxConstants::static_is_in_prepare_phase(
@@ -82,6 +88,15 @@ impl RewardCycleInfo {
             self.prepare_phase_block_length,
             burnchain_block_height,
         )
+    }
+
+    /// Check if the provided burnchain block height is in the prepare phase of the next cycle
+    pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
+        let effective_height = burnchain_block_height - self.first_burnchain_block_height;
+        let reward_index = effective_height % self.reward_cycle_length;
+
+        reward_index >= u64::from(self.reward_cycle_length - self.prepare_phase_block_length)
+            && self.get_reward_cycle(burnchain_block_height) == self.reward_cycle
     }
 }
 
@@ -253,7 +268,8 @@ impl RunLoop {
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if reward_cycle_info.is_in_prepare_phase(reward_cycle_info.last_burnchain_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(reward_cycle_info.last_burnchain_block_height)
+        {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
         self.current_reward_cycle_info = Some(reward_cycle_info);
@@ -270,18 +286,34 @@ impl RunLoop {
             .current_reward_cycle_info
             .as_mut()
             .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let block_reward_cycle = reward_cycle_info.get_reward_cycle(current_burn_block_height);
+
         // First ensure we refresh our view of the current reward cycle information
-        if !reward_cycle_info.is_in_reward_cycle(current_burn_block_height) {
+        if block_reward_cycle != current_reward_cycle {
             let new_reward_cycle_info = retry_with_exponential_backoff(|| {
-                self.stacks_client
+                let info = self
+                    .stacks_client
                     .get_current_reward_cycle_info()
-                    .map_err(backoff::Error::transient)
+                    .map_err(backoff::Error::transient)?;
+                if info.reward_cycle < block_reward_cycle {
+                    // If the stacks-node is still processing the burn block, the /v2/pox endpoint
+                    // may return the previous reward cycle. In this case, we should retry.
+                    return Err(backoff::Error::transient(ClientError::InvalidResponse(
+                        format!("Received reward cycle ({}) does not match the expected reward cycle ({}) for block {}.",
+                            info.reward_cycle,
+                            block_reward_cycle,
+                            current_burn_block_height
+                        ),
+                    )));
+                }
+                Ok(info)
             })?;
             *reward_cycle_info = new_reward_cycle_info;
         }
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         // We should only attempt to refresh the signer if we are not configured for the next reward cycle yet and we received a new burn block for its prepare phase
-        if reward_cycle_info.is_in_prepare_phase(current_burn_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height) {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if self
                 .stacks_signers
@@ -383,10 +415,11 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if event_parity == Some(other_signer_parity) {
                 continue;
             }
-
             if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = signer.update_dkg(&self.stacks_client) {
-                    error!("{signer}: failed to update DKG: {e}");
+                if let Err(e) =
+                    signer.refresh_dkg(&self.stacks_client, res.clone(), current_reward_cycle)
+                {
+                    error!("{signer}: failed to refresh DKG: {e}");
                 }
             }
             signer.refresh_coordinator();
@@ -422,6 +455,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
@@ -530,5 +564,68 @@ mod tests {
                 .wrapping_add(reward_cycle_phase_block_length)
                 .wrapping_add(1)
         ));
+    }
+
+    #[test]
+    fn is_in_next_prepare_phase() {
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle: 5,
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 5,
+            first_burnchain_block_height: 0,
+            last_burnchain_block_height: 50,
+        };
+
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(49));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(50));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(51));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(52));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(53));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(54));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(55));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(56));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(57));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(58));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(59));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(60));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(61));
+
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+
+        for i in 0..reward_cycle_length {
+            if i < reward_cycle_phase_block_length {
+                assert!(!reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            } else {
+                assert!(reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            }
+        }
     }
 }

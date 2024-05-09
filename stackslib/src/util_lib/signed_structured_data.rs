@@ -83,6 +83,7 @@ pub mod pox4 {
     define_named_enum!(Pox4SignatureTopic {
         StackStx("stack-stx"),
         AggregationCommit("agg-commit"),
+        AggregationIncrease("agg-increase"),
         StackExtend("stack-extend"),
         StackIncrease("stack-increase"),
     });

@@ -373,7 +373,7 @@ impl RunLoop {
                     return true;
                 }
             }
-            if self.config.node.mock_mining {
+            if self.config.get_node_config(false).mock_mining {
                 info!("No UTXOs found, but configured to mock mine");
                 return true;
             } else {
@@ -409,8 +409,11 @@ impl RunLoop {
         Config::assert_valid_epoch_settings(&burnchain, &epochs);
 
         // Upgrade chainstate databases if they exist already
+        // NOTE: this has to be done before the subsequent call to
+        // `burnchain_controller.connect_dbs()` below!
         match migrate_chainstate_dbs(
             &epochs,
+            &burnchain,
             &config.get_burn_db_file_path(),
             &config.get_chainstate_path_str(),
             Some(config.node.get_marf_opts()),

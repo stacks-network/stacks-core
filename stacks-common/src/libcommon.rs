@@ -37,6 +37,7 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 
 pub mod consts {
     use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
+    pub use crate::types::MINING_COMMITMENT_WINDOW;
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 
@@ -62,5 +63,5 @@ pub mod consts {
 
     /// The number of StackerDB slots each signing key needs
     ///  to use to participate in DKG and block validation signing.
-    pub const SIGNER_SLOTS_PER_USER: u32 = 13;
+    pub const SIGNER_SLOTS_PER_USER: u32 = 14;
 }

@@ -1169,6 +1169,55 @@ impl BlockMinerThread {
             return vec![];
         }
 
+        let sortdb_tip_handle = burn_db.index_handle_at_tip();
+
+        let stacks_tips: Vec<_> = stacks_tips
+            .into_iter()
+            .filter(|candidate| {
+                let candidate_ch = &candidate.consensus_hash;
+                let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
+                    sortdb_tip_handle.conn(),
+                    candidate_ch
+                ) {
+                    Ok(Some(x)) => x.block_height,
+                    Ok(None) => {
+                        warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash);
+                        return false;
+                    },
+                    Err(e) => {
+                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash,
+                              "err" => ?e);
+                        return false;
+                    },
+                };
+                let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
+                    Ok(Some(x)) => x,
+                    Ok(None) => {
+                        warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash);
+                        return false;
+                    },
+                    Err(e) => {
+                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                              "consensus_hash" => %candidate_ch,
+                              "stacks_block_hash" => %candidate.anchored_block_hash,
+                              "err" => ?e);
+                        return false;
+                    },
+                };
+                if &tip_ch != candidate_ch {
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
         let mut considered = HashSet::new();
         let mut candidates = vec![];
         let end_height = stacks_tips[0].height;
@@ -1663,7 +1712,7 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        let vrf_proof = if self.config.node.mock_mining {
+        let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
                 self.burn_block.sortition_hash.as_bytes(),
@@ -2486,7 +2535,7 @@ impl BlockMinerThread {
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         if res.is_none() {
             self.failed_to_submit_last_attempt = true;
-            if !self.config.node.mock_mining {
+            if !self.config.get_node_config(false).mock_mining {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
                 return None;
             }
@@ -3469,7 +3518,7 @@ impl RelayerThread {
             return false;
         }
 
-        if !self.config.node.mock_mining {
+        if !self.config.get_node_config(false).mock_mining {
             // mock miner can't mine microblocks yet, so don't stop it from trying multiple
             // anchored blocks
             if self.mined_stacks_block && self.config.node.mine_microblocks {
@@ -4728,7 +4777,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.node.mock_mining {
+        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {

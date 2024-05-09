@@ -1662,6 +1662,7 @@ pub mod test {
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
+    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2312,6 +2313,7 @@ pub mod test {
                 0,
                 &epochs,
                 config.burnchain.pox_constants.clone(),
+                None,
                 true,
             )
             .unwrap();
@@ -2639,6 +2641,26 @@ pub mod test {
             &self.network.local_peer
         }
 
+        pub fn add_neighbor(
+            &mut self,
+            n: &mut Neighbor,
+            stacker_dbs: Option<&[QualifiedContractIdentifier]>,
+            bootstrap: bool,
+        ) {
+            let mut tx = self.network.peerdb.tx_begin().unwrap();
+            n.save(&mut tx, stacker_dbs).unwrap();
+            if bootstrap {
+                PeerDB::set_initial_peer(
+                    &tx,
+                    self.config.network_id,
+                    &n.addr.addrbytes,
+                    n.addr.port,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+
         // TODO: DRY up from PoxSyncWatchdog
         pub fn infer_initial_burnchain_block_download(
             burnchain: &Burnchain,
@@ -2847,7 +2869,15 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true);
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, false);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_diverge(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, true);
             (x.0, x.1, x.2)
         }
 
@@ -2860,14 +2890,14 @@ pub mod test {
             ConsensusHash,
             Option<BlockHeaderHash>,
         ) {
-            self.inner_next_burnchain_block(blockstack_ops, true, true, true)
+            self.inner_next_burnchain_block(blockstack_ops, true, true, true, false)
         }
 
         pub fn next_burnchain_block_raw(
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, true);
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, true, false);
             (x.0, x.1, x.2)
         }
 
@@ -2875,7 +2905,7 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
-            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, false);
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false, false, false);
             (x.0, x.1, x.2)
         }
 
@@ -2888,7 +2918,7 @@ pub mod test {
             ConsensusHash,
             Option<BlockHeaderHash>,
         ) {
-            self.inner_next_burnchain_block(blockstack_ops, false, false, true)
+            self.inner_next_burnchain_block(blockstack_ops, false, false, true, false)
         }
 
         pub fn set_ops_consensus_hash(
@@ -2919,6 +2949,7 @@ pub mod test {
             tip_block_height: u64,
             tip_block_hash: &BurnchainHeaderHash,
             num_ops: u64,
+            ops_determine_block_header: bool,
         ) -> BurnchainBlockHeader {
             test_debug!(
                 "make_next_burnchain_block: tip_block_height={} tip_block_hash={} num_ops={}",
@@ -2937,8 +2968,16 @@ pub mod test {
 
             let now = BURNCHAIN_TEST_BLOCK_TIME;
             let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
-                &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
-                    .bitcoin_hash(),
+                &BitcoinIndexer::mock_bitcoin_header(
+                    &parent_hdr.block_hash,
+                    (now as u32)
+                        + if ops_determine_block_header {
+                            num_ops as u32
+                        } else {
+                            0
+                        },
+                )
+                .bitcoin_hash(),
             );
             test_debug!(
                 "Block header hash at {} is {}",
@@ -3010,6 +3049,7 @@ pub mod test {
             set_consensus_hash: bool,
             set_burn_hash: bool,
             update_burnchain: bool,
+            ops_determine_block_header: bool,
         ) -> (
             u64,
             BurnchainHeaderHash,
@@ -3033,6 +3073,7 @@ pub mod test {
                     tip.block_height,
                     &tip.burn_header_hash,
                     blockstack_ops.len() as u64,
+                    ops_determine_block_header,
                 );
 
                 if set_burn_hash {
@@ -3839,6 +3880,186 @@ pub mod test {
                     "Failed to get reward cycle for block height {}",
                     block_height
                 ))
+        }
+
+        /// Verify that the sortition DB migration into Nakamoto worked correctly.
+        /// For now, it's sufficient to check that the `get_last_processed_reward_cycle()` calculation
+        /// works the same across both the original and migration-compatible implementations.
+        pub fn check_nakamoto_migration(&mut self) {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let chainstate = &mut node.chainstate;
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            for height in 0..=tip.block_height {
+                let sns =
+                    SortitionDB::get_all_snapshots_by_burn_height(sortdb.conn(), height).unwrap();
+                for sn in sns {
+                    let ih = sortdb.index_handle(&sn.sortition_id);
+                    let highest_processed_rc = ih.get_last_processed_reward_cycle().unwrap();
+                    let expected_highest_processed_rc =
+                        ih.legacy_get_last_processed_reward_cycle().unwrap();
+                    assert_eq!(
+                        highest_processed_rc, expected_highest_processed_rc,
+                        "BUG: at burn height {} the highest-processed reward cycles diverge",
+                        height
+                    );
+                }
+            }
+            let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+            let epoch_3_idx =
+                StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
+            let epoch_3 = epochs[epoch_3_idx].clone();
+
+            let mut all_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
+            let mut all_preprocessed_reward_sets =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn()).unwrap();
+
+            // see that we can reconstruct the canonical chain tips for epoch 2.5 and earlier
+            // NOTE: the migration logic DOES NOT WORK and IS NOT MEANT TO WORK with Nakamoto blocks,
+            // so test this only with epoch 2 blocks before the epoch2-3 transition.
+            let epoch2_sns: Vec<_> = sortdb
+                .get_all_snapshots()
+                .unwrap()
+                .into_iter()
+                .filter(|sn| sn.block_height + 1 < epoch_3.start_height)
+                .collect();
+
+            let epoch2_chs: HashSet<_> = epoch2_sns
+                .iter()
+                .map(|sn| sn.consensus_hash.clone())
+                .collect();
+
+            let expected_epoch2_chain_tips: Vec<_> = all_chain_tips
+                .clone()
+                .into_iter()
+                .filter(|tip| epoch2_chs.contains(&tip.1))
+                .collect();
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute(
+                "CREATE TABLE stacks_chain_tips_backup AS SELECT * FROM stacks_chain_tips;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.execute("DELETE FROM stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
+            tx.commit().unwrap();
+
+            // NOTE: this considers each and every snapshot, but we only care about epoch2.x
+            sortdb.apply_schema_8_stacks_chain_tips(&tip).unwrap();
+            let migrated_epoch2_chain_tips: Vec<_> = sortdb
+                .get_all_stacks_chain_tips()
+                .unwrap()
+                .into_iter()
+                .filter(|tip| epoch2_chs.contains(&tip.1))
+                .collect();
+
+            // what matters is that the last tip is the same, and that each sortition has a chain tip.
+            // depending on block arrival order, different sortitions might have witnessed different
+            // stacks blocks as their chain tips, however.
+            assert_eq!(
+                migrated_epoch2_chain_tips.last().unwrap(),
+                expected_epoch2_chain_tips.last().unwrap()
+            );
+            assert_eq!(
+                migrated_epoch2_chain_tips.len(),
+                expected_epoch2_chain_tips.len()
+            );
+
+            // restore
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("DROP TABLE stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
+            tx.execute(
+                "ALTER TABLE stacks_chain_tips_backup RENAME TO stacks_chain_tips;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            // see that we calculate all the prior reward set infos
+            let mut expected_epoch2_reward_sets: Vec<_> =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn())
+                    .unwrap()
+                    .into_iter()
+                    .filter(|(sort_id, rc_info)| {
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                            .unwrap()
+                            .unwrap();
+                        let rc_sn = sortdb
+                            .pox_constants
+                            .block_height_to_reward_cycle(
+                                sortdb.first_block_height,
+                                sn.block_height,
+                            )
+                            .unwrap();
+                        let rc_height = sortdb
+                            .pox_constants
+                            .reward_cycle_to_block_height(sortdb.first_block_height, rc_sn + 1);
+                        sn.block_height <= epoch_3.start_height && sn.block_height < rc_height
+                    })
+                    .collect();
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", NO_PARAMS).unwrap();
+            tx.execute("DELETE FROM preprocessed_reward_sets;", NO_PARAMS)
+                .unwrap();
+            tx.commit().unwrap();
+
+            let migrator = SortitionDBMigrator::new(
+                self.config.burnchain.clone(),
+                &self.chainstate_path,
+                None,
+            )
+            .unwrap();
+            sortdb
+                .apply_schema_8_preprocessed_reward_sets(&tip, migrator)
+                .unwrap();
+
+            let mut migrated_epoch2_reward_sets: Vec<_> =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn())
+                    .unwrap()
+                    .into_iter()
+                    .filter(|(sort_id, rc_info)| {
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                            .unwrap()
+                            .unwrap();
+                        sn.block_height < epoch_3.start_height
+                    })
+                    .collect();
+
+            expected_epoch2_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+            migrated_epoch2_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+
+            assert_eq!(expected_epoch2_reward_sets, migrated_epoch2_reward_sets);
+
+            let tx = sortdb.tx_begin().unwrap();
+            tx.execute("DROP TABLE preprocessed_reward_sets;", NO_PARAMS)
+                .unwrap();
+            tx.execute(
+                "ALTER TABLE preprocessed_reward_sets_backup RENAME TO preprocessed_reward_sets;",
+                NO_PARAMS,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            // sanity check -- restored tables are the same
+            let mut restored_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
+            let mut restored_reward_sets =
+                SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn()).unwrap();
+
+            all_chain_tips.sort_by(|a, b| a.0.cmp(&b.0));
+            restored_chain_tips.sort_by(|a, b| a.0.cmp(&b.0));
+
+            all_preprocessed_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+            restored_reward_sets.sort_by(|a, b| a.0.cmp(&b.0));
+
+            assert_eq!(restored_chain_tips, all_chain_tips);
+            assert_eq!(restored_reward_sets, all_preprocessed_reward_sets);
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
         }
     }
 

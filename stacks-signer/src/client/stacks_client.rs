@@ -207,6 +207,8 @@ impl StacksClient {
             estimated_len: Some(tx.tx_len()),
             transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
         };
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.fees_transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.fees_transaction_path())
@@ -219,6 +221,7 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
+        timer.stop_and_record();
         let fee_estimate_response = response.json::<RPCFeeEstimateResponse>()?;
         let fee = fee_estimate_response
             .estimations
@@ -268,6 +271,8 @@ impl StacksClient {
             block,
             chain_id: self.chain_id,
         };
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.block_proposal_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.block_proposal_path())
@@ -279,6 +284,7 @@ impl StacksClient {
         };
 
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -355,6 +361,8 @@ impl StacksClient {
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.core_info_path())
@@ -362,6 +370,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -402,6 +411,10 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
+        let timer = crate::monitoring::new_rpc_call_timer(
+            &self.reward_set_path(reward_cycle),
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
@@ -409,6 +422,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -419,6 +433,8 @@ impl StacksClient {
     /// Retreive the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -426,6 +442,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -458,11 +476,13 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
-    fn get_account_entry(
+    pub fn get_account_entry(
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("Getting account info...");
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -470,6 +490,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -536,6 +557,8 @@ impl StacksClient {
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.transaction_path())
@@ -548,6 +571,7 @@ impl StacksClient {
                 })
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -576,12 +600,14 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
             .header("Content-Type", "application/json")
             .body(body)
             .send()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -696,15 +722,21 @@ impl StacksClient {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
+    use blockstack_lib::burnchains::Address;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
+    use clarity::vm::types::{
+        ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
+        TypeSignature,
+    };
     use rand::thread_rng;
     use rand_core::RngCore;
     use stacks_common::bitvec::BitVec;
@@ -1039,9 +1071,59 @@ mod tests {
     #[test]
     fn parse_valid_signer_slots_should_succeed() {
         let mock = MockServerClient::new();
-        let clarity_value_hex =
-            "0x070b000000050c00000002096e756d2d736c6f7473010000000000000000000000000000000d067369676e6572051a8195196a9a7cf9c37cb13e1ed69a7bc047a84e050c00000002096e756d2d736c6f7473010000000000000000000000000000000d067369676e6572051a6505471146dcf722f0580911183f28bef30a8a890c00000002096e756d2d736c6f7473010000000000000000000000000000000d067369676e6572051a1d7f8e3936e5da5f32982cc47f31d7df9fb1b38a0c00000002096e756d2d736c6f7473010000000000000000000000000000000d067369676e6572051a126d1a814313c952e34c7840acec9211e1727fb80c00000002096e756d2d736c6f7473010000000000000000000000000000000d067369676e6572051a7374ea6bb39f2e8d3d334d62b9f302a977de339a";
-        let value = ClarityValue::try_deserialize_hex_untyped(clarity_value_hex).unwrap();
+
+        let signers = [
+            "ST20SA6BAK9YFKGVWP4Z1XNMTFF04FA2E0M8YRNNQ",
+            "ST1JGAHRH8VEFE8QGB04H261Z52ZF62MAH40CD6ZN",
+            "STEQZ3HS6VJXMQSJK0PC8ZSHTZFSZCDKHA7R60XT",
+            "ST96T6M18C9WJMQ39HW41B7CJ88Y2WKZQ1CK330M",
+            "ST1SQ9TKBPEFJX39X6D6P5EFK0AMQFQHKK9R0MJFC",
+        ];
+
+        let tuple_type_signature: TupleTypeSignature = [
+            (ClarityName::from("num_slots"), TypeSignature::UIntType),
+            (ClarityName::from("signer"), TypeSignature::PrincipalType),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>()
+        .try_into()
+        .unwrap();
+
+        let list_data: Vec<_> = signers
+            .into_iter()
+            .map(|signer| {
+                let principal_data = StacksAddress::from_string(signer).unwrap().into();
+
+                let data_map = [
+                    ("num-slots".into(), ClarityValue::UInt(14)),
+                    (
+                        "signer".into(),
+                        ClarityValue::Principal(PrincipalData::Standard(principal_data)),
+                    ),
+                ]
+                .into_iter()
+                .collect();
+
+                ClarityValue::Tuple(TupleData {
+                    type_signature: tuple_type_signature.clone(),
+                    data_map,
+                })
+            })
+            .collect();
+
+        let list_type_signature =
+            ListTypeData::new_list(TypeSignature::TupleType(tuple_type_signature), 5).unwrap();
+
+        let sequence = ClarityValue::Sequence(SequenceData::List(ListData {
+            data: list_data,
+            type_signature: list_type_signature,
+        }));
+
+        let value = ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(sequence),
+        });
+
         let signer_slots = mock.client.parse_signer_slots(value).unwrap();
         assert_eq!(signer_slots.len(), 5);
         signer_slots

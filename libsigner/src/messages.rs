@@ -38,6 +38,7 @@ use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::util::retry::BoundReader;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::{HashMap, HashSet};
@@ -94,14 +95,17 @@ MessageSlotID {
     /// Transactions list for miners and signers to observe
     Transactions = 11,
     /// DKG Results
-    DkgResults = 12
+    DkgResults = 12,
+    /// Persisted encrypted signer state containing DKG shares
+    EncryptedSignerState = 13
 });
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
     Transactions = 2,
-    DkgResults = 3
+    DkgResults = 3,
+    EncryptedSignerState = 4
 });
 
 impl MessageSlotID {
@@ -136,12 +140,14 @@ impl TryFrom<u8> for SignerMessageTypePrefix {
 }
 
 impl From<&SignerMessage> for SignerMessageTypePrefix {
+    #[cfg_attr(test, mutants::skip)]
     fn from(message: &SignerMessage) -> Self {
         match message {
             SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
             SignerMessage::DkgResults { .. } => SignerMessageTypePrefix::DkgResults,
+            SignerMessage::EncryptedSignerState(_) => SignerMessageTypePrefix::EncryptedSignerState,
         }
     }
 }
@@ -234,9 +240,12 @@ pub enum SignerMessage {
         /// The polynomial commits used to construct the aggregate key
         party_polynomials: Vec<(u32, PolyCommitment)>,
     },
+    /// The encrypted state of the signer to be persisted
+    EncryptedSignerState(Vec<u8>),
 }
 
 impl Debug for SignerMessage {
+    #[cfg_attr(test, mutants::skip)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BlockResponse(b) => Debug::fmt(b, f),
@@ -255,12 +264,16 @@ impl Debug for SignerMessage {
                     .field("party_polynomials", &party_polynomials)
                     .finish()
             }
+            Self::EncryptedSignerState(s) => {
+                f.debug_tuple("EncryptedSignerState").field(s).finish()
+            }
         }
     }
 }
 
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
+    #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> MessageSlotID {
         match self {
             Self::Packet(packet) => match packet.msg {
@@ -278,6 +291,7 @@ impl SignerMessage {
             Self::BlockResponse(_) => MessageSlotID::BlockResponse,
             Self::Transactions(_) => MessageSlotID::Transactions,
             Self::DkgResults { .. } => MessageSlotID::DkgResults,
+            Self::EncryptedSignerState(_) => MessageSlotID::EncryptedSignerState,
         }
     }
 }
@@ -345,10 +359,14 @@ impl StacksMessageCodec for SignerMessage {
                     party_polynomials.iter().map(|(a, b)| (a, b)),
                 )?;
             }
+            SignerMessage::EncryptedSignerState(encrypted_state) => {
+                write_next(fd, encrypted_state)?;
+            }
         };
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let type_prefix_byte = read_next::<u8, _>(fd)?;
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
@@ -382,6 +400,15 @@ impl StacksMessageCodec for SignerMessage {
                     aggregate_key,
                     party_polynomials,
                 }
+            }
+            SignerMessageTypePrefix::EncryptedSignerState => {
+                // Typically the size of the signer state is much smaller, but in the fully degenerate case the size of the persisted state is
+                // 2800 * 32 * 4 + C for some small constant C.
+                // To have some margin, we're expanding the left term with an additional factor 4
+                let max_encrypted_state_size = 2800 * 32 * 4 * 4;
+                let mut bound_reader = BoundReader::from_reader(fd, max_encrypted_state_size);
+                let encrypted_state = read_next::<_, _>(&mut bound_reader)?;
+                SignerMessage::EncryptedSignerState(encrypted_state)
             }
         };
         Ok(message)
