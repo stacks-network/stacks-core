@@ -151,7 +151,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
 
-    let magic_bytes = Config::from_config_file(cfile)
+    let magic_bytes = Config::from_config_file(cfile, false)
         .unwrap()
         .burnchain
         .magic_bytes;

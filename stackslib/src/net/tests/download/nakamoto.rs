@@ -1954,6 +1954,7 @@ fn test_nakamoto_download_run_2_peers() {
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
+            false,
         );
         TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
     }
@@ -2140,6 +2141,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
+            false,
         );
         TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
     }

@@ -163,6 +163,11 @@ impl MinerStats {
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
+            if burnchain.is_in_prepare_phase(burn_block_height) {
+                1
+            } else {
+                MINING_COMMITMENT_WINDOW
+            },
             windowed_block_commits,
             windowed_missed_commits,
             burn_blocks,
@@ -647,6 +652,7 @@ pub mod tests {
         };
         let burn_dist = vec![
             BurnSamplePoint {
+                frequency: 10,
                 burns: block_commit_1.burn_fee.into(),
                 median_burn: block_commit_2.burn_fee.into(),
                 range_start: Uint256::zero(),
@@ -659,6 +665,7 @@ pub mod tests {
                 candidate: block_commit_1.clone(),
             },
             BurnSamplePoint {
+                frequency: 10,
                 burns: block_commit_2.burn_fee.into(),
                 median_burn: block_commit_2.burn_fee.into(),
                 range_start: Uint256([
@@ -676,6 +683,7 @@ pub mod tests {
                 candidate: block_commit_2.clone(),
             },
             BurnSamplePoint {
+                frequency: 10,
                 burns: (block_commit_3.burn_fee).into(),
                 median_burn: block_commit_3.burn_fee.into(),
                 range_start: Uint256([

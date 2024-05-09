@@ -62,8 +62,8 @@ use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{
-    StacksEpoch, StacksEpochId, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
 };
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
@@ -90,6 +90,59 @@ impl BurnchainStateTransition {
             burn_dist: vec![],
             accepted_ops: vec![],
             consumed_leader_keys: vec![],
+            windowed_block_commits: vec![],
+            windowed_missed_commits: vec![],
+        }
+    }
+
+    /// Get the transaction IDs of all accepted burnchain operations in this block
+    pub fn txids(&self) -> Vec<Txid> {
+        self.accepted_ops.iter().map(|ref op| op.txid()).collect()
+    }
+
+    /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
+    /// (i.e. applies to block commits).
+    /// Returns None on overflow.
+    pub fn total_burns(&self) -> Option<u64> {
+        self.accepted_ops.iter().try_fold(0u64, |acc, op| {
+            let bf = match op {
+                BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                _ => 0,
+            };
+            acc.checked_add(bf)
+        })
+    }
+
+    /// Get the median block burn from the window.  If the window length is even, then the average
+    /// of the two middle-most values will be returned.
+    pub fn windowed_median_burns(&self) -> Option<u64> {
+        let block_total_burn_opts = self.windowed_block_commits.iter().map(|block_commits| {
+            block_commits
+                .iter()
+                .try_fold(0u64, |acc, op| acc.checked_add(op.burn_fee))
+        });
+
+        let mut block_total_burns = vec![];
+        for burn_opt in block_total_burn_opts.into_iter() {
+            block_total_burns.push(burn_opt?);
+        }
+
+        block_total_burns.sort();
+
+        if block_total_burns.len() == 0 {
+            return Some(0);
+        } else if block_total_burns.len() == 1 {
+            return Some(block_total_burns[0]);
+        } else if block_total_burns.len() % 2 != 0 {
+            let idx = block_total_burns.len() / 2;
+            return block_total_burns.get(idx).map(|b| *b);
+        } else {
+            // NOTE: the `- 1` is safe because block_total_burns.len() >= 2
+            let idx_left = block_total_burns.len() / 2 - 1;
+            let idx_right = block_total_burns.len() / 2;
+            let burn_left = block_total_burns.get(idx_left)?;
+            let burn_right = block_total_burns.get(idx_right)?;
+            return Some((burn_left + burn_right) / 2);
         }
     }
 
@@ -158,10 +211,26 @@ impl BurnchainStateTransition {
             })
             .epoch_id;
 
+        // what was the epoch at the start of this window?
+        let window_start_epoch_id = SortitionDB::get_stacks_epoch(
+            sort_tx,
+            parent_snapshot
+                .block_height
+                .saturating_sub(epoch_id.mining_commitment_window().into()),
+        )?
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no epoch defined at burn height {}",
+                parent_snapshot.block_height - u64::from(epoch_id.mining_commitment_window())
+            )
+        })
+        .epoch_id;
+
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
             && !burnchain
                 .pox_constants
                 .is_after_pox_sunset_end(parent_snapshot.block_height + 1, epoch_id)
+            && (epoch_id < StacksEpochId::Epoch30 || window_start_epoch_id == epoch_id)
         {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
@@ -177,11 +246,11 @@ impl BurnchainStateTransition {
                 }
             }
 
-            for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
+            for blocks_back in 0..(epoch_id.mining_commitment_window() - 1) {
                 if parent_snapshot.block_height < (blocks_back as u64) {
                     debug!("Mining commitment window shortened because block height is less than window size";
                            "block_height" => %parent_snapshot.block_height,
-                           "window_size" => %MINING_COMMITMENT_WINDOW);
+                           "window_size" => %epoch_id.mining_commitment_window());
                     break;
                 }
                 let block_height = parent_snapshot.block_height - (blocks_back as u64);
@@ -202,10 +271,16 @@ impl BurnchainStateTransition {
 
                 windowed_missed_commits.push(missed_commits_at_height);
             }
+            test_debug!(
+                "Block {} is in a reward phase with PoX. Miner commit window is {}: {:?}",
+                parent_snapshot.block_height + 1,
+                windowed_block_commits.len(),
+                &windowed_block_commits
+            );
         } else {
-            // PoX reward-phase is not active
+            // PoX reward-phase is not active, or we're starting a new epoch
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
+                "Block {} is in a prepare phase, in the post-PoX sunset, or in an epoch transition, so no windowing will take place",
                 parent_snapshot.block_height + 1
             );
 
@@ -244,8 +319,9 @@ impl BurnchainStateTransition {
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
-            windowed_block_commits,
-            windowed_missed_commits,
+            epoch_id.mining_commitment_window(),
+            windowed_block_commits.clone(),
+            windowed_missed_commits.clone(),
             burn_blocks,
         );
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
@@ -276,6 +352,8 @@ impl BurnchainStateTransition {
             burn_dist,
             accepted_ops,
             consumed_leader_keys,
+            windowed_block_commits,
+            windowed_missed_commits,
         })
     }
 }
