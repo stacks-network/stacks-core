@@ -1342,8 +1342,12 @@ fn test_pox_reorg_one_flap() {
         conf.miner.subsequent_attempt_time_ms = conf_template.miner.subsequent_attempt_time_ms;
         conf.node.wait_time_for_blocks = conf_template.node.wait_time_for_blocks;
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
-        conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
-        conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation.clone();
+        conf.burnchain
+            .epochs
+            .clone_from(&conf_template.burnchain.epochs);
+        conf.burnchain
+            .pox_2_activation
+            .clone_from(&conf_template.burnchain.pox_2_activation);
         conf.node.require_affirmed_anchor_blocks =
             conf_template.node.require_affirmed_anchor_blocks;
 

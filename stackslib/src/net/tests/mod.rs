@@ -320,7 +320,9 @@ impl NakamotoBootPlan {
             other_config.test_name = format!("{}.follower", &peer.config.test_name);
             other_config.server_port = 0;
             other_config.http_port = 0;
-            other_config.test_stackers = peer.config.test_stackers.clone();
+            other_config
+                .test_stackers
+                .clone_from(&peer.config.test_stackers);
             other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
 
             other_config.add_neighbor(&peer.to_neighbor());

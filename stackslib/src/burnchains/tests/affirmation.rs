@@ -2274,7 +2274,7 @@ fn test_update_pox_affirmation_maps_nothing() {
         let mut last_commit = None;
         for i in 0..commits_1.len() {
             if commits_1[i][0].is_some() {
-                last_commit = commits_1[i][0].clone();
+                last_commit.clone_from(&commits_1[i][0]);
             }
         }
         last_commit

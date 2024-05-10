@@ -2102,7 +2102,7 @@ fn test_build_anchored_blocks_invalid() {
 
             if tenure_id == resume_parent_tenure {
                 // resume here
-                last_parent = parent_opt.clone();
+                last_parent.clone_from(&parent_opt);
                 last_parent_tip = Some(parent_tip.clone());
 
                 eprintln!("\n\nat resume parent tenure:\nlast_parent: {:?}\nlast_parent_tip: {:?}\n\n", &last_parent, &last_parent_tip);
@@ -2114,7 +2114,7 @@ fn test_build_anchored_blocks_invalid() {
 
             if tenure_id == bad_block_ancestor_tenure {
                 bad_block_parent_tip = Some(parent_tip.clone());
-                bad_block_parent = parent_opt.clone();
+                bad_block_parent.clone_from(&parent_opt);
 
                 eprintln!("\n\nancestor of corrupt block: {:?}\n", &parent_tip);
             }
@@ -2180,9 +2180,9 @@ fn test_build_anchored_blocks_invalid() {
 
         if tenure_id != bad_block_tenure {
             last_block = Some(stacks_block.clone());
-            last_valid_block = last_block.clone();
+            last_valid_block.clone_from(&last_block);
         } else {
-            last_block = last_valid_block.clone();
+            last_block.clone_from(&last_valid_block);
         }
 
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -3016,7 +3016,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                 // force tenures 2 and 3 to mine off of forked siblings deeper than the
                 // detected fork
                 if tenure_id == 2 {
-                    parent_tip.microblock_tail = microblock_tail_1.clone();
+                    parent_tip.microblock_tail.clone_from(&microblock_tail_1);
 
                     // submit the _same_ poison microblock transaction, but to a different
                     // fork.
@@ -3046,7 +3046,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         .unwrap();
                 }
                 else if tenure_id == 3 {
-                    parent_tip.microblock_tail = microblock_tail_2.clone();
+                    parent_tip.microblock_tail.clone_from(&microblock_tail_2);
 
                     // submit a different poison microblock transaction
                     let poison_payload = TransactionPayload::PoisonMicroblock(microblock_tail_1.as_ref().unwrap().clone(), microblock_tail_2.as_ref().unwrap().clone());

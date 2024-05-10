@@ -117,7 +117,7 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
         slots.push((addr, 1u32));
     }
 
-    stackerdb_config.signers = slots.clone();
+    stackerdb_config.signers.clone_from(&slots);
     let tx = peer
         .network
         .stackerdbs
@@ -228,8 +228,14 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         let mut i = 0;
         loop {
             // run peer network state-machines
-            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
-            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+            peer_1
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_1_db_configs);
+            peer_2
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_2_db_configs);
 
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
@@ -347,8 +353,14 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
         let mut peer_2_stale = false;
         loop {
             // run peer network state-machines
-            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
-            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+            peer_1
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_1_db_configs);
+            peer_2
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_2_db_configs);
 
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
@@ -421,8 +433,14 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
         let mut i = 0;
         loop {
             // run peer network state-machines
-            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
-            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+            peer_1
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_1_db_configs);
+            peer_2
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_2_db_configs);
 
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
@@ -543,8 +561,14 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         let mut i = 0;
         loop {
             // run peer network state-machines
-            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
-            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+            peer_1
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_1_db_configs);
+            peer_2
+                .network
+                .stacker_db_configs
+                .clone_from(&peer_2_db_configs);
 
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
@@ -684,7 +708,10 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         loop {
             // run peer network state-machines
             for i in 0..num_peers {
-                peers[i].network.stacker_db_configs = peer_db_configs[i].clone();
+                peers[i]
+                    .network
+                    .stacker_db_configs
+                    .clone_from(&peer_db_configs[i]);
                 let res = peers[i].step_with_ibd(false);
                 if let Ok(mut res) = res {
                     let rc_consensus_hash =

@@ -9581,10 +9581,14 @@ fn spawn_follower_node(
         events_keys: vec![EventKeyType::AnyEvent],
     });
 
-    conf.initial_balances = initial_conf.initial_balances.clone();
-    conf.burnchain.epochs = initial_conf.burnchain.epochs.clone();
-    conf.burnchain.ast_precheck_size_height =
-        initial_conf.burnchain.ast_precheck_size_height.clone();
+    conf.initial_balances
+        .clone_from(&initial_conf.initial_balances);
+    conf.burnchain
+        .epochs
+        .clone_from(&initial_conf.burnchain.epochs);
+    conf.burnchain
+        .ast_precheck_size_height
+        .clone_from(&initial_conf.burnchain.ast_precheck_size_height);
 
     conf.connection_options.inv_sync_interval = 3;
 

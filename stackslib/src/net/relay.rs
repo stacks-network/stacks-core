@@ -3677,7 +3677,7 @@ pub mod test {
                                 (ch, blk_opt.unwrap(), mblocks_opt.unwrap())
                             })
                             .collect();
-                    *blocks_and_microblocks.borrow_mut() = saved_copy.clone();
+                    blocks_and_microblocks.borrow_mut().clone_from(&saved_copy);
                     *original_blocks_and_microblocks.borrow_mut() = saved_copy;
                     block_data
                 },
@@ -3723,7 +3723,7 @@ pub mod test {
                                 // start over (can happen if a message gets
                                 // dropped due to a timeout)
                                 test_debug!("Reset block transmission (possible timeout)");
-                                *block_data = (*original_block_data).clone();
+                                block_data.clone_from(&(*original_block_data));
                                 *next_idx = thread_rng().gen::<usize>() % block_data.len();
                                 let (consensus_hash, block, microblocks) =
                                     block_data[*next_idx].clone();
@@ -3986,7 +3986,9 @@ pub mod test {
 
                     assert_eq!(block_data.len(), 5);
 
-                    *original_blocks_and_microblocks.borrow_mut() = block_data.clone();
+                    original_blocks_and_microblocks
+                        .borrow_mut()
+                        .clone_from(&block_data);
 
                     block_data
                 },
@@ -4140,8 +4142,12 @@ pub mod test {
                         ),
                     ];
 
-                    peer_configs[0].initial_balances = initial_balances.clone();
-                    peer_configs[1].initial_balances = initial_balances.clone();
+                    peer_configs[0]
+                        .initial_balances
+                        .clone_from(&initial_balances);
+                    peer_configs[1]
+                        .initial_balances
+                        .clone_from(&initial_balances);
 
                     let peer_0 = peer_configs[0].to_neighbor();
                     let peer_1 = peer_configs[1].to_neighbor();
@@ -4525,7 +4531,9 @@ pub mod test {
                     )];
 
                     for i in 0..peer_configs.len() {
-                        peer_configs[i].initial_balances = initial_balances.clone();
+                        peer_configs[i]
+                            .initial_balances
+                            .clone_from(&initial_balances);
                     }
 
                     // connectivity

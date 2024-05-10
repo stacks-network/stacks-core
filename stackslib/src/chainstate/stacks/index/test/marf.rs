@@ -1331,7 +1331,7 @@ fn marf_insert_random_10485760_4096_file_storage() {
             let i3 = i & 0x000000ff;
 
             let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
+            seed.clone_from(&path);
 
             let key = to_hex(&path);
             let value = to_hex(
@@ -1389,7 +1389,7 @@ fn marf_insert_random_10485760_4096_file_storage() {
             let i3 = i & 0x000000ff;
 
             let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
+            seed.clone_from(&path);
 
             let key = to_hex(&path);
             let value = to_hex(
@@ -1462,7 +1462,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
                 let i2 = i & 0x0000ff;
 
                 let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-                seed = path.clone();
+                seed.clone_from(&path);
 
                 let key = to_hex(&path);
                 let raw_value = [
@@ -1513,7 +1513,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
                 let i2 = i & 0x0000ff;
 
                 let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-                seed = path.clone();
+                seed.clone_from(&path);
 
                 let key = to_hex(&path);
                 let raw_value = [
@@ -1600,7 +1600,7 @@ fn marf_read_random_1048576_4096_file_storage() {
             let i2 = i & 0x0000ff;
 
             let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
+            seed.clone_from(&path);
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(

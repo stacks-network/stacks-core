@@ -2282,7 +2282,7 @@ pub mod test {
             );
             config.server_port = 0;
             config.http_port = 0;
-            config.test_stackers = self.config.test_stackers.clone();
+            config.test_stackers.clone_from(&self.config.test_stackers);
             config.initial_neighbors = vec![self.to_neighbor()];
 
             let peer = TestPeer::new_with_observer(config, observer);

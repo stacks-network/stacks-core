@@ -2178,7 +2178,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                         bhh,
                         &self.data.cur_block_id
                     );
-                    self.unconfirmed_block_id = self.data.cur_block_id.clone();
+                    self.unconfirmed_block_id
+                        .clone_from(&self.data.cur_block_id);
                 }
             }
 
@@ -2209,7 +2210,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                             bhh,
                             &self.data.cur_block_id
                         );
-                        self.unconfirmed_block_id = self.data.cur_block_id.clone();
+                        self.unconfirmed_block_id
+                            .clone_from(&self.data.cur_block_id);
                     }
                 }
                 self.data.set_block(bhh.clone(), None);

@@ -694,7 +694,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     1_000_000_000_000_000,
                 )];
 
-                peer_configs[0].initial_balances = initial_balances.clone();
+                peer_configs[0]
+                    .initial_balances
+                    .clone_from(&initial_balances);
                 peer_configs[1].initial_balances = initial_balances;
             },
             |num_blocks, ref mut peers| {
@@ -1378,7 +1380,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         )
                         .unwrap();
 
-                        microblock_stream = microblocks.clone();
+                        microblock_stream.clone_from(&microblocks);
                         first_block_height = sn.block_height as u32;
 
                         block_data.push((

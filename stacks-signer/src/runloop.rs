@@ -246,7 +246,9 @@ impl RunLoop {
                             .keys()
                             .copied()
                             .collect();
-                        signer.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
+                        signer
+                            .next_signer_slot_ids
+                            .clone_from(&new_signer_config.signer_slot_ids);
                     }
                 }
             }
