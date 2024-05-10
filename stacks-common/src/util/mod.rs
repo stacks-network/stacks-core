@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub extern crate faster_hex;
+
 #[macro_use]
 pub mod log;
 #[macro_use]
