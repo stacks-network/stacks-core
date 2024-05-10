@@ -518,7 +518,7 @@ impl MinerStats {
                 SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id)?;
             for commit in commits.into_iter() {
                 let miner = commit.apparent_sender.to_string();
-                if miners.get(&miner).is_none() {
+                if !miners.contains_key(&miner) {
                     miners.insert(miner, commit);
                 }
             }

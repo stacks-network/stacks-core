@@ -443,7 +443,7 @@ impl StacksBlock {
         let mut txids = HashMap::new();
         for (i, tx) in txs.iter().enumerate() {
             let txid = tx.txid();
-            if txids.get(&txid).is_some() {
+            if txids.contains_key(&txid) {
                 warn!(
                     "Duplicate tx {}: at index {} and {}",
                     txid,

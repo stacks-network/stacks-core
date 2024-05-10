@@ -632,14 +632,14 @@ impl NakamotoDownloadStateMachine {
             if prev_wanted_rc < first_nakamoto_rc {
                 // assume the epoch 2.x inventory has this
                 has_prev_inv = true;
-            } else if inv.tenures_inv.get(&prev_wanted_rc).is_some() {
+            } else if inv.tenures_inv.contains_key(&prev_wanted_rc) {
                 has_prev_inv = true;
             }
 
             if cur_wanted_rc < first_nakamoto_rc {
                 // assume the epoch 2.x inventory has this
                 has_cur_inv = true;
-            } else if inv.tenures_inv.get(&cur_wanted_rc).is_some() {
+            } else if inv.tenures_inv.contains_key(&cur_wanted_rc) {
                 has_cur_inv = true;
             }
         }

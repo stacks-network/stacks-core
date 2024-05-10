@@ -590,7 +590,7 @@ fn test_step_walk_1_neighbor_bootstrapping() {
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
 
                     // peer 2 never gets added to peer 1's frontier
-                    assert!(w.frontier.get(&neighbor_2.addr).is_none());
+                    assert!(!w.frontier.contains_key(&neighbor_2.addr));
                 }
                 None => {}
             };
@@ -683,7 +683,7 @@ fn test_step_walk_1_neighbor_behind() {
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
 
                     // peer 1 never gets added to peer 2's frontier
-                    assert!(w.frontier.get(&neighbor_1.addr).is_none());
+                    assert!(!w.frontier.contains_key(&neighbor_1.addr));
                 }
                 None => {}
             };

@@ -917,7 +917,7 @@ fn test_tenure_start_end_from_inventory() {
         for (i, wt) in wanted_tenures.iter().enumerate() {
             if i >= (rc_len - 1).into() {
                 // nothing here
-                assert!(available.get(&wt.tenure_id_consensus_hash).is_none());
+                assert!(!available.contains_key(&wt.tenure_id_consensus_hash));
                 continue;
             }
 
@@ -1284,7 +1284,7 @@ fn test_make_tenure_downloaders() {
         assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
 
         for wt in wanted_tenures_with_blocks {
-            if tenure_start_blocks.get(&wt.winning_block_id).is_none() {
+            if !tenure_start_blocks.contains_key(&wt.winning_block_id) {
                 warn!("No tenure start block for wanted tenure {:?}", &wt);
             }
 

@@ -6732,7 +6732,7 @@ mod test {
         // peer 2 has none of the old ones
         for tx in peer_2_mempool_txs {
             assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
-            assert!(old_txs.get(&tx.tx.txid()).is_none());
+            assert!(!old_txs.contains_key(&tx.tx.txid()));
         }
     }
 

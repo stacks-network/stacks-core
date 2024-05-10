@@ -493,7 +493,7 @@ fn integration_test_get_info() {
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u3))");
-                assert!(res.get("proof").is_some());
+                assert!(res.contains_key("proof"));
 
                 assert_eq!(result_data, expected_data);
 
@@ -544,7 +544,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
-                assert!(res.get("proof").is_some());
+                assert!(res.contains_key("proof"));
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u3))");

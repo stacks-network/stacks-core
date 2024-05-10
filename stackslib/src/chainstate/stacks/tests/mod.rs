@@ -214,7 +214,7 @@ impl TestMinerTrace {
         let mut num_blocks = 0;
         for p in self.points.iter() {
             for miner_id in p.stacks_blocks.keys() {
-                if p.stacks_blocks.get(miner_id).is_some() {
+                if p.stacks_blocks.contains_key(miner_id) {
                     num_blocks += 1;
                 }
             }
@@ -227,7 +227,7 @@ impl TestMinerTrace {
         let mut num_sortitions = 0;
         for p in self.points.iter() {
             for miner_id in p.fork_snapshots.keys() {
-                if p.fork_snapshots.get(miner_id).is_some() {
+                if p.fork_snapshots.contains_key(miner_id) {
                     num_sortitions += 1;
                 }
             }
