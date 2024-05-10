@@ -413,7 +413,7 @@ impl Signer {
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
             Command::Dkg => {
-                crate::monitoring::increment_commands_processed(&"dkg");
+                crate::monitoring::increment_commands_processed("dkg");
                 if self.approved_aggregate_public_key.is_some() {
                     debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
                     return;
@@ -450,7 +450,7 @@ impl Signer {
                 is_taproot,
                 merkle_root,
             } => {
-                crate::monitoring::increment_commands_processed(&"sign");
+                crate::monitoring::increment_commands_processed("sign");
                 if self.approved_aggregate_public_key.is_none() {
                     debug!("{self}: Cannot sign a block without an approved aggregate public key. Ignore it.");
                     return;
@@ -1043,25 +1043,25 @@ impl Signer {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
             match operation_result {
                 OperationResult::Sign(signature) => {
-                    crate::monitoring::increment_operation_results(&"sign");
+                    crate::monitoring::increment_operation_results("sign");
                     debug!("{self}: Received signature result");
                     self.process_signature(signature);
                 }
                 OperationResult::SignTaproot(_) => {
-                    crate::monitoring::increment_operation_results(&"sign_taproot");
+                    crate::monitoring::increment_operation_results("sign_taproot");
                     debug!("{self}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.");
                 }
                 OperationResult::Dkg(aggregate_key) => {
-                    crate::monitoring::increment_operation_results(&"dkg");
+                    crate::monitoring::increment_operation_results("dkg");
                     self.process_dkg(stacks_client, aggregate_key);
                 }
                 OperationResult::SignError(e) => {
-                    crate::monitoring::increment_operation_results(&"sign_error");
+                    crate::monitoring::increment_operation_results("sign_error");
                     warn!("{self}: Received a Sign error: {e:?}");
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
-                    crate::monitoring::increment_operation_results(&"dkg_error");
+                    crate::monitoring::increment_operation_results("dkg_error");
                     warn!("{self}: Received a DKG error: {e:?}");
                     // TODO: process these errors and track malicious signers to report
                 }
@@ -1389,7 +1389,7 @@ impl Signer {
             return Ok(());
         }
         // Check stackerdb for any missed DKG messages to catch up our state.
-        self.read_dkg_stackerdb_messages(&stacks_client, res, current_reward_cycle)?;
+        self.read_dkg_stackerdb_messages(stacks_client, res, current_reward_cycle)?;
         // Check if we should still queue DKG
         if !self.should_queue_dkg(stacks_client)? {
             return Ok(());
