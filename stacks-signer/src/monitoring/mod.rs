@@ -142,7 +142,7 @@ pub fn update_signer_nonce(nonce: u64) {
 /// The `origin` parameter is the base path of the RPC call, e.g. `http://node.com`.
 /// The `origin` parameter is removed from `full_path` when storing in prometheus.
 #[cfg(feature = "monitoring_prom")]
-pub fn new_rpc_call_timer(full_path: &str, origin: &String) -> HistogramTimer {
+pub fn new_rpc_call_timer(full_path: &str, origin: &str) -> HistogramTimer {
     let path = &full_path[origin.len()..];
     let histogram = prometheus::SIGNER_RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[path]);
     histogram.start_timer()
@@ -157,7 +157,7 @@ impl NoOpTimer {
 
 /// Stop and record the no-op timer.
 #[cfg(not(feature = "monitoring_prom"))]
-pub fn new_rpc_call_timer(_full_path: &str, _origin: &String) -> NoOpTimer {
+pub fn new_rpc_call_timer(_full_path: &str, _origin: &str) -> NoOpTimer {
     NoOpTimer
 }
 
