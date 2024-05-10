@@ -65,7 +65,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -105,7 +105,7 @@ fn cli_get_miner_spend(
 ) -> u64 {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(&config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -334,7 +334,7 @@ fn main() {
                     process::exit(1);
                 }
             };
-            match Config::from_config_file(config_file) {
+            match Config::from_config_file(config_file, true) {
                 Ok(_) => {
                     info!("Loaded config!");
                     process::exit(0);
@@ -365,9 +365,11 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf =
-                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
-                            .unwrap();
+                    let conf = Config::from_config_file(
+                        ConfigFile::from_path(&config_path).unwrap(),
+                        true,
+                    )
+                    .unwrap();
                     args.finish();
                     conf.node.seed
                 } else {
@@ -416,7 +418,7 @@ fn main() {
         }
     };
 
-    let conf = match Config::from_config_file(config_file) {
+    let conf = match Config::from_config_file(config_file, true) {
         Ok(conf) => conf,
         Err(e) => {
             warn!("Invalid config: {}", e);

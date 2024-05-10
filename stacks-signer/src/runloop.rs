@@ -95,7 +95,7 @@ impl RewardCycleInfo {
         let effective_height = burnchain_block_height - self.first_burnchain_block_height;
         let reward_index = effective_height % self.reward_cycle_length;
 
-        reward_index >= u64::from(self.reward_cycle_length - self.prepare_phase_block_length)
+        reward_index >= (self.reward_cycle_length - self.prepare_phase_block_length)
             && self.get_reward_cycle(burnchain_block_height) == self.reward_cycle
     }
 }
