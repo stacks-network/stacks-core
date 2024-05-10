@@ -28,9 +28,19 @@ use wsts::net::Packet;
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
 use crate::config::SignerConfig;
-use crate::signer::SignerSlotID;
+
+/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
+pub struct SignerSlotID(pub u32);
+
+impl std::fmt::Display for SignerSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// The StackerDB client for communicating with the .signers contract
+#[derive(Debug)]
 pub struct StackerDB {
     /// The stacker-db sessions for each signer set and message type.
     /// Maps message ID to the DB session.

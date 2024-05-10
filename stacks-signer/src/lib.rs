@@ -26,14 +26,13 @@ pub mod cli;
 pub mod client;
 /// The configuration module for the signer
 pub mod config;
-/// The coordinator selector for the signer
-pub mod coordinator;
-/// The primary runloop for the signer
-pub mod runloop;
-/// The signer module for processing events
-pub mod signer;
-/// The state module for the signer
-pub mod signerdb;
-
 /// The monitoring server for the signer
 pub mod monitoring;
+/// The primary runloop for the signer
+pub mod runloop;
+/// The traits module
+pub mod traits;
+/// The v0 implementation of the signer. This does not include WSTS support
+pub mod v0;
+/// The v1 implementation of the singer. This includes WSTS support
+pub mod v1;
