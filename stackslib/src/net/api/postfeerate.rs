@@ -34,7 +34,9 @@ use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::core::mempool::MemPoolDB;
-use crate::cost_estimates::FeeRateEstimate;
+use crate::core::StacksEpoch;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{CostEstimator, FeeEstimator, FeeRateEstimate};
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -92,12 +94,55 @@ pub struct RPCPostFeeRateRequestHandler {
     pub estimated_len: Option<u64>,
     pub transaction_payload: Option<TransactionPayload>,
 }
+
 impl RPCPostFeeRateRequestHandler {
     pub fn new() -> Self {
         Self {
             estimated_len: None,
             transaction_payload: None,
         }
+    }
+
+    /// Estimate a transaction fee, given its execution cost estimation and length estimation
+    /// and cost estimators.
+    /// Returns Ok(fee structure) on success
+    /// Returns Err(HTTP response) on error
+    pub fn estimate_tx_fee_from_cost_and_length(
+        preamble: &HttpRequestPreamble,
+        fee_estimator: &dyn FeeEstimator,
+        metric: &dyn CostMetric,
+        estimated_cost: ExecutionCost,
+        estimated_len: u64,
+        stacks_epoch: StacksEpoch,
+    ) -> Result<RPCFeeEstimateResponse, StacksHttpResponse> {
+        let scalar_cost =
+            metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
+        let fee_rates = fee_estimator.get_rate_estimates().map_err(|e| {
+            StacksHttpResponse::new_error(
+                &preamble,
+                &HttpBadRequest::new(format!(
+                    "Estimator RPC endpoint failed to estimate fees for tx: {:?}",
+                    &e
+                )),
+            )
+        })?;
+
+        let mut estimations = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
+
+        let minimum_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
+
+        for estimate in estimations.iter_mut() {
+            if estimate.fee < minimum_fee {
+                estimate.fee = minimum_fee;
+            }
+        }
+
+        Ok(RPCFeeEstimateResponse {
+            estimated_cost,
+            estimations,
+            estimated_cost_scalar: scalar_cost,
+            cost_scalar_change_by_byte: metric.change_per_byte(),
+        })
     }
 }
 
@@ -206,39 +251,14 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
                             )
                         })?;
 
-                    let scalar_cost = metric.from_cost_and_len(
-                        &estimated_cost,
-                        &stacks_epoch.block_limit,
-                        estimated_len,
-                    );
-                    let fee_rates = fee_estimator.get_rate_estimates().map_err(|e| {
-                        StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpBadRequest::new(format!(
-                                "Estimator RPC endpoint failed to estimate fees for tx {}: {:?}",
-                                &tx.name(),
-                                &e
-                            )),
-                        )
-                    })?;
-
-                    let mut estimations =
-                        RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
-
-                    let minimum_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
-
-                    for estimate in estimations.iter_mut() {
-                        if estimate.fee < minimum_fee {
-                            estimate.fee = minimum_fee;
-                        }
-                    }
-
-                    Ok(RPCFeeEstimateResponse {
+                    Self::estimate_tx_fee_from_cost_and_length(
+                        &preamble,
+                        fee_estimator,
+                        metric,
                         estimated_cost,
-                        estimations,
-                        estimated_cost_scalar: scalar_cost,
-                        cost_scalar_change_by_byte: metric.change_per_byte(),
-                    })
+                        estimated_len,
+                        stacks_epoch,
+                    )
                 } else {
                     debug!("Fee and cost estimation not configured on this stacks node");
                     Err(StacksHttpResponse::new_error(
