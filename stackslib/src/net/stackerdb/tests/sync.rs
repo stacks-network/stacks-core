@@ -32,6 +32,7 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::db::SlotValidation;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
@@ -185,6 +186,19 @@ fn check_sync_results(network_sync: &NetworkResult) {
     }
 }
 
+fn test_reconnect(network: &mut PeerNetwork) {
+    let mut stacker_db_syncs = network
+        .stacker_db_syncs
+        .take()
+        .expect("FATAL: did not replace stacker dbs");
+
+    for (_sc, stacker_db_sync) in stacker_db_syncs.iter_mut() {
+        stacker_db_sync.connect_begin(network).unwrap();
+    }
+
+    network.stacker_db_syncs = Some(stacker_db_syncs);
+}
+
 #[test]
 fn test_stackerdb_replica_2_neighbors_1_chunk() {
     with_timeout(600, || {
@@ -239,6 +253,10 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 
             let res_1 = peer_1.step_with_ibd(false);
             let res_2 = peer_2.step_with_ibd(false);
+
+            // test that re-connects are limited to 1 per host
+            test_reconnect(&mut peer_1.network);
+            test_reconnect(&mut peer_2.network);
 
             if let Ok(mut res) = res_1 {
                 check_sync_results(&res);

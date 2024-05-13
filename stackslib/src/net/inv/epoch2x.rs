@@ -2645,6 +2645,30 @@ impl PeerNetwork {
         (done, throttled)
     }
 
+    /// Check to see if an epcoh2x peer has fully sync'ed.
+    /// (has crate visibility for testing)
+    pub(crate) fn check_peer_epoch2x_synced(
+        &self,
+        ibd: bool,
+        num_reward_cycles_synced: u64,
+    ) -> bool {
+        // either not in IBD, and we've sync'ed the highest reward cycle in the PoX vector,
+        // OR,
+        // in IBD, and we've sync'ed up to the highest sortition's reward cycle.
+        //
+        // The difference is that in the former case, the PoX inventory vector will be as long as
+        // the sortition history, but the number of reward cycles tracked by the inv state machine
+        // may be less when the node is booting up.  So, we preface that check by also checking
+        // that we're in steady-state mode (i.e. not IBD).
+        (!ibd && num_reward_cycles_synced >= self.pox_id.num_inventory_reward_cycles() as u64)
+            || (ibd
+                && num_reward_cycles_synced
+                    >= self
+                        .burnchain
+                        .block_height_to_reward_cycle(self.burnchain_tip.block_height)
+                        .expect("FATAL: sortition has no reward cycle"))
+    }
+
     /// Check to see if an always-allowed peer has performed an epoch 2.x inventory sync
     fn check_always_allowed_peer_inv_sync_epoch2x(&self, ibd: bool) -> bool {
         // only count an inv_sync as passing if there's an always-allowed node
@@ -2686,15 +2710,7 @@ impl PeerNetwork {
                 continue;
             }
 
-            if (!ibd
-                && stats.inv.num_reward_cycles >= self.pox_id.num_inventory_reward_cycles() as u64)
-                || (ibd
-                    && stats.inv.num_reward_cycles
-                        >= self
-                            .burnchain
-                            .block_height_to_reward_cycle(self.burnchain_tip.block_height)
-                            .expect("FATAL: sortition has no reward cycle"))
-            {
+            if self.check_peer_epoch2x_synced(ibd, stats.inv.num_reward_cycles) {
                 // we have fully sync'ed with an always-allowed peer
                 debug!(
                     "{:?}: Fully-sync'ed PoX inventory from {}",

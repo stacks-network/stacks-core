@@ -641,7 +641,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 self.replicas.insert(naddr);
                 continue;
             }
-
             if self.comms.has_neighbor_session(network, &naddr) {
                 debug!(
                     "{:?}: connect_begin: already connected to StackerDB peer {:?}",
@@ -665,6 +664,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         network.get_local_peer(),
                         &naddr
                     );
+                    self.num_attempted_connections += 1;
                     self.num_connections += 1;
                 }
                 Ok(false) => {

@@ -7348,4 +7348,31 @@ mod test {
 
         assert_eq!(peer_2_mempool_txs.len(), 128);
     }
+
+    #[test]
+    fn test_is_connecting() {
+        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let nk = peer_1.to_neighbor().addr;
+
+        assert!(!peer_1.network.is_connecting(1));
+        assert!(!peer_1.network.is_connecting_neighbor(&nk));
+
+        let comms = PeerNetworkComms::new();
+        assert!(!comms.is_neighbor_connecting(&peer_1.network, &nk));
+
+        let sock = mio::net::TcpStream::connect(&SocketAddr::from((
+            [127, 0, 0, 1],
+            peer_1.config.server_port,
+        )))
+        .unwrap();
+        peer_1.network.connecting.insert(
+            1,
+            ConnectingPeer::new(sock, true, get_epoch_time_secs(), nk.clone()),
+        );
+
+        assert!(peer_1.network.is_connecting(1));
+        assert!(peer_1.network.is_connecting_neighbor(&nk));
+        assert!(comms.is_neighbor_connecting(&peer_1.network, &nk));
+    }
 }

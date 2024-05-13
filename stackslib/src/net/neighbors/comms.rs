@@ -408,7 +408,6 @@ pub trait NeighborComms {
         if network.is_connecting_neighbor(&nk.to_neighbor_key(network)) {
             return true;
         }
-
         let Some(event_id) = self.get_connecting(network, nk) else {
             return false;
         };
