@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
+use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
@@ -70,7 +71,7 @@ use crate::chainstate::nakamoto::{
     FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
@@ -2838,4 +2839,305 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     txs.sort_by(|a, b| a.txid().cmp(&b.txid()));
     assert_eq!(filtered_txs.len(), 1);
     assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
+}
+
+#[cfg(test)]
+pub mod nakamoto_block_signatures {
+    use super::*;
+
+    /// Helper function make a reward set with (PrivateKey, weight) tuples
+    fn make_reward_set(signers: Vec<(Secp256k1PrivateKey, u32)>) -> RewardSet {
+        let mut reward_set = RewardSet::empty();
+        reward_set.signers = Some(
+            signers
+                .iter()
+                .map(|(s, w)| {
+                    let mut signing_key = [0u8; 33];
+                    signing_key.copy_from_slice(
+                        &Secp256k1PublicKey::from_private(s)
+                            .to_bytes_compressed()
+                            .as_slice(),
+                    );
+                    NakamotoSignerEntry {
+                        signing_key,
+                        stacked_amt: 100_u128,
+                        weight: *w,
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+        reward_set
+    }
+
+    #[test]
+    /// Base success case - 3 signers of equal weight, all signing the block
+    pub fn test_nakamoto_block_verify_signatures() {
+        let signers = vec![
+            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::default(),
+        ];
+
+        let reward_set = make_reward_set(signers.iter().map(|s| (s.clone(), 100)).collect());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block sighash for each signer
+
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .map(|s| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+        // assert!(&header.verify_signer_signatures(&reward_set).is_ok());
+    }
+
+    #[test]
+    /// Fully signed block, but not in order
+    fn test_out_of_order_signer_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block for each signer, but in reverse
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .rev()
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected out of order signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test with 3 equal signers, and only two sign
+    fn test_insufficient_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with just the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected insufficient signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Not enough signatures"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test with 4 signers, but one has 75% weight. Only the whale signs
+    // and the block is valid
+    fn test_single_signature_threshold() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 75),
+            (Secp256k1PrivateKey::default(), 10),
+            (Secp256k1PrivateKey::default(), 5),
+            (Secp256k1PrivateKey::default(), 10),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with just the whale
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(1)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+    }
+
+    #[test]
+    // Test with a signature that didn't come from the signer set
+    fn test_invalid_signer() {
+        let signers = vec![(Secp256k1PrivateKey::default(), 100)];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        // Sign with all signers
+        let mut signer_signature = signers
+            .iter()
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        let invalid_signature = Secp256k1PrivateKey::default()
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(invalid_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid signature to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("not found in the reward set"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    fn test_duplicate_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        // First, sign with the first 2 signers
+        let mut signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // Sign again with the first signer
+        let duplicate_signature = signers[0]
+            .0
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(duplicate_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected duplicate signature to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Signatures are out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test where a signature used a different message
+    fn test_signature_invalid_message() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        let mut signer_signature = signers
+            .iter()
+            .take(3)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // With the 4th signer, use a junk message
+        let message = [0u8; 32];
+
+        let bad_signature = signers[3]
+            .0
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(bad_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid message to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {}
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test where a signature is not recoverable
+    fn test_unrecoverable_signature() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        let mut signer_signature = signers
+            .iter()
+            .take(3)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // Now append an unrecoverable signature
+        signer_signature.push(MessageSignature::empty());
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid message to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                if !msg.contains("Unable to recover public key") {
+                    panic!("Unexpected error msg: {}", msg);
+                }
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
 }

@@ -19,6 +19,8 @@ use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
+use clarity::types::PublicKey;
+use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
@@ -58,8 +60,9 @@ use super::burn::db::sortdb::{
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp};
 use super::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
-    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+    NakamotoSignerEntry, PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData,
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE,
+    SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
@@ -514,21 +517,72 @@ impl NakamotoBlockHeader {
 
     /// Verify the block header against the list of signer signatures
     ///
-    /// TODO: ingest the list of signer pubkeys
-    ///
-    /// TODO: validate against:
-    /// - Any invalid signatures
+    /// Validate against:
+    /// - Any invalid signatures (eg not recoverable or not from a signer)
     /// - Any duplicate signatures
-    /// - At least the minimum number of signatures
-    pub fn verify_signer_signatures(&self, _reward_set: &RewardSet) -> Result<(), ChainstateError> {
-        // TODO: verify each signature in the block
-        let _sig_hash = self.signer_signature_hash();
+    /// - At least the minimum number of signatures (based on total signer weight
+    /// and a 70% threshold)
+    /// - Order of signatures is maintained vs signer set
+    pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<(), ChainstateError> {
+        let message = self.signer_signature_hash();
+        let Some(signers) = &reward_set.signers else {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "No signers in the reward set".to_string(),
+            ));
+        };
 
-        let _signatures = self
-            .signer_signature
+        let mut total_weight_signed: u32 = 0;
+        // `last_index` is used to prevent out-of-order signatures
+        let mut last_index = None;
+
+        let total_weight = signers.iter().map(|s| s.weight).sum::<u32>();
+
+        // HashMap of <PublicKey, (Signer, Index)>
+        let signers_by_pk = signers
             .iter()
-            .map(|sig| sig.clone())
-            .collect::<Vec<_>>();
+            .enumerate()
+            .map(|(i, signer)| (signer.signing_key, (signer.clone(), i)))
+            .collect::<HashMap<_, _>>();
+
+        for signature in &self.signer_signature {
+            let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
+                .map_err(|_| {
+                    ChainstateError::InvalidStacksBlock(format!(
+                        "Unable to recover public key from signature {}",
+                        signature.to_hex()
+                    ))
+                })?;
+
+            let (signer, signer_index) = signers_by_pk
+                .get(public_key.to_bytes().as_slice())
+                .ok_or_else(|| {
+                    ChainstateError::InvalidStacksBlock(format!(
+                        "Public key {} not found in the reward set",
+                        public_key.to_hex()
+                    ))
+                })?;
+
+            // Enforce order of signatures
+            match last_index {
+                Some(index) if index >= *signer_index => {
+                    return Err(ChainstateError::InvalidStacksBlock(
+                        "Signatures are out of order".to_string(),
+                    ));
+                }
+                _ => last_index = Some(*signer_index),
+            }
+
+            total_weight_signed += signer.weight;
+        }
+
+        // Calculate 70% of total weight as the threshold
+        let threshold = (total_weight as f64 * 7_f64 / 10_f64).ceil() as u32;
+
+        if total_weight_signed < threshold {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Not enough signatures".to_string(),
+            ));
+        }
 
         return Ok(());
     }
@@ -1727,8 +1781,6 @@ impl NakamotoChainState {
     /// Does nothing if:
     /// * we already have the block
     /// Returns true if we stored the block; false if not.
-    ///
-    /// TODO: ingest the list of signer keys (instead of aggregate key)
     pub fn accept_block(
         config: &ChainstateConfig,
         block: NakamotoBlock,
