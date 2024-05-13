@@ -243,18 +243,19 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_start_block
-            .header
-            .verify_signer(&self.start_aggregate_public_key)
-        {
-            // signature verification failed
-            warn!("Invalid tenure-start block: bad signer signature";
-                  "tenure_id" => %self.tenure_id_consensus_hash,
-                  "block.header.block_id" => %tenure_start_block.header.block_id(),
-                  "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                  "state" => %self.state);
-            return Err(NetError::InvalidMessage);
-        }
+        // TODO: epoch-gated verify threshold or vec of signatures
+        // if !tenure_start_block
+        //     .header
+        //     .verify_threshold_signer(&self.start_aggregate_public_key)
+        // {
+        //     // signature verification failed
+        //     warn!("Invalid tenure-start block: bad signer signature";
+        //           "tenure_id" => %self.tenure_id_consensus_hash,
+        //           "block.header.block_id" => %tenure_start_block.header.block_id(),
+        //           "start_aggregate_public_key" => %self.start_aggregate_public_key,
+        //           "state" => %self.state);
+        //     return Err(NetError::InvalidMessage);
+        // }
 
         debug!(
             "Accepted tenure-start block for tenure {} block={}",
@@ -369,18 +370,19 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_end_block
-            .header
-            .verify_signer(&self.end_aggregate_public_key)
-        {
-            // bad signature
-            warn!("Invalid tenure-end block: bad signer signature";
-                  "tenure_id" => %self.tenure_id_consensus_hash,
-                  "block.header.block_id" => %tenure_end_block.header.block_id(),
-                  "end_aggregate_public_key" => %self.end_aggregate_public_key,
-                  "state" => %self.state);
-            return Err(NetError::InvalidMessage);
-        }
+        // TODO: epoch-gated verify threshold or vec of signatures
+        // if !tenure_end_block
+        //     .header
+        //     .verify_threshold_signer(&self.end_aggregate_public_key)
+        // {
+        //     // bad signature
+        //     warn!("Invalid tenure-end block: bad signer signature";
+        //           "tenure_id" => %self.tenure_id_consensus_hash,
+        //           "block.header.block_id" => %tenure_end_block.header.block_id(),
+        //           "end_aggregate_public_key" => %self.end_aggregate_public_key,
+        //           "state" => %self.state);
+        //     return Err(NetError::InvalidMessage);
+        // }
 
         // extract the needful -- need the tenure-change payload (which proves that the tenure-end
         // block is the tenure-start block for the next tenure) and the parent block ID (which is
@@ -470,14 +472,18 @@ impl NakamotoTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            if !block.header.verify_signer(&self.start_aggregate_public_key) {
-                warn!("Invalid block: bad signer signature";
-                      "tenure_id" => %self.tenure_id_consensus_hash,
-                      "block.header.block_id" => %block.header.block_id(),
-                      "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                      "state" => %self.state);
-                return Err(NetError::InvalidMessage);
-            }
+            // TODO: epoch-gated verify threshold or vec of signatures
+            // if !block
+            //     .header
+            //     .verify_threshold_signer(&self.start_aggregate_public_key)
+            // {
+            //     warn!("Invalid block: bad signer signature";
+            //           "tenure_id" => %self.tenure_id_consensus_hash,
+            //           "block.header.block_id" => %block.header.block_id(),
+            //           "start_aggregate_public_key" => %self.start_aggregate_public_key,
+            //           "state" => %self.state);
+            //     return Err(NetError::InvalidMessage);
+            // }
 
             expected_block_id = &block.header.parent_block_id;
             count += 1;

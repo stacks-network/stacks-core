@@ -413,11 +413,11 @@ impl SignCoordinator {
             // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
             //  channel has been created. This allows integration tests for the stacks-node
             //  independent of the stacks-signer.
-            if let Some(signature) =
+            if let Some(_signatures) =
                 crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
             {
                 debug!("Short-circuiting waiting for signers, using test signature");
-                return Ok(signature);
+                return Ok(ThresholdSignature::empty());
             }
         }
 

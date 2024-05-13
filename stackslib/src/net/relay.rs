@@ -33,7 +33,9 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandle, SortitionHandleConn,
+};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
@@ -721,17 +723,38 @@ impl Relayer {
         );
 
         let config = chainstate.config();
-        let Ok(aggregate_public_key) =
-            NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
-        else {
-            warn!("Failed to get aggregate public key. Will not store or relay";
-                "stacks_block_hash" => %block.header.block_hash(),
-                "consensus_hash" => %block.header.consensus_hash,
-                "burn_height" => block.header.chain_length,
-                "sortition_height" => block_sn.block_height,
-            );
-            return Ok(false);
+
+        // TODO: epoch gate to verify with aggregate key
+        // let Ok(aggregate_public_key) =
+        //     NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
+        // else {
+        //     warn!("Failed to get aggregate public key. Will not store or relay";
+        //         "stacks_block_hash" => %block.header.block_hash(),
+        //         "consensus_hash" => %block.header.consensus_hash,
+        //         "burn_height" => block.header.chain_length,
+        //         "sortition_height" => block_sn.block_height,
+        //     );
+        //     return Ok(false);
+        // };
+
+        // TODO: epoch gate to use signatures vec
+        let tip = sort_handle.tip();
+
+        let reward_info = match sortdb.get_preprocessed_reward_set_of(&tip) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
+            Err(e) => {
+                return Err(chainstate_error::DBError(e));
+            }
         };
+        let reward_cycle = reward_info.reward_cycle;
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
+        };
+
         let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
@@ -739,7 +762,9 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            &aggregate_public_key,
+            // &aggregate_public_key,
+            &Point::new(),
+            reward_set,
         )?;
         staging_db_tx.commit()?;
 

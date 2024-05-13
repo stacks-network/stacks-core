@@ -529,7 +529,7 @@ fn sign_request_rejected() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block1 = NakamotoBlock {
@@ -556,7 +556,7 @@ fn sign_request_rejected() {
         tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
         state_index_root: TrieHash([0x08; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block2 = NakamotoBlock {

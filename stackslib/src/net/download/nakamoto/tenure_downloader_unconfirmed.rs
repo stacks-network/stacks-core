@@ -369,23 +369,26 @@ impl NakamotoUnconfirmedTenureDownloader {
         let Some(tenure_tip) = self.tenure_tip.as_ref() else {
             return Err(NetError::InvalidState);
         };
-        let Some(unconfirmed_aggregate_public_key) = self.unconfirmed_aggregate_public_key.as_ref()
-        else {
-            return Err(NetError::InvalidState);
-        };
+
+        // TODO: epoch-gated loading of aggregate key
+        // let Some(unconfirmed_aggregate_public_key) = self.unconfirmed_aggregate_public_key.as_ref()
+        // else {
+        //     return Err(NetError::InvalidState);
+        // };
 
         // stacker signature has to match the current aggregate public key
-        if !unconfirmed_tenure_start_block
-            .header
-            .verify_signer(unconfirmed_aggregate_public_key)
-        {
-            warn!("Invalid tenure-start block: bad signer signature";
-                  "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
-                  "tenure_start_block.header.block_id" => %unconfirmed_tenure_start_block.header.block_id(),
-                  "unconfirmed_aggregate_public_key" => %unconfirmed_aggregate_public_key,
-                  "state" => %self.state);
-            return Err(NetError::InvalidMessage);
-        }
+        // TODO: epoch-gated verify threshold or vec of signatures
+        // if !unconfirmed_tenure_start_block
+        //     .header
+        //     .verify_threshold_signer(unconfirmed_aggregate_public_key)
+        // {
+        //     warn!("Invalid tenure-start block: bad signer signature";
+        //           "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
+        //           "tenure_start_block.header.block_id" => %unconfirmed_tenure_start_block.header.block_id(),
+        //           "unconfirmed_aggregate_public_key" => %unconfirmed_aggregate_public_key,
+        //           "state" => %self.state);
+        //     return Err(NetError::InvalidMessage);
+        // }
 
         // block has to match the expected hash
         if tenure_start_block_id != &unconfirmed_tenure_start_block.header.block_id() {
@@ -433,10 +436,12 @@ impl NakamotoUnconfirmedTenureDownloader {
         let Some(tenure_tip) = self.tenure_tip.as_ref() else {
             return Err(NetError::InvalidState);
         };
-        let Some(unconfirmed_aggregate_public_key) = self.unconfirmed_aggregate_public_key.as_ref()
-        else {
-            return Err(NetError::InvalidState);
-        };
+
+        // TODO: epoch-gated load aggregate key
+        // let Some(unconfirmed_aggregate_public_key) = self.unconfirmed_aggregate_public_key.as_ref()
+        // else {
+        //     return Err(NetError::InvalidState);
+        // };
 
         if tenure_blocks.is_empty() {
             // nothing to do
@@ -454,14 +459,18 @@ impl NakamotoUnconfirmedTenureDownloader {
                       "block_id" => %block.header.block_id());
                 return Err(NetError::InvalidMessage);
             }
-            if !block.header.verify_signer(unconfirmed_aggregate_public_key) {
-                warn!("Invalid block: bad signer signature";
-                      "tenure_id" => %tenure_tip.consensus_hash,
-                      "block.header.block_id" => %block.header.block_id(),
-                      "unconfirmed_aggregate_public_key" => %unconfirmed_aggregate_public_key,
-                      "state" => %self.state);
-                return Err(NetError::InvalidMessage);
-            }
+            // TODO: epoch-gated verify threshold or vec of signatures
+            // if !block
+            //     .header
+            //     .verify_threshold_signer(unconfirmed_aggregate_public_key)
+            // {
+            //     warn!("Invalid block: bad signer signature";
+            //           "tenure_id" => %tenure_tip.consensus_hash,
+            //           "block.header.block_id" => %block.header.block_id(),
+            //           "unconfirmed_aggregate_public_key" => %unconfirmed_aggregate_public_key,
+            //           "state" => %self.state);
+            //     return Err(NetError::InvalidMessage);
+            // }
 
             // we may or may not need the tenure-start block for the unconfirmed tenure.  But if we
             // do, make sure it's valid, and it's the last block we receive.

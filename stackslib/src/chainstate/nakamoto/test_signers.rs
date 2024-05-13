@@ -19,6 +19,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
+use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
@@ -77,6 +78,8 @@ pub struct TestSigners {
     pub party_key_ids: Vec<Vec<u32>>,
     /// The cycle for which the signers are valid
     pub cycle: u64,
+    /// The signer's private keys
+    pub signer_keys: Vec<Secp256k1PrivateKey>,
 }
 
 impl Default for TestSigners {
@@ -104,6 +107,11 @@ impl Default for TestSigners {
             })
             .collect();
 
+        let mut signer_keys = Vec::<Secp256k1PrivateKey>::new();
+        for _ in 0..num_keys {
+            signer_keys.push(Secp256k1PrivateKey::default());
+        }
+
         // Generate an aggregate public key
         let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
             Ok(poly_commitments) => poly_commitments,
@@ -124,29 +132,24 @@ impl Default for TestSigners {
             threshold,
             party_key_ids,
             cycle: 0,
+            signer_keys,
         }
     }
 }
 
 impl TestSigners {
+    // TODO: sign using vec of signatures
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock, cycle: u64) {
         // Update the aggregate public key if the cycle has changed
         if self.cycle != cycle {
             self.generate_aggregate_key(cycle);
         }
-
-        let mut rng = rand_core::OsRng;
         let msg = block.header.signer_signature_hash().0;
-        let (nonces, sig_shares, key_ids) =
-            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
-
-        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
-        sig_aggregator
-            .init(&self.poly_commitments)
-            .expect("aggregator init failed");
-        let signature = sig_aggregator
-            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
-            .expect("aggregator sig failed");
+        let signer_signature = self
+            .signer_keys
+            .iter()
+            .map(|key| key.sign(&msg).unwrap())
+            .collect::<Vec<MessageSignature>>();
 
         test_debug!(
             "Signed Nakamoto block {} with {} (rc {})",
@@ -154,7 +157,7 @@ impl TestSigners {
             &self.aggregate_public_key,
             cycle
         );
-        block.header.signer_signature = ThresholdSignature(signature);
+        block.header.signer_signature = signer_signature;
     }
 
     // Generate and assign a new aggregate public key

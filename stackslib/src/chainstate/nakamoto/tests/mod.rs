@@ -154,7 +154,7 @@ fn codec_nakamoto_header() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(8).unwrap(),
     };
 
@@ -204,7 +204,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -761,7 +761,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -805,7 +805,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -844,7 +844,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -1519,7 +1519,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
@@ -1538,7 +1538,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
@@ -1557,7 +1557,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: Vec::<MessageSignature>::new(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_miner_sig
@@ -1711,7 +1711,7 @@ pub fn test_get_highest_nakamoto_tenure() {
             tx_merkle_root: Sha512Trunc256Sum([0x00; 32]),
             state_index_root: TrieHash([0x00; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
+            signer_signature: Vec::<MessageSignature>::new(),
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
         let tenure_change = TenureChangePayload {
@@ -2012,7 +2012,7 @@ fn test_make_miners_stackerdb_config() {
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
+            signer_signature: Vec::<MessageSignature>::new(),
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
         let block = NakamotoBlock {

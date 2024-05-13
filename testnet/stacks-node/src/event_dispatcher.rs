@@ -658,7 +658,7 @@ impl EventObserver {
             );
             as_object_mut.insert(
                 "signer_signature".into(),
-                format!("0x{}", &header.signer_signature).into(),
+                serde_json::to_value(&header.signer_signature).unwrap_or_default(),
             );
         }
 

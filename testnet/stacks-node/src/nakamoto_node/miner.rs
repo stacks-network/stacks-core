@@ -28,6 +28,7 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::boot::RewardSet;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -35,6 +36,7 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -180,7 +182,7 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
+                let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
                     &mut stackerdbs,
@@ -188,13 +190,15 @@ impl BlockMinerThread {
                 ) {
                     Ok(x) => x,
                     Err(e) => {
-                        error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
+                        error!(
+                            "Unrecoverable error while gathering signatures: {e:?}. Ending tenure."
+                        );
                         return;
                     }
                 };
 
-                new_block.header.signer_signature = signers_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), &aggregate_public_key) {
+                new_block.header.signer_signature = signer_signature;
+                if let Err(e) = self.broadcast(new_block.clone(), &Point::new(), reward_set) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -233,6 +237,7 @@ impl BlockMinerThread {
         }
     }
 
+    #[allow(dead_code)]
     fn coordinate_signature(
         &mut self,
         new_block: &mut NakamotoBlock,
@@ -328,6 +333,51 @@ impl BlockMinerThread {
         )?;
 
         Ok((aggregate_public_key, signature))
+    }
+
+    /// Gather signatures from the signers for the block
+    fn gather_signatures(
+        &mut self,
+        new_block: &mut NakamotoBlock,
+        _burn_block_height: u64,
+        _stackerdbs: &mut StackerDBs,
+        _attempts: &mut u64,
+    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
+        let tip = SortitionDB::get_block_snapshot_consensus(
+            sort_db.conn(),
+            &new_block.header.consensus_hash,
+        )
+        .expect("FATAL: could not retrieve chain tip")
+        .expect("FATAL: could not retrieve chain tip");
+
+        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set found. Cannot initialize miner coordinator.".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
+
+        // TODO: collect signatures from signers
+        return Ok((reward_set, vec![]));
     }
 
     fn get_stackerdb_contract_and_slots(
@@ -443,10 +493,13 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
+    /// TODO: update to utilize `signer_signature` vec instead of the aggregate
+    /// public key.
     fn broadcast(
         &self,
         block: NakamotoBlock,
         aggregate_public_key: &Point,
+        reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
         {
@@ -484,6 +537,7 @@ impl BlockMinerThread {
             &staging_tx,
             headers_conn,
             &aggregate_public_key,
+            reward_set,
         )?;
         staging_tx.commit()?;
         Ok(())

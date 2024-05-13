@@ -45,7 +45,7 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
-use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
+use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -59,6 +59,7 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::util::hash::hex_bytes;
+use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -167,8 +168,10 @@ lazy_static! {
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 
 pub struct TestSigningChannel {
-    pub recv: Option<Receiver<ThresholdSignature>>,
-    pub send: Sender<ThresholdSignature>,
+    // pub recv: Option<Receiver<ThresholdSignature>>,
+    pub recv: Option<Receiver<Vec<MessageSignature>>>,
+    // pub send: Sender<ThresholdSignature>,
+    pub send: Sender<Vec<MessageSignature>>,
 }
 
 impl TestSigningChannel {
@@ -177,14 +180,16 @@ impl TestSigningChannel {
     /// Returns None if the singleton isn't instantiated and the miner should coordinate
     ///  a real signer set signature.
     /// Panics if the blind-signer times out.
-    pub fn get_signature() -> Option<ThresholdSignature> {
+    ///
+    /// TODO: update to use signatures vec
+    pub fn get_signature() -> Option<Vec<MessageSignature>> {
         let mut signer = TEST_SIGNING.lock().unwrap();
         let Some(sign_channels) = signer.as_mut() else {
             return None;
         };
         let recv = sign_channels.recv.take().unwrap();
         drop(signer); // drop signer so we don't hold the lock while receiving.
-        let signature = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let signatures = recv.recv_timeout(Duration::from_secs(30)).unwrap();
         let overwritten = TEST_SIGNING
             .lock()
             .unwrap()
@@ -193,12 +198,12 @@ impl TestSigningChannel {
             .recv
             .replace(recv);
         assert!(overwritten.is_none());
-        Some(signature)
+        Some(signatures)
     }
 
     /// Setup the TestSigningChannel as a singleton using TEST_SIGNING,
     ///  returning an owned Sender to the channel.
-    pub fn instantiate() -> Sender<ThresholdSignature> {
+    pub fn instantiate() -> Sender<Vec<MessageSignature>> {
         let (send, recv) = channel();
         let existed = TEST_SIGNING.lock().unwrap().replace(Self {
             recv: Some(recv),
@@ -335,7 +340,7 @@ pub fn read_and_sign_block_proposal(
     conf: &Config,
     signers: &TestSigners,
     signed_blocks: &HashSet<Sha512Trunc256Sum>,
-    channel: &Sender<ThresholdSignature>,
+    channel: &Sender<Vec<MessageSignature>>,
 ) -> Result<Sha512Trunc256Sum, String> {
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -2216,7 +2221,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
-    proposed_zero_block.header.signer_signature = ThresholdSignature::empty();
+    proposed_zero_block.header.signer_signature = Vec::<MessageSignature>::new();
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
     coord_channel
