@@ -42,17 +42,16 @@ mod http;
 mod runloop;
 mod session;
 mod signer_set;
-mod v0;
-mod v1;
+/// v0 signer related code
+pub mod v0;
+/// v1 signer related code
+pub mod v1;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    BlockProposalSigners, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
+    BlockProposal, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
     SignerStopSignaler,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
 pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};
-pub use crate::v1::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
-};

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
@@ -26,10 +27,10 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::db::Error as DBError;
 use hashbrown::HashSet;
-use libsigner::{
-    BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
-    SignerMessage,
+use libsigner::v1::messages::{
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
+use libsigner::{BlockProposal, SignerEvent};
 use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -78,8 +79,8 @@ pub struct BlockInfo {
     pub signed_over: bool,
 }
 
-impl From<BlockProposalSigners> for BlockInfo {
-    fn from(value: BlockProposalSigners) -> Self {
+impl From<BlockProposal> for BlockInfo {
+    fn from(value: BlockProposal) -> Self {
         Self {
             block: value.block,
             burn_block_height: value.burn_height,
@@ -93,10 +94,7 @@ impl From<BlockProposalSigners> for BlockInfo {
 }
 impl BlockInfo {
     /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_with_request(
-        block_proposal: BlockProposalSigners,
-        nonce_request: NonceRequest,
-    ) -> Self {
+    pub fn new_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
         let mut block_info = BlockInfo::from(block_proposal);
         block_info.nonce_request = Some(nonce_request);
         block_info.signed_over = true;
@@ -185,7 +183,7 @@ impl std::fmt::Display for Signer {
     }
 }
 
-impl SignerTrait for Signer {
+impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(config: SignerConfig) -> Self {
         Self::from(config)
@@ -209,7 +207,7 @@ impl SignerTrait for Signer {
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
-        event: Option<&SignerEvent>,
+        event: Option<&SignerEvent<SignerMessage>>,
         res: Sender<Vec<OperationResult>>,
         current_reward_cycle: u64,
     ) {
@@ -913,7 +911,7 @@ impl Signer {
         nonce_request: &mut NonceRequest,
     ) -> Option<BlockInfo> {
         let Some(block_proposal) =
-            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
+            BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
         else {
             // We currently reject anything that is not a valid block proposal
             warn!("{self}: Received a nonce request for an unknown message stream. Reject it.",);

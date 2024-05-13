@@ -55,7 +55,7 @@ use tiny_http::{
 use wsts::curve::ecdsa::Signature;
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::EventError;
+use crate::{BlockProposal, EventError};
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
@@ -117,7 +117,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
     /// The block proposal from miners for signers to observe and sign
-    BlockProposal(NakamotoBlock),
+    BlockProposal(BlockProposal),
     /// The block response from signers for miners to observe
     BlockResponse(BlockResponse),
 }
@@ -163,7 +163,7 @@ impl StacksMessageCodec for SignerMessage {
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             SignerMessageTypePrefix::BlockProposal => {
-                let block_proposal = read_next::<NakamotoBlock, _>(fd)?;
+                let block_proposal = read_next::<BlockProposal, _>(fd)?;
                 SignerMessage::BlockProposal(block_proposal)
             }
             SignerMessageTypePrefix::BlockResponse => {
@@ -177,7 +177,9 @@ impl StacksMessageCodec for SignerMessage {
 
 /// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
+    /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
+    /// Deserialize the struct from the provided reader
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
@@ -448,7 +450,7 @@ mod test {
     use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use clarity::util::hash::MerkleTree;
     use clarity::util::secp256k1::MessageSignature;
-    use rand::Rng;
+    use rand::{thread_rng, Rng, RngCore};
     use rand_core::OsRng;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -568,7 +570,12 @@ mod test {
         };
         block.header.tx_merkle_root = tx_merkle_root;
 
-        let signer_message = SignerMessage::BlockProposal(block);
+        let block_proposal = BlockProposal {
+            block,
+            burn_height: thread_rng().next_u64(),
+            reward_cycle: thread_rng().next_u64(),
+        };
+        let signer_message = SignerMessage::BlockProposal(block_proposal);
         let serialized_signer_message = signer_message.serialize_to_vec();
         let deserialized_signer_message =
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])

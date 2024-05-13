@@ -8,10 +8,8 @@ use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
-use libsigner::{
-    BlockProposalSigners, BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer,
-    SignerEntries, SignerEventReceiver, SignerMessage,
-};
+use libsigner::v1::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
+use libsigner::{BlockProposal, RunningSigner, Signer, SignerEntries, SignerEventReceiver};
 use rand::thread_rng;
 use rand_core::RngCore;
 use stacks::burnchains::Txid;
@@ -90,7 +88,8 @@ struct SignerTest {
     // The channels for receiving results from the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
     // The running signer and its threads
-    pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+    pub running_signers:
+        Vec<RunningSigner<SignerEventReceiver<SignerMessage>, Vec<OperationResult>, SignerMessage>>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -798,7 +797,7 @@ fn spawn_signer(
     data: &str,
     receiver: Receiver<RunLoopCommand>,
     sender: Sender<Vec<OperationResult>>,
-) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
+) -> RunningSigner<SignerEventReceiver<SignerMessage>, Vec<OperationResult>, SignerMessage> {
     let config = SignerConfig::load_from_str(data).unwrap();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
     let endpoint = config.endpoint;
@@ -806,13 +805,14 @@ fn spawn_signer(
     {
         stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
     }
-    let runloop: stacks_signer::runloop::RunLoop<v1::signer::Signer> =
+    let runloop: stacks_signer::runloop::RunLoop<v1::signer::Signer, SignerMessage> =
         stacks_signer::runloop::RunLoop::new(config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop<v1::signer::Signer>,
-        SignerEventReceiver,
+        stacks_signer::runloop::RunLoop<v1::signer::Signer, SignerMessage>,
+        SignerEventReceiver<SignerMessage>,
+        SignerMessage,
     > = Signer::new(runloop, ev, receiver, sender);
     info!("Spawning signer on endpoint {}", endpoint);
     signer.spawn(endpoint).unwrap()
@@ -1075,12 +1075,12 @@ fn stackerdb_sign_request_rejected() {
 
     info!("------------------------- Test Sign -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let block_proposal_1 = BlockProposalSigners {
+    let block_proposal_1 = BlockProposal {
         block: block1.clone(),
         burn_height: 0,
         reward_cycle,
     };
-    let block_proposal_2 = BlockProposalSigners {
+    let block_proposal_2 = BlockProposal {
         block: block2.clone(),
         burn_height: 0,
         reward_cycle,

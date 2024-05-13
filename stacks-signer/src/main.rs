@@ -33,6 +33,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
+use libsigner::v1::messages::SignerMessage;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_info};
@@ -51,7 +52,8 @@ use tracing_subscriber::{fmt, EnvFilter};
 use wsts::state_machine::OperationResult;
 
 struct SpawnedSigner {
-    running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
+    running_signer:
+        RunningSigner<SignerEventReceiver<SignerMessage>, Vec<OperationResult>, SignerMessage>,
     _cmd_send: Sender<RunLoopCommand>,
     _res_recv: Receiver<Vec<OperationResult>>,
 }
@@ -94,8 +96,9 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<v1::signer::Signer>,
-        SignerEventReceiver,
+        RunLoop<v1::signer::Signer, SignerMessage>,
+        SignerEventReceiver<SignerMessage>,
+        SignerMessage,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {

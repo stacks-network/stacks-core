@@ -220,8 +220,10 @@ macro_rules! define_u8_enum {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[repr(u8)]
         $(#[$outer])*
+        /// A u8 Named Enum
         pub enum $Name {
             $(  $(#[$inner])*
+                /// $Variant
                 $Variant = $Val),*,
         }
         impl $Name {
