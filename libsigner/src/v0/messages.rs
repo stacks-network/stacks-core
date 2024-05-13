@@ -204,7 +204,8 @@ impl StacksMessageCodecExtensions for HashSet<u32> {
 
 define_u8_enum!(RejectCodeTypePrefix{
     ValidationFailed = 0,
-    ConnectivityIssues = 1
+    ConnectivityIssues = 1,
+    RejectedInPriorRound = 2
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -221,6 +222,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
         match reject_code {
             RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
+            RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
         }
     }
 }
@@ -232,6 +234,8 @@ pub enum RejectCode {
     ValidationFailed(ValidateRejectCode),
     /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound,
 }
 
 /// The response that a signer sends back to observing miners
@@ -376,6 +380,7 @@ impl StacksMessageCodec for RejectCode {
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
             RejectCode::ConnectivityIssues => write_next(fd, &1u8)?,
+            RejectCode::RejectedInPriorRound => write_next(fd, &2u8)?,
         };
         Ok(())
     }
@@ -393,6 +398,7 @@ impl StacksMessageCodec for RejectCode {
                 })?,
             ),
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
+            RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
         };
         Ok(code)
     }
@@ -405,6 +411,10 @@ impl std::fmt::Display for RejectCode {
             RejectCode::ConnectivityIssues => write!(
                 f,
                 "The block was rejected due to connectivity issues with the signer."
+            ),
+            RejectCode::RejectedInPriorRound => write!(
+                f,
+                "The block was proposed before and rejected by the signer."
             ),
         }
     }

@@ -13,8 +13,8 @@ use crate::runloop::RunLoopCommand;
 pub trait Signer<T: StacksMessageCodec + Clone + Debug>: Debug + Display {
     /// Create a new `Signer` instance
     fn new(config: SignerConfig) -> Self;
-    /// Update the `Signer` instance's next reward cycle data with the latest `SignerConfig`
-    fn update_next_signer_data(&mut self, next_signer_config: &SignerConfig);
+    /// Update the `Signer` instance's with the next reward cycle data `SignerConfig`
+    fn update_signer(&mut self, next_signer_config: &SignerConfig);
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event

@@ -13,9 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-/// The stacker db module for communicating with the stackerdb contract
-mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
@@ -25,7 +22,6 @@ use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
-pub use stackerdb::*;
 pub use stacks_client::*;
 use stacks_common::codec::Error as CodecError;
 use stacks_common::debug;
@@ -34,6 +30,16 @@ use stacks_common::debug;
 const BACKOFF_INITIAL_INTERVAL: u64 = 128;
 /// Backoff timer max interval in milliseconds
 const BACKOFF_MAX_INTERVAL: u64 = 16384;
+
+/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
+pub struct SignerSlotID(pub u32);
+
+impl std::fmt::Display for SignerSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type

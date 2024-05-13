@@ -37,10 +37,11 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_signer::client::{SignerSlotID, StackerDB, StacksClient};
+use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{RunLoopCommand, SignerCommand};
 use stacks_signer::v1::coordinator::CoordinatorSelector;
+use stacks_signer::v1::stackerdb::StackerDB;
 use stacks_signer::v1::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};

@@ -32,7 +32,6 @@ use libsigner::v1::messages::{
 };
 use libsigner::{BlockProposal, SignerEvent};
 use rand_core::OsRng;
-use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
@@ -53,59 +52,13 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
 
-use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
+use super::stackerdb::StackerDB;
+use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand};
+use crate::signerdb::{BlockInfo, SignerDb};
 use crate::traits::Signer as SignerTrait;
 use crate::v1::coordinator::CoordinatorSelector;
-use crate::v1::signerdb::SignerDb;
-
-/// Additional Info about a proposed block
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct BlockInfo {
-    /// The block we are considering
-    pub block: NakamotoBlock,
-    /// The burn block height at which the block was proposed
-    pub burn_block_height: u64,
-    /// The reward cycle the block belongs to
-    pub reward_cycle: u64,
-    /// Our vote on the block if we have one yet
-    pub vote: Option<NakamotoBlockVote>,
-    /// Whether the block contents are valid
-    valid: Option<bool>,
-    /// The associated packet nonce request if we have one
-    nonce_request: Option<NonceRequest>,
-    /// Whether this block is already being signed over
-    pub signed_over: bool,
-}
-
-impl From<BlockProposal> for BlockInfo {
-    fn from(value: BlockProposal) -> Self {
-        Self {
-            block: value.block,
-            burn_block_height: value.burn_height,
-            reward_cycle: value.reward_cycle,
-            vote: None,
-            valid: None,
-            nonce_request: None,
-            signed_over: false,
-        }
-    }
-}
-impl BlockInfo {
-    /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
-        let mut block_info = BlockInfo::from(block_proposal);
-        block_info.nonce_request = Some(nonce_request);
-        block_info.signed_over = true;
-        block_info
-    }
-
-    /// Return the block's signer signature hash
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
-        self.block.header.signer_signature_hash()
-    }
-}
 
 /// The specific operations that a signer can perform
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -188,8 +141,9 @@ impl SignerTrait<SignerMessage> for Signer {
     fn new(config: SignerConfig) -> Self {
         Self::from(config)
     }
+
     /// Refresh the next signer data from the given configuration data
-    fn update_next_signer_data(&mut self, new_signer_config: &SignerConfig) {
+    fn update_signer(&mut self, new_signer_config: &SignerConfig) {
         self.next_signer_addresses = new_signer_config
             .signer_entries
             .signer_ids

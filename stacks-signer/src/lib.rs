@@ -30,6 +30,8 @@ pub mod config;
 pub mod monitoring;
 /// The primary runloop for the signer
 pub mod runloop;
+/// The signer state module
+pub mod signerdb;
 /// The traits module
 pub mod traits;
 /// The v0 implementation of the signer. This does not include WSTS support

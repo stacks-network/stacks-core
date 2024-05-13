@@ -263,7 +263,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                     if signer.reward_cycle() == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
                         debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring current reward cycle signer.");
-                        signer.update_next_signer_data(&new_signer_config);
+                        signer.update_signer(&new_signer_config);
                     }
                 }
             }

@@ -13,3 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+/// The signer module for processing events
+pub mod signer;
+/// The stackerdb module for sending messages between signers and miners
+pub mod stackerdb;
