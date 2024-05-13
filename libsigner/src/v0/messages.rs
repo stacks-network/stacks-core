@@ -39,6 +39,7 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::util::retry::BoundReader;
+use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::{HashMap, HashSet};
@@ -52,7 +53,6 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
-use wsts::curve::ecdsa::Signature;
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::{BlockProposal, EventError};
@@ -239,7 +239,7 @@ pub enum RejectCode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockResponse {
     /// The Nakamoto block was accepted and therefore signed
-    Accepted((Sha512Trunc256Sum, Signature)),
+    Accepted((Sha512Trunc256Sum, MessageSignature)),
     /// The Nakamoto block was rejected and therefore not signed
     Rejected(BlockRejection),
 }
@@ -267,7 +267,7 @@ impl std::fmt::Display for BlockResponse {
 
 impl BlockResponse {
     /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
-    pub fn accepted(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
+    pub fn accepted(hash: Sha512Trunc256Sum, sig: MessageSignature) -> Self {
         Self::Accepted((hash, sig))
     }
 
@@ -277,24 +277,13 @@ impl BlockResponse {
     }
 }
 
-impl StacksMessageCodecExtensions for Signature {
-    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.to_bytes().to_vec())
-    }
-    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signature_bytes: Vec<u8> = read_next(fd)?;
-        Signature::try_from(signature_bytes.as_slice())
-            .map_err(|e| CodecError::DeserializeError(e.to_string()))
-    }
-}
-
 impl StacksMessageCodec for BlockResponse {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         match self {
             BlockResponse::Accepted((hash, sig)) => {
                 write_next(fd, &0u8)?;
                 write_next(fd, hash)?;
-                sig.inner_consensus_serialize(fd)?;
+                write_next(fd, sig)?;
             }
             BlockResponse::Rejected(rejection) => {
                 write_next(fd, &1u8)?;
@@ -309,7 +298,7 @@ impl StacksMessageCodec for BlockResponse {
         let response = match type_prefix {
             0 => {
                 let hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
-                let sig = Signature::inner_consensus_deserialize(fd)?;
+                let sig = read_next::<MessageSignature, _>(fd)?;
                 BlockResponse::Accepted((hash, sig))
             }
             1 => {
@@ -455,8 +444,6 @@ mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksPrivateKey;
-    use wsts::curve::ecdsa::Signature;
-    use wsts::curve::scalar::Scalar;
 
     use super::{StacksMessageCodecExtensions, *};
 
@@ -507,11 +494,8 @@ mod test {
 
     #[test]
     fn serde_block_response() {
-        let mut rng = OsRng;
-        let scalar = Scalar::random(&mut rng);
-        let bytes = b"something to sign";
-        let signature = Signature::new(bytes.as_slice(), &scalar).expect("Failed to sign");
-        let response = BlockResponse::Accepted((Sha512Trunc256Sum([0u8; 32]), signature));
+        let response =
+            BlockResponse::Accepted((Sha512Trunc256Sum([0u8; 32]), MessageSignature::empty()));
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])
             .expect("Failed to deserialize BlockResponse");
@@ -529,13 +513,9 @@ mod test {
 
     #[test]
     fn serde_signer_message() {
-        let mut rng = OsRng;
-        let scalar = Scalar::random(&mut rng);
-        let bytes = b"something to sign";
-        let signature = Signature::new(bytes.as_slice(), &scalar).expect("Failed to sign");
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted((
             Sha512Trunc256Sum([2u8; 32]),
-            signature,
+            MessageSignature::empty(),
         )));
         let serialized_signer_message = signer_message.serialize_to_vec();
         let deserialized_signer_message =
