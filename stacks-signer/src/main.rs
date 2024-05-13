@@ -81,12 +81,11 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
-    // TODO: check if config.node_host is in a given list of possible local hosts and only if it now, then display the message?
     warn!(
-        "The signer is primarily designed for use with a local stacks node. 
-            It's important to exercise caution if you are communicating with an external node, 
-            as this could potentially expose sensitive data or functionalities to security risks 
-            if additional proper security checks are not in place."
+        "The signer is primarily designed for use with a local stacks node. \
+        It's important to exercise caution if you are communicating with an external node, \
+        as this could potentially expose sensitive data or functionalities to security risks \
+        if additional proper security checks are not integrated in place."
     );
     info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();

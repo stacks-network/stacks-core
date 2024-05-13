@@ -121,7 +121,6 @@ impl From<GlobalConfig> for RunLoop {
     /// Creates new runloop from a config
     fn from(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
-        // TODO: or insert the warn related to stacks-node used by the stacks-signer here?
         Self {
             config,
             stacks_client,
