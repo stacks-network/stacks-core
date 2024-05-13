@@ -37,7 +37,7 @@ use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
-use crate::messages::SignerMessage;
+use crate::v1::messages::SignerMessage;
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,19 +39,20 @@ mod tests;
 mod error;
 mod events;
 mod http;
-mod messages;
 mod runloop;
 mod session;
 mod signer_set;
+mod v0;
+mod v1;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
     BlockProposalSigners, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
     SignerStopSignaler,
 };
-pub use crate::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
-};
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
 pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};
+pub use crate::v1::messages::{
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
+};

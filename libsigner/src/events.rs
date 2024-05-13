@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -238,10 +238,9 @@ impl EventStopSignaler for SignerStopSignaler {
                 body.len(),
                 body
             );
-            match stream.write_all(req.as_bytes()) {
-                Err(e) => error!("Failed to send shutdown request: {}", e),
-                _ => (),
-            };
+            if let Err(e) = stream.write_all(req.as_bytes()) {
+                error!("Failed to send shutdown request: {}", e);
+            }
         }
     }
 }
@@ -395,7 +394,7 @@ fn process_stackerdb_event(
                 event_contract_id
             );
             ack_dispatcher(request);
-            return Err(e.into());
+            return Err(e);
         }
         Ok(x) => x,
     };
