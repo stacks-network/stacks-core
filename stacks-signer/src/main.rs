@@ -27,36 +27,24 @@ extern crate serde_json;
 extern crate toml;
 
 use std::io::{self, Write};
-use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::v1::messages::SignerMessage;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
+use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_info};
+use slog::slog_debug;
+use stacks_common::debug;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks_common::{debug, info};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
     RunSignerArgs, StackerDBArgs,
 };
 use stacks_signer::config::GlobalConfig;
-use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::v1;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::OperationResult;
-
-struct SpawnedSigner {
-    running_signer:
-        RunningSigner<SignerEventReceiver<SignerMessage>, Vec<OperationResult>, SignerMessage>,
-    _cmd_send: Sender<RunLoopCommand>,
-    _res_recv: Receiver<Vec<OperationResult>>,
-}
 
 /// Create a new stacker db session
 fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
@@ -77,34 +65,6 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
                 hexed_chunk.len() - bytes
             );
         }
-    }
-}
-
-// Spawn a running signer and return its handle, command sender, and result receiver
-fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
-    let config = GlobalConfig::try_from(path).unwrap();
-    let endpoint = config.endpoint;
-    info!("Starting signer with config: {}", config);
-    let (_cmd_send, cmd_recv) = channel();
-    let (res_send, _res_recv) = channel();
-    let ev = SignerEventReceiver::new(config.network.is_mainnet());
-    #[cfg(feature = "monitoring_prom")]
-    {
-        stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
-    }
-    let runloop = RunLoop::new(config);
-    let mut signer: Signer<
-        RunLoopCommand,
-        Vec<OperationResult>,
-        RunLoop<v1::signer::Signer, SignerMessage>,
-        SignerEventReceiver<SignerMessage>,
-        SignerMessage,
-    > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let running_signer = signer.spawn(endpoint).unwrap();
-    SpawnedSigner {
-        running_signer,
-        _cmd_send,
-        _res_recv,
     }
 }
 
@@ -142,10 +102,11 @@ fn handle_put_chunk(args: PutChunkArgs) {
 
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
-    let spawned_signer = spawn_running_signer(&args.config);
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let spawned_signer = v1::SpawnedSigner::from(config);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
-    let _ = spawned_signer.running_signer.join();
+    let _ = spawned_signer.join();
 }
 
 fn handle_generate_stacking_signature(

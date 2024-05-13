@@ -226,13 +226,13 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(&stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
         self.refresh_coordinator();
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(&stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
