@@ -187,13 +187,9 @@ mod tests {
     use std::time::Duration;
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-    use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
-    use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
     use rand::{thread_rng, RngCore};
-    use stacks_common::bitvec::BitVec;
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
@@ -217,18 +213,7 @@ mod tests {
         let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
 
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 2,
-            burn_spent: 3,
-            consensus_hash: ConsensusHash([0x04; 20]),
-            parent_block_id: StacksBlockId([0x05; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-            state_index_root: TrieHash([0x07; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
+        let header = NakamotoBlockHeader::empty();
         let mut block = NakamotoBlock {
             header,
             txs: vec![],
