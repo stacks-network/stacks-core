@@ -24,7 +24,7 @@ use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::signer::BlockInfo;
+use crate::v1::signer::BlockInfo;
 
 /// This struct manages a SQLite database connection
 /// for the signer.
