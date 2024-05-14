@@ -16,15 +16,18 @@
 
 use std::path::PathBuf;
 
+#[cfg(feature = "canonical")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
+#[cfg(feature = "canonical")]
+use crate::vm::database::SqliteConnection;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
@@ -83,6 +86,8 @@ pub trait ClarityBackingStore {
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
+
+    #[cfg(feature = "canonical")]
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -106,59 +111,27 @@ pub trait ClarityBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
-        let key = make_contract_hash_key(contract);
-        let contract_commitment = self
-            .get_data(&key)?
-            .map(|x| ContractCommitment::deserialize(&x))
-            .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
-        let ContractCommitment {
-            block_height,
-            hash: contract_hash,
-        } = contract_commitment?;
-        let bhh = self.get_block_at_height(block_height)
-            .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
-        Ok((bhh, contract_hash))
-    }
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)>;
 
     fn insert_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> Result<()> {
-        let bhh = self.get_open_chain_tip();
-        SqliteConnection::insert_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-            value,
-        )
-    }
+    ) -> Result<()>;
 
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
-        let (bhh, _) = self.get_contract_hash(contract)?;
-        SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
-    }
+    ) -> Result<Option<String>>;
 
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
-        let bhh = self.get_block_at_height(at_height)
-            .ok_or_else(|| {
-                warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
-                RuntimeErrorType::BadBlockHeight(at_height.to_string())
-            })?;
-        SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
-    }
+    ) -> Result<Option<String>>;
 
     fn put_all_metadata(
         &mut self,
@@ -240,6 +213,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
+    #[cfg(feature = "canonical")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }
@@ -262,5 +236,38 @@ impl ClarityBackingStore for NullBackingStore {
 
     fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        panic!("NullBackingStore cannot get_contract_hash")
+    }
+
+    fn insert_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+        _value: &str,
+    ) -> Result<()> {
+        panic!("NullBackingStore cannot insert_metadata")
+    }
+
+    fn get_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata")
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        _at_height: u32,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata_manual")
     }
 }

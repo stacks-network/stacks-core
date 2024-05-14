@@ -22,15 +22,18 @@ pub use self::clarity_db::{
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
+#[cfg(feature = "canonical")]
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
+#[cfg(feature = "canonical")]
 pub use sqlite::MemoryBackingStore;
 
 pub mod clarity_db;
 pub mod clarity_store;
 mod key_value_wrapper;
-mod sqlite;
+#[cfg(feature = "canonical")]
+pub mod sqlite;
 mod structures;

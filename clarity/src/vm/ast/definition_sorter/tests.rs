@@ -25,7 +25,6 @@ use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
@@ -64,7 +63,7 @@ fn should_succeed_sorting_contract_case_1(#[case] version: ClarityVersion) {
         (define-private (wrapped-kv-del (key int))
             (kv-del key))
         (define-private (kv-del (key int))
-            (begin 
+            (begin
                 (map-delete kv-store { key: key })
                 key))
         (define-map kv-store { key: int } { value: int })
@@ -117,7 +116,7 @@ fn should_raise_dependency_cycle_case_2(#[case] version: ClarityVersion) {
 fn should_not_raise_dependency_cycle_case_let(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (let ((foo 1)) (+ 1 x))) 
+        (define-private (bar (x int)) (let ((foo 1)) (+ 1 x)))
     "#;
 
     run_scoped_parsing_helper(contract, version).unwrap();
@@ -128,7 +127,7 @@ fn should_not_raise_dependency_cycle_case_let(#[case] version: ClarityVersion) {
 fn should_raise_dependency_cycle_case_let(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (let ((baz (foo 1))) (+ 1 x))) 
+        (define-private (bar (x int)) (let ((baz (foo 1))) (+ 1 x)))
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
@@ -150,7 +149,7 @@ fn should_not_raise_dependency_cycle_case_get(#[case] version: ClarityVersion) {
 fn should_raise_dependency_cycle_case_get(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (let ((res (foo 1))) (+ 1 x))) 
+        (define-private (bar (x int)) (let ((res (foo 1))) (+ 1 x)))
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
@@ -161,7 +160,7 @@ fn should_raise_dependency_cycle_case_get(#[case] version: ClarityVersion) {
 fn should_not_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-get? kv-store { foo: 1 })) 
+        (define-private (bar (x int)) (map-get? kv-store { foo: 1 }))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -173,7 +172,7 @@ fn should_not_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVe
 fn should_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-get? kv-store { foo: (foo 1) })) 
+        (define-private (bar (x int)) (map-get? kv-store { foo: (foo 1) }))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -185,7 +184,7 @@ fn should_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVersio
 fn should_not_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-delete kv-store (tuple (foo 1)))) 
+        (define-private (bar (x int)) (map-delete kv-store (tuple (foo 1))))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -197,7 +196,7 @@ fn should_not_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityV
 fn should_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-delete kv-store (tuple (foo (foo 1))))) 
+        (define-private (bar (x int)) (map-delete kv-store (tuple (foo (foo 1)))))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -209,7 +208,7 @@ fn should_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityVersi
 fn should_not_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-set kv-store { foo: 1 } { bar: 3 })) 
+        (define-private (bar (x int)) (map-set kv-store { foo: 1 } { bar: 3 }))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -221,7 +220,7 @@ fn should_not_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVers
 fn should_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-set kv-store { foo: 1 } { bar: (foo 1) })) 
+        (define-private (bar (x int)) (map-set kv-store { foo: 1 } { bar: (foo 1) }))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -233,7 +232,7 @@ fn should_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVersion)
 fn should_not_raise_dependency_cycle_case_insert_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-insert kv-store { foo: 1 } { bar: 3 })) 
+        (define-private (bar (x int)) (map-insert kv-store { foo: 1 } { bar: 3 }))
         (define-map kv-store { foo: int } { bar: int })
     "#;
 
@@ -257,7 +256,7 @@ fn should_raise_dependency_cycle_case_insert_entry(#[case] version: ClarityVersi
 fn should_raise_dependency_cycle_case_fetch_contract_entry(#[case] version: ClarityVersion) {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-get? kv-store { foo: (foo 1) })) 
+        (define-private (bar (x int)) (map-get? kv-store { foo: (foo 1) }))
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();

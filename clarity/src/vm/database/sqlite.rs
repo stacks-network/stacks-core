@@ -14,22 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::{FromSql, ToSql};
+use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
     Savepoint, NO_PARAMS,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::db_common::tx_busy_handler;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
 use crate::vm::contracts::Contract;
+use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
+use crate::vm::types::QualifiedContractIdentifier;
 
+use super::clarity_store::{make_contract_hash_key, ContractCommitment};
 use super::{
-    ClarityBackingStore, ClarityDatabase, SpecialCaseHandler, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, SpecialCaseHandler,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
@@ -76,6 +81,62 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
 
 fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool> {
     Ok(sqlite_get(conn, key)?.is_some())
+}
+
+pub fn sqlite_get_contract_hash(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+    let key = make_contract_hash_key(contract);
+    let contract_commitment = store
+        .get_data(&key)?
+        .map(|x| ContractCommitment::deserialize(&x))
+        .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
+    let ContractCommitment {
+        block_height,
+        hash: contract_hash,
+    } = contract_commitment?;
+    let bhh = store.get_block_at_height(block_height)
+            .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
+    Ok((bhh, contract_hash))
+}
+
+pub fn sqlite_insert_metadata(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    let bhh = store.get_open_chain_tip();
+    SqliteConnection::insert_metadata(
+        store.get_side_store(),
+        &bhh,
+        &contract.to_string(),
+        key,
+        value,
+    )
+}
+
+pub fn sqlite_get_metadata(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+) -> Result<Option<String>> {
+    let (bhh, _) = store.get_contract_hash(contract)?;
+    SqliteConnection::get_metadata(store.get_side_store(), &bhh, &contract.to_string(), key)
+}
+
+pub fn sqlite_get_metadata_manual(
+    store: &mut dyn ClarityBackingStore,
+    at_height: u32,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+) -> Result<Option<String>> {
+    let bhh = store.get_block_at_height(at_height).ok_or_else(|| {
+        warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
+        RuntimeErrorType::BadBlockHeight(at_height.to_string())
+    })?;
+    SqliteConnection::get_metadata(store.get_side_store(), &bhh, &contract.to_string(), key)
 }
 
 impl SqliteConnection {
@@ -300,5 +361,55 @@ impl ClarityBackingStore for MemoryBackingStore {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
         Ok(())
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+        value: &str,
+    ) -> Result<()> {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl ToSql for ExecutionCost {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
+impl FromSql for ExecutionCost {
+    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
+        let str_val = String::column_result(value)?;
+        let parsed = serde_json::from_str(&str_val)
+            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))?;
+        Ok(parsed)
     }
 }

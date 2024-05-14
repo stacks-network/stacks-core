@@ -29,7 +29,6 @@ use crate::vm::analysis::{mem_type_check as mem_run_analysis, AnalysisDatabase};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::TypeSignature::OptionalType;
@@ -1982,7 +1981,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok 
+    (ok
         (tuple
             (score (get-zero))
         )
