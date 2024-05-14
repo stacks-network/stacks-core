@@ -40,11 +40,11 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_signer::client::{StackerDB, StacksClient};
+use stacks_signer::client::{SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::coordinator::CoordinatorSelector;
-use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
+use stacks_signer::runloop::{RunLoopCommand, SignerCommand};
+use stacks_signer::v1;
+use stacks_signer::v1::coordinator::CoordinatorSelector;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
@@ -512,6 +512,7 @@ impl SignerTest {
         entries.public_keys
     }
 
+    #[allow(dead_code)]
     fn get_signer_metrics(&self) -> String {
         #[cfg(feature = "monitoring_prom")]
         {
@@ -805,11 +806,12 @@ fn spawn_signer(
     {
         stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
     }
-    let runloop: stacks_signer::runloop::RunLoop = stacks_signer::runloop::RunLoop::from(config);
+    let runloop: stacks_signer::runloop::RunLoop<v1::signer::Signer> =
+        stacks_signer::runloop::RunLoop::new(config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop,
+        stacks_signer::runloop::RunLoop<v1::signer::Signer>,
         SignerEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
     info!("Spawning signer on endpoint {}", endpoint);

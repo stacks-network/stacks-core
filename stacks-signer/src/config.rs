@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::types::PrivateKey;
 use wsts::curve::scalar::Scalar;
 
-use crate::signer::SignerSlotID;
+use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee to use in microstacks (if unspecificed in the config file)

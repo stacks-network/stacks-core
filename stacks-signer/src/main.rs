@@ -45,14 +45,15 @@ use stacks_signer::cli::{
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
+use stacks_signer::v1;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::state_machine::OperationResult;
 
 struct SpawnedSigner {
     running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
-    cmd_send: Sender<RunLoopCommand>,
-    res_recv: Receiver<Vec<OperationResult>>,
+    _cmd_send: Sender<RunLoopCommand>,
+    _res_recv: Receiver<Vec<OperationResult>>,
 }
 
 /// Create a new stacker db session
@@ -82,21 +83,25 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
     info!("Starting signer with config: {}", config);
-    let (cmd_send, cmd_recv) = channel();
-    let (res_send, res_recv) = channel();
+    let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
     #[cfg(feature = "monitoring_prom")]
     {
         stacks_signer::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
     }
-    let runloop = RunLoop::from(config);
-    let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
-        Signer::new(runloop, ev, cmd_recv, res_send);
+    let runloop = RunLoop::new(config);
+    let mut signer: Signer<
+        RunLoopCommand,
+        Vec<OperationResult>,
+        RunLoop<v1::signer::Signer>,
+        SignerEventReceiver,
+    > = Signer::new(runloop, ev, cmd_recv, res_send);
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
-        cmd_send,
-        res_recv,
+        _cmd_send,
+        _res_recv,
     }
 }
 

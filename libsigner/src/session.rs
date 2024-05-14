@@ -95,6 +95,7 @@ pub trait SignerSession {
 }
 
 /// signer session for a stackerdb instance
+#[derive(Debug)]
 pub struct StackerDBSession {
     /// host we're talking to
     pub host: String,
