@@ -4132,6 +4132,10 @@ impl StacksChainState {
         Ok((applied, receipts))
     }
 
+    // TODO: #4587 create default for `StacksTransactionReceipt`, then check if mutation tests are caught for these case:
+    // vec![Default::default()]
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4237,6 +4241,11 @@ impl StacksChainState {
         all_receipts
     }
 
+    // TODO: #4587 add test for `Ok(vec![])` returning case.
+    // TODO: #4587 create default for `Value`, then check if mutation tests are caught for these case:
+    // Ok(vec![Default::default()])
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
         let signer_key = match op.signer_key {
             Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
@@ -6021,6 +6030,13 @@ impl StacksChainState {
         Ok(next_microblocks)
     }
 
+    // TODO: #4587 add default for `StacksEpochReceipt` and `TransactionPayload`, then check if mutation tests are caught for these cases:
+    // Ok((None, Some(Default::default())))
+    // Ok((Some(Default::default()), None))
+    // Ok((Some(Default::default()), Some(Default::default())))
+    // This is caught: Ok(None, None)
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a

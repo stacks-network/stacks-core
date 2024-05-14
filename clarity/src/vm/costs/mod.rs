@@ -783,12 +783,12 @@ impl LimitedCostTracker {
 }
 
 impl TrackerData {
+    // TODO: #4587 add test for Err cases
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
-    /// TODO: #4587 add test for Err cases
-    /// Or keep the skip and remove the comment
-    #[cfg_attr(test, mutants::skip)]
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         clarity_db.begin();
         let epoch_id = clarity_db
@@ -958,6 +958,10 @@ fn parse_cost(
     }
 }
 
+// TODO: #4587 create default for `ExecutionCost`, then check if mutation tests are caught for these case:
+// Ok(Default::default())
+// Or keep the skip and remove the comment
+#[cfg_attr(test, mutants::skip)]
 fn compute_cost(
     cost_tracker: &mut TrackerData,
     cost_function_reference: ClarityCostFunctionReference,

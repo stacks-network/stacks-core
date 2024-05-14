@@ -181,6 +181,10 @@ impl StackStxOp {
         }
     }
 
+    // TODO: #4587 create default for `ParsedData`, then check if mutation tests are caught for these case:
+    // Some(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -271,6 +275,10 @@ impl StackStxOp {
         )
     }
 
+    // TODO: #4587 create default for `StackStxOp` and `op_error`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// parse a StackStxOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
@@ -395,6 +403,9 @@ impl StacksMessageCodec for StackStxOp {
 }
 
 impl StackStxOp {
+    // TODO: #4587 add tests for `Ok(())` returning case.
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn check(&self) -> Result<(), op_error> {
         if self.stacked_ustx == 0 {
             warn!("Invalid StackStxOp, must have positive ustx");

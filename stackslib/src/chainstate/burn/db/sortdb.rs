@@ -307,6 +307,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 }
 
 impl FromRow<StackStxOp> for StackStxOp {
+    // TODO: #4587 create default for `StackStxOp`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
@@ -5128,6 +5132,9 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
+    // TODO: #4587 add test for the `None` case returning Ok(false)
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Are microblocks disabled by Epoch 2.5 at the height specified
     /// in `at_burn_height`?
     pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {

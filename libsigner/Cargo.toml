@@ -33,6 +33,7 @@ stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
 wsts = { workspace = true }
+mutants = "0.0.3"
 
 [dev-dependencies]
 mutants = "0.0.3"

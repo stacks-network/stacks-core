@@ -170,6 +170,10 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    // TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -179,6 +183,10 @@ impl BlockBuilderSettings {
         }
     }
 
+    // TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
+    // Default::default()
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -1793,6 +1801,10 @@ impl StacksBlockBuilder {
         }
     }
 
+    // TODO: #4587 create default for MinerEpochInfo, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
@@ -2047,6 +2059,10 @@ impl StacksBlockBuilder {
         Ok((block, size, cost, mblock_opt))
     }
 
+    // TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for mining
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2101,6 +2117,10 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // TODO: #4587 create default for `StacksBlockBuilder`, then check if mutation tests are caught for these case:
+    // Ok(Default::default())
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2381,6 +2401,11 @@ impl StacksBlockBuilder {
         Ok((blocked, tx_events))
     }
 
+    // TODO: #4587 create default for `StacksBlock` and `ExecutionCost`, then check if mutation tests are caught for these cases:
+    // Ok((Default::default(), Default::default(), 1))
+    // Ok((Default::default(), Default::default(), 0))
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(

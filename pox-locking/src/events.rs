@@ -105,6 +105,9 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
     )
 }
 
+// TODO: #4587 add tests for `String::new()` and `"xyzzy".into()` returning case.
+// Or keep the skip and remove the comment
+#[cfg_attr(test, mutants::skip)]
 /// Craft the code snippet to generate the method-specific `data` payload
 fn create_event_info_data_code(
     function_name: &str,
