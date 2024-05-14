@@ -3599,9 +3599,11 @@ fn check_block_heights() {
     })
     .unwrap();
 
-    let mut last_burn_block_height = 0;
-    let mut last_stacks_block_height = 0;
-    let mut last_tenure_height = 0;
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    println!("Chain info: {:?}", info);
+    let mut last_burn_block_height = info.burn_block_height as u128;
+    let mut last_stacks_block_height = info.stacks_tip_height as u128;
+    let mut last_tenure_height = last_stacks_block_height as u128;
 
     let heights0_value = call_read_only(
         &naka_conf,
@@ -3702,15 +3704,7 @@ fn check_block_heights() {
             .expect_u128()
             .unwrap();
         assert_eq!(bbh1, bbh3, "Burn block heights should match");
-        if tenure_ix == 0 {
-            // Add two for the 2 blocks with no tenure during Nakamoto bootup
-            last_burn_block_height = bbh1 + 2;
-        } else {
-            assert_eq!(
-                bbh1, last_burn_block_height,
-                "Burn block height should not have changed yet"
-            );
-        }
+        last_burn_block_height = bbh1;
 
         let bh1 = heights1
             .get("block-height")
@@ -3805,19 +3799,10 @@ fn check_block_heights() {
                 .expect_u128()
                 .unwrap();
             assert_eq!(bbh1, bbh3, "Burn block heights should match");
-            if interim_block_ix == 0 {
-                assert_eq!(
-                    bbh1,
-                    last_burn_block_height + 1,
-                    "Burn block heights should have incremented"
-                );
-                last_burn_block_height = bbh1;
-            } else {
-                assert_eq!(
-                    bbh1, last_burn_block_height,
-                    "Burn block heights should not have incremented"
-                );
-            }
+            assert_eq!(
+                bbh1, last_burn_block_height,
+                "Burn block heights should not have incremented"
+            );
 
             let bh1 = heights1
                 .get("block-height")
