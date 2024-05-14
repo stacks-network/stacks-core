@@ -245,7 +245,7 @@ mod test {
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero
- Stack Trace:
+ Stack Trace: 
 _native_:native_div
 ";
 

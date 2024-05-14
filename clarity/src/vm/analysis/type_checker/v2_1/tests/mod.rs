@@ -1981,7 +1981,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok
+    (ok 
         (tuple
             (score (get-zero))
         )
