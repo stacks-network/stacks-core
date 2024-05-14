@@ -24,7 +24,7 @@ use std::{env, thread};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ClarityVersion;
+use clarity::vm::{ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v1::messages::SignerMessage;
@@ -44,7 +44,9 @@ use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use stacks::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
+};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -3501,13 +3503,6 @@ fn check_block_heights() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
-
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -3604,11 +3599,9 @@ fn check_block_heights() {
     })
     .unwrap();
 
-    let info = get_chain_info_result(&naka_conf).unwrap();
-    println!("Chain info: {:?}", info);
-    let mut last_burn_block_height = info.burn_block_height as u128;
-    let mut last_stacks_block_height = info.stacks_tip_height as u128;
-    let mut last_tenure_height = last_stacks_block_height as u128;
+    let mut last_burn_block_height = 0;
+    let mut last_stacks_block_height = 0;
+    let mut last_tenure_height = 0;
 
     let heights0_value = call_read_only(
         &naka_conf,
@@ -3886,6 +3879,265 @@ fn check_block_heights() {
         block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test is testing the burn state of the Stacks blocks. In Stacks 2.x,
+/// the burn block state accessed in a Clarity contract is the burn block of
+/// the block's parent, since the block is built before its burn block is
+/// mined. In Nakamoto, there is no longer this race condition, so Clarity
+/// contracts access the state of the current burn block.
+/// We should verify:
+/// - `burn-block-height` in epoch 3.x is the burn block of the Stacks block
+/// - `get-burn-block-info` is able to access info of the current burn block
+///   in epoch 3.x
+fn clarity_burn_state() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let tx_fee = 1000;
+    let deploy_fee = 3000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::MinedBlocks],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        Some(&signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    let mut sender_nonce = 0;
+
+    // This version uses the Clarity 1 / 2 keywords
+    let contract_name = "test-contract";
+    let contract = r#"
+        (define-read-only (foo (expected-height uint))
+            (begin
+                (asserts! (is-eq expected-height burn-block-height) (err burn-block-height))
+                (asserts! (is-some (get-burn-block-info? header-hash burn-block-height)) (err u0))
+                (ok true)
+            )
+        )
+        (define-public (bar (expected-height uint))
+            (foo expected-height)
+        )
+    "#;
+
+    let contract_tx = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        contract_name,
+        contract,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx);
+
+    let mut burn_block_height = 0;
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        info!("Mining tenure {}", tenure_ix);
+
+        // Don't submit this tx on the first iteration, because the contract is not published yet.
+        if tenure_ix > 0 {
+            // Call the read-only function and see if we see the correct burn block height
+            let expected_height = Value::UInt(burn_block_height);
+            let arg = expected_height.serialize_to_hex().unwrap();
+            let result = call_read_only(&naka_conf, &sender_addr, contract_name, "foo", vec![&arg]);
+            result.expect_result_ok().expect("Read-only call failed");
+
+            // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
+            let call_tx = tests::make_contract_call(
+                &sender_sk,
+                sender_nonce,
+                tx_fee,
+                &sender_addr,
+                contract_name,
+                "bar",
+                &[Value::UInt(burn_block_height + 1)],
+            );
+            sender_nonce += 1;
+            submit_tx(&http_origin, &call_tx);
+        }
+
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let info = get_chain_info(&naka_conf);
+        burn_block_height = info.burn_block_height as u128;
+        info!("Expecting burn block height to be {}", burn_block_height);
+
+        // Assert that the contract call was successful
+        test_observer::get_mined_nakamoto_blocks()
+            .last()
+            .unwrap()
+            .tx_events
+            .iter()
+            .for_each(|event| match event {
+                TransactionEvent::Success(TransactionSuccessEvent { result, fee, .. }) => {
+                    // Ignore coinbase and tenure transactions
+                    if *fee == 0 {
+                        return;
+                    }
+
+                    info!("Contract call result: {}", result);
+                    result.clone().expect_result_ok().expect("Ok result");
+                }
+                _ => {
+                    info!("Unsuccessful event: {:?}", event);
+                    panic!("Expected a successful transaction");
+                }
+            });
+
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            info!("Mining interim block {interim_block_ix}");
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+
+            // Call the read-only function and see if we see the correct burn block height
+            let expected_height = Value::UInt(burn_block_height);
+            let arg = expected_height.serialize_to_hex().unwrap();
+            let result = call_read_only(&naka_conf, &sender_addr, contract_name, "foo", vec![&arg]);
+            info!("Read-only result: {:?}", result);
+            result.expect_result_ok().expect("Read-only call failed");
+
+            // Submit a tx to trigger the next block
+            let call_tx = tests::make_contract_call(
+                &sender_sk,
+                sender_nonce,
+                tx_fee,
+                &sender_addr,
+                contract_name,
+                "bar",
+                &[expected_height],
+            );
+            sender_nonce += 1;
+            submit_tx(&http_origin, &call_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            // Assert that the contract call was successful
+            test_observer::get_mined_nakamoto_blocks()
+                .last()
+                .unwrap()
+                .tx_events
+                .iter()
+                .for_each(|event| match event {
+                    TransactionEvent::Success(TransactionSuccessEvent { result, .. }) => {
+                        info!("Contract call result: {}", result);
+                        result.clone().expect_result_ok().expect("Ok result");
+                    }
+                    _ => {
+                        info!("Unsuccessful event: {:?}", event);
+                        panic!("Expected a successful transaction");
+                    }
+                });
+        }
+
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
 
     coord_channel
         .lock()

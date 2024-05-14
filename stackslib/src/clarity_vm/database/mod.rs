@@ -19,6 +19,7 @@ use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
@@ -448,6 +449,14 @@ impl SortitionDBRef for SortitionDBConn<'_> {
 }
 
 impl BurnStateDB for SortitionHandleTx<'_> {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        self.get_burn_block_height(&self.context.chain_tip)
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        Some(self.context.chain_tip.clone())
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
@@ -570,6 +579,16 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn()).ok()?;
+        tip.block_height.try_into().ok()
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn()).ok()?;
+        Some(tip.sortition_id)
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),

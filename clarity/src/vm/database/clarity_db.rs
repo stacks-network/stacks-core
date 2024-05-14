@@ -102,6 +102,11 @@ pub trait HeadersDB {
 }
 
 pub trait BurnStateDB {
+    /// Get the burn chain height at the current tip.
+    fn get_tip_burn_block_height(&self) -> Option<u32>;
+    /// Get the sortition id for the current tip.
+    fn get_tip_sortition_id(&self) -> Option<SortitionId>;
+
     fn get_v1_unlock_height(&self) -> u32;
     fn get_v2_unlock_height(&self) -> u32;
     fn get_v3_unlock_height(&self) -> u32;
@@ -187,6 +192,14 @@ impl HeadersDB for &dyn HeadersDB {
 }
 
 impl BurnStateDB for &dyn BurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        (*self).get_tip_burn_block_height()
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        (*self).get_tip_sortition_id()
+    }
+
     fn get_v1_unlock_height(&self) -> u32 {
         (*self).get_v1_unlock_height()
     }
@@ -339,6 +352,14 @@ impl HeadersDB for NullHeadersDB {
 
 #[allow(clippy::panic)]
 impl BurnStateDB for NullBurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        None
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        None
+    }
+
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
         None
     }
@@ -964,26 +985,33 @@ impl<'a> ClarityDatabase<'a> {
     /// `get_current_block_height`).
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32> {
         let cur_stacks_height = self.store.get_current_block_height();
-        let last_mined_bhh = if cur_stacks_height == 0 {
-            return Ok(self.burn_state_db.get_burn_start_height());
-        } else {
-            self.get_index_block_header_hash(cur_stacks_height.checked_sub(1).ok_or_else(
-                || {
-                    InterpreterError::Expect(
-                        "BUG: cannot eval burn-block-height in boot code".into(),
-                    )
-                },
-            )?)?
-        };
 
-        self.get_burnchain_block_height(&last_mined_bhh)
-            .ok_or_else(|| {
-                InterpreterError::Expect(format!(
-                    "Block header hash '{}' must return for provided stacks block height {}",
-                    &last_mined_bhh, cur_stacks_height
-                ))
-                .into()
-            })
+        // In epoch 2, we can only access the burn block associated with the last block
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            let last_mined_bhh = if cur_stacks_height == 0 {
+                return Ok(self.burn_state_db.get_burn_start_height());
+            } else {
+                // Safety note: normal subtraction is safe here, because we've already checked
+                // that cur_stacks_height > 0.
+                self.get_index_block_header_hash(cur_stacks_height - 1)?
+            };
+
+            self.get_burnchain_block_height(&last_mined_bhh)
+                .ok_or_else(|| {
+                    InterpreterError::Expect(format!(
+                        "Block header hash '{}' must return for provided stacks block height {}",
+                        &last_mined_bhh, cur_stacks_height
+                    ))
+                    .into()
+                })
+        } else {
+            // In epoch 3+, we can access the current burnchain block
+            self.burn_state_db
+                .get_tip_burn_block_height()
+                .ok_or_else(|| {
+                    InterpreterError::Expect("Failed to get burnchain tip height.".into()).into()
+                })
+        }
     }
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
@@ -1010,46 +1038,53 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
+    /// In Epoch 2.x:
     /// 1. Get the current Stacks tip height (which is in the process of being evaluated)
     /// 2. Get the parent block's StacksBlockId, which is SHA512-256(consensus_hash, block_hash).
     ///    This is the highest Stacks block in this fork whose consensus hash is known.
     /// 3. Resolve the parent StacksBlockId to its consensus hash
     /// 4. Resolve the consensus hash to the associated SortitionId
+    /// In Epoch 3+:
+    /// 1. Get the SortitionId of the current Stacks tip
     fn get_sortition_id_for_stacks_tip(&mut self) -> Result<Option<SortitionId>> {
-        let current_stacks_height = self.get_current_block_height();
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            let current_stacks_height = self.get_current_block_height();
 
-        if current_stacks_height < 1 {
-            // we are in the Stacks genesis block
-            return Ok(None);
+            if current_stacks_height < 1 {
+                // we are in the Stacks genesis block
+                return Ok(None);
+            }
+
+            // this is the StacksBlockId of the last block evaluated in this fork
+            let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1)?;
+
+            // infallible, since we always store the consensus hash with the StacksBlockId in the
+            // headers DB
+            let consensus_hash = self
+                .headers_db
+                .get_consensus_hash_for_block(&parent_id_bhh)
+                .ok_or_else(|| {
+                    InterpreterError::Expect(format!(
+                        "FATAL: no consensus hash found for StacksBlockId {}",
+                        &parent_id_bhh
+                    ))
+                })?;
+
+            // infallible, since every sortition has a consensus hash
+            let sortition_id = self
+                .burn_state_db
+                .get_sortition_id_from_consensus_hash(&consensus_hash)
+                .ok_or_else(|| {
+                    InterpreterError::Expect(format!(
+                        "FATAL: no SortitionID found for consensus hash {}",
+                        &consensus_hash
+                    ))
+                })?;
+
+            Ok(Some(sortition_id))
+        } else {
+            Ok(self.burn_state_db.get_tip_sortition_id())
         }
-
-        // this is the StacksBlockId of the last block evaluated in this fork
-        let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1)?;
-
-        // infallible, since we always store the consensus hash with the StacksBlockId in the
-        // headers DB
-        let consensus_hash = self
-            .headers_db
-            .get_consensus_hash_for_block(&parent_id_bhh)
-            .ok_or_else(|| {
-                InterpreterError::Expect(format!(
-                    "FATAL: no consensus hash found for StacksBlockId {}",
-                    &parent_id_bhh
-                ))
-            })?;
-
-        // infallible, since every sortition has a consensus hash
-        let sortition_id = self
-            .burn_state_db
-            .get_sortition_id_from_consensus_hash(&consensus_hash)
-            .ok_or_else(|| {
-                InterpreterError::Expect(format!(
-                    "FATAL: no SortitionID found for consensus hash {}",
-                    &consensus_hash
-                ))
-            })?;
-
-        Ok(Some(sortition_id))
     }
 
     /// Fetch the burnchain block header hash for a given burnchain height.
