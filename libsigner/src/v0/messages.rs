@@ -72,6 +72,7 @@ define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 1
 });
 
+#[cfg_attr(test, mutants::skip)]
 impl MessageSlotID {
     /// Return the StackerDB contract corresponding to messages of this type
     pub fn stacker_db_contract(

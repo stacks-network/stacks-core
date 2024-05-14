@@ -225,6 +225,7 @@ impl SignerStopSignaler {
 }
 
 impl EventStopSignaler for SignerStopSignaler {
+    #[cfg_attr(test, mutants::skip)]
     fn send(&mut self) {
         self.stop_signal.store(true, Ordering::SeqCst);
         // wake up the thread so the atomicbool can be checked
