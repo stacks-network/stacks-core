@@ -19,12 +19,17 @@ use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
     Savepoint, NO_PARAMS,
 };
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::db_common::tx_busy_handler;
 
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contracts::Contract;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+
+use super::{
+    ClarityBackingStore, ClarityDatabase, SpecialCaseHandler, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
@@ -215,5 +220,85 @@ impl SqliteConnection {
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         Ok(conn)
+    }
+}
+
+pub struct MemoryBackingStore {
+    side_store: Connection,
+}
+
+impl Default for MemoryBackingStore {
+    fn default() -> Self {
+        MemoryBackingStore::new()
+    }
+}
+
+impl MemoryBackingStore {
+    #[allow(clippy::unwrap_used)]
+    pub fn new() -> MemoryBackingStore {
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let mut memory_marf = MemoryBackingStore { side_store };
+
+        memory_marf.as_clarity_db().initialize();
+
+        memory_marf
+    }
+
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl ClarityBackingStore for MemoryBackingStore {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+    }
+
+    fn get_data(&mut self, key: &str) -> Result<Option<String>> {
+        SqliteConnection::get(self.get_side_store(), key)
+    }
+
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    }
+
+    fn get_side_store(&mut self) -> &Connection {
+        &self.side_store
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+        if height == 0 {
+            Some(StacksBlockId([255; 32]))
+        } else {
+            None
+        }
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId([255; 32])
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        1
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
+
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()> {
+        for (key, value) in items.into_iter() {
+            SqliteConnection::put(self.get_side_store(), &key, &value)?;
+        }
+        Ok(())
     }
 }
