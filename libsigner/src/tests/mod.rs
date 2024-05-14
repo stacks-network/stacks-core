@@ -37,19 +37,19 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
-use crate::events::SignerEvent;
+use crate::events::{SignerEvent, SignerEventTrait};
 use crate::v1::messages::SignerMessage;
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
-struct SimpleRunLoop<T: StacksMessageCodec + Clone> {
+struct SimpleRunLoop<T: SignerEventTrait> {
     poll_timeout: Duration,
     events: Vec<SignerEvent<T>>,
     max_events: usize,
 }
 
-impl<T: StacksMessageCodec + Clone> SimpleRunLoop<T> {
+impl<T: SignerEventTrait> SimpleRunLoop<T> {
     pub fn new(max_events: usize) -> SimpleRunLoop<T> {
         SimpleRunLoop {
             poll_timeout: Duration::from_millis(100),
@@ -63,9 +63,7 @@ enum Command {
     Empty,
 }
 
-impl<T: StacksMessageCodec + Send + Clone + Debug> SignerRunLoop<Vec<SignerEvent<T>>, Command, T>
-    for SimpleRunLoop<T>
-{
+impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, Command, T> for SimpleRunLoop<T> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }

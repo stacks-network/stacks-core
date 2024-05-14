@@ -37,8 +37,7 @@ pub mod v1;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::Sender;
 
-use clarity::codec::StacksMessageCodec;
-use libsigner::SignerEvent;
+use libsigner::{SignerEvent, SignerEventTrait};
 use wsts::state_machine::OperationResult;
 
 use crate::client::StacksClient;
@@ -46,7 +45,7 @@ use crate::config::SignerConfig;
 use crate::runloop::RunLoopCommand;
 
 /// A trait which provides a common `Signer` interface for `v1` and `v2`
-pub trait Signer<T: StacksMessageCodec + Clone + Debug>: Debug + Display {
+pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Create a new `Signer` instance
     fn new(config: SignerConfig) -> Self;
     /// Update the `Signer` instance's next reward cycle data with the latest `SignerConfig`
