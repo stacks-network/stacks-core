@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,6 +54,14 @@ use wsts::state_machine::signer;
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
+/// Define the trait for the event processor
+pub trait SignerEventTrait<T: StacksMessageCodec + Clone + Debug + Send = Self>:
+    StacksMessageCodec + Clone + Debug + Send
+{
+}
+
+impl<T: StacksMessageCodec + Clone + Debug + Send> SignerEventTrait for T {}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// BlockProposal sent to signers
 pub struct BlockProposal {
@@ -86,11 +95,11 @@ impl StacksMessageCodec for BlockProposal {
 
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SignerEvent<T: StacksMessageCodec + Clone> {
+pub enum SignerEvent<T: SignerEventTrait> {
     /// A miner sent a message over .miners
     /// The `Vec<T>` will contain any signer messages made by the miner.
-    /// The `Option<StacksPublicKey>` will contain the message sender's public key if the vec is non-empty.
-    MinerMessages(Vec<T>, Option<StacksPublicKey>),
+    /// The `StacksPublicKey` is the message sender's public key.
+    MinerMessages(Vec<T>, StacksPublicKey),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<T>),
@@ -111,7 +120,7 @@ pub trait EventStopSignaler {
 }
 
 /// Trait to implement to handle signer specific events sent by the Stacks node
-pub trait EventReceiver<T: StacksMessageCodec + Clone> {
+pub trait EventReceiver<T: SignerEventTrait> {
     /// The implementation of ST will ensure that a call to ST::send() will cause
     /// the call to `is_stopped()` below to return true.
     type ST: EventStopSignaler + Send + Sync;
@@ -164,7 +173,7 @@ pub trait EventReceiver<T: StacksMessageCodec + Clone> {
 }
 
 /// Event receiver for Signer events
-pub struct SignerEventReceiver<T: StacksMessageCodec + Clone> {
+pub struct SignerEventReceiver<T: SignerEventTrait> {
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
@@ -177,7 +186,7 @@ pub struct SignerEventReceiver<T: StacksMessageCodec + Clone> {
     is_mainnet: bool,
 }
 
-impl<T: StacksMessageCodec + Clone> SignerEventReceiver<T> {
+impl<T: SignerEventTrait> SignerEventReceiver<T> {
     /// Make a new Signer event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
     pub fn new(is_mainnet: bool) -> SignerEventReceiver<T> {
@@ -246,7 +255,7 @@ impl EventStopSignaler for SignerStopSignaler {
     }
 }
 
-impl<T: StacksMessageCodec + Clone> EventReceiver<T> for SignerEventReceiver<T> {
+impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
     type ST = SignerStopSignaler;
 
     /// Start listening on the given socket address.
@@ -367,7 +376,7 @@ fn ack_dispatcher(request: HttpRequest) {
 }
 
 /// Process a stackerdb event from the node
-fn process_stackerdb_event<T: StacksMessageCodec + Clone>(
+fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
@@ -405,7 +414,7 @@ fn process_stackerdb_event<T: StacksMessageCodec + Clone>(
     Ok(signer_event)
 }
 
-impl<T: StacksMessageCodec + Clone> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
+impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(event: StackerDBChunksEvent) -> Result<Self, Self::Error> {
@@ -415,17 +424,18 @@ impl<T: StacksMessageCodec + Clone> TryFrom<StackerDBChunksEvent> for SignerEven
             let mut messages = vec![];
             let mut miner_pk = None;
             for chunk in event.modified_slots {
+                let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
+                    continue;
+                };
+
                 miner_pk = Some(chunk.recover_pk().map_err(|e| {
                     EventError::MalformedRequest(format!(
                         "Failed to recover PK from StackerDB chunk: {e}"
                     ))
                 })?);
-                let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
-                    continue;
-                };
                 messages.push(msg);
             }
-            SignerEvent::MinerMessages(messages, miner_pk)
+            SignerEvent::MinerMessages(messages, miner_pk.ok_or(EventError::EmptyChunksEvent)?)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
             let Some((signer_set, _)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
@@ -447,7 +457,7 @@ impl<T: StacksMessageCodec + Clone> TryFrom<StackerDBChunksEvent> for SignerEven
 }
 
 /// Process a proposal response from the node
-fn process_proposal_response<T: StacksMessageCodec + Clone>(
+fn process_proposal_response<T: SignerEventTrait>(
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
     debug!("Got proposal_response event");
@@ -475,7 +485,7 @@ fn process_proposal_response<T: StacksMessageCodec + Clone>(
 }
 
 /// Process a new burn block event from the node
-fn process_new_burn_block_event<T: StacksMessageCodec + Clone>(
+fn process_new_burn_block_event<T: SignerEventTrait>(
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
     debug!("Got burn_block event");

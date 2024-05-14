@@ -29,7 +29,7 @@ use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
 use crate::error::EventError;
-use crate::events::{EventReceiver, EventStopSignaler, SignerEvent};
+use crate::events::{EventReceiver, EventStopSignaler, SignerEvent, SignerEventTrait};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
@@ -41,7 +41,7 @@ const STDERR: i32 = 2;
 /// Trait describing the needful components of a top-level runloop.
 /// This is where the signer business logic would go.
 /// Implement this, and you get all the multithreaded setup for free.
-pub trait SignerRunLoop<R: Send, CMD: Send, T: StacksMessageCodec + Send + Clone> {
+pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
     /// Hint to set how long to wait for new events
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
@@ -108,7 +108,7 @@ pub struct Signer<CMD, R, SL, EV, T> {
 }
 
 /// The running signer implementation
-pub struct RunningSigner<EV: EventReceiver<T>, R, T: StacksMessageCodec + Clone> {
+pub struct RunningSigner<EV: EventReceiver<T>, R, T: SignerEventTrait> {
     /// join handle for signer runloop
     signer_join: JoinHandle<Option<R>>,
     /// join handle for event receiver
@@ -117,7 +117,7 @@ pub struct RunningSigner<EV: EventReceiver<T>, R, T: StacksMessageCodec + Clone>
     stop_signal: EV::ST,
 }
 
-impl<EV: EventReceiver<T>, R, T: StacksMessageCodec + Clone> RunningSigner<EV, R, T> {
+impl<EV: EventReceiver<T>, R, T: SignerEventTrait> RunningSigner<EV, R, T> {
     /// Stop the signer, and get the final state
     pub fn stop(mut self) -> Option<R> {
         // kill event receiver
@@ -213,7 +213,7 @@ impl<CMD, R, SL, EV, T> Signer<CMD, R, SL, EV, T> {
 impl<
         CMD: Send + 'static,
         R: Send + 'static,
-        T: StacksMessageCodec + Clone + Send + 'static,
+        T: SignerEventTrait + 'static,
         SL: SignerRunLoop<R, CMD, T> + Send + 'static,
         EV: EventReceiver<T> + Send + 'static,
     > Signer<CMD, R, SL, EV, T>

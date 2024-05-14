@@ -32,9 +32,41 @@ pub mod monitoring;
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
-/// The traits module
-pub mod traits;
 /// The v0 implementation of the signer. This does not include WSTS support
 pub mod v0;
 /// The v1 implementation of the singer. This includes WSTS support
 pub mod v1;
+use std::fmt::{Debug, Display};
+use std::sync::mpsc::Sender;
+
+use libsigner::{SignerEvent, SignerEventTrait};
+use wsts::state_machine::OperationResult;
+
+use crate::client::StacksClient;
+use crate::config::SignerConfig;
+use crate::runloop::RunLoopCommand;
+
+/// A trait which provides a common `Signer` interface for `v1` and `v2`
+pub trait Signer<T: SignerEventTrait>: Debug + Display {
+    /// Create a new `Signer` instance
+    fn new(config: SignerConfig) -> Self;
+    /// Update the `Signer` instance's with the next reward cycle data `SignerConfig`
+    fn update_signer(&mut self, next_signer_config: &SignerConfig);
+    /// Get the reward cycle of the signer
+    fn reward_cycle(&self) -> u64;
+    /// Process an event
+    fn process_event(
+        &mut self,
+        stacks_client: &StacksClient,
+        event: Option<&SignerEvent<T>>,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    );
+    /// Process a command
+    fn process_command(
+        &mut self,
+        stacks_client: &StacksClient,
+        current_reward_cycle: u64,
+        command: Option<RunLoopCommand>,
+    );
+}

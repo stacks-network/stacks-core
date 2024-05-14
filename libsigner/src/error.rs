@@ -71,4 +71,7 @@ pub enum EventError {
     /// Unrecognized stacker DB contract error
     #[error("Unrecognized StackerDB contract: {0}")]
     UnrecognizedStackerDBContract(QualifiedContractIdentifier),
+    /// Empty chunks event
+    #[error("Empty chunks event")]
+    EmptyChunksEvent,
 }

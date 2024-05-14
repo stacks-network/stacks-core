@@ -30,7 +30,7 @@ use crate::client::{SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::RunLoopCommand;
 use crate::signerdb::{BlockInfo, SignerDb};
-use crate::traits::Signer as SignerTrait;
+use crate::Signer as SignerTrait;
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]

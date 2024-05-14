@@ -50,7 +50,7 @@ pub mod v1;
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
     BlockProposal, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
-    SignerStopSignaler,
+    SignerEventTrait, SignerStopSignaler,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

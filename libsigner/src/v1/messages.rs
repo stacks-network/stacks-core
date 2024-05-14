@@ -100,11 +100,18 @@ MessageSlotID {
     EncryptedSignerState = 13
 });
 
-define_u8_enum!(SignerMessageTypePrefix {
+define_u8_enum!(
+/// Enum representing the signer message type prefix
+SignerMessageTypePrefix {
+    /// A block response message
     BlockResponse = 0,
+    /// A wsts packet message
     Packet = 1,
+    /// A list of transactions that a signer cares about
     Transactions = 2,
+    /// The results of a successful DKG
     DkgResults = 3,
+    /// The encrypted state of the signer to be persisted
     EncryptedSignerState = 4
 });
 
@@ -153,16 +160,28 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
     }
 }
 
-define_u8_enum!(MessageTypePrefix {
+define_u8_enum!(
+/// Enum representing the message type prefix
+MessageTypePrefix {
+    /// DkgBegin message
     DkgBegin = 0,
+    /// DkgPrivateBegin message
     DkgPrivateBegin = 1,
+    /// DkgEndBegin message
     DkgEndBegin = 2,
+    /// DkgEnd message
     DkgEnd = 3,
+    /// DkgPublicShares message
     DkgPublicShares = 4,
+    /// DkgPrivateShares message
     DkgPrivateShares = 5,
+    /// NonceRequest message
     NonceRequest = 6,
+    /// NonceResponse message
     NonceResponse = 7,
+    /// SignatureShareRequest message
     SignatureShareRequest = 8,
+    /// SignatureShareResponse message
     SignatureShareResponse = 9
 });
 
@@ -192,13 +211,22 @@ impl TryFrom<u8> for MessageTypePrefix {
     }
 }
 
-define_u8_enum!(RejectCodeTypePrefix{
+define_u8_enum!(
+/// Enum representing the reject code type prefix
+RejectCodeTypePrefix {
+    /// Validation failed
     ValidationFailed = 0,
+    /// Signed rejection
     SignedRejection = 1,
+    /// Insufficient signers
     InsufficientSigners = 2,
+    /// Missing transactions
     MissingTransactions = 3,
+    /// Connectivity issues
     ConnectivityIssues = 4,
+    /// Nonce timeout
     NonceTimeout = 5,
+    /// Aggregator error
     AggregatorError = 6
 });
 
@@ -540,50 +568,87 @@ impl StacksMessageCodecExtensions for HashSet<u32> {
     }
 }
 
+define_u8_enum!(
+/// Enum representing the DKG failure type prefix
+DkgFailureTypePrefix {
+    /// Bad state
+    BadState = 0,
+    /// Missing public shares
+    MissingPublicShares = 1,
+    /// Bad public shares
+    BadPublicShares = 2,
+    /// Missing private shares
+    MissingPrivateShares = 3,
+    /// Bad private shares
+    BadPrivateShares = 4
+});
+
+impl TryFrom<u8> for DkgFailureTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown DKG failure type prefix: {value}"))
+        })
+    }
+}
+
+impl From<&DkgFailure> for DkgFailureTypePrefix {
+    fn from(failure: &DkgFailure) -> Self {
+        match failure {
+            DkgFailure::BadState => DkgFailureTypePrefix::BadState,
+            DkgFailure::MissingPublicShares(_) => DkgFailureTypePrefix::MissingPublicShares,
+            DkgFailure::BadPublicShares(_) => DkgFailureTypePrefix::BadPublicShares,
+            DkgFailure::MissingPrivateShares(_) => DkgFailureTypePrefix::MissingPrivateShares,
+            DkgFailure::BadPrivateShares(_) => DkgFailureTypePrefix::BadPrivateShares,
+        }
+    }
+}
+
 impl StacksMessageCodecExtensions for DkgFailure {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(DkgFailureTypePrefix::from(self) as u8))?;
         match self {
-            DkgFailure::BadState => write_next(fd, &0u8),
+            DkgFailure::BadState => {
+                // No additional data to serialize
+            }
             DkgFailure::MissingPublicShares(shares) => {
-                write_next(fd, &1u8)?;
-                shares.inner_consensus_serialize(fd)
+                shares.inner_consensus_serialize(fd)?;
             }
             DkgFailure::BadPublicShares(shares) => {
-                write_next(fd, &2u8)?;
-                shares.inner_consensus_serialize(fd)
+                shares.inner_consensus_serialize(fd)?;
             }
             DkgFailure::MissingPrivateShares(shares) => {
-                write_next(fd, &3u8)?;
-                shares.inner_consensus_serialize(fd)
+                shares.inner_consensus_serialize(fd)?;
             }
             DkgFailure::BadPrivateShares(shares) => {
-                write_next(fd, &4u8)?;
                 write_next(fd, &(shares.len() as u32))?;
                 for (id, share) in shares {
                     write_next(fd, id)?;
                     share.inner_consensus_serialize(fd)?;
                 }
-                Ok(())
             }
         }
+        Ok(())
     }
+
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let failure_type_prefix = read_next::<u8, _>(fd)?;
+        let failure_type_prefix_byte = read_next::<u8, _>(fd)?;
+        let failure_type_prefix = DkgFailureTypePrefix::try_from(failure_type_prefix_byte)?;
         let failure_type = match failure_type_prefix {
-            0 => DkgFailure::BadState,
-            1 => {
+            DkgFailureTypePrefix::BadState => DkgFailure::BadState,
+            DkgFailureTypePrefix::MissingPublicShares => {
                 let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
                 DkgFailure::MissingPublicShares(set)
             }
-            2 => {
+            DkgFailureTypePrefix::BadPublicShares => {
                 let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
                 DkgFailure::BadPublicShares(set)
             }
-            3 => {
+            DkgFailureTypePrefix::MissingPrivateShares => {
                 let set = HashSet::<u32>::inner_consensus_deserialize(fd)?;
                 DkgFailure::MissingPrivateShares(set)
             }
-            4 => {
+            DkgFailureTypePrefix::BadPrivateShares => {
                 let mut map = HashMap::new();
                 let len = read_next::<u32, _>(fd)?;
                 for _ in 0..len {
@@ -592,12 +657,6 @@ impl StacksMessageCodecExtensions for DkgFailure {
                     map.insert(i, bad_share);
                 }
                 DkgFailure::BadPrivateShares(map)
-            }
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown DkgFailure type prefix: {}",
-                    failure_type_prefix
-                )))
             }
         };
         Ok(failure_type)
@@ -650,33 +709,59 @@ impl StacksMessageCodecExtensions for DkgEndBegin {
     }
 }
 
+define_u8_enum!(
+/// Enum representing the DKG status type prefix
+DkgStatusTypePrefix {
+    /// Success
+    Success = 0,
+    /// Failure
+    Failure = 1
+});
+
+impl TryFrom<u8> for DkgStatusTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown DKG status type prefix: {value}"))
+        })
+    }
+}
+
+impl From<&DkgStatus> for DkgStatusTypePrefix {
+    fn from(status: &DkgStatus) -> Self {
+        match status {
+            DkgStatus::Success => DkgStatusTypePrefix::Success,
+            DkgStatus::Failure(_) => DkgStatusTypePrefix::Failure,
+        }
+    }
+}
+
 impl StacksMessageCodecExtensions for DkgEnd {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.dkg_id)?;
         write_next(fd, &self.signer_id)?;
+        write_next(fd, &(DkgStatusTypePrefix::from(&self.status) as u8))?;
         match &self.status {
-            DkgStatus::Success => write_next(fd, &0u8),
+            DkgStatus::Success => {
+                // No additional data to serialize
+            }
             DkgStatus::Failure(failure) => {
-                write_next(fd, &1u8)?;
-                failure.inner_consensus_serialize(fd)
+                failure.inner_consensus_serialize(fd)?;
             }
         }
+        Ok(())
     }
+
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let dkg_id = read_next::<u64, _>(fd)?;
         let signer_id = read_next::<u32, _>(fd)?;
-        let status_type_prefix = read_next::<u8, _>(fd)?;
+        let status_type_prefix_byte = read_next::<u8, _>(fd)?;
+        let status_type_prefix = DkgStatusTypePrefix::try_from(status_type_prefix_byte)?;
         let status = match status_type_prefix {
-            0 => DkgStatus::Success,
-            1 => {
+            DkgStatusTypePrefix::Success => DkgStatus::Success,
+            DkgStatusTypePrefix::Failure => {
                 let failure = DkgFailure::inner_consensus_deserialize(fd)?;
                 DkgStatus::Failure(failure)
-            }
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown DKG status type prefix: {}",
-                    status_type_prefix
-                )))
             }
         };
         Ok(DkgEnd {
@@ -1038,6 +1123,33 @@ impl StacksMessageCodecExtensions for Packet {
     }
 }
 
+define_u8_enum!(
+/// Enum representing the block response type prefix
+BlockResponseTypePrefix {
+    /// Accepted
+    Accepted = 0,
+    /// Rejected
+    Rejected = 1
+});
+
+impl TryFrom<u8> for BlockResponseTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown block response type prefix: {value}"))
+        })
+    }
+}
+
+impl From<&BlockResponse> for BlockResponseTypePrefix {
+    fn from(block_response: &BlockResponse) -> Self {
+        match block_response {
+            BlockResponse::Accepted(_) => BlockResponseTypePrefix::Accepted,
+            BlockResponse::Rejected(_) => BlockResponseTypePrefix::Rejected,
+        }
+    }
+}
+
 /// The response that a signer sends back to observing miners
 /// either accepting or rejecting a Nakamoto block with the corresponding reason
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1086,14 +1198,13 @@ impl BlockResponse {
 
 impl StacksMessageCodec for BlockResponse {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(BlockResponseTypePrefix::from(self) as u8))?;
         match self {
             BlockResponse::Accepted((hash, sig)) => {
-                write_next(fd, &0u8)?;
                 write_next(fd, hash)?;
                 write_next(fd, sig)?;
             }
             BlockResponse::Rejected(rejection) => {
-                write_next(fd, &1u8)?;
                 write_next(fd, rejection)?;
             }
         };
@@ -1101,27 +1212,23 @@ impl StacksMessageCodec for BlockResponse {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix = read_next::<u8, _>(fd)?;
+        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix = BlockResponseTypePrefix::try_from(type_prefix_byte)?;
         let response = match type_prefix {
-            0 => {
+            BlockResponseTypePrefix::Accepted => {
                 let hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
                 let sig = read_next::<ThresholdSignature, _>(fd)?;
                 BlockResponse::Accepted((hash, sig))
             }
-            1 => {
+            BlockResponseTypePrefix::Rejected => {
                 let rejection = read_next::<BlockRejection, _>(fd)?;
                 BlockResponse::Rejected(rejection)
-            }
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown block response type prefix: {}",
-                    type_prefix
-                )))
             }
         };
         Ok(response)
     }
 }
+
 /// A rejection response from a signer for a proposed block
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockRejection {

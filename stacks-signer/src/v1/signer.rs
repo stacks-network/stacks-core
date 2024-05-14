@@ -57,8 +57,8 @@ use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand};
 use crate::signerdb::{BlockInfo, SignerDb};
-use crate::traits::Signer as SignerTrait;
 use crate::v1::coordinator::CoordinatorSelector;
+use crate::Signer as SignerTrait;
 
 /// The specific operations that a signer can perform
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -214,11 +214,9 @@ impl SignerTrait<SignerMessage> for Signer {
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
             Some(SignerEvent::MinerMessages(messages, miner_key)) => {
-                if let Some(miner_key) = miner_key {
-                    let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
-                        .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
-                    self.miner_key = Some(miner_key);
-                };
+                let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
+                    .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
+                self.miner_key = Some(miner_key);
                 if current_reward_cycle != self.reward_cycle {
                     // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
                     debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");

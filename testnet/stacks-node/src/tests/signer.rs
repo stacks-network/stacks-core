@@ -1315,7 +1315,7 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let mut signer_test = SignerTest::new(num_signers);
-    let timeout = Duration::from_secs(200);
+    let timeout = Duration::from_secs(30);
     let short_timeout = Duration::from_secs(30);
 
     let key = signer_test.boot_to_epoch_3(timeout);

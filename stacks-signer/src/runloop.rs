@@ -32,7 +32,7 @@ use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::traits::Signer as SignerTrait;
+use crate::Signer as SignerTrait;
 
 /// Which signer operation to perform
 #[derive(PartialEq, Clone, Debug)]
