@@ -142,6 +142,10 @@ impl ClarityTestSim {
         }
     }
 
+    pub fn burn_block_height(&self) -> u64 {
+        self.tenure_height + 100
+    }
+
     pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
@@ -152,8 +156,13 @@ impl ClarityTestSim {
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
             );
 
+            self.block_height += 1;
+            if new_tenure {
+                self.tenure_height += 1;
+            }
+
             let headers_db = TestSimHeadersDB {
-                height: self.block_height + 1,
+                height: self.block_height,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
@@ -166,7 +175,7 @@ impl ClarityTestSim {
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
             if cur_epoch >= StacksEpochId::Epoch30 {
                 db.begin();
-                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");
                 db.commit()
                     .expect("FAIL: unable to commit tenure height in Clarity database");
@@ -180,10 +189,6 @@ impl ClarityTestSim {
             r
         };
 
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
         r
     }
 
@@ -203,9 +208,14 @@ impl ClarityTestSim {
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
         );
 
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+
         let r = {
             let headers_db = TestSimHeadersDB {
-                height: self.block_height + 1,
+                height: self.block_height,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
@@ -219,7 +229,7 @@ impl ClarityTestSim {
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
             if cur_epoch >= StacksEpochId::Epoch30 {
                 db.begin();
-                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");
                 db.commit()
                     .expect("FAIL: unable to commit tenure height in Clarity database");
@@ -229,10 +239,6 @@ impl ClarityTestSim {
         };
 
         store.test_commit();
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
 
         r
     }
@@ -348,7 +354,7 @@ fn cost_2_contract_is_arithmetic_only() {
 
 impl BurnStateDB for TestSimBurnStateDB {
     fn get_tip_burn_block_height(&self) -> Option<u32> {
-        panic!("Not implemented in TestSim");
+        Some(self.height as u32)
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {
