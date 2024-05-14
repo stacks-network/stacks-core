@@ -217,6 +217,29 @@ pub enum RejectCode {
     ConnectivityIssues,
 }
 
+define_u8_enum!(BlockResponseTypePrefix{
+    Accepted = 0,
+    Rejected = 1
+});
+
+impl TryFrom<u8> for BlockResponseTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown block response type prefix: {value}"))
+        })
+    }
+}
+
+impl From<&BlockResponse> for BlockResponseTypePrefix {
+    fn from(block_response: &BlockResponse) -> Self {
+        match block_response {
+            BlockResponse::Accepted(_) => BlockResponseTypePrefix::Accepted,
+            BlockResponse::Rejected(_) => BlockResponseTypePrefix::Rejected,
+        }
+    }
+}
+
 /// The response that a signer sends back to observing miners
 /// either accepting or rejecting a Nakamoto block with the corresponding reason
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -263,14 +286,13 @@ impl BlockResponse {
 
 impl StacksMessageCodec for BlockResponse {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(BlockResponseTypePrefix::from(self) as u8))?;
         match self {
             BlockResponse::Accepted((hash, sig)) => {
-                write_next(fd, &0u8)?;
                 write_next(fd, hash)?;
                 write_next(fd, sig)?;
             }
             BlockResponse::Rejected(rejection) => {
-                write_next(fd, &1u8)?;
                 write_next(fd, rejection)?;
             }
         };
@@ -278,27 +300,23 @@ impl StacksMessageCodec for BlockResponse {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix = read_next::<u8, _>(fd)?;
+        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix = BlockResponseTypePrefix::try_from(type_prefix_byte)?;
         let response = match type_prefix {
-            0 => {
+            BlockResponseTypePrefix::Accepted => {
                 let hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
                 let sig = read_next::<MessageSignature, _>(fd)?;
                 BlockResponse::Accepted((hash, sig))
             }
-            1 => {
+            BlockResponseTypePrefix::Rejected => {
                 let rejection = read_next::<BlockRejection, _>(fd)?;
                 BlockResponse::Rejected(rejection)
-            }
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown block response type prefix: {}",
-                    type_prefix
-                )))
             }
         };
         Ok(response)
     }
 }
+
 /// A rejection response from a signer for a proposed block
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockRejection {
@@ -357,9 +375,12 @@ impl From<BlockValidateReject> for BlockRejection {
 impl StacksMessageCodec for RejectCode {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &(RejectCodeTypePrefix::from(self) as u8))?;
+        // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
-            RejectCode::ConnectivityIssues => write_next(fd, &1u8)?,
+            RejectCode::ConnectivityIssues => {
+                // No additional data to serialize / deserialize
+            }
         };
         Ok(())
     }
