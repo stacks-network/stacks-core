@@ -82,7 +82,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
     warn!(
-        "The signer is primarily designed for use with a local stacks node. \
+        "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
         It's important to exercise caution if you are communicating with an external node, \
         as this could potentially expose sensitive data or functionalities to security risks \
         if additional proper security checks are not integrated in place."
