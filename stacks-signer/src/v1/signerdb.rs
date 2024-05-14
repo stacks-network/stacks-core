@@ -183,11 +183,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
-    use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use libsigner::BlockProposal;
-    use stacks_common::bitvec::BitVec;
-    use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
-    use stacks_common::util::secp256k1::MessageSignature;
 
     use super::*;
 
@@ -200,18 +196,7 @@ mod tests {
     fn create_block_override(
         overrides: impl FnOnce(&mut BlockProposal),
     ) -> (BlockInfo, BlockProposal) {
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 2,
-            burn_spent: 3,
-            consensus_hash: ConsensusHash([0x04; 20]),
-            parent_block_id: StacksBlockId([0x05; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-            state_index_root: TrieHash([0x07; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
+        let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock {
             header,
             txs: vec![],
