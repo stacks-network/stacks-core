@@ -43,7 +43,7 @@ pub fn mem_type_check(
         cost_tracker,
         epoch,
         version,
-        false,
+        true,
     ) {
         Ok(x) => {
             // return the first type result of the type checker

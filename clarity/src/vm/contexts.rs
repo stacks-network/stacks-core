@@ -1349,7 +1349,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             LimitedCostTracker::Free,
             self.global_context.epoch_id,
             clarity_version,
-            false,
+            true,
         )
         .unwrap();
 
