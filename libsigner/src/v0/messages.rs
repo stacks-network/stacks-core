@@ -67,8 +67,12 @@ MessageSlotID {
     BlockResponse = 1
 });
 
-define_u8_enum!(SignerMessageTypePrefix {
+define_u8_enum!(
+/// Enum representing the SignerMessage type prefix
+SignerMessageTypePrefix {
+    /// Block Proposal message from miners
     BlockProposal = 0,
+    /// Block Response message from signers
     BlockResponse = 1
 });
 
@@ -185,8 +189,12 @@ pub trait StacksMessageCodecExtensions: Sized {
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
-define_u8_enum!(RejectCodeTypePrefix{
+define_u8_enum!(
+/// Enum representing the reject code type prefix
+RejectCodeTypePrefix{
+    /// The block was rejected due to validation issues
     ValidationFailed = 0,
+    /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues = 1
 });
 
@@ -217,8 +225,12 @@ pub enum RejectCode {
     ConnectivityIssues,
 }
 
-define_u8_enum!(BlockResponseTypePrefix{
+define_u8_enum!(
+/// Enum representing the BlockResponse type prefix
+BlockResponseTypePrefix{
+    /// An accepted block response
     Accepted = 0,
+    /// A rejected block response
     Rejected = 1
 });
 

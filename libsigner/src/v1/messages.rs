@@ -100,11 +100,18 @@ MessageSlotID {
     EncryptedSignerState = 13
 });
 
-define_u8_enum!(SignerMessageTypePrefix {
+define_u8_enum!(
+/// Enum representing the signer message type prefix
+SignerMessageTypePrefix {
+    /// A block response message
     BlockResponse = 0,
+    /// A wsts packet message
     Packet = 1,
+    /// A list of transactions that a signer cares about
     Transactions = 2,
+    /// The results of a successful DKG
     DkgResults = 3,
+    /// The encrypted state of the signer to be persisted
     EncryptedSignerState = 4
 });
 
@@ -153,16 +160,28 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
     }
 }
 
-define_u8_enum!(MessageTypePrefix {
+define_u8_enum!(
+/// Enum representing the message type prefix
+MessageTypePrefix {
+    /// DkgBegin message
     DkgBegin = 0,
+    /// DkgPrivateBegin message
     DkgPrivateBegin = 1,
+    /// DkgEndBegin message
     DkgEndBegin = 2,
+    /// DkgEnd message
     DkgEnd = 3,
+    /// DkgPublicShares message
     DkgPublicShares = 4,
+    /// DkgPrivateShares message
     DkgPrivateShares = 5,
+    /// NonceRequest message
     NonceRequest = 6,
+    /// NonceResponse message
     NonceResponse = 7,
+    /// SignatureShareRequest message
     SignatureShareRequest = 8,
+    /// SignatureShareResponse message
     SignatureShareResponse = 9
 });
 
@@ -192,13 +211,22 @@ impl TryFrom<u8> for MessageTypePrefix {
     }
 }
 
-define_u8_enum!(RejectCodeTypePrefix{
+define_u8_enum!(
+/// Enum representing the reject code type prefix
+RejectCodeTypePrefix{
+    /// Validation failed
     ValidationFailed = 0,
+    /// Signed rejection
     SignedRejection = 1,
+    /// Insufficient signers
     InsufficientSigners = 2,
+    /// Missing transactions
     MissingTransactions = 3,
+    /// Connectivity issues
     ConnectivityIssues = 4,
+    /// Nonce timeout
     NonceTimeout = 5,
+    /// Aggregator error
     AggregatorError = 6
 });
 
@@ -540,11 +568,18 @@ impl StacksMessageCodecExtensions for HashSet<u32> {
     }
 }
 
-define_u8_enum!(DkgFailureTypePrefix{
+define_u8_enum!(
+/// Enum representing the DKG failure type prefix
+DkgFailureTypePrefix{
+    /// Bad state
     BadState = 0,
+    /// Missing public shares
     MissingPublicShares = 1,
+    /// Bad public shares
     BadPublicShares = 2,
+    /// Missing private shares
     MissingPrivateShares = 3,
+    /// Bad private shares
     BadPrivateShares = 4
 });
 
@@ -674,8 +709,12 @@ impl StacksMessageCodecExtensions for DkgEndBegin {
     }
 }
 
-define_u8_enum!(DkgStatusTypePrefix{
+define_u8_enum!(
+/// Enum representing the DKG status type prefix
+DkgStatusTypePrefix{
+        /// Success
     Success = 0,
+    /// Failure
     Failure = 1
 });
 
@@ -1084,8 +1123,12 @@ impl StacksMessageCodecExtensions for Packet {
     }
 }
 
-define_u8_enum!(BlockResponseTypePrefix{
+define_u8_enum!(
+/// Enum representing the block response type prefix
+BlockResponseTypePrefix{
+    /// Accepted
     Accepted = 0,
+    /// Rejected
     Rejected = 1
 });
 
