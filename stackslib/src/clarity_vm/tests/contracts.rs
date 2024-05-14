@@ -169,7 +169,7 @@ fn test_get_burn_block_info_eval() {
         // burnchain is 100 blocks ahead of stacks chain in this sim
         assert_eq!(
             Value::Optional(OptionalData { data: None }),
-            tx.eval_read_only(&contract_identifier, "(test-func u103)")
+            tx.eval_read_only(&contract_identifier, "(test-func u203)")
                 .unwrap()
         );
     });
