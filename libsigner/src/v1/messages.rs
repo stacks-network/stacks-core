@@ -213,7 +213,7 @@ impl TryFrom<u8> for MessageTypePrefix {
 
 define_u8_enum!(
 /// Enum representing the reject code type prefix
-RejectCodeTypePrefix{
+RejectCodeTypePrefix {
     /// Validation failed
     ValidationFailed = 0,
     /// Signed rejection
@@ -570,7 +570,7 @@ impl StacksMessageCodecExtensions for HashSet<u32> {
 
 define_u8_enum!(
 /// Enum representing the DKG failure type prefix
-DkgFailureTypePrefix{
+DkgFailureTypePrefix {
     /// Bad state
     BadState = 0,
     /// Missing public shares
@@ -711,8 +711,8 @@ impl StacksMessageCodecExtensions for DkgEndBegin {
 
 define_u8_enum!(
 /// Enum representing the DKG status type prefix
-DkgStatusTypePrefix{
-        /// Success
+DkgStatusTypePrefix {
+    /// Success
     Success = 0,
     /// Failure
     Failure = 1
@@ -1125,7 +1125,7 @@ impl StacksMessageCodecExtensions for Packet {
 
 define_u8_enum!(
 /// Enum representing the block response type prefix
-BlockResponseTypePrefix{
+BlockResponseTypePrefix {
     /// Accepted
     Accepted = 0,
     /// Rejected

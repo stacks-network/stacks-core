@@ -191,7 +191,7 @@ pub trait StacksMessageCodecExtensions: Sized {
 
 define_u8_enum!(
 /// Enum representing the reject code type prefix
-RejectCodeTypePrefix{
+RejectCodeTypePrefix {
     /// The block was rejected due to validation issues
     ValidationFailed = 0,
     /// The block was rejected due to connectivity issues with the signer
@@ -227,7 +227,7 @@ pub enum RejectCode {
 
 define_u8_enum!(
 /// Enum representing the BlockResponse type prefix
-BlockResponseTypePrefix{
+BlockResponseTypePrefix {
     /// An accepted block response
     Accepted = 0,
     /// A rejected block response
@@ -415,6 +415,7 @@ impl StacksMessageCodec for RejectCode {
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Display for RejectCode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
