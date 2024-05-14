@@ -89,6 +89,7 @@ impl MessageSlotID {
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl Display for MessageSlotID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}({})", self, self.to_u8())
@@ -184,25 +185,6 @@ pub trait StacksMessageCodecExtensions: Sized {
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
-impl StacksMessageCodecExtensions for HashSet<u32> {
-    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(self.len() as u32))?;
-        for i in self {
-            write_next(fd, i)?;
-        }
-        Ok(())
-    }
-    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let mut set = Self::new();
-        let len = read_next::<u32, _>(fd)?;
-        for _ in 0..len {
-            let i = read_next::<u32, _>(fd)?;
-            set.insert(i);
-        }
-        Ok(set)
-    }
-}
-
 define_u8_enum!(RejectCodeTypePrefix{
     ValidationFailed = 0,
     ConnectivityIssues = 1
@@ -245,6 +227,7 @@ pub enum BlockResponse {
     Rejected(BlockRejection),
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Display for BlockResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
