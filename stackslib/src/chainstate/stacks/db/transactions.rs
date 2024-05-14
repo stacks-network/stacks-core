@@ -8620,6 +8620,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }
@@ -8842,6 +8850,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }

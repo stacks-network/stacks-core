@@ -347,6 +347,14 @@ fn cost_2_contract_is_arithmetic_only() {
 }
 
 impl BurnStateDB for TestSimBurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        panic!("Not implemented in TestSim");
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }

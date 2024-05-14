@@ -2691,6 +2691,14 @@ mod tests {
 
         pub struct BlockLimitBurnStateDB {}
         impl BurnStateDB for BlockLimitBurnStateDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                None
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                None
+            }
+
             fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
                 None
             }
