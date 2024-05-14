@@ -55,9 +55,9 @@ use wsts::v2;
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand};
-use crate::traits::Signer as SignerTrait;
 use crate::v1::coordinator::CoordinatorSelector;
 use crate::v1::signerdb::SignerDb;
+use crate::Signer as SignerTrait;
 
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -228,13 +228,13 @@ impl SignerTrait for Signer {
             return;
         }
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(&stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
         self.refresh_coordinator();
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(&stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
