@@ -164,11 +164,13 @@ impl ClarityTestSim {
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            db.begin();
-            db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
-                .expect("FAIL: unable to set tenure height in Clarity database");
-            db.commit()
-                .expect("FAIL: unable to commit tenure height in Clarity database");
+            if cur_epoch >= StacksEpochId::Epoch30 {
+                db.begin();
+                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                    .expect("FAIL: unable to set tenure height in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit tenure height in Clarity database");
+            }
 
             let mut block_conn =
                 ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
@@ -215,11 +217,13 @@ impl ClarityTestSim {
             debug!("Execute block in epoch {}", &cur_epoch);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            db.begin();
-            db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
-                .expect("FAIL: unable to set tenure height in Clarity database");
-            db.commit()
-                .expect("FAIL: unable to commit tenure height in Clarity database");
+            if cur_epoch >= StacksEpochId::Epoch30 {
+                db.begin();
+                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                    .expect("FAIL: unable to set tenure height in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit tenure height in Clarity database");
+            }
             let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };

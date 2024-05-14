@@ -35,6 +35,18 @@ mod simple_apply_eval;
 mod traits;
 mod variables;
 
+#[cfg(any(test, feature = "testing"))]
+impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+    pub fn set_tenure_height(&mut self, tenure_height: u32) {
+        self.context.database.begin();
+        self.context
+            .database
+            .set_tenure_height(tenure_height)
+            .unwrap();
+        self.context.database.commit().unwrap();
+    }
+}
+
 macro_rules! epochs_template {
     ($($epoch:ident,)*) => {
         #[template]
@@ -160,7 +172,11 @@ impl MemoryEnvironmentGenerator {
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
     pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
-        let mut owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
+        let mut db = self.0.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(epoch).unwrap();
+        db.commit().unwrap();
+        let mut owned_env = OwnedEnvironment::new(db, epoch);
         if epoch >= StacksEpochId::Epoch30 {
             owned_env.set_tenure_height(1);
         }

@@ -74,7 +74,7 @@ pub struct Environment<'a, 'b, 'hooks> {
 }
 
 pub struct OwnedEnvironment<'a, 'hooks> {
-    context: GlobalContext<'a, 'hooks>,
+    pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
 }
 
@@ -1961,18 +1961,6 @@ impl CallStack {
     #[cfg(not(feature = "developer-mode"))]
     pub fn make_stack_trace(&self) -> StackTrace {
         Vec::new()
-    }
-}
-
-#[cfg(any(test, feature = "testing"))]
-impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
-    pub fn set_tenure_height(&mut self, tenure_height: u32) {
-        self.context.database.begin();
-        self.context
-            .database
-            .set_tenure_height(tenure_height)
-            .unwrap();
-        self.context.database.commit().unwrap();
     }
 }
 

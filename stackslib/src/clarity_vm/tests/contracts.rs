@@ -1395,3 +1395,61 @@ fn test_block_heights_across_versions_traits() {
         assert_eq!(Value::okay(Value::UInt(20)).unwrap(), res2.0);
     });
 }
+
+#[test]
+fn test_block_heights_at_block() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    let block_height = sim.block_height as u128;
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        assert_eq!(epoch, StacksEpochId::Epoch30);
+
+        let contract =r#"
+            (define-private (test-tenure) (at-block (unwrap-panic (get-block-info? id-header-hash u0)) tenure-height))
+            (define-private (test-stacks) (at-block (unwrap-panic (get-block-info? id-header-hash u1)) stacks-block-height))
+            "#;
+
+        conn.as_transaction(|clarity_db| {
+            // Analyze the contract
+            let (ast, analysis) = clarity_db.analyze_smart_contract(
+                &contract_identifier,
+                ClarityVersion::Clarity3,
+                &contract,
+                ASTRules::PrecheckSize,
+            ).unwrap();
+
+            // Publish the contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity3,
+                    &ast,
+                    contract,
+                    None,
+                    |_, _| false,
+                ).unwrap();
+            });
+
+        // Call the contracts and validate the results
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::UInt(0),
+            tx.eval_read_only(&contract_identifier, "(test-tenure)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::UInt(1),
+            tx.eval_read_only(&contract_identifier, "(test-stacks)")
+                .unwrap()
+        );
+    });
+}

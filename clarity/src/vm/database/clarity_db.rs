@@ -858,6 +858,12 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Returns the tenure height of the current block.
     pub fn get_tenure_height(&mut self) -> Result<u32> {
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            // Before epoch 3.0, the tenure height was not stored in the
+            // Clarity state. Instead, it was the same as the block height.
+            return Ok(self.get_current_block_height());
+        }
+
         self.get_data(TENURE_HEIGHT_KEY)?
             .ok_or_else(|| {
                 InterpreterError::Expect("No tenure height in stored Clarity state".into()).into()
@@ -874,6 +880,11 @@ impl<'a> ClarityDatabase<'a> {
     /// tenure, this height must be incremented before evaluating any
     /// transactions in the block.
     pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            return Err(Error::Interpreter(InterpreterError::Expect(
+                "Setting tenure height in Clarity state is not supported before epoch 3.0".into(),
+            )));
+        }
         self.put_data(TENURE_HEIGHT_KEY, &height)
     }
 

@@ -101,8 +101,10 @@ fn new_block<'a, 'b>(
     block.as_free_transaction(|tx_conn| {
         tx_conn
             .with_clarity_db(|db| {
-                let tenure_height = db.get_tenure_height().unwrap_or(0);
-                db.set_tenure_height(tenure_height + 1).unwrap();
+                if db.get_clarity_epoch_version().unwrap() >= StacksEpochId::Epoch30 {
+                    let tenure_height = db.get_tenure_height().unwrap_or(0);
+                    db.set_tenure_height(tenure_height + 1).unwrap();
+                }
                 Ok(())
             })
             .unwrap();
