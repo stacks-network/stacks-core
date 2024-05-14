@@ -18,6 +18,7 @@ use std::sync::mpsc::Sender;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
+use clarity::util::hash::MerkleHashFunc;
 use libsigner::v0::messages::{BlockResponse, RejectCode, SignerMessage};
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_warn};
@@ -109,11 +110,6 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
             }
             Some(SignerEvent::MinerMessages(messages, _)) => {
-                if current_reward_cycle != self.reward_cycle {
-                    // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
-                    debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");
-                    return;
-                }
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -180,13 +176,13 @@ impl Signer {
     /// Determine this signers response to a proposed block
     /// Returns a BlockResponse if we have already validated the block
     /// Returns None otherwise
-    fn determine_response(&self, block_info: &mut BlockInfo) -> Option<BlockResponse> {
+    fn determine_response(&self, block_info: &BlockInfo) -> Option<BlockResponse> {
         let valid = block_info.valid?;
         let response = if valid {
             debug!("{self}: Accepting block {}", block_info.block.block_id());
             let signature = self
                 .private_key
-                .sign(&block_info.signer_signature_hash().0)
+                .sign(block_info.signer_signature_hash().bits())
                 .expect("Failed to sign block");
             BlockResponse::accepted(block_info.signer_signature_hash(), signature)
         } else {
@@ -210,20 +206,39 @@ impl Signer {
             // We are not signing for this reward cycle. Reject the block
             warn!(
                 "{self}: Received a block proposal for a different reward cycle. Ignore it.";
-                "requested_reward_cycle" => block_proposal.reward_cycle,
+                "requested_reward_cycle" => block_proposal.reward_cycle
             );
             return;
         }
-        // TODO: could add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        // TODO: should add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        let Some(mut block_info) = self
+        if let Some(block_info) = self
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
-        else {
+        {
+            let Some(block_response) = self.determine_response(&block_info) else {
+                // We are still waiting for a response for this block. Do nothing.
+                debug!("{self}: Received a block proposal for a block we are already validating.";
+                    "signer_sighash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id()
+                );
+                return;
+            };
+            // Submit a proposal response to the .signers contract for miners
+            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
+            if let Err(e) = self
+                .stackerdb
+                .send_message_with_retry(block_response.into())
+            {
+                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+            }
+        } else {
             debug!(
                 "{self}: received a block proposal for a new block. Submit block for validation. ";
                 "signer_sighash" => %signer_signature_hash,
+                "block_id" => %block_proposal.block.block_id(),
             );
             let block_info = BlockInfo::from(block_proposal.clone());
             stacks_client
@@ -234,21 +249,7 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
-            return;
-        };
-        if let Some(block_response) = self.determine_response(&mut block_info) {
-            // Submit a proposal response to the .signers contract for miners
-            warn!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            if let Err(e) = self
-                .stackerdb
-                .send_message_with_retry(block_response.into())
-            {
-                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
-            }
         }
-        self.signer_db
-            .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
@@ -275,6 +276,7 @@ impl Signer {
                     }
                 };
                 block_info.valid = Some(true);
+                // TODO: do not sign the block if it fails signer state checks (forks, etc.)
                 let signature = self
                     .private_key
                     .sign(&signer_signature_hash.0)
@@ -307,7 +309,7 @@ impl Signer {
             }
         };
         // Submit a proposal response to the .signers contract for miners
-        warn!("{self}: Broadcasting a block response to stacks node: {message:?}");
+        debug!("{self}: Broadcasting a block response to stacks node: {message:?}");
         if let Err(e) = self.stackerdb.send_message_with_retry(message) {
             warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
         }
