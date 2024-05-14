@@ -48,7 +48,7 @@ jobs:
       ## Downloads the artifacts built in `create-source-binary.yml`
       - name: Download Artifacts
         id: download_artifacts
-        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: artifact
           path: release
@@ -61,7 +61,7 @@ jobs:
       ## Upload the release archives with the checksums file
       - name: Upload Release
         id: upload_release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 #v0.1.15
+        uses: softprops/action-gh-release@69320dbe05506a9a39fc8ae11030b214ec2d1f87 #v2.0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
