@@ -17,10 +17,8 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::{
-    BlockProposalSigners, MessageSlotID, SignerEntries, SignerEvent, SignerMessage, SignerSession,
-    StackerDBSession,
-};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -384,7 +382,7 @@ impl SignCoordinator {
         self.coordinator.current_sign_id = sign_id;
         self.coordinator.current_sign_iter_id = sign_iter_id;
 
-        let proposal_msg = BlockProposalSigners {
+        let proposal_msg = BlockProposal {
             block: block.clone(),
             burn_height: burn_block_height,
             reward_cycle: reward_cycle_id,
