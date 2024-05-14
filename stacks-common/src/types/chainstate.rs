@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
 use rand::{Rng, SeedableRng};
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
