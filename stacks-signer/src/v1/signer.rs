@@ -56,9 +56,9 @@ use wsts::v2;
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand};
-use crate::traits::Signer as SignerTrait;
 use crate::v1::coordinator::CoordinatorSelector;
 use crate::v1::signerdb::SignerDb;
+use crate::Signer as SignerTrait;
 
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
