@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use hashbrown::{HashMap, HashSet};
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
@@ -42,7 +43,7 @@ impl TraitContext {
     pub fn new(clarity_version: ClarityVersion) -> TraitContext {
         match clarity_version {
             ClarityVersion::Clarity1 => Self::Clarity1(HashMap::new()),
-            ClarityVersion::Clarity2 => Self::Clarity2 {
+            ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => Self::Clarity2 {
                 defined: HashSet::new(),
                 all: HashMap::new(),
             },
@@ -128,6 +129,7 @@ impl TraitContext {
 }
 
 pub struct ContractContext {
+    clarity_version: ClarityVersion,
     contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<ClarityName, TypeSignature>,
@@ -147,6 +149,7 @@ impl ContractContext {
         clarity_version: ClarityVersion,
     ) -> ContractContext {
         ContractContext {
+            clarity_version,
             contract_identifier,
             variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
@@ -168,6 +171,10 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
+        if is_reserved_word(name, self.clarity_version) {
+            return Err(CheckError::new(CheckErrors::ReservedWord(name.to_string())));
+        }
+
         if self.variable_types.contains_key(name)
             || self.persisted_variable_types.contains_key(name)
             || self.private_function_types.contains_key(name)
@@ -279,6 +286,10 @@ impl ContractContext {
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&trait_name)?;
+        }
+
         self.traits.add_defined_trait(
             self.contract_identifier.clone(),
             trait_name,
@@ -292,6 +303,10 @@ impl ContractContext {
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&alias)?;
+        }
+
         self.traits.add_used_trait(alias, trait_id, trait_signature)
     }
 

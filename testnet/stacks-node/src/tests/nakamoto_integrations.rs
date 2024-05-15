@@ -24,6 +24,7 @@ use std::{env, thread};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::ClarityVersion;
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v1::messages::SignerMessage;
@@ -83,10 +84,13 @@ use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
+    call_read_only, get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
     run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
 };
-use crate::tests::{get_chain_info, make_stacks_transfer, to_addr};
+use crate::tests::{
+    get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
+    to_addr,
+};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -3445,6 +3449,442 @@ fn forked_tenure_is_ignored() {
     assert_eq!(
         block_d.parent_block_id,
         block_2_tenure_c.index_block_hash().to_string()
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+/// This test makes three assertions:
+///  * 5 tenures are mined after 3.0 starts
+///  * Each tenure has 10 blocks (the coinbase block and 9 interim blocks)
+///  * Verifies the block heights of the blocks mined
+fn check_block_heights() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let deploy_fee = 3000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    let mut sender_nonce = 0;
+
+    // Deploy this version with the Clarity 1 / 2 before epoch 3
+    let contract0_name = "test-contract-0";
+    let contract_clarity1 =
+        "(define-read-only (get-heights) { burn-block-height: burn-block-height, block-height: block-height })";
+
+    let contract_tx0 = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        contract0_name,
+        contract_clarity1,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx0);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        Some(&signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    let heights0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-heights",
+        vec![],
+    );
+    let heights0 = heights0_value.expect_tuple().unwrap();
+    info!("Heights from pre-epoch 3.0: {}", heights0);
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    println!("Chain info: {:?}", info);
+    let mut last_burn_block_height = info.burn_block_height as u128;
+    let mut last_stacks_block_height = info.stacks_tip_height as u128;
+    let mut last_tenure_height = last_stacks_block_height as u128;
+
+    let heights0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-heights",
+        vec![],
+    );
+    let heights0 = heights0_value.expect_tuple().unwrap();
+    info!("Heights from epoch 3.0 start: {}", heights0);
+    assert_eq!(
+        heights0
+            .get("burn-block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap()
+            + 3,
+        last_burn_block_height,
+        "Burn block height should match"
+    );
+    assert_eq!(
+        heights0
+            .get("block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        last_stacks_block_height,
+        "Stacks block height should match"
+    );
+
+    // This version uses the Clarity 1 / 2 keywords
+    let contract1_name = "test-contract-1";
+    let contract_tx1 = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        contract1_name,
+        contract_clarity1,
+        Some(ClarityVersion::Clarity2),
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx1);
+
+    // This version uses the Clarity 3 keywords
+    let contract3_name = "test-contract-3";
+    let contract_clarity3 =
+        "(define-read-only (get-heights) { burn-block-height: burn-block-height, stacks-block-height: stacks-block-height, tenure-height: tenure-height })";
+
+    let contract_tx3 = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        contract3_name,
+        contract_clarity3,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx3);
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        info!("Mining tenure {}", tenure_ix);
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let heights1_value = call_read_only(
+            &naka_conf,
+            &sender_addr,
+            contract1_name,
+            "get-heights",
+            vec![],
+        );
+        let heights1 = heights1_value.expect_tuple().unwrap();
+        info!("Heights from Clarity 1: {}", heights1);
+
+        let heights3_value = call_read_only(
+            &naka_conf,
+            &sender_addr,
+            contract3_name,
+            "get-heights",
+            vec![],
+        );
+        let heights3 = heights3_value.expect_tuple().unwrap();
+        info!("Heights from Clarity 3: {}", heights3);
+
+        let bbh1 = heights1
+            .get("burn-block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap();
+        let bbh3 = heights3
+            .get("burn-block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap();
+        assert_eq!(bbh1, bbh3, "Burn block heights should match");
+        if tenure_ix == 0 {
+            // Add two for the 2 blocks with no tenure during Nakamoto bootup
+            last_burn_block_height = bbh1 + 2;
+        } else {
+            assert_eq!(
+                bbh1, last_burn_block_height,
+                "Burn block height should not have changed yet"
+            );
+        }
+
+        let bh1 = heights1
+            .get("block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap();
+        let bh3 = heights3
+            .get("tenure-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap();
+        assert_eq!(
+            bh1, bh3,
+            "Clarity 2 block-height should match Clarity 3 tenure-height"
+        );
+        assert_eq!(
+            bh1,
+            last_tenure_height + 1,
+            "Tenure height should have incremented"
+        );
+        last_tenure_height = bh1;
+
+        let sbh = heights3
+            .get("stacks-block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap();
+        assert_eq!(
+            sbh,
+            last_stacks_block_height + 1,
+            "Stacks block heights should have incremented"
+        );
+        last_stacks_block_height = sbh;
+
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            info!("Mining interim block {interim_block_ix}");
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            sender_nonce += 1;
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            let heights1_value = call_read_only(
+                &naka_conf,
+                &sender_addr,
+                contract1_name,
+                "get-heights",
+                vec![],
+            );
+            let heights1 = heights1_value.expect_tuple().unwrap();
+            info!("Heights from Clarity 1: {}", heights1);
+
+            let heights3_value = call_read_only(
+                &naka_conf,
+                &sender_addr,
+                contract3_name,
+                "get-heights",
+                vec![],
+            );
+            let heights3 = heights3_value.expect_tuple().unwrap();
+            info!("Heights from Clarity 3: {}", heights3);
+
+            let bbh1 = heights1
+                .get("burn-block-height")
+                .unwrap()
+                .clone()
+                .expect_u128()
+                .unwrap();
+            let bbh3 = heights3
+                .get("burn-block-height")
+                .unwrap()
+                .clone()
+                .expect_u128()
+                .unwrap();
+            assert_eq!(bbh1, bbh3, "Burn block heights should match");
+            if interim_block_ix == 0 {
+                assert_eq!(
+                    bbh1,
+                    last_burn_block_height + 1,
+                    "Burn block heights should have incremented"
+                );
+                last_burn_block_height = bbh1;
+            } else {
+                assert_eq!(
+                    bbh1, last_burn_block_height,
+                    "Burn block heights should not have incremented"
+                );
+            }
+
+            let bh1 = heights1
+                .get("block-height")
+                .unwrap()
+                .clone()
+                .expect_u128()
+                .unwrap();
+            let bh3 = heights3
+                .get("tenure-height")
+                .unwrap()
+                .clone()
+                .expect_u128()
+                .unwrap();
+            assert_eq!(
+                bh1, bh3,
+                "Clarity 2 block-height should match Clarity 3 tenure-height"
+            );
+            assert_eq!(
+                bh1, last_tenure_height,
+                "Tenure height should not have changed"
+            );
+
+            let sbh = heights3
+                .get("stacks-block-height")
+                .unwrap()
+                .clone()
+                .expect_u128()
+                .unwrap();
+            assert_eq!(
+                sbh,
+                last_stacks_block_height + 1,
+                "Stacks block heights should have incremented"
+            );
+            last_stacks_block_height = sbh;
+        }
+
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
     coord_channel
