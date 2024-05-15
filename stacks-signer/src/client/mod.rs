@@ -35,16 +35,6 @@ const BACKOFF_INITIAL_INTERVAL: u64 = 128;
 /// Backoff timer max interval in milliseconds
 const BACKOFF_MAX_INTERVAL: u64 = 16384;
 
-/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
-pub struct SignerSlotID(pub u32);
-
-impl std::fmt::Display for SignerSlotID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 /// Client error type
 pub enum ClientError {
