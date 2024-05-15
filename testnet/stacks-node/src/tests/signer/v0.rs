@@ -1,4 +1,3 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -13,13 +12,3 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-/// The signer module for processing events
-pub mod signer;
-
-use libsigner::v0::messages::SignerMessage;
-
-use crate::v0::signer::Signer;
-
-/// A v0 spawned signer
-pub type SpawnedSigner = crate::SpawnedSigner<Signer, SignerMessage>;

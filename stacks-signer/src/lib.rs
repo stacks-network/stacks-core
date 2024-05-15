@@ -37,16 +37,19 @@ pub mod v0;
 /// The v1 implementation of the singer. This includes WSTS support
 pub mod v1;
 use std::fmt::{Debug, Display};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
-use libsigner::{SignerEvent, SignerEventTrait};
+use config::GlobalConfig;
+use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
+use slog::slog_info;
+use stacks_common::info;
 use wsts::state_machine::OperationResult;
 
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
-use crate::runloop::RunLoopCommand;
+use crate::runloop::{RunLoop, RunLoopCommand};
 
-/// A trait which provides a common `Signer` interface for `v1` and `v2`
+/// A trait which provides a common `Signer` interface for `v0` and `v1`
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Create a new `Signer` instance
     fn new(config: SignerConfig) -> Self;
@@ -69,4 +72,66 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         current_reward_cycle: u64,
         command: Option<RunLoopCommand>,
     );
+}
+
+/// A wrapper around the running signer type for the signer
+pub type RunningSigner<T> =
+    libsigner::RunningSigner<SignerEventReceiver<T>, Vec<OperationResult>, T>;
+
+/// The wrapper for the runloop signer type
+type RunLoopSigner<S, T> = libsigner::Signer<
+    RunLoopCommand,
+    Vec<OperationResult>,
+    RunLoop<S, T>,
+    SignerEventReceiver<T>,
+    T,
+>;
+
+/// The spawned signer
+pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
+    /// The underlying running signer thread handle
+    running_signer: RunningSigner<T>,
+    /// The command sender for interacting with the running signer
+    pub cmd_send: Sender<RunLoopCommand>,
+    /// The result receiver for interacting with the running signer
+    pub res_recv: Receiver<Vec<OperationResult>>,
+    /// Phantom data for the signer type
+    _phantom: std::marker::PhantomData<S>,
+}
+
+impl<S: Signer<T> + Send, T: SignerEventTrait> SpawnedSigner<S, T> {
+    /// Stop the signer thread and return the final state
+    pub fn stop(self) -> Option<Vec<OperationResult>> {
+        self.running_signer.stop()
+    }
+
+    /// Wait for the signer to terminate, and get the final state. WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurred.
+    pub fn join(self) -> Option<Vec<OperationResult>> {
+        self.running_signer.join()
+    }
+}
+
+impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner<S, T> {
+    /// Create a new spawned signer
+    pub fn new(config: GlobalConfig) -> Self {
+        let endpoint = config.endpoint;
+        info!("Starting signer with config: {:?}", config);
+        let (cmd_send, cmd_recv) = channel();
+        let (res_send, res_recv) = channel();
+        let ev = SignerEventReceiver::new(config.network.is_mainnet());
+        #[cfg(feature = "monitoring_prom")]
+        {
+            crate::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
+        }
+        let runloop = RunLoop::new(config);
+        let mut signer: RunLoopSigner<S, T> =
+            libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
+        let running_signer = signer.spawn(endpoint).unwrap();
+        SpawnedSigner {
+            running_signer,
+            cmd_send,
+            res_recv,
+            _phantom: std::marker::PhantomData,
+        }
+    }
 }
