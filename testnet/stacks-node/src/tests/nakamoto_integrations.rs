@@ -3491,7 +3491,7 @@ fn check_block_heights() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        2 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -3531,6 +3531,24 @@ fn check_block_heights() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
+
+    let mut sender_nonce = 0;
+
+    // Deploy this version with the Clarity 1 / 2 before epoch 3
+    let contract0_name = "test-contract-0";
+    let contract_clarity1 =
+        "(define-read-only (get-heights) { burn-block-height: burn-block-height, block-height: block-height })";
+
+    let contract_tx0 = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        contract0_name,
+        contract_clarity1,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx0);
+
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
@@ -3561,6 +3579,16 @@ fn check_block_heights() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
+    let heights0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-heights",
+        vec![],
+    );
+    let heights0 = heights0_value.expect_tuple().unwrap();
+    info!("Heights from pre-epoch 3.0: {}", heights0);
+
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -3577,17 +3605,43 @@ fn check_block_heights() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     println!("Chain info: {:?}", info);
-    let mut last_burn_block_height = 0; // info.burn_block_height as u128;
-    let mut last_stacks_block_height = 0; // info.stacks_tip_height as u128;
-    let mut last_tenure_height = 0; // last_stacks_block_height as u128;
+    let mut last_burn_block_height = info.burn_block_height as u128;
+    let mut last_stacks_block_height = info.stacks_tip_height as u128;
+    let mut last_tenure_height = last_stacks_block_height as u128;
 
-    let mut sender_nonce = 0;
+    let heights0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-heights",
+        vec![],
+    );
+    let heights0 = heights0_value.expect_tuple().unwrap();
+    info!("Heights from epoch 3.0 start: {}", heights0);
+    assert_eq!(
+        heights0
+            .get("burn-block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap()
+            + 3,
+        last_burn_block_height,
+        "Burn block height should match"
+    );
+    assert_eq!(
+        heights0
+            .get("block-height")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        last_stacks_block_height,
+        "Stacks block height should match"
+    );
 
     // This version uses the Clarity 1 / 2 keywords
     let contract1_name = "test-contract-1";
-    let contract_clarity1 =
-        "(define-read-only (get-heights) { burn-block-height: burn-block-height, block-height: block-height })";
-
     let contract_tx1 = make_contract_publish_versioned(
         &sender_sk,
         sender_nonce,
@@ -3654,8 +3708,9 @@ fn check_block_heights() {
             .expect_u128()
             .unwrap();
         assert_eq!(bbh1, bbh3, "Burn block heights should match");
-        if last_burn_block_height == 0 {
-            last_burn_block_height = bbh1;
+        if tenure_ix == 0 {
+            // Add two for the 2 blocks with no tenure during Nakamoto bootup
+            last_burn_block_height = bbh1 + 2;
         } else {
             assert_eq!(
                 bbh1, last_burn_block_height,
@@ -3679,8 +3734,9 @@ fn check_block_heights() {
             bh1, bh3,
             "Clarity 2 block-height should match Clarity 3 tenure-height"
         );
-        assert!(
-            bh1 > last_tenure_height,
+        assert_eq!(
+            bh1,
+            last_tenure_height + 1,
             "Tenure height should have incremented"
         );
         last_tenure_height = bh1;
@@ -3691,8 +3747,9 @@ fn check_block_heights() {
             .clone()
             .expect_u128()
             .unwrap();
-        assert!(
-            sbh > last_stacks_block_height,
+        assert_eq!(
+            sbh,
+            last_stacks_block_height + 1,
             "Stacks block heights should have incremented"
         );
         last_stacks_block_height = sbh;
@@ -3755,8 +3812,9 @@ fn check_block_heights() {
                 .unwrap();
             assert_eq!(bbh1, bbh3, "Burn block heights should match");
             if interim_block_ix == 0 {
-                assert!(
-                    bbh1 > last_burn_block_height,
+                assert_eq!(
+                    bbh1,
+                    last_burn_block_height + 1,
                     "Burn block heights should have incremented"
                 );
                 last_burn_block_height = bbh1;
@@ -3794,8 +3852,9 @@ fn check_block_heights() {
                 .clone()
                 .expect_u128()
                 .unwrap();
-            assert!(
-                sbh > last_stacks_block_height,
+            assert_eq!(
+                sbh,
+                last_stacks_block_height + 1,
                 "Stacks block heights should have incremented"
             );
             last_stacks_block_height = sbh;
