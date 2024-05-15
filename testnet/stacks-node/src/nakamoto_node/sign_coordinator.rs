@@ -17,7 +17,8 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::v0::messages::SignerMessage as SignerMessageV0;
+use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -28,6 +29,7 @@ use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -140,10 +142,10 @@ fn get_signer_commitments(
             );
             continue;
         };
-        let Ok(SignerMessage::DkgResults {
+        let Ok(SignerMessageV1::DkgResults {
             aggregate_key,
             party_polynomials,
-        }) = SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
+        }) = SignerMessageV1::consensus_deserialize(&mut signer_data.as_slice())
         else {
             warn!(
                 "Failed to parse DKG result, will look for results from other signers.";
@@ -314,12 +316,12 @@ impl SignCoordinator {
             .expect("FATAL: tried to initialize WSTS coordinator before first burn block height")
     }
 
-    fn send_signers_message(
+    fn send_signers_message<M: StacksMessageCodec>(
         message_key: &Scalar,
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
-        message: SignerMessage,
+        message: M,
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
     ) -> Result<(), String> {
@@ -363,7 +365,7 @@ impl SignCoordinator {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    pub fn begin_sign(
+    pub fn begin_sign_v1(
         &mut self,
         block: &NakamotoBlock,
         burn_block_height: u64,
@@ -397,7 +399,7 @@ impl SignCoordinator {
                     "Failed to start signing round in FIRE coordinator: {e:?}"
                 ))
             })?;
-        Self::send_signers_message(
+        Self::send_signers_message::<SignerMessageV1>(
             &self.message_key,
             sortdb,
             burn_tip,
@@ -483,11 +485,11 @@ impl SignCoordinator {
             let packets: Vec<_> = messages
                 .into_iter()
                 .filter_map(|msg| match msg {
-                    SignerMessage::DkgResults { .. }
-                    | SignerMessage::BlockResponse(_)
-                    | SignerMessage::EncryptedSignerState(_)
-                    | SignerMessage::Transactions(_) => None,
-                    SignerMessage::Packet(packet) => {
+                    SignerMessageV1::DkgResults { .. }
+                    | SignerMessageV1::BlockResponse(_)
+                    | SignerMessageV1::EncryptedSignerState(_)
+                    | SignerMessageV1::Transactions(_) => None,
+                    SignerMessageV1::Packet(packet) => {
                         debug!("Received signers packet: {packet:?}");
                         if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {
                             warn!("Failed to verify StackerDB packet: {packet:?}");
@@ -548,7 +550,7 @@ impl SignCoordinator {
                 }
             }
             for msg in outbound_msgs {
-                match Self::send_signers_message(
+                match Self::send_signers_message::<SignerMessageV1>(
                     &self.message_key,
                     sortdb,
                     burn_tip,
@@ -567,6 +569,91 @@ impl SignCoordinator {
                     }
                 };
             }
+        }
+
+        Err(NakamotoNodeError::SignerSignatureError(
+            "Timed out waiting for group signature".into(),
+        ))
+    }
+
+    pub fn begin_sign_v0(
+        &mut self,
+        block: &NakamotoBlock,
+        burn_block_height: u64,
+        block_attempt: u64,
+        burn_tip: &BlockSnapshot,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        stackerdbs: &StackerDBs,
+        counters: &Counters,
+    ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
+        let sign_iter_id = block_attempt;
+        let reward_cycle_id = burnchain
+            .block_height_to_reward_cycle(burn_tip.block_height)
+            .expect("FATAL: tried to initialize coordinator before first burn block height");
+        self.coordinator.current_sign_id = sign_id;
+        self.coordinator.current_sign_iter_id = sign_iter_id;
+
+        let block_proposal = BlockProposal {
+            block: block.clone(),
+            burn_height: burn_block_height,
+            reward_cycle: reward_cycle_id,
+        };
+
+        let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
+        Self::send_signers_message::<SignerMessageV0>(
+            &self.message_key,
+            sortdb,
+            burn_tip,
+            &stackerdbs,
+            block_proposal_message,
+            self.is_mainnet,
+            &mut self.miners_session,
+        )
+        .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
+        counters.bump_naka_proposed_blocks();
+        #[cfg(test)]
+        {
+            // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if let Some(signatures) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
+                debug!("Short-circuiting waiting for signers, using test signature");
+                return Ok(signatures);
+            }
+        }
+
+        let Some(ref mut receiver) = self.receiver else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Failed to obtain the StackerDB event receiver".into(),
+            ));
+        };
+
+        let start_ts = Instant::now();
+        while start_ts.elapsed() <= self.signing_round_timeout {
+            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                        "StackerDB event receiver disconnected".into(),
+                    ))
+                }
+            };
+
+            let is_signer_event =
+                event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot();
+            if !is_signer_event {
+                debug!("Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
+                continue;
+            }
+
+            // TODO: get messages from signers
         }
 
         Err(NakamotoNodeError::SignerSignatureError(

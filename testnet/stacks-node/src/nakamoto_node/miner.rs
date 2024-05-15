@@ -321,7 +321,7 @@ impl BlockMinerThread {
         })?;
 
         *attempts += 1;
-        let signature = coordinator.begin_sign(
+        let signature = coordinator.begin_sign_v1(
             new_block,
             burn_block_height,
             *attempts,
@@ -339,10 +339,15 @@ impl BlockMinerThread {
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
-        _burn_block_height: u64,
-        _stackerdbs: &mut StackerDBs,
-        _attempts: &mut u64,
+        burn_block_height: u64,
+        stackerdbs: &mut StackerDBs,
+        attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
         let sort_db = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
@@ -355,6 +360,15 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not retrieve chain tip")
         .expect("FATAL: could not retrieve chain tip");
+
+        let reward_cycle = self
+            .burnchain
+            .pox_constants
+            .block_height_to_reward_cycle(
+                self.burnchain.first_block_height,
+                self.burn_block.block_height,
+            )
+            .expect("FATAL: building on a burn block that is before the first burn block");
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
             Ok(Some(x)) => x,
@@ -376,8 +390,34 @@ impl BlockMinerThread {
             ));
         };
 
-        // TODO: collect signatures from signers
-        return Ok((reward_set, vec![]));
+        let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
+        let mut coordinator = SignCoordinator::new(
+            &reward_set,
+            reward_cycle,
+            miner_privkey_as_scalar,
+            Point::new(),
+            &stackerdbs,
+            &self.config,
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        *attempts += 1;
+        let signature = coordinator.begin_sign_v0(
+            new_block,
+            burn_block_height,
+            *attempts,
+            &tip,
+            &self.burnchain,
+            &sort_db,
+            &stackerdbs,
+            &self.globals.counters,
+        )?;
+
+        return Ok((reward_set, signature));
     }
 
     fn get_stackerdb_contract_and_slots(

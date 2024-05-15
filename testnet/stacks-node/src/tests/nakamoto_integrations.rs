@@ -27,7 +27,8 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ClarityVersion;
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::v1::messages::SignerMessage;
+use libsigner::v0::messages::SignerMessage as SignerMessageV0;
+use libsigner::v1::messages::SignerMessage as SignerMessageV1;
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
@@ -318,22 +319,39 @@ pub fn get_latest_block_proposal(
     let proposed_block = {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        let message: SignerMessage = miners_stackerdb
+        let message: SignerMessageV0 = miners_stackerdb
             .get_latest(miner_slot_id.start)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found");
-        let SignerMessage::Packet(packet) = message else {
-            panic!("Expected a signer message packet. Got {message:?}");
+        let SignerMessageV0::BlockProposal(block_proposal) = message else {
+            panic!("Expected a signer message block proposal. Got {message:?}");
         };
-        let Message::NonceRequest(nonce_request) = packet.msg else {
-            panic!("Expected a nonce request. Got {:?}", packet.msg);
-        };
-        let block_proposal =
-            BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice())
-                .expect("Failed to deserialize block proposal");
+        // TODO: use v1 message types behind epoch gate
+        // get_block_proposal_msg_v1(&mut miners_stackerdb, miner_slot_id.start);
         block_proposal.block
     };
     Ok(proposed_block)
+}
+
+#[allow(dead_code)]
+fn get_block_proposal_msg_v1(
+    miners_stackerdb: &mut StackerDBSession,
+    slot_id: u32,
+) -> NakamotoBlock {
+    let message: SignerMessageV1 = miners_stackerdb
+        .get_latest(slot_id)
+        .expect("Failed to get latest chunk from the miner slot ID")
+        .expect("No chunk found");
+    let SignerMessageV1::Packet(packet) = message else {
+        panic!("Expected a signer message packet. Got {message:?}");
+    };
+    let Message::NonceRequest(nonce_request) = packet.msg else {
+        panic!("Expected a nonce request. Got {:?}", packet.msg);
+    };
+    let block_proposal =
+        BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice())
+            .expect("Failed to deserialize block proposal");
+    block_proposal.block
 }
 
 pub fn read_and_sign_block_proposal(
