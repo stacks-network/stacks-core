@@ -439,7 +439,7 @@ fn reuse_block_height(
         Value::Int(3),
     );
 
-    // function
+    // private function
     expect_contract_error(
         version,
         epoch,
@@ -447,6 +447,171 @@ fn reuse_block_height(
         "function",
         r#"
         (define-private (block-height) true)
+        (define-private (test-func) (block-height))
+        "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(true),
+    );
+
+    // constant
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "constant",
+        r#"
+            (define-constant block-height u1234)
+            (define-read-only (test-func) block-height)
+            "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::UInt(1234),
+    );
+
+    // define-trait
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-trait block-height ())
+            (define-read-only (test-func) false)
+            "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(false),
+    );
+
+    // tuple
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "tuple",
+        r#"
+            (define-read-only (test-func)
+                (get block-height { block-height: 1234 })
+            )
+            "#,
+        &[],
+        Value::Int(1234),
+    );
+
+    // define-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-fungible-token block-height)
+            (define-read-only (test-func) false)
+            "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(false),
+    );
+
+    // define-non-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-non-fungible-token block-height uint)
+            (define-read-only (test-func) false)
+            "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(false),
+    );
+
+    // define-public
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-public (block-height) (ok true))
+        (define-private (test-func) (unwrap-panic (block-height)))
+        "#,
+        &[
+            (
+                WhenError::Initialization,
+                |version, _| version < ClarityVersion::Clarity3,
+                CheckErrors::NameAlreadyUsed("block-height".to_string()),
+            ),
+            (
+                WhenError::Analysis,
+                |version, _| version >= ClarityVersion::Clarity3,
+                CheckErrors::ReservedWord("block-height".to_string()),
+            ),
+        ],
+        Value::Bool(true),
+    );
+
+    // define-read-only
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-read-only (block-height) true)
         (define-private (test-func) (block-height))
         "#,
         &[
@@ -573,6 +738,129 @@ fn reuse_stacks_block_height(
         )],
         Value::Bool(true),
     );
+
+    // constant
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "constant",
+        r#"
+            (define-constant stacks-block-height u1234)
+            (define-read-only (test-func) stacks-block-height)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::UInt(1234),
+    );
+
+    // define-trait
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-trait stacks-block-height ())
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // tuple
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "tuple",
+        r#"
+            (define-read-only (test-func)
+                (get stacks-block-height { stacks-block-height: 1234 })
+            )
+            "#,
+        &[],
+        Value::Int(1234),
+    );
+
+    // define-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-fungible-token stacks-block-height)
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // define-non-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-non-fungible-token stacks-block-height uint)
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // define-public
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-public (stacks-block-height) (ok true))
+        (define-private (test-func) (unwrap-panic (stacks-block-height)))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+
+    // define-read-only
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-read-only (stacks-block-height) true)
+        (define-private (test-func) (stacks-block-height))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("stacks-block-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
 }
 
 #[apply(test_clarity_versions)]
@@ -674,6 +962,129 @@ fn reuse_tenure_height(
         "function",
         r#"
         (define-private (tenure-height) true)
+        (define-private (test-func) (tenure-height))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+
+    // constant
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "constant",
+        r#"
+            (define-constant tenure-height u1234)
+            (define-read-only (test-func) tenure-height)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::UInt(1234),
+    );
+
+    // define-trait
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-trait tenure-height ())
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // tuple
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "tuple",
+        r#"
+            (define-read-only (test-func)
+                (get tenure-height { tenure-height: 1234 })
+            )
+            "#,
+        &[],
+        Value::Int(1234),
+    );
+
+    // define-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-fungible-token tenure-height)
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // define-non-fungible-token
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "trait",
+        r#"
+            (define-non-fungible-token tenure-height uint)
+            (define-read-only (test-func) false)
+            "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(false),
+    );
+
+    // define-public
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-public (tenure-height) (ok true))
+        (define-private (test-func) (unwrap-panic (tenure-height)))
+        "#,
+        &[(
+            WhenError::Initialization,
+            |version, _| version >= ClarityVersion::Clarity3,
+            CheckErrors::NameAlreadyUsed("tenure-height".to_string()),
+        )],
+        Value::Bool(true),
+    );
+
+    // define-read-only
+    expect_contract_error(
+        version,
+        epoch,
+        &mut tl_env_factory,
+        "function",
+        r#"
+        (define-read-only (tenure-height) true)
         (define-private (test-func) (tenure-height))
         "#,
         &[(

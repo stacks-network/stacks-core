@@ -286,6 +286,10 @@ impl ContractContext {
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&trait_name)?;
+        }
+
         self.traits.add_defined_trait(
             self.contract_identifier.clone(),
             trait_name,
@@ -299,6 +303,10 @@ impl ContractContext {
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&alias)?;
+        }
+
         self.traits.add_used_trait(alias, trait_id, trait_signature)
     }
 
