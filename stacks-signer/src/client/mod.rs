@@ -13,6 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+/// The stackerdb module for sending messages between signers and miners
+pub(crate) mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
@@ -22,6 +25,7 @@ use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
+pub use stackerdb::*;
 pub use stacks_client::*;
 use stacks_common::codec::Error as CodecError;
 use stacks_common::debug;

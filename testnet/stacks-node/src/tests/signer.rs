@@ -41,7 +41,7 @@ use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{RunLoopCommand, SignerCommand};
 use stacks_signer::v1::coordinator::CoordinatorSelector;
-use stacks_signer::v1::stackerdb::StackerDB;
+use stacks_signer::v1::stackerdb_manager::StackerDBManager;
 use stacks_signer::v1::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -1143,7 +1143,7 @@ fn stackerdb_delayed_dkg() {
     let mut stackerdbs: Vec<_> = signer_slot_ids
         .iter()
         .map(|i| {
-            StackerDB::new(
+            StackerDBManager::new(
                 &signer_test.running_nodes.conf.node.rpc_bind,
                 StacksPrivateKey::new(), // Doesn't matter what key we use. We are just reading, not writing
                 false,
@@ -1469,7 +1469,7 @@ fn stackerdb_filter_bad_transactions() {
     let next_reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDBManager::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
         signer_private_key,
         false,

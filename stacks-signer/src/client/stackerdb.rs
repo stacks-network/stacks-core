@@ -15,12 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
+use clarity::codec::read_next;
 use hashbrown::HashMap;
-use libsigner::v0::messages::{MessageSlotID, SignerMessage};
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
 
@@ -29,21 +28,21 @@ use crate::config::SignerConfig;
 
 /// The StackerDB client for communicating with the .signers contract
 #[derive(Debug)]
-pub struct StackerDB {
+pub struct StackerDB<M: MessageSlotID + std::cmp::Eq> {
     /// The stacker-db sessions for each signer set and message type.
     /// Maps message ID to the DB session.
-    signers_message_stackerdb_sessions: HashMap<MessageSlotID, StackerDBSession>,
+    pub signers_message_stackerdb_sessions: HashMap<M, StackerDBSession>,
     /// The private key used in all stacks node communications
-    stacks_private_key: StacksPrivateKey,
+    pub stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
-    slot_versions: HashMap<MessageSlotID, HashMap<SignerSlotID, u32>>,
+    pub slot_versions: HashMap<M, HashMap<SignerSlotID, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
-    signer_slot_id: SignerSlotID,
+    pub signer_slot_id: SignerSlotID,
     /// The reward cycle of the connecting signer
-    reward_cycle: u64,
+    pub reward_cycle: u64,
 }
 
-impl From<&SignerConfig> for StackerDB {
+impl<M: MessageSlotID> From<&SignerConfig> for StackerDB<M> {
     fn from(config: &SignerConfig) -> Self {
         Self::new(
             &config.node_host,
@@ -54,7 +53,8 @@ impl From<&SignerConfig> for StackerDB {
         )
     }
 }
-impl StackerDB {
+
+impl<M: MessageSlotID> StackerDB<M> {
     /// Create a new StackerDB client
     pub fn new(
         host: &str,
@@ -64,11 +64,10 @@ impl StackerDB {
         signer_slot_id: SignerSlotID,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
-        for msg_id in MessageSlotID::ALL {
-            signers_message_stackerdb_sessions.insert(
-                *msg_id,
-                StackerDBSession::new(host, msg_id.stacker_db_contract(is_mainnet, reward_cycle)),
-            );
+        for msg_id in M::all() {
+            let session =
+                StackerDBSession::new(host, msg_id.stacker_db_contract(is_mainnet, reward_cycle));
+            signers_message_stackerdb_sessions.insert(msg_id, session);
         }
 
         Self {
@@ -81,9 +80,9 @@ impl StackerDB {
     }
 
     /// Sends messages to the .signers stacker-db with an exponential backoff retry
-    pub fn send_message_with_retry(
+    pub fn send_message_with_retry<T: SignerMessage<M>>(
         &mut self,
-        message: SignerMessage,
+        message: T,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let msg_id = message.msg_id();
         let message_bytes = message.serialize_to_vec();
@@ -94,7 +93,7 @@ impl StackerDB {
     /// exponential backoff retry
     pub fn send_message_bytes_with_retry(
         &mut self,
-        msg_id: &MessageSlotID,
+        msg_id: &M,
         message_bytes: Vec<u8>,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let slot_id = self.signer_slot_id;
@@ -117,11 +116,11 @@ impl StackerDB {
             chunk.sign(&self.stacks_private_key)?;
 
             let Some(session) = self.signers_message_stackerdb_sessions.get_mut(msg_id) else {
-                panic!("FATAL: would loop forever trying to send a message with ID {}, for which we don't have a session", msg_id);
+                panic!("FATAL: would loop forever trying to send a message with ID {msg_id:?}, for which we don't have a session");
             };
 
             debug!(
-                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} and message ID {msg_id} to contract {:?}!\n{chunk:?}",
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} and message ID {msg_id:?} to contract {:?}!\n{chunk:?}",
                 &session.stackerdb_contract_id
             );
 
@@ -170,6 +169,34 @@ impl StackerDB {
         }
     }
 
+    /// Get all signer messages from stackerdb for the given slot IDs
+    pub fn get_messages<T: SignerMessage<M>>(
+        session: &mut StackerDBSession,
+        slot_ids: &[u32],
+    ) -> Result<Vec<T>, ClientError> {
+        let mut messages = vec![];
+        let send_request = || {
+            session
+                .get_latest_chunks(slot_ids)
+                .map_err(backoff::Error::transient)
+        };
+        let chunk_ack = retry_with_exponential_backoff(send_request)?;
+        for (i, chunk) in chunk_ack.iter().enumerate() {
+            let Some(data) = chunk else {
+                continue;
+            };
+            let Ok(message) = read_next::<T, _>(&mut &data[..]) else {
+                if !data.is_empty() {
+                    warn!("Failed to deserialize chunk data into a SignerMessage");
+                    debug!("slot #{i}: Failed chunk ({}): {data:?}", &data.len(),);
+                }
+                continue;
+            };
+            messages.push(message);
+        }
+        Ok(messages)
+    }
+
     /// Retrieve the signer set this stackerdb client is attached to
     pub fn get_signer_set(&self) -> u32 {
         u32::try_from(self.reward_cycle % 2).expect("FATAL: reward cycle % 2 exceeds u32::MAX")
@@ -188,6 +215,7 @@ mod tests {
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
+    use libsigner::v0::messages::SignerMessage;
     use libsigner::BlockProposal;
     use rand::{thread_rng, RngCore};
 

@@ -19,7 +19,7 @@ pub mod coordinator;
 /// The signer module for processing events
 pub mod signer;
 /// The stackerdb module for sending messages between signers and miners
-pub mod stackerdb;
+pub mod stackerdb_manager;
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 

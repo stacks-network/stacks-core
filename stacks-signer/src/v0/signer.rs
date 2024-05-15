@@ -19,15 +19,14 @@ use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
-use libsigner::v0::messages::{BlockResponse, RejectCode, SignerMessage};
+use libsigner::v0::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, warn};
 use wsts::state_machine::OperationResult;
 
-use super::stackerdb::StackerDB;
-use crate::client::{SignerSlotID, StacksClient};
+use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::RunLoopCommand;
 use crate::signerdb::{BlockInfo, SignerDb};
@@ -39,7 +38,7 @@ pub struct Signer {
     /// The private key of the signer
     private_key: StacksPrivateKey,
     /// The stackerdb client
-    pub stackerdb: StackerDB,
+    pub stackerdb: StackerDB<MessageSlotID>,
     /// Whether the signer is a mainnet signer or not
     pub mainnet: bool,
     /// The signer id
@@ -230,7 +229,7 @@ impl Signer {
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             if let Err(e) = self
                 .stackerdb
-                .send_message_with_retry(block_response.into())
+                .send_message_with_retry::<SignerMessage>(block_response.into())
             {
                 warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
             }
@@ -255,7 +254,7 @@ impl Signer {
     /// Handle the block validate response returned from our prior calls to submit a block for validation
     fn handle_block_validate_response(&mut self, block_validate_response: &BlockValidateResponse) {
         debug!("{self}: Received a block validate response: {block_validate_response:?}");
-        let (message, block_info) = match block_validate_response {
+        let (response, block_info) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 crate::monitoring::increment_block_validation_responses(true);
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -282,7 +281,7 @@ impl Signer {
                     .sign(&signer_signature_hash.0)
                     .expect("Failed to sign block");
                 (
-                    BlockResponse::accepted(signer_signature_hash, signature).into(),
+                    BlockResponse::accepted(signer_signature_hash, signature),
                     block_info,
                 )
             }
@@ -305,12 +304,18 @@ impl Signer {
                     }
                 };
                 block_info.valid = Some(false);
-                (block_validate_reject.clone().into(), block_info)
+                (
+                    BlockResponse::from(block_validate_reject.clone()),
+                    block_info,
+                )
             }
         };
         // Submit a proposal response to the .signers contract for miners
-        debug!("{self}: Broadcasting a block response to stacks node: {message:?}");
-        if let Err(e) = self.stackerdb.send_message_with_retry(message) {
+        debug!("{self}: Broadcasting a block response to stacks node: {response:?}");
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(response.into())
+        {
             warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
         }
         self.signer_db

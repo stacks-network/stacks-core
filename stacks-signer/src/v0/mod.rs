@@ -16,5 +16,3 @@
 
 /// The signer module for processing events
 pub mod signer;
-/// The stackerdb module for sending messages between signers and miners
-pub mod stackerdb;

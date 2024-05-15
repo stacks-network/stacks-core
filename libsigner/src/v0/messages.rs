@@ -55,7 +55,10 @@ use tiny_http::{
 };
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::{BlockProposal, EventError};
+use crate::{
+    BlockProposal, EventError, MessageSlotID as MessageSlotIDTrait,
+    SignerMessage as SignerMessageTrait,
+};
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
@@ -66,6 +69,21 @@ MessageSlotID {
     /// Block Response message from signers
     BlockResponse = 1
 });
+
+impl MessageSlotIDTrait for MessageSlotID {
+    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+    fn all() -> Vec<Self> {
+        MessageSlotID::ALL.to_vec()
+    }
+}
+
+impl SignerMessageTrait<MessageSlotID> for SignerMessage {
+    fn msg_id(&self) -> MessageSlotID {
+        self.msg_id()
+    }
+}
 
 define_u8_enum!(
 /// Enum representing the SignerMessage type prefix
@@ -444,15 +462,9 @@ impl From<BlockResponse> for SignerMessage {
     }
 }
 
-impl From<BlockRejection> for SignerMessage {
-    fn from(block_rejection: BlockRejection) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
-    }
-}
-
-impl From<BlockValidateReject> for SignerMessage {
+impl From<BlockValidateReject> for BlockResponse {
     fn from(rejection: BlockValidateReject) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
+        Self::Rejected(rejection.into())
     }
 }
 

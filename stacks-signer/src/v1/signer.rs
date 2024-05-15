@@ -52,7 +52,7 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
 
-use super::stackerdb::StackerDB;
+use super::stackerdb_manager::StackerDBManager;
 use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand};
@@ -91,8 +91,8 @@ pub struct Signer {
     pub state: State,
     /// Received Commands that need to be processed
     pub commands: VecDeque<SignerCommand>,
-    /// The stackerdb client
-    pub stackerdb: StackerDB,
+    /// The stackerdb client session manager
+    pub stackerdb_manager: StackerDBManager,
     /// Whether the signer is a mainnet signer or not
     pub mainnet: bool,
     /// The signer id
@@ -203,7 +203,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 )
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
-                if *signer_set != self.stackerdb.get_signer_set() {
+                if *signer_set != self.stackerdb_manager.get_signer_set() {
                     debug!("{self}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...");
                     return;
                 }
@@ -346,7 +346,7 @@ impl Signer {
             return Ok(());
         }
         let ordered_packets = self
-            .stackerdb
+            .stackerdb_manager
             .get_dkg_packets(&self.signer_slot_ids)?
             .iter()
             .filter_map(|packet| {
@@ -374,7 +374,7 @@ impl Signer {
 
 impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
-        let mut stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb_manager = StackerDBManager::from(&signer_config);
 
         let num_signers = signer_config
             .signer_entries
@@ -432,7 +432,7 @@ impl From<SignerConfig> for Signer {
         );
 
         if let Some(state) = load_encrypted_signer_state(
-            &mut stackerdb,
+            &mut stackerdb_manager,
             signer_config.signer_slot_id,
             &state_machine.network_private_key,
         ).or_else(|err| {
@@ -450,7 +450,7 @@ impl From<SignerConfig> for Signer {
             state_machine,
             state: State::Uninitialized,
             commands: VecDeque::new(),
-            stackerdb,
+            stackerdb_manager,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
             signer_addresses: signer_config
@@ -531,7 +531,7 @@ impl Signer {
                 );
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
-                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        let ack = self.stackerdb_manager.send_message_with_retry(msg.into());
                         debug!("{self}: ACK: {ack:?}",);
                         self.update_operation(Operation::Dkg);
                     }
@@ -573,7 +573,7 @@ impl Signer {
                     *merkle_root,
                 ) {
                     Ok(msg) => {
-                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        let ack = self.stackerdb_manager.send_message_with_retry(msg.into());
                         debug!("{self}: ACK: {ack:?}",);
                         block_info.signed_over = true;
                         self.signer_db
@@ -656,7 +656,7 @@ impl Signer {
                 // to observe so they know to send another block and to prove signers are doing work);
                 warn!("{self}: Broadcasting a block rejection due to stacks node validation failure...");
                 if let Err(e) = self
-                    .stackerdb
+                    .stackerdb_manager
                     .send_message_with_retry(block_validate_reject.clone().into())
                 {
                     warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
@@ -949,7 +949,7 @@ impl Signer {
                 );
                 // Submit signature result to miners to observe
                 if let Err(e) = self
-                    .stackerdb
+                    .stackerdb_manager
                     .send_message_with_retry(block_rejection.into())
                 {
                     warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
@@ -965,10 +965,10 @@ impl Signer {
             );
             // Submit signature result to miners to observe
             if let Err(e) = self
-                .stackerdb
+                .stackerdb_manager
                 .send_message_with_retry(block_rejection.into())
             {
-                warn!("{self}: Failed to send block submission to stacker-db: {e:?}",);
+                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
             }
             false
         }
@@ -980,7 +980,7 @@ impl Signer {
         nonces: &std::collections::HashMap<StacksAddress, u64>,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let transactions: Vec<_> = self
-            .stackerdb
+            .stackerdb_manager
             .get_current_transactions()?
             .into_iter()
             .filter_map(|tx| {
@@ -1005,7 +1005,7 @@ impl Signer {
         // Get all the account nonces for the next signers
         let account_nonces = self.get_account_nonces(stacks_client, &self.next_signer_addresses);
         let transactions: Vec<_> = self
-            .stackerdb
+            .stackerdb_manager
             .get_next_transactions(&self.next_signer_slot_ids)?;
         let mut filtered_transactions = std::collections::HashMap::new();
         NakamotoSigners::update_filtered_transactions(
@@ -1137,7 +1137,7 @@ impl Signer {
             error!("{}: Failed to serialize DKGResults message for StackerDB, will continue operating.", self.signer_id;
                    "error" => %e);
         } else if let Err(e) = self
-            .stackerdb
+            .stackerdb_manager
             .send_message_bytes_with_retry(&MessageSlotID::DkgResults, dkg_results_bytes)
         {
             error!("{}: Failed to send DKGResults message to StackerDB, will continue operating.", self.signer_id;
@@ -1193,7 +1193,7 @@ impl Signer {
         dkg_public_key: Point,
     ) -> Result<StacksTransaction, ClientError> {
         let mut unsigned_tx = stacks_client.build_unsigned_vote_for_aggregate_public_key(
-            self.stackerdb.get_signer_slot_id().0,
+            self.stackerdb_manager.get_signer_slot_id().0,
             self.coordinator.current_dkg_id,
             dkg_public_key,
             self.reward_cycle,
@@ -1268,7 +1268,8 @@ impl Signer {
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         signer_transactions.push(new_transaction);
         let signer_message = SignerMessage::Transactions(signer_transactions);
-        self.stackerdb.send_message_with_retry(signer_message)?;
+        self.stackerdb_manager
+            .send_message_with_retry(signer_message)?;
         crate::monitoring::increment_dkg_votes_submitted();
         info!("{self}: Broadcasted DKG vote transaction ({txid}) to stacker DB");
         Ok(())
@@ -1297,7 +1298,7 @@ impl Signer {
         // Submit signature result to miners to observe
         info!("{self}: Submit block response: {block_submission}");
         if let Err(e) = self
-            .stackerdb
+            .stackerdb_manager
             .send_message_with_retry(block_submission.into())
         {
             warn!("{self}: Failed to send block submission to stacker-db: {e:?}");
@@ -1337,7 +1338,7 @@ impl Signer {
         debug!("{self}: Broadcasting block rejection: {block_rejection:?}");
         // Submit signature result to miners to observe
         if let Err(e) = self
-            .stackerdb
+            .stackerdb_manager
             .send_message_with_retry(block_rejection.into())
         {
             warn!("{self}: Failed to send block rejection submission to stacker-db: {e:?}");
@@ -1390,9 +1391,7 @@ impl Signer {
         encrypted_state: Vec<u8>,
     ) -> Result<(), PersistenceError> {
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
-
-        self.stackerdb.send_message_with_retry(message)?;
-
+        self.stackerdb_manager.send_message_with_retry(message)?;
         Ok(())
     }
 
@@ -1420,7 +1419,7 @@ impl Signer {
             outbound_messages.len()
         );
         for msg in outbound_messages {
-            let ack = self.stackerdb.send_message_with_retry(msg.into());
+            let ack = self.stackerdb_manager.send_message_with_retry(msg.into());
             if let Ok(ack) = ack {
                 debug!("{self}: send outbound ACK: {ack:?}");
             } else {
@@ -1568,7 +1567,7 @@ impl Signer {
             // Have I already voted, but the vote is still pending in StackerDB? Check stackerdb for the same round number and reward cycle vote transaction
             // Only get the account nonce of THIS signer as we only care about our own votes, not other signer votes
             let account_nonce = stacks_client.get_account_nonce(signer_address).unwrap_or(0);
-            let old_transactions = self.stackerdb.get_current_transactions()?;
+            let old_transactions = self.stackerdb_manager.get_current_transactions()?;
             // Check if we have an existing vote transaction for the same round and reward cycle
             for transaction in old_transactions.iter() {
                 // We should not consider other signer transactions and should ignore invalid transaction versions
@@ -1635,7 +1634,7 @@ trait SignerStateStorage {
     ) -> Result<Option<Vec<u8>>, PersistenceError>;
 }
 
-impl SignerStateStorage for &mut StackerDB {
+impl SignerStateStorage for &mut StackerDBManager {
     type IdType = SignerSlotID;
 
     fn get_encrypted_signer_state(
