@@ -345,9 +345,13 @@ pub fn read_and_sign_block_proposal(
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let reward_cycle = burnchain
-        .block_height_to_reward_cycle(tip.block_height)
-        .unwrap();
+
+    let reward_set = sortdb
+        .get_preprocessed_reward_set_of(&tip.sortition_id)
+        .expect("Failed to get reward cycle info")
+        .expect("Failed to get reward cycle info")
+        .known_selected_anchor_block_owned()
+        .expect("Expected a reward set");
 
     let mut proposed_block = get_latest_block_proposal(conf, &sortdb)?;
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
@@ -364,9 +368,7 @@ pub fn read_and_sign_block_proposal(
         "signer_sig_hash" => &signer_sig_hash.to_hex(),
     );
 
-    signers
-        .clone()
-        .sign_nakamoto_block(&mut proposed_block, reward_cycle);
+    signers.sign_block_with_reward_set(&mut proposed_block, &reward_set);
 
     channel
         .send(proposed_block.header.signer_signature)
@@ -562,7 +564,7 @@ pub fn boot_to_epoch_3(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    self_signing: Option<&TestSigners>,
+    self_signing: &mut Option<&mut TestSigners>,
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
@@ -630,6 +632,11 @@ pub fn boot_to_epoch_3(
             ],
         );
         submit_tx(&http_origin, &stacking_tx);
+    }
+
+    // Update TestSigner with `signer_sks` if self-signing
+    if let Some(ref mut signers) = self_signing {
+        signers.signer_keys = signer_sks.to_vec();
     }
 
     let prepare_phase_start = btc_regtest_controller
@@ -982,7 +989,6 @@ fn simple_neon_integration() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -998,6 +1004,7 @@ fn simple_neon_integration() {
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
@@ -1038,7 +1045,7 @@ fn simple_neon_integration() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -1221,7 +1228,6 @@ fn mine_multiple_per_tenure_integration() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -1277,12 +1283,13 @@ fn mine_multiple_per_tenure_integration() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -1404,7 +1411,6 @@ fn correct_burn_outs() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.pox_reward_length = Some(10);
     naka_conf.burnchain.pox_prepare_length = Some(3);
@@ -1440,6 +1446,8 @@ fn correct_burn_outs() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
+
+    let signers = TestSigners::new(vec![sender_signer_sk]);
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -1769,7 +1777,6 @@ fn block_proposal_api_endpoint() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.block_proposal_token = Some(password.clone());
@@ -1810,13 +1817,14 @@ fn block_proposal_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -2131,7 +2139,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -2151,6 +2158,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
+
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -2185,7 +2194,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -2267,12 +2276,13 @@ fn vote_for_aggregate_key_burn_op() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let signer_sk = Secp256k1PrivateKey::new();
     let signer_addr = tests::to_addr(&signer_sk);
+
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -2313,7 +2323,7 @@ fn vote_for_aggregate_key_burn_op() {
         &blocks_processed,
         &[stacker_sk],
         &[signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -2512,13 +2522,13 @@ fn follower_bootup() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -2573,7 +2583,7 @@ fn follower_bootup() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -2768,7 +2778,6 @@ fn stack_stx_burn_op_integration_test() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.satoshis_per_byte = 2;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -2778,6 +2787,8 @@ fn stack_stx_burn_op_integration_test() {
 
     let signer_sk_2 = Secp256k1PrivateKey::new();
     let signer_addr_2 = tests::to_addr(&signer_sk_2);
+
+    let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -2819,7 +2830,7 @@ fn stack_stx_burn_op_integration_test() {
         &blocks_processed,
         &[stacker_sk],
         &[signer_sk_1],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
@@ -3203,7 +3214,6 @@ fn forked_tenure_is_ignored() {
         return;
     }
 
-    let signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(10);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -3217,6 +3227,7 @@ fn forked_tenure_is_ignored() {
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -3259,7 +3270,7 @@ fn forked_tenure_is_ignored() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 

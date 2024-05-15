@@ -90,7 +90,7 @@ impl NakamotoDownloadStateMachine {
 fn test_nakamoto_tenure_downloader() {
     let ch = ConsensusHash([0x11; 20]);
     let private_key = StacksPrivateKey::new();
-    let mut test_signers = TestSigners::default();
+    let mut test_signers = TestSigners::new(vec![]);
 
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
 
@@ -352,7 +352,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
     assert_eq!(tip.block_height, 51);
 
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
 
     let naddr = NeighborAddress {
         addrbytes: PeerAddress([0xff; 16]),
@@ -1090,7 +1090,7 @@ fn test_make_tenure_downloaders() {
 
     assert_eq!(tip.block_height, 51);
 
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
     let agg_pubkeys = peer.network.aggregate_public_keys.clone();
 
     // test load_wanted_tenures()

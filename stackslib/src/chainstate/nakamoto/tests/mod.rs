@@ -155,7 +155,7 @@ fn codec_nakamoto_header() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
         signer_bitvec: BitVec::zeros(8).unwrap(),
     };
 
@@ -179,12 +179,13 @@ fn codec_nakamoto_header() {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, // stacker signature (mocked)
-        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
-        0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16,
-        0xf8, 0x17, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, // signatures length
+        0x00, 0x00, 0x00, 0x01, // stacker signature (mocked)
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01,
     ];
 
     let signer_bitvec_serialization = "00080000000100";
@@ -753,6 +754,11 @@ pub fn test_load_store_update_nakamoto_blocks() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
+    let header_signatures = vec![
+        MessageSignature::from_bytes(&[0x01; 65]).unwrap(),
+        MessageSignature::from_bytes(&[0x02; 65]).unwrap(),
+    ];
+
     let nakamoto_header = NakamotoBlockHeader {
         version: 1,
         chain_length: 457,
@@ -762,7 +768,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: header_signatures.clone(),
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -1037,13 +1043,16 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     // can load Nakamoto block, but only the Nakamoto block
     let nakamoto_blocks_db = chainstate.nakamoto_blocks_db();
+    let first_nakamoto_block = nakamoto_blocks_db
+        .get_nakamoto_block(&nakamoto_header.block_id())
+        .unwrap()
+        .unwrap()
+        .0;
+    assert_eq!(first_nakamoto_block, nakamoto_block,);
+    // Double check that the signatures match
     assert_eq!(
-        nakamoto_blocks_db
-            .get_nakamoto_block(&nakamoto_header.block_id())
-            .unwrap()
-            .unwrap()
-            .0,
-        nakamoto_block
+        first_nakamoto_block.header.signer_signature,
+        header_signatures
     );
     assert_eq!(
         nakamoto_blocks_db
@@ -1675,8 +1684,7 @@ fn make_fork_run_with_arrivals(
 /// Tests that getting the highest nakamoto tenure works in the presence of forks
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
@@ -1824,8 +1832,7 @@ pub fn test_get_highest_nakamoto_tenure() {
 /// to have slot i in subsequent sortitions.
 #[test]
 fn test_make_miners_stackerdb_config() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],

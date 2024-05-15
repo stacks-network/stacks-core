@@ -90,13 +90,13 @@ pub struct NakamotoBootPlan {
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
-        let test_signers = TestSigners::default();
+        let (test_signers, test_stackers) = TestStacker::common_signing_set();
         Self {
             test_name: test_name.to_string(),
             pox_constants: TestPeerConfig::default().burnchain.pox_constants,
             private_key: StacksPrivateKey::from_seed(&[2]),
             initial_balances: vec![],
-            test_stackers: TestStacker::common_signing_set(&test_signers),
+            test_stackers,
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,

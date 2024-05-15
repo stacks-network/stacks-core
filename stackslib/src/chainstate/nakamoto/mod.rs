@@ -336,14 +336,11 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let signer_signature: SerdeValue = row.get_unwrap("signer_signature");
         let signer_signature = signer_signature
             .as_array()
-            .map(|values| {
-                values
-                    .iter()
-                    .cloned()
-                    .map(serde_json::from_value::<MessageSignature>)
-                    .collect::<Result<Vec<_>, serde_json::Error>>()
-            })
-            .ok_or_else(|| DBError::Corruption)??;
+            .ok_or(DBError::Corruption)?
+            .iter()
+            .cloned()
+            .map(serde_json::from_value::<MessageSignature>)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -1852,9 +1849,17 @@ impl NakamotoChainState {
 
         // TODO: epoch gate to verify signatures vec
         if let Err(e) = block.header.verify_signer_signatures(&reward_set) {
+            let reward_set_keys = reward_set
+                .clone()
+                .signers
+                .unwrap()
+                .iter()
+                .map(|s| to_hex(&s.signing_key))
+                .collect::<Vec<_>>();
             warn!("Received block, but the signer signatures are invalid";
                   "block_id" => %block.block_id(),
-                  "error" => ?e
+                  "error" => ?e,
+                  "signer_keys" => ?reward_set_keys
             );
             let msg = format!("Received block, but the signer signatures are invalid");
             return Err(ChainstateError::InvalidStacksBlock(msg));

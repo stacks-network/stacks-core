@@ -30,9 +30,8 @@ use stacks::chainstate::stacks::boot::{SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOT
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
-    StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
-    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
-    TransactionVersion,
+    StacksPrivateKey, StacksTransaction, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;

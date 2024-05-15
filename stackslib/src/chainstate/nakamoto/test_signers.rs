@@ -19,7 +19,8 @@ use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use clarity::util::hash::MerkleHashFunc;
+use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
@@ -36,6 +37,7 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use wsts::curve::point::Point;
 use wsts::traits::Aggregator;
 
+use self::boot::RewardSet;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
@@ -138,26 +140,178 @@ impl Default for TestSigners {
 }
 
 impl TestSigners {
-    // TODO: sign using vec of signatures
+    /// Generate TestSigners using a list of signer keys
+    pub fn new(signer_keys: Vec<Secp256k1PrivateKey>) -> Self {
+        TestSigners::default_with_signers(signer_keys)
+    }
+
+    /// Internal function to generate aggregate key information
+    fn default_with_signers(signer_keys: Vec<Secp256k1PrivateKey>) -> Self {
+        let mut rng = rand_core::OsRng::default();
+        let num_keys = 10;
+        let threshold = 7;
+        let party_key_ids: Vec<Vec<u32>> =
+            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
+        let num_parties = party_key_ids.len().try_into().unwrap();
+
+        // Create the parties
+        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
+            .iter()
+            .enumerate()
+            .map(|(pid, pkids)| {
+                wsts::v2::Party::new(
+                    pid.try_into().unwrap(),
+                    pkids,
+                    num_parties,
+                    num_keys,
+                    threshold,
+                    &mut rng,
+                )
+            })
+            .collect();
+
+        // Generate an aggregate public key
+        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
+            Ok(poly_commitments) => poly_commitments,
+            Err(secret_errors) => {
+                panic!("Got secret errors from DKG: {:?}", secret_errors);
+            }
+        };
+        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
+        sig_aggregator
+            .init(&poly_commitments)
+            .expect("aggregator init failed");
+        let aggregate_public_key = sig_aggregator.poly[0];
+        Self {
+            signer_parties,
+            aggregate_public_key,
+            poly_commitments,
+            num_keys,
+            threshold,
+            party_key_ids,
+            cycle: 0,
+            signer_keys,
+        }
+    }
+
+    /// Sign a Nakamoto block using [`Self::signer_keys`].
+    ///
+    /// N.B. If any of [`Self::signer_keys`] are not in the reward set, the resulting
+    /// signatures will be invalid. Use [`Self::sign_block_with_reward_set()`] to ensure
+    /// that any signer keys not in the reward set are not included.
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock, cycle: u64) {
         // Update the aggregate public key if the cycle has changed
         if self.cycle != cycle {
             self.generate_aggregate_key(cycle);
         }
-        let msg = block.header.signer_signature_hash().0;
-        let signer_signature = self
-            .signer_keys
-            .iter()
-            .map(|key| key.sign(&msg).unwrap())
-            .collect::<Vec<MessageSignature>>();
+
+        // TODO: epoch gate for aggregated signatures
+        // let signer_signature = self.sign_block_with_aggregate_key(&block);
+
+        let signer_signature = self.generate_block_signatures(&block);
 
         test_debug!(
-            "Signed Nakamoto block {} with {} (rc {})",
+            "Signed Nakamoto block {} with {} signatures (rc {})",
             block.block_id(),
-            &self.aggregate_public_key,
+            signer_signature.len(),
             cycle
         );
         block.header.signer_signature = signer_signature;
+    }
+
+    /// Sign a NakamotoBlock and maintain the order
+    /// of the reward set signers in the resulting signatures.
+    ///
+    /// If any of [`Self::signer_keys`] are not in the reward set, their signatures
+    /// will be ignored.
+    pub fn sign_block_with_reward_set(&self, block: &mut NakamotoBlock, reward_set: &RewardSet) {
+        let signatures = self.generate_block_signatures(block);
+        let reordered_signatures = self.reorder_signatures(signatures, reward_set);
+        block.header.signer_signature = reordered_signatures;
+    }
+
+    /// Sign a Nakamoto block and generate a vec of signatures
+    fn generate_block_signatures(&self, block: &NakamotoBlock) -> Vec<MessageSignature> {
+        let msg = block.header.signer_signature_hash().0;
+        self.signer_keys
+            .iter()
+            .map(|key| key.sign(&msg).unwrap())
+            .collect::<Vec<MessageSignature>>()
+    }
+
+    fn sign_block_with_aggregate_key(&mut self, block: &NakamotoBlock) -> ThresholdSignature {
+        let mut rng = rand_core::OsRng::default();
+        let msg = block.header.signer_signature_hash().0;
+        let (nonces, sig_shares, key_ids) =
+            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
+
+        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
+        sig_aggregator
+            .init(&self.poly_commitments)
+            .expect("aggregator init failed");
+        let signature = sig_aggregator
+            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
+            .expect("aggregator sig failed");
+        ThresholdSignature(signature)
+    }
+
+    /// Reorder a list of signatures to match the order of the reward set.
+    pub fn reorder_signatures(
+        &self,
+        signatures: Vec<MessageSignature>,
+        reward_set: &RewardSet,
+    ) -> Vec<MessageSignature> {
+        let test_signer_keys = &self
+            .signer_keys
+            .iter()
+            .cloned()
+            .map(|key| Secp256k1PublicKey::from_private(&key).to_bytes_compressed())
+            .collect::<Vec<_>>();
+
+        let reward_set_keys = &reward_set
+            .clone()
+            .signers
+            .unwrap()
+            .iter()
+            .map(|s| s.signing_key.to_vec())
+            .collect::<Vec<_>>();
+
+        let signature_keys_map = test_signer_keys
+            .iter()
+            .cloned()
+            .zip(signatures.iter().cloned())
+            .collect::<HashMap<_, _>>();
+
+        let mut reordered_signatures = Vec::with_capacity(reward_set_keys.len());
+
+        let mut missing_keys = 0;
+
+        for key in reward_set_keys {
+            if let Some(signature) = signature_keys_map.get(key) {
+                reordered_signatures.push(signature.clone());
+            } else {
+                missing_keys += 1;
+            }
+        }
+        if missing_keys > 0 {
+            warn!(
+                "TestSigners: {} keys are in the reward set but not in signer_keys",
+                missing_keys
+            );
+        }
+
+        reordered_signatures
+    }
+
+    // Sort [`Self::signer_keys`] by their compressed public key
+    pub fn sorted_signer_keys(&self) -> Vec<Secp256k1PrivateKey> {
+        let mut keys = self.signer_keys.clone();
+        keys.sort_by(|a, b| {
+            let a = Secp256k1PublicKey::from_private(a).to_bytes_compressed();
+            let b = Secp256k1PublicKey::from_private(b).to_bytes_compressed();
+            a.cmp(&b)
+        });
+        keys
     }
 
     // Generate and assign a new aggregate public key

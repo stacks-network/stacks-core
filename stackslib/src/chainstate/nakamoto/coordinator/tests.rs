@@ -426,8 +426,7 @@ fn replay_reward_cycle(
 /// Mine a single Nakamoto tenure with a single Nakamoto block
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
@@ -491,8 +490,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -617,8 +615,7 @@ fn test_nakamoto_chainstate_getters() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1126,8 +1123,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1527,8 +1523,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1865,8 +1860,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],

@@ -738,11 +738,12 @@ impl Relayer {
         // };
 
         // TODO: epoch gate to use signatures vec
-        let tip = sort_handle.tip();
+        let tip = block_sn.sortition_id;
 
         let reward_info = match sortdb.get_preprocessed_reward_set_of(&tip) {
             Ok(Some(x)) => x,
             Ok(None) => {
+                error!("No RewardCycleInfo found for tip {}", tip);
                 return Err(chainstate_error::PoxNoRewardCycle);
             }
             Err(e) => {
