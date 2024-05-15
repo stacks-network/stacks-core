@@ -1242,17 +1242,103 @@ fn test_sync_inv_diagnose_nack() {
 }
 
 #[test]
+fn test_inv_sync_start_reward_cycle() {
+    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    peer_1_config.connection_opts.inv_reward_cycles = 0;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
+    for i in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let _ = peer_1.step();
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 7);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 1;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 7);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 2;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 6);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 3;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 5);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 300;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+    assert_eq!(block_scan_start, 0);
+}
+
+#[test]
+fn test_inv_sync_check_peer_epoch2x_synced() {
+    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    peer_1_config.connection_opts.inv_reward_cycles = 0;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
+    for i in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let _ = peer_1.step();
+    let tip_rc = peer_1
+        .network
+        .burnchain
+        .block_height_to_reward_cycle(peer_1.network.burnchain_tip.block_height)
+        .unwrap();
+    assert!(tip_rc > 0);
+
+    let pox_rc = peer_1.network.pox_id.num_inventory_reward_cycles() as u64;
+
+    assert!(peer_1.network.check_peer_epoch2x_synced(true, tip_rc));
+    assert!(peer_1.network.check_peer_epoch2x_synced(true, tip_rc + 1));
+    assert!(!peer_1.network.check_peer_epoch2x_synced(true, tip_rc - 1));
+
+    assert!(peer_1.network.check_peer_epoch2x_synced(false, pox_rc));
+    assert!(peer_1.network.check_peer_epoch2x_synced(false, pox_rc + 1));
+    assert!(!peer_1.network.check_peer_epoch2x_synced(false, pox_rc - 1));
+}
+
+#[test]
 #[ignore]
 fn test_sync_inv_2_peers_plain() {
     with_timeout(600, || {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+        peer_1_config.connection_opts.inv_reward_cycles = 10;
+        peer_2_config.connection_opts.inv_reward_cycles = 10;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
         let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
@@ -1422,11 +1508,14 @@ fn test_sync_inv_2_peers_stale() {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+        peer_1_config.connection_opts.inv_reward_cycles = 10;
+        peer_2_config.connection_opts.inv_reward_cycles = 10;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
         let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
@@ -1525,13 +1614,16 @@ fn test_sync_inv_2_peers_unstable() {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-        let stable_confs = peer_1_config.burnchain.stable_confirmations as u64;
+        peer_1_config.connection_opts.inv_reward_cycles = 10;
+        peer_2_config.connection_opts.inv_reward_cycles = 10;
 
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+        let stable_confs = peer_1_config.burnchain.stable_confirmations as u64;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
         let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
 
@@ -1559,7 +1651,7 @@ fn test_sync_inv_2_peers_unstable() {
             } else {
                 // peer 1 diverges
                 test_debug!("Peer 1 diverges at {}", i + first_stacks_block_height);
-                peer_1.next_burnchain_block(vec![]);
+                peer_1.next_burnchain_block_diverge(vec![burn_ops[0].clone()]);
             }
         }
 
@@ -1734,14 +1826,17 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+        peer_1_config.connection_opts.inv_reward_cycles = 10;
+        peer_2_config.connection_opts.inv_reward_cycles = 10;
 
         let reward_cycle_length = peer_1_config.burnchain.pox_constants.reward_cycle_length as u64;
         assert_eq!(reward_cycle_length, 5);
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
         let num_blocks = (GETPOXINV_MAX_BITLEN * 3) as u64;
 

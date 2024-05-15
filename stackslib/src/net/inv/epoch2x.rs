@@ -52,10 +52,7 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 #[cfg(test)]
 pub const INV_SYNC_INTERVAL: u64 = 3;
 
-#[cfg(not(test))]
 pub const INV_REWARD_CYCLES: u64 = 2;
-#[cfg(test)]
-pub const INV_REWARD_CYCLES: u64 = 1;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {
@@ -1083,7 +1080,7 @@ impl InvState {
     pub fn cull_bad_peers(&mut self) -> HashSet<NeighborKey> {
         let mut bad_peers = HashSet::new();
         for (nk, stats) in self.block_stats.iter() {
-            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
+            if stats.status == NodeStatus::Broken {
                 debug!(
                     "Peer {:?} has node status {:?}; culling...",
                     nk, &stats.status
@@ -1756,7 +1753,7 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+    pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
         // start scaning at the reward cycle just before that.
         let am_rescan_rc = self
@@ -1783,19 +1780,18 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let start_reward_cycle = cmp::min(
-            stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
-        );
+        let start_reward_cycle =
+            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
 
         let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
 
         test_debug!(
-            "begin blocks inv scan at {} = min({},{},{})",
+            "begin blocks inv scan at {} = min({},{}) stacks_tip_am={} heaviest_am={}",
             rescan_rc,
-            stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
-            am_rescan_rc
+            am_rescan_rc,
+            start_reward_cycle,
+            &self.stacks_tip_affirmation_map,
+            &self.heaviest_affirmation_map
         );
         rescan_rc
     }
@@ -1814,12 +1810,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start_rc = self.get_block_scan_start(
-                    sortdb,
-                    self.burnchain
-                        .block_height_to_reward_cycle(stats.inv.get_block_height())
-                        .unwrap_or(0),
-                );
+                let scan_start_rc = self.get_block_scan_start(sortdb);
 
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
                 stats.reset_block_scan(scan_start_rc);
@@ -1876,12 +1867,7 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start_rc = self.get_block_scan_start(
-                    sortdb,
-                    self.burnchain
-                        .block_height_to_reward_cycle(stats.inv.get_block_height())
-                        .unwrap_or(0),
-                );
+                let scan_start_rc = self.get_block_scan_start(sortdb);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
                     &self.local_peer, nk, scan_start_rc, ibd
@@ -1982,12 +1968,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(
-                sortdb,
-                self.burnchain
-                    .block_height_to_reward_cycle(stats.inv.get_block_height())
-                    .unwrap_or(0),
-            );
+            let scan_start = self.get_block_scan_start(sortdb);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2368,7 +2349,6 @@ impl PeerNetwork {
                     .unwrap_or(network.burnchain.reward_cycle_to_block_height(
                         network.get_block_scan_start(
                             sortdb,
-                            network.pox_id.num_inventory_reward_cycles() as u64,
                         ),
                     ))
                     .saturating_sub(sortdb.first_block_height);
@@ -2455,6 +2435,10 @@ impl PeerNetwork {
                         good_sync_peers_set.insert(random_sync_peers_list[i].clone());
                     }
                 } else {
+                    // make *sure* this list isn't empty
+                    for bootstrap_peer in bootstrap_peers.iter() {
+                        good_sync_peers_set.insert(bootstrap_peer.clone());
+                    }
                     debug!(
                         "{:?}: in initial block download; only inv-sync with {} always-allowed peers",
                         &network.local_peer,
@@ -2661,8 +2645,32 @@ impl PeerNetwork {
         (done, throttled)
     }
 
+    /// Check to see if an epcoh2x peer has fully sync'ed.
+    /// (has crate visibility for testing)
+    pub(crate) fn check_peer_epoch2x_synced(
+        &self,
+        ibd: bool,
+        num_reward_cycles_synced: u64,
+    ) -> bool {
+        // either not in IBD, and we've sync'ed the highest reward cycle in the PoX vector,
+        // OR,
+        // in IBD, and we've sync'ed up to the highest sortition's reward cycle.
+        //
+        // The difference is that in the former case, the PoX inventory vector will be as long as
+        // the sortition history, but the number of reward cycles tracked by the inv state machine
+        // may be less when the node is booting up.  So, we preface that check by also checking
+        // that we're in steady-state mode (i.e. not IBD).
+        (!ibd && num_reward_cycles_synced >= self.pox_id.num_inventory_reward_cycles() as u64)
+            || (ibd
+                && num_reward_cycles_synced
+                    >= self
+                        .burnchain
+                        .block_height_to_reward_cycle(self.burnchain_tip.block_height)
+                        .expect("FATAL: sortition has no reward cycle"))
+    }
+
     /// Check to see if an always-allowed peer has performed an epoch 2.x inventory sync
-    fn check_always_allowed_peer_inv_sync_epoch2x(&self) -> bool {
+    fn check_always_allowed_peer_inv_sync_epoch2x(&self, ibd: bool) -> bool {
         // only count an inv_sync as passing if there's an always-allowed node
         // in our inv state
         let always_allowed: HashSet<_> =
@@ -2702,7 +2710,7 @@ impl PeerNetwork {
                 continue;
             }
 
-            if stats.inv.num_reward_cycles >= self.pox_id.num_inventory_reward_cycles() as u64 {
+            if self.check_peer_epoch2x_synced(ibd, stats.inv.num_reward_cycles) {
                 // we have fully sync'ed with an always-allowed peer
                 debug!(
                     "{:?}: Fully-sync'ed PoX inventory from {}",
@@ -2763,7 +2771,7 @@ impl PeerNetwork {
             return work_state;
         }
 
-        let finished_always_allowed_inv_sync = self.check_always_allowed_peer_inv_sync_epoch2x();
+        let finished_always_allowed_inv_sync = self.check_always_allowed_peer_inv_sync_epoch2x(ibd);
         if finished_always_allowed_inv_sync {
             debug!(
                 "{:?}: synchronized inventories with at least one always-allowed peer",

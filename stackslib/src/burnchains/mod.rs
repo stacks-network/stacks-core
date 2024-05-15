@@ -37,9 +37,11 @@ use self::bitcoin::{
     Error as btc_error,
 };
 use crate::chainstate::burn::distribution::BurnSamplePoint;
-use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, OUTPUTS_PER_COMMIT,
+};
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, Error as op_error, LeaderKeyRegisterOp,
+    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
@@ -646,6 +648,8 @@ pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
     pub accepted_ops: Vec<BlockstackOperationType>,
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
+    pub windowed_block_commits: Vec<Vec<LeaderBlockCommitOp>>,
+    pub windowed_missed_commits: Vec<Vec<MissedBlockCommit>>,
 }
 
 /// The burnchain block's state transition's ops:

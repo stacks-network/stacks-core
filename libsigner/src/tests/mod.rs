@@ -16,6 +16,7 @@
 
 mod http;
 
+use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -36,20 +37,20 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
-use crate::events::SignerEvent;
-use crate::messages::SignerMessage;
+use crate::events::{SignerEvent, SignerEventTrait};
+use crate::v1::messages::SignerMessage;
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
-struct SimpleRunLoop {
+struct SimpleRunLoop<T: SignerEventTrait> {
     poll_timeout: Duration,
-    events: Vec<SignerEvent>,
+    events: Vec<SignerEvent<T>>,
     max_events: usize,
 }
 
-impl SimpleRunLoop {
-    pub fn new(max_events: usize) -> SimpleRunLoop {
+impl<T: SignerEventTrait> SimpleRunLoop<T> {
+    pub fn new(max_events: usize) -> SimpleRunLoop<T> {
         SimpleRunLoop {
             poll_timeout: Duration::from_millis(100),
             events: vec![],
@@ -62,7 +63,7 @@ enum Command {
     Empty,
 }
 
-impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
+impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, Command, T> for SimpleRunLoop<T> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }
@@ -73,10 +74,10 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 
     fn run_one_pass(
         &mut self,
-        event: Option<SignerEvent>,
+        event: Option<SignerEvent<T>>,
         _cmd: Option<Command>,
-        _res: Sender<Vec<SignerEvent>>,
-    ) -> Option<Vec<SignerEvent>> {
+        _res: Sender<Vec<SignerEvent<T>>>,
+    ) -> Option<Vec<SignerEvent<T>>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
             self.events.push(event);
@@ -161,7 +162,7 @@ fn test_simple_signer() {
             .unwrap()
     });
 
-    let sent_events: Vec<SignerEvent> = chunks
+    let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
@@ -211,7 +212,7 @@ fn test_status_endpoint() {
     sleep_ms(3000);
     let accepted_events = running_signer.stop().unwrap();
 
-    let sent_events: Vec<SignerEvent> = vec![SignerEvent::StatusCheck];
+    let sent_events: Vec<SignerEvent<SignerMessage>> = vec![SignerEvent::StatusCheck];
 
     assert_eq!(sent_events, accepted_events);
     mock_stacks_node.join().unwrap();

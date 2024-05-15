@@ -17,7 +17,8 @@
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use hashbrown::HashMap;
-use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -28,9 +29,19 @@ use wsts::net::Packet;
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
 use crate::config::SignerConfig;
-use crate::signer::SignerSlotID;
+
+/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
+pub struct SignerSlotID(pub u32);
+
+impl std::fmt::Display for SignerSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// The StackerDB client for communicating with the .signers contract
+#[derive(Debug)]
 pub struct StackerDB {
     /// The stacker-db sessions for each signer set and message type.
     /// Maps message ID to the DB session.

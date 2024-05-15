@@ -26,7 +26,8 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::{BlockProposalSigners, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::v1::messages::SignerMessage;
+use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -319,7 +320,7 @@ pub fn get_latest_block_proposal(
             panic!("Expected a nonce request. Got {:?}", packet.msg);
         };
         let block_proposal =
-            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice())
+            BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice())
                 .expect("Failed to deserialize block proposal");
         block_proposal.block
     };
