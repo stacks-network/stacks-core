@@ -127,7 +127,7 @@ jobs:
       ## checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
 
       - name: Run network relay tests
         id: nettest
@@ -145,10 +145,10 @@ jobs:
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
       - name: Execute core contract unit tests with clarinet-sdk
         id: clarinet_unit_test
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version: 18.x
           cache: "npm"
@@ -174,7 +174,7 @@ jobs:
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
       - name: Execute core contract unit tests in Clarinet
         id: clarinet_unit_test_v1
         uses: docker://hirosystems/clarinet:1.7.1
