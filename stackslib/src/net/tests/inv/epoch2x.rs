@@ -1292,6 +1292,39 @@ fn test_inv_sync_start_reward_cycle() {
 }
 
 #[test]
+fn test_inv_sync_check_peer_epoch2x_synced() {
+    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    peer_1_config.connection_opts.inv_reward_cycles = 0;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let num_blocks = (GETPOXINV_MAX_BITLEN * 2) as u64;
+    for i in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let _ = peer_1.step();
+    let tip_rc = peer_1
+        .network
+        .burnchain
+        .block_height_to_reward_cycle(peer_1.network.burnchain_tip.block_height)
+        .unwrap();
+    assert!(tip_rc > 0);
+
+    let pox_rc = peer_1.network.pox_id.num_inventory_reward_cycles() as u64;
+
+    assert!(peer_1.network.check_peer_epoch2x_synced(true, tip_rc));
+    assert!(peer_1.network.check_peer_epoch2x_synced(true, tip_rc + 1));
+    assert!(!peer_1.network.check_peer_epoch2x_synced(true, tip_rc - 1));
+
+    assert!(peer_1.network.check_peer_epoch2x_synced(false, pox_rc));
+    assert!(peer_1.network.check_peer_epoch2x_synced(false, pox_rc + 1));
+    assert!(!peer_1.network.check_peer_epoch2x_synced(false, pox_rc - 1));
+}
+
+#[test]
 #[ignore]
 fn test_sync_inv_2_peers_plain() {
     with_timeout(600, || {

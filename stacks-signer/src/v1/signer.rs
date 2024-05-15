@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
@@ -26,10 +27,10 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::db::Error as DBError;
 use hashbrown::HashSet;
-use libsigner::{
-    BlockProposalSigners, BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerEvent,
-    SignerMessage,
+use libsigner::v1::messages::{
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
+use libsigner::{BlockProposal, SignerEvent};
 use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -38,7 +39,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
-use wsts::common::{MerkleRoot, Signature};
+use wsts::common::Signature;
 use wsts::curve::keys::PublicKey;
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
@@ -52,20 +53,12 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::traits::Signer as _;
 use wsts::v2;
 
-use crate::client::{ClientError, StackerDB, StacksClient};
+use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::coordinator::CoordinatorSelector;
-use crate::signerdb::SignerDb;
-
-/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
-pub struct SignerSlotID(pub u32);
-
-impl std::fmt::Display for SignerSlotID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+use crate::runloop::{RunLoopCommand, SignerCommand};
+use crate::v1::coordinator::CoordinatorSelector;
+use crate::v1::signerdb::SignerDb;
+use crate::Signer as SignerTrait;
 
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -86,8 +79,8 @@ pub struct BlockInfo {
     pub signed_over: bool,
 }
 
-impl From<BlockProposalSigners> for BlockInfo {
-    fn from(value: BlockProposalSigners) -> Self {
+impl From<BlockProposal> for BlockInfo {
+    fn from(value: BlockProposal) -> Self {
         Self {
             block: value.block,
             burn_block_height: value.burn_height,
@@ -101,10 +94,7 @@ impl From<BlockProposalSigners> for BlockInfo {
 }
 impl BlockInfo {
     /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_with_request(
-        block_proposal: BlockProposalSigners,
-        nonce_request: NonceRequest,
-    ) -> Self {
+    pub fn new_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
         let mut block_info = BlockInfo::from(block_proposal);
         block_info.nonce_request = Some(nonce_request);
         block_info.signed_over = true;
@@ -115,22 +105,6 @@ impl BlockInfo {
     pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
         self.block.header.signer_signature_hash()
     }
-}
-
-/// Which signer operation to perform
-#[derive(PartialEq, Clone, Debug)]
-pub enum Command {
-    /// Generate a DKG aggregate public key
-    Dkg,
-    /// Sign a message
-    Sign {
-        /// The block to sign over
-        block_proposal: BlockProposalSigners,
-        /// Whether to make a taproot signature
-        is_taproot: bool,
-        /// Taproot merkle root
-        merkle_root: Option<MerkleRoot>,
-    },
 }
 
 /// The specific operations that a signer can perform
@@ -154,6 +128,7 @@ pub enum State {
 }
 
 /// The stacks signer registered for the reward cycle
+#[derive(Debug)]
 pub struct Signer {
     /// The coordinator for inbound messages for a specific reward cycle
     pub coordinator: FireCoordinator<v2::Aggregator>,
@@ -162,7 +137,7 @@ pub struct Signer {
     /// the state of the signer
     pub state: State,
     /// Received Commands that need to be processed
-    pub commands: VecDeque<Command>,
+    pub commands: VecDeque<SignerCommand>,
     /// The stackerdb client
     pub stackerdb: StackerDB,
     /// Whether the signer is a mainnet signer or not
@@ -208,7 +183,175 @@ impl std::fmt::Display for Signer {
     }
 }
 
+impl SignerTrait<SignerMessage> for Signer {
+    /// Create a new signer from the given configuration
+    fn new(config: SignerConfig) -> Self {
+        Self::from(config)
+    }
+    /// Refresh the next signer data from the given configuration data
+    fn update_next_signer_data(&mut self, new_signer_config: &SignerConfig) {
+        self.next_signer_addresses = new_signer_config
+            .signer_entries
+            .signer_ids
+            .keys()
+            .copied()
+            .collect();
+        self.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
+    }
+    /// Return the reward cycle of the signer
+    fn reward_cycle(&self) -> u64 {
+        self.reward_cycle
+    }
+
+    /// Process the event
+    fn process_event(
+        &mut self,
+        stacks_client: &StacksClient,
+        event: Option<&SignerEvent<SignerMessage>>,
+        res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
+    ) {
+        let event_parity = match event {
+            Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
+            // Block proposal events do have reward cycles, but each proposal has its own cycle,
+            //  and the vec could be heterogenous, so, don't differentiate.
+            Some(SignerEvent::MinerMessages(..))
+            | Some(SignerEvent::NewBurnBlock(_))
+            | Some(SignerEvent::StatusCheck)
+            | None => None,
+            Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
+        };
+        let other_signer_parity = (self.reward_cycle + 1) % 2;
+        if event_parity == Some(other_signer_parity) {
+            return;
+        }
+        if self.approved_aggregate_public_key.is_none() {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
+                error!("{self}: failed to refresh DKG: {e}");
+            }
+        }
+        self.refresh_coordinator();
+        if self.approved_aggregate_public_key.is_none() {
+            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
+                error!("{self}: failed to refresh DKG: {e}");
+            }
+        }
+        self.refresh_coordinator();
+        debug!("{self}: Processing event: {event:?}");
+        match event {
+            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
+                debug!("{self}: Received a block proposal result from the stacks node...");
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    res,
+                    current_reward_cycle,
+                )
+            }
+            Some(SignerEvent::SignerMessages(signer_set, messages)) => {
+                if *signer_set != self.stackerdb.get_signer_set() {
+                    debug!("{self}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...");
+                    return;
+                }
+                debug!(
+                    "{self}: Received {} messages from the other signers...",
+                    messages.len()
+                );
+                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
+            }
+            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
+                let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
+                    .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
+                self.miner_key = Some(miner_key);
+                if current_reward_cycle != self.reward_cycle {
+                    // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
+                    debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");
+                    return;
+                }
+                debug!(
+                    "{self}: Received {} messages from the miner",
+                    messages.len();
+                    "miner_key" => ?miner_key,
+                );
+                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
+            }
+            Some(SignerEvent::StatusCheck) => {
+                debug!("{self}: Received a status check event.")
+            }
+            Some(SignerEvent::NewBurnBlock(height)) => {
+                debug!("{self}: Receved a new burn block event for block height {height}")
+            }
+            None => {
+                // No event. Do nothing.
+                debug!("{self}: No event received")
+            }
+        }
+    }
+
+    fn process_command(
+        &mut self,
+        stacks_client: &StacksClient,
+        current_reward_cycle: u64,
+        command: Option<RunLoopCommand>,
+    ) {
+        if let Some(command) = command {
+            let reward_cycle = command.reward_cycle;
+            if self.reward_cycle != reward_cycle {
+                warn!(
+                    "{self}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
+                );
+            } else {
+                info!(
+                    "{self}: Queuing an external runloop command ({:?}): {command:?}",
+                    self.state_machine.public_keys.signers.get(&self.signer_id)
+                );
+                self.commands.push_back(command.command);
+            }
+        }
+        self.process_next_command(stacks_client, current_reward_cycle);
+    }
+}
+
 impl Signer {
+    /// Attempt to process the next command in the queue, and update state accordingly
+    fn process_next_command(&mut self, stacks_client: &StacksClient, current_reward_cycle: u64) {
+        match &self.state {
+            State::Uninitialized => {
+                // We cannot process any commands until we have restored our state
+                warn!("{self}: Cannot process commands until state is restored. Waiting...");
+            }
+            State::Idle => {
+                let Some(command) = self.commands.front() else {
+                    debug!("{self}: Nothing to process. Waiting for command...");
+                    return;
+                };
+                let coordinator_id = if matches!(command, SignerCommand::Dkg) {
+                    // We cannot execute a DKG command if we are not the coordinator
+                    Some(self.get_coordinator_dkg().0)
+                } else {
+                    self.get_coordinator_sign(current_reward_cycle).0
+                };
+                if coordinator_id != Some(self.signer_id) {
+                    debug!(
+                                "{self}: Coordinator is {coordinator_id:?}. Will not process any commands...",
+                            );
+                    return;
+                }
+                let command = self
+                    .commands
+                    .pop_front()
+                    .expect("BUG: Already asserted that the command queue was not empty");
+                self.execute_command(stacks_client, &command);
+            }
+            State::OperationInProgress(op) => {
+                // We cannot execute the next command until the current one is finished...
+                debug!(
+                    "{self}: Waiting for {op:?} operation to finish. Coordinator state = {:?}",
+                    self.coordinator.state
+                );
+            }
+        }
+    }
     /// Return the current coordinator.
     /// If the current reward cycle is the active reward cycle, this is the miner,
     /// so the first element of the tuple will be None (because the miner does not have a signer index).
@@ -410,9 +553,9 @@ impl Signer {
     }
 
     /// Execute the given command and update state accordingly
-    fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
+    fn execute_command(&mut self, stacks_client: &StacksClient, command: &SignerCommand) {
         match command {
-            Command::Dkg => {
+            SignerCommand::Dkg => {
                 crate::monitoring::increment_commands_processed("dkg");
                 if self.approved_aggregate_public_key.is_some() {
                     debug!("Reward cycle #{} Signer #{}: Already have an aggregate key. Ignoring DKG command.", self.reward_cycle, self.signer_id);
@@ -445,7 +588,7 @@ impl Signer {
                 }
                 self.update_operation(Operation::Dkg);
             }
-            Command::Sign {
+            SignerCommand::Sign {
                 block_proposal,
                 is_taproot,
                 merkle_root,
@@ -492,50 +635,6 @@ impl Signer {
                     }
                 }
                 self.update_operation(Operation::Sign);
-            }
-        }
-    }
-
-    /// Attempt to process the next command in the queue, and update state accordingly
-    pub fn process_next_command(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-    ) {
-        match &self.state {
-            State::Uninitialized => {
-                // We cannot process any commands until we have restored our state
-                warn!("{self}: Cannot process commands until state is restored. Waiting...");
-            }
-            State::Idle => {
-                let Some(command) = self.commands.front() else {
-                    debug!("{self}: Nothing to process. Waiting for command...");
-                    return;
-                };
-                let coordinator_id = if matches!(command, Command::Dkg) {
-                    // We cannot execute a DKG command if we are not the coordinator
-                    Some(self.get_coordinator_dkg().0)
-                } else {
-                    self.get_coordinator_sign(current_reward_cycle).0
-                };
-                if coordinator_id != Some(self.signer_id) {
-                    debug!(
-                        "{self}: Coordinator is {coordinator_id:?}. Will not process any commands...",
-                    );
-                    return;
-                }
-                let command = self
-                    .commands
-                    .pop_front()
-                    .expect("BUG: Already asserted that the command queue was not empty");
-                self.execute_command(stacks_client, &command);
-            }
-            State::OperationInProgress(op) => {
-                // We cannot execute the next command until the current one is finished...
-                debug!(
-                    "{self}: Waiting for {op:?} operation to finish. Coordinator state = {:?}",
-                    self.coordinator.state
-                );
             }
         }
     }
@@ -810,7 +909,7 @@ impl Signer {
         nonce_request: &mut NonceRequest,
     ) -> Option<BlockInfo> {
         let Some(block_proposal) =
-            BlockProposalSigners::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
+            BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice()).ok()
         else {
             // We currently reject anything that is not a valid block proposal
             warn!("{self}: Received a nonce request for an unknown message stream. Reject it.",);
@@ -1400,9 +1499,9 @@ impl Signer {
         if self.approved_aggregate_public_key.is_some() {
             return Ok(());
         }
-        if self.commands.front() != Some(&Command::Dkg) {
+        if self.commands.front() != Some(&SignerCommand::Dkg) {
             info!("{self} is the current coordinator and must trigger DKG. Queuing DKG command...");
-            self.commands.push_front(Command::Dkg);
+            self.commands.push_front(SignerCommand::Dkg);
         } else {
             debug!("{self}: DKG command already queued...");
         }
@@ -1458,7 +1557,7 @@ impl Signer {
     pub fn should_queue_dkg(&mut self, stacks_client: &StacksClient) -> Result<bool, ClientError> {
         if self.state != State::Idle
             || self.signer_id != self.get_coordinator_dkg().0
-            || self.commands.front() == Some(&Command::Dkg)
+            || self.commands.front() == Some(&SignerCommand::Dkg)
         {
             // We are not the coordinator, we are in the middle of an operation, or we have already queued DKG. Do not attempt to queue DKG
             return Ok(false);
@@ -1555,68 +1654,6 @@ impl Signer {
             }
         }
         Ok(true)
-    }
-
-    /// Process the event
-    pub fn process_event(
-        &mut self,
-        stacks_client: &StacksClient,
-        event: Option<&SignerEvent>,
-        res: Sender<Vec<OperationResult>>,
-        current_reward_cycle: u64,
-    ) -> Result<(), ClientError> {
-        debug!("{self}: Processing event: {event:?}");
-        match event {
-            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
-                debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(
-                    stacks_client,
-                    block_validate_response,
-                    res,
-                    current_reward_cycle,
-                )
-            }
-            Some(SignerEvent::SignerMessages(signer_set, messages)) => {
-                if *signer_set != self.stackerdb.get_signer_set() {
-                    debug!("{self}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...");
-                    return Ok(());
-                }
-                debug!(
-                    "{self}: Received {} messages from the other signers...",
-                    messages.len()
-                );
-                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
-            }
-            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
-                if let Some(miner_key) = miner_key {
-                    let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
-                        .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
-                    self.miner_key = Some(miner_key);
-                };
-                if current_reward_cycle != self.reward_cycle {
-                    // There is not point in processing blocks if we are not the current reward cycle (we can never actually contribute to signing these blocks)
-                    debug!("{self}: Received a proposed block, but this signer's reward cycle is not the current one ({current_reward_cycle}). Ignoring...");
-                    return Ok(());
-                }
-                debug!(
-                    "{self}: Received {} messages from the miner",
-                    messages.len();
-                    "miner_key" => ?miner_key,
-                );
-                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
-            }
-            Some(SignerEvent::StatusCheck) => {
-                debug!("{self}: Received a status check event.")
-            }
-            Some(SignerEvent::NewBurnBlock(height)) => {
-                debug!("{self}: Receved a new burn block event for block height {height}")
-            }
-            None => {
-                // No event. Do nothing.
-                debug!("{self}: No event received")
-            }
-        }
-        Ok(())
     }
 }
 
