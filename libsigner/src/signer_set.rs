@@ -86,7 +86,7 @@ impl SignerEntries {
             weight_end = weight_start + entry.weight;
             let key_ids: HashSet<u32> = (weight_start..weight_end).collect();
             for key_id in key_ids.iter() {
-                wsts_key_ids.insert(*key_id, ecdsa_pk.clone());
+                wsts_key_ids.insert(*key_id, ecdsa_pk);
             }
             signer_key_ids.insert(signer_id, (weight_start..weight_end).collect());
             coordinator_key_ids.insert(signer_id, key_ids);
