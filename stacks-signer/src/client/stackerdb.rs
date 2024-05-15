@@ -41,15 +41,15 @@ impl std::fmt::Display for SignerSlotID {
 pub struct StackerDB<M: MessageSlotID + std::cmp::Eq> {
     /// The stacker-db sessions for each signer set and message type.
     /// Maps message ID to the DB session.
-    pub signers_message_stackerdb_sessions: HashMap<M, StackerDBSession>,
+    signers_message_stackerdb_sessions: HashMap<M, StackerDBSession>,
     /// The private key used in all stacks node communications
-    pub stacks_private_key: StacksPrivateKey,
+    stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
-    pub slot_versions: HashMap<M, HashMap<SignerSlotID, u32>>,
+    slot_versions: HashMap<M, HashMap<SignerSlotID, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
-    pub signer_slot_id: SignerSlotID,
+    signer_slot_id: SignerSlotID,
     /// The reward cycle of the connecting signer
-    pub reward_cycle: u64,
+    reward_cycle: u64,
 }
 
 impl<M: MessageSlotID> From<&SignerConfig> for StackerDB<M> {
@@ -213,8 +213,13 @@ impl<M: MessageSlotID> StackerDB<M> {
     }
 
     /// Retrieve the signer slot ID
-    pub fn get_signer_slot_id(&mut self) -> SignerSlotID {
+    pub fn get_signer_slot_id(&self) -> SignerSlotID {
         self.signer_slot_id
+    }
+
+    /// Get the session corresponding to the given message ID if it exists
+    pub fn get_session_mut(&mut self, msg_id: &M) -> Option<&mut StackerDBSession> {
+        self.signers_message_stackerdb_sessions.get_mut(msg_id)
     }
 }
 

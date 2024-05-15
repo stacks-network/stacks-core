@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// The stackerdb module for sending messages between signers and miners
+/// The stacker db module for communicating with the stackerdb contract
 pub(crate) mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;

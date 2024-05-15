@@ -115,8 +115,7 @@ impl StackerDBManager {
         for packet_slot in packet_slots {
             let session = self
                 .stackerdb
-                .signers_message_stackerdb_sessions
-                .get_mut(packet_slot)
+                .get_session_mut(packet_slot)
                 .ok_or(ClientError::NotConnected)?;
             let messages = StackerDB::get_messages(session, &slot_ids)?;
             for message in messages {
@@ -150,14 +149,13 @@ impl StackerDBManager {
 
     /// Get this signer's latest transactions from stackerdb
     pub fn get_current_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
-        let Some(transactions_session) = self
-            .stackerdb
-            .signers_message_stackerdb_sessions
-            .get_mut(&MessageSlotID::Transactions)
+        let signer_slot_id = self.get_signer_slot_id();
+        let Some(transactions_session) =
+            self.stackerdb.get_session_mut(&MessageSlotID::Transactions)
         else {
             return Err(ClientError::NotConnected);
         };
-        Self::get_transactions(transactions_session, &[self.stackerdb.signer_slot_id])
+        Self::get_transactions(transactions_session, &[signer_slot_id])
     }
 
     /// Get the latest signer transactions from signer ids for the next reward cycle
@@ -177,8 +175,7 @@ impl StackerDBManager {
         debug!("Getting the persisted encrypted state for signer {signer_id}");
         let Some(state_session) = self
             .stackerdb
-            .signers_message_stackerdb_sessions
-            .get_mut(&MessageSlotID::EncryptedSignerState)
+            .get_session_mut(&MessageSlotID::EncryptedSignerState)
         else {
             return Err(ClientError::NotConnected);
         };
@@ -221,8 +218,8 @@ impl StackerDBManager {
     }
 
     /// Retrieve the signer slot ID
-    pub fn get_signer_slot_id(&mut self) -> SignerSlotID {
-        self.stackerdb.signer_slot_id
+    pub fn get_signer_slot_id(&self) -> SignerSlotID {
+        self.stackerdb.get_signer_slot_id()
     }
 }
 
