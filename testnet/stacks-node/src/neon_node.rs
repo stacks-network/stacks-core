@@ -4171,7 +4171,7 @@ impl PeerThread {
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        let poll_timeout = config.get_poll_time();
 
         PeerThread {
             config,
