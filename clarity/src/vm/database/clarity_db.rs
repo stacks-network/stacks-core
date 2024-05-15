@@ -353,7 +353,7 @@ impl HeadersDB for NullHeadersDB {
 #[allow(clippy::panic)]
 impl BurnStateDB for NullBurnStateDB {
     fn get_tip_burn_block_height(&self) -> Option<u32> {
-        None
+        Some(0)
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {

@@ -165,11 +165,12 @@ impl MemoryEnvironmentGenerator {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
-        db.set_tenure_height(0).unwrap();
-        if epoch >= StacksEpochId::Epoch30 {
-            db.set_tenure_height(1).unwrap();
-        }
         db.commit().unwrap();
+        if epoch >= StacksEpochId::Epoch30 {
+            db.begin();
+            db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
         let mut owned_env = OwnedEnvironment::new(db, epoch);
         // start an initial transaction.
         owned_env.begin();
@@ -183,10 +184,12 @@ impl TopLevelMemoryEnvironmentGenerator {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
-        if epoch >= StacksEpochId::Epoch30 {
-            db.set_tenure_height(1).unwrap();
-        }
         db.commit().unwrap();
+        if epoch >= StacksEpochId::Epoch30 {
+            db.begin();
+            db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
         OwnedEnvironment::new(db, epoch)
     }
 }
