@@ -1257,7 +1257,7 @@ fn test_block_heights_across_versions() {
 /// Test passing a Clarity 3 contract using `stacks-block-height` and
 /// `tenure-height` as a trait into a Clarity 1 and Clarity 2 contract.
 #[test]
-fn test_block_heights_across_versions_traits() {
+fn test_block_heights_across_versions_traits_3_from_2() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
 
@@ -1393,6 +1393,150 @@ fn test_block_heights_across_versions_traits() {
             )
             .unwrap();
         assert_eq!(Value::okay(Value::UInt(20)).unwrap(), res2.0);
+    });
+}
+
+/// Test passing a Clarity 2 contract using `stacks-block-height` and
+/// `tenure-height` as a trait into a Clarity 3 contract.
+#[test]
+fn test_block_heights_across_versions_traits_2_from_3() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let contract_id_e2c1 = QualifiedContractIdentifier::local("epoch-2-clarity-1").unwrap();
+    let contract_id_e2c2 = QualifiedContractIdentifier::local("epoch-2-clarity-2").unwrap();
+    let contract_id_e3c3 = QualifiedContractIdentifier::local("epoch-3-clarity-3").unwrap();
+
+    let contract_e2c1_2 = r#"
+        (define-constant stacks-block-height u555)
+        (define-data-var tenure-height uint u222)
+        (define-public (get-int)
+            (ok (+ stacks-block-height (var-get tenure-height)))
+        )
+        "#;
+    let contract_e3c3 = format!(
+        r#"
+        (define-trait getter ((get-int () (response uint uint))))
+        (define-public (get-it (get-trait <getter>))
+            (contract-call? get-trait get-int)
+        )
+        "#
+    );
+
+    sim.execute_next_block(|_env| {});
+
+    // Deploy the Clarity 1 contract in the next block
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            // Analyze the Clarity 1 contract
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_id_e2c1,
+                    ClarityVersion::Clarity1,
+                    &contract_e2c1_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the Clarity 1 contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_id_e2c1,
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    contract_e2c1_2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    // Deploy the Clarity 2 contract in the next block
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            // Analyze the Clarity 2 contract
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_id_e2c2,
+                    ClarityVersion::Clarity2,
+                    &contract_e2c1_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the Clarity 2 contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_id_e2c2,
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    contract_e2c1_2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    // Advance to epoch 3
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    // Deploy the Clarity 3 contract in the next block
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            // Analyze the Clarity 3 contract
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_id_e3c3,
+                    ClarityVersion::Clarity3,
+                    &contract_e3c3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the Clarity 3 contract
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_id_e3c3,
+                    ClarityVersion::Clarity3,
+                    &ast,
+                    &contract_e3c3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    // Call the Clarity 3 contract, passing the Clarity 1 and 2 contracts
+    sim.execute_next_block_as_conn(|conn| {
+        let mut tx = conn.start_transaction_processing();
+        let res1 = tx
+            .run_contract_call(
+                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                None,
+                &contract_id_e3c3,
+                "get-it",
+                &[Value::Principal(contract_id_e2c1.clone().into())],
+                |_, _| false,
+            )
+            .unwrap();
+        assert_eq!(Value::okay(Value::UInt(777)).unwrap(), res1.0);
+
+        let res2 = tx
+            .run_contract_call(
+                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                None,
+                &contract_id_e3c3,
+                "get-it",
+                &[Value::Principal(contract_id_e2c2.clone().into())],
+                |_, _| false,
+            )
+            .unwrap();
+        assert_eq!(Value::okay(Value::UInt(777)).unwrap(), res2.0);
     });
 }
 
