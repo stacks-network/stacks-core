@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -20,8 +21,9 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
-use libsigner::{BlockProposalSigners, SignerEntries, SignerEvent, SignerRunLoop};
+use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
@@ -40,7 +42,7 @@ pub enum SignerCommand {
     /// Sign a message
     Sign {
         /// The block to sign over
-        block_proposal: BlockProposalSigners,
+        block_proposal: BlockProposal,
         /// Whether to make a taproot signature
         is_taproot: bool,
         /// Taproot merkle root
@@ -118,7 +120,11 @@ impl RewardCycleInfo {
 }
 
 /// The runloop for the stacks signer
-pub struct RunLoop<Signer: SignerTrait> {
+pub struct RunLoop<Signer, T>
+where
+    Signer: SignerTrait<T>,
+    T: StacksMessageCodec + Clone + Send + Debug,
+{
     /// Configuration info
     pub config: GlobalConfig,
     /// The stacks node client
@@ -132,9 +138,11 @@ pub struct RunLoop<Signer: SignerTrait> {
     pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
+    /// Phantom data for the message codec
+    _phantom_data: std::marker::PhantomData<T>,
 }
 
-impl<Signer: SignerTrait> RunLoop<Signer> {
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
@@ -145,6 +153,7 @@ impl<Signer: SignerTrait> RunLoop<Signer> {
             state: State::Uninitialized,
             commands: VecDeque::new(),
             current_reward_cycle_info: None,
+            _phantom_data: std::marker::PhantomData,
         }
     }
     /// Get the registered signers for a specific reward cycle
@@ -357,7 +366,9 @@ impl<Signer: SignerTrait> RunLoop<Signer> {
     }
 }
 
-impl<Signer: SignerTrait> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop<Signer> {
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
+    SignerRunLoop<Vec<OperationResult>, RunLoopCommand, T> for RunLoop<Signer, T>
+{
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.config.event_timeout = timeout;
     }
@@ -368,7 +379,7 @@ impl<Signer: SignerTrait> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> fo
 
     fn run_one_pass(
         &mut self,
-        event: Option<SignerEvent>,
+        event: Option<SignerEvent<T>>,
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {

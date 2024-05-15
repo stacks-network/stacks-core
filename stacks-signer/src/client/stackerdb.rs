@@ -17,7 +17,8 @@
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use hashbrown::HashMap;
-use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
