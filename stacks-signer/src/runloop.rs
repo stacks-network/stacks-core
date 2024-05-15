@@ -412,7 +412,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         if self.state == State::NoRegisteredSigners {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if let Some(event) = event {
-                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}). Waiting for confirmation...");
+                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}).");
                 warn!("Ignoring event: {event:?}");
             }
             return None;
