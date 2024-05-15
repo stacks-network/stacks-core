@@ -141,7 +141,6 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::{GlobalConfig, SignerConfig};
-    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,

@@ -49,7 +49,7 @@ pub fn increment_rpc_calls_counter() {
 #[allow(unused_mut)]
 pub fn instrument_http_request_handler<F, R>(
     conv_http: &mut ConversationHttp,
-    mut req: StacksHttpRequest,
+    #[allow(unused_mut)] mut req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where

@@ -1488,7 +1488,7 @@ impl<T: MarfTrieId> MARF<T> {
         self.open_chain_tip.as_ref().map(|x| &x.block_hash)
     }
 
-    /// Get open chain tip
+    /// Get open chain tip block height
     pub fn get_open_chain_tip_height(&self) -> Option<u32> {
         self.open_chain_tip.as_ref().map(|x| x.height)
     }

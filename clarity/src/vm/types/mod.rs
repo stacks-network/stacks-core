@@ -771,19 +771,6 @@ impl BlockInfoProperty {
             MinerAddress => TypeSignature::PrincipalType,
         }
     }
-
-    pub fn lookup_by_name_at_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<BlockInfoProperty> {
-        BlockInfoProperty::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() <= version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
 }
 
 impl BurnBlockInfoProperty {

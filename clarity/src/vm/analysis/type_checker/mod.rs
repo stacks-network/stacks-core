@@ -84,3 +84,21 @@ impl FunctionType {
         }
     }
 }
+
+fn is_reserved_word_v3(word: &str) -> bool {
+    match word {
+        "block-height" => true,
+        _ => false,
+    }
+}
+
+/// Is this a reserved word that should trigger an analysis error for the given
+/// Clarity version? Note that most of the reserved words do not trigger an
+/// analysis error, but will trigger an error at runtime. This should likely be
+/// changed in a future Clarity version.
+pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
+    match version {
+        ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
+        ClarityVersion::Clarity3 => is_reserved_word_v3(word),
+    }
+}
