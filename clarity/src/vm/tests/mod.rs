@@ -162,7 +162,15 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
 impl MemoryEnvironmentGenerator {
     fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
-        let mut owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
+        let mut db = self.0.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(epoch).unwrap();
+        db.set_tenure_height(0).unwrap();
+        if epoch >= StacksEpochId::Epoch30 {
+            db.set_tenure_height(1).unwrap();
+        }
+        db.commit().unwrap();
+        let mut owned_env = OwnedEnvironment::new(db, epoch);
         // start an initial transaction.
         owned_env.begin();
         owned_env
@@ -175,12 +183,11 @@ impl TopLevelMemoryEnvironmentGenerator {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
-        db.commit().unwrap();
-        let mut owned_env = OwnedEnvironment::new(db, epoch);
         if epoch >= StacksEpochId::Epoch30 {
-            owned_env.set_tenure_height(1);
+            db.set_tenure_height(1).unwrap();
         }
-        owned_env
+        db.commit().unwrap();
+        OwnedEnvironment::new(db, epoch)
     }
 }
 
