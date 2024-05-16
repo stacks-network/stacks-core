@@ -82,6 +82,7 @@ jobs:
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
           - tests::nakamoto_integrations::follower_bootup
           - tests::nakamoto_integrations::forked_tenure_is_ignored
+          - tests::signer::v0::block_proposal_rejection
           - tests::signer::v1::dkg
           - tests::signer::v1::sign_request_rejected
           - tests::signer::v1::block_proposal

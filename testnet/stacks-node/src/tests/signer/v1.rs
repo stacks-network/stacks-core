@@ -575,7 +575,7 @@ fn sign_request_rejected() {
     block2.header.tx_merkle_root = tx_merkle_root2;
 
     let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(10);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(10);
     let _key = signer_test.boot_to_epoch_3(timeout);
 
     info!("------------------------- Test Sign -------------------------");
@@ -862,7 +862,7 @@ fn block_proposal() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test = SignerTest::new(num_signers);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(30);
     let short_timeout = Duration::from_secs(30);
 
@@ -920,7 +920,7 @@ fn mine_2_nakamoto_reward_cycles() {
 
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
-    let mut signer_test = SignerTest::new(5);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5);
     let timeout = Duration::from_secs(200);
     let first_dkg = signer_test.boot_to_epoch_3(timeout);
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -995,7 +995,7 @@ fn filter_bad_transactions() {
 
     info!("------------------------- Test Setup -------------------------");
     // Advance to the prepare phase of a post epoch 3.0 reward cycle to force signers to look at the next signer transactions to compare against a proposed block
-    let mut signer_test = SignerTest::new(5);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5);
     let timeout = Duration::from_secs(200);
     let current_signers_dkg = signer_test.boot_to_epoch_3(timeout);
     let next_signers_dkg = signer_test
@@ -1083,7 +1083,7 @@ fn sign_after_signer_reboot() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 3;
-    let mut signer_test = SignerTest::new(num_signers);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 

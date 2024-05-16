@@ -38,7 +38,7 @@ use clarity::boot_util::boot_code_id;
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::SIGNERS_NAME;
+use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
@@ -68,7 +68,7 @@ use crate::{BitcoinRegtestController, BurnchainController};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
-struct RunningNodes {
+pub struct RunningNodes {
     pub btc_regtest_controller: BitcoinRegtestController,
     pub btcd_controller: BitcoinCoreController,
     pub run_loop_thread: thread::JoinHandle<()>,
@@ -83,7 +83,7 @@ struct RunningNodes {
 /// A test harness for running a v0 or v1 signer integration test
 pub struct SignerTest<S> {
     // The stx and bitcoin nodes and their run loops
-    running_nodes: RunningNodes,
+    pub running_nodes: RunningNodes,
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
     // the private keys of the signers
@@ -261,26 +261,39 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
-        // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a mined block already,
-        // we know that the signers have already received their block proposal events via their event observers)
+    fn wait_for_block_validate_response(&mut self, timeout: Duration) -> BlockValidateResponse {
+        // Wait for the block to show up in the test observer
         let t_start = Instant::now();
         while test_observer::get_proposal_responses().is_empty() {
             assert!(
                 t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal event"
+                "Timed out while waiting for block proposal response event"
             );
             thread::sleep(Duration::from_secs(1));
         }
-        let validate_response = test_observer::get_proposal_responses()
+        test_observer::get_proposal_responses()
             .pop()
-            .expect("No block proposal");
+            .expect("No block proposal")
+    }
+
+    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
+        let validate_response = self.wait_for_block_validate_response(timeout);
         match validate_response {
             BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
             _ => panic!("Unexpected response"),
         }
     }
 
+    fn wait_for_validate_reject_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
+        // Wait for the block to show up in the test observer
+        let validate_response = self.wait_for_block_validate_response(timeout);
+        match validate_response {
+            BlockValidateResponse::Reject(block_rejection) => block_rejection.signer_signature_hash,
+            _ => panic!("Unexpected response"),
+        }
+    }
+
+    // Must be called AFTER booting the chainstate
     fn run_until_epoch_3_boundary(&mut self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
         let epoch_3 =
@@ -323,6 +336,56 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
             .expect("FATAL: signer not registered")
+    }
+
+    fn get_signer_indices(&self, reward_cycle: u64) -> Vec<SignerSlotID> {
+        let valid_signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
+
+        self.stacks_client
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)
+            .expect("FATAL: failed to get signer slots from stackerdb")
+            .iter()
+            .enumerate()
+            .map(|(pos, _)| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            })
+            .collect()
+    }
+
+    fn get_miner_index(&self) -> SignerSlotID {
+        let miners_contract_id = boot_code_id(MINERS_NAME, false);
+        let value = self
+            .stacks_client
+            .read_only_contract_call(
+                &miners_contract_id.issuer.into(),
+                &miners_contract_id.name,
+                &"stackerdb-get-signer-slots".into(),
+                &[],
+            )
+            .expect("Failed to get miner indices");
+        let miner_indices = self
+            .stacks_client
+            .parse_signer_slots(value)
+            .expect("Failed to parse miner indices");
+        miner_indices
+            .iter()
+            .position(|(address, _)| {
+                address
+                    == &to_addr(
+                        &self
+                            .running_nodes
+                            .conf
+                            .miner
+                            .mining_key
+                            .expect("no mining key specificed"),
+                    )
+            })
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of miners exceeds u32::MAX"))
+            })
+            .expect("FATAL: miner not registered")
     }
 
     fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {

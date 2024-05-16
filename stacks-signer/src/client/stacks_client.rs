@@ -142,7 +142,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    fn parse_signer_slots(
+    pub fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
