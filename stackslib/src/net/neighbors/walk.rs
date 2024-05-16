@@ -1012,12 +1012,21 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     continue;
                 }
                 Err(e) => {
-                    info!(
-                        "{:?}: Failed to connect to {:?}: {:?}",
-                        network.get_local_peer(),
-                        &nk,
-                        &e
-                    );
+                    if na.addrbytes.is_in_private_range() {
+                        debug!(
+                            "{:?}: Failed to connect to {:?}: {:?}",
+                            network.get_local_peer(),
+                            &nk,
+                            &e
+                        );
+                    } else {
+                        info!(
+                            "{:?}: Failed to connect to {:?}: {:?}",
+                            network.get_local_peer(),
+                            &nk,
+                            &e
+                        );
+                    }
                     continue;
                 }
             }
