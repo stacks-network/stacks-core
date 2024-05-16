@@ -27,12 +27,14 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_signer::client::{SignerSlotID, StackerDB};
+use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::boot_to_epoch_3_reward_set;
+use crate::tests::neon_integrations::next_block_and_wait;
 use crate::BurnchainController;
 
 impl SignerTest<SpawnedSigner> {
@@ -45,6 +47,53 @@ impl SignerTest<SpawnedSigner> {
             &self.signer_stacks_private_keys,
             &mut self.running_nodes.btc_regtest_controller,
         );
+        debug!("Waiting for signer set calculation.");
+        let mut reward_set_calculated = false;
+        let short_timeout = Duration::from_secs(30);
+        let now = std::time::Instant::now();
+        // Make sure the signer set is calculated before continuing or signers may not
+        // recognize that they are registered signers in the subsequent burn block event
+        let reward_cycle = self.get_current_reward_cycle() + 1;
+        while !reward_set_calculated {
+            let reward_set = self
+                .stacks_client
+                .get_reward_set_signers(reward_cycle)
+                .expect("Failed to check if reward set is calculated");
+            reward_set_calculated = reward_set.is_some();
+            if reward_set_calculated {
+                debug!("Signer set: {:?}", reward_set.unwrap());
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            assert!(
+                now.elapsed() < short_timeout,
+                "Timed out waiting for reward set calculation"
+            );
+        }
+        debug!("Signer set calculated");
+
+        // Manually consume one more block to ensure signers refresh their state
+        debug!("Waiting for signers to initialize.");
+        next_block_and_wait(
+            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.blocks_processed,
+        );
+        let now = std::time::Instant::now();
+        loop {
+            self.send_status_request();
+            let states = self.wait_for_states(short_timeout);
+            if states
+                .iter()
+                .all(|state| state == &State::RegisteredSigners)
+            {
+                break;
+            }
+            assert!(
+                now.elapsed() < short_timeout,
+                "Timed out waiting for signers to be registered"
+            );
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        debug!("Singers initialized");
 
         self.run_until_epoch_3_boundary();
     }
@@ -81,18 +130,6 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
-    let reward_cycle = signer_test.get_current_reward_cycle();
-
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
-    assert_eq!(signer_slot_ids.len(), num_signers);
-
-    // Wait for the signers to be ready for the proposal
-    std::thread::sleep(Duration::from_secs(5));
-
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
     let mut session = StackerDBSession::new(
@@ -108,6 +145,7 @@ fn block_proposal_rejection() {
         .running_nodes
         .btc_regtest_controller
         .get_headers_height();
+    let reward_cycle = signer_test.get_current_reward_cycle();
     let message = SignerMessage::BlockProposal(BlockProposal {
         block,
         burn_height,
@@ -144,6 +182,13 @@ fn block_proposal_rejection() {
         reward_cycle,
         SignerSlotID(0), // We are just reading so again, don't care about index.
     );
+
+    let signer_slot_ids: Vec<_> = signer_test
+        .get_signer_indices(reward_cycle)
+        .iter()
+        .map(|id| id.0)
+        .collect();
+    assert_eq!(signer_slot_ids.len(), num_signers);
 
     let messages: Vec<SignerMessage> = StackerDB::get_messages(
         stackerdb
