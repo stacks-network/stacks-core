@@ -49,6 +49,7 @@ impl SignerTest<SpawnedSigner> {
         self.run_until_epoch_3_boundary();
     }
 }
+
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
@@ -80,6 +81,18 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
+    let reward_cycle = signer_test.get_current_reward_cycle();
+
+    let signer_slot_ids: Vec<_> = signer_test
+        .get_signer_indices(reward_cycle)
+        .iter()
+        .map(|id| id.0)
+        .collect();
+    assert_eq!(signer_slot_ids.len(), num_signers);
+
+    // Wait for the signers to be ready for the proposal
+    std::thread::sleep(Duration::from_secs(5));
+
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
     let mut session = StackerDBSession::new(
@@ -95,20 +108,17 @@ fn block_proposal_rejection() {
         .running_nodes
         .btc_regtest_controller
         .get_headers_height();
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let next_reward_cycle = reward_cycle + 1;
     let message = SignerMessage::BlockProposal(BlockProposal {
         block,
         burn_height,
-        reward_cycle: next_reward_cycle,
+        reward_cycle,
     });
-    let mut miner_sk = signer_test
+    let miner_sk = signer_test
         .running_nodes
         .conf
         .miner
         .mining_key
         .expect("No mining key");
-    miner_sk.set_compress_public(true);
 
     // Submit the block proposal to the miner's slot
     let mut chunk = StackerDBChunkData::new(0, 1, message.serialize_to_vec());
@@ -127,17 +137,11 @@ fn block_proposal_rejection() {
         signer_test.wait_for_validate_reject_response(short_timeout);
     assert_eq!(proposed_signer_signature_hash, block_signer_signature_hash);
 
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(next_reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
-
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::new(), // We are just reading so don't care what the key is
         false,
-        next_reward_cycle,
+        reward_cycle,
         SignerSlotID(0), // We are just reading so again, don't care about index.
     );
 
