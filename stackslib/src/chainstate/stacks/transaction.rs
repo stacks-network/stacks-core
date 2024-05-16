@@ -1244,7 +1244,7 @@ mod test {
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::{
         StacksPublicKey as PubKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *, *,
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
     };
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
