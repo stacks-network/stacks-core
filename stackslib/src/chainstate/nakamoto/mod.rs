@@ -2593,6 +2593,27 @@ impl NakamotoChainState {
             "parent_header_hash" => %parent_header_hash,
         );
 
+        if new_tenure {
+            clarity_tx
+                .connection()
+                .as_free_transaction(|clarity_tx_conn| {
+                    clarity_tx_conn.with_clarity_db(|db| {
+                        db.set_tenure_height(
+                            coinbase_height
+                                .try_into()
+                                .expect("Tenure height overflowed 32-bit range"),
+                        )?;
+                        Ok(())
+                    })
+                })
+                .map_err(|e| {
+                    error!("Failed to set tenure height during block setup";
+                        "error" => ?e,
+                    );
+                    e
+                })?;
+        }
+
         let evaluated_epoch = clarity_tx.get_epoch();
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {

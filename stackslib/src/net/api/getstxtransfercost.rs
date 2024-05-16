@@ -170,7 +170,7 @@ impl HttpResponse for RPCGetStxTransferCostRequestHandler {
 
 impl StacksHttpRequest {
     pub fn new_get_stx_transfer_cost(host: PeerHost) -> StacksHttpRequest {
-        let mut contents = HttpRequestContents::new();
+        let contents = HttpRequestContents::new();
         StacksHttpRequest::new_for_peer(host, "GET".into(), "/v2/fees/transfer".into(), contents)
             .expect("FATAL: failed to construct request from infallible data")
     }

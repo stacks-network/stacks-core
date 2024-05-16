@@ -95,10 +95,13 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
 }
 
 #[allow(clippy::expect_used)]
-pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
-    let (_, contract_analysis) =
-        mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
-            .expect("BUG: failed to type check boot contract");
+pub fn make_docs(
+    content: &str,
+    support_docs: &ContractSupportDocs,
+    version: ClarityVersion,
+) -> ContractRef {
+    let (_, contract_analysis) = mem_type_check(content, version, StacksEpochId::latest())
+        .expect("BUG: failed to type check boot contract");
 
     let ContractAnalysis {
         public_function_types,
@@ -179,12 +182,13 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
 pub fn produce_docs_refs<A: AsRef<str>, B: AsRef<str>>(
     contracts: &[(A, B)],
     support_docs: &HashMap<&str, ContractSupportDocs>,
+    version: ClarityVersion,
 ) -> BTreeMap<String, ContractRef> {
     let mut docs = BTreeMap::new();
 
     for (contract_name, content) in contracts.iter() {
         if let Some(contract_support) = support_docs.get(contract_name.as_ref()) {
-            let contract_ref = make_docs(content.as_ref(), contract_support);
+            let contract_ref = make_docs(content.as_ref(), contract_support, version);
 
             docs.insert(contract_name.as_ref().to_string(), contract_ref);
         }
