@@ -8,10 +8,12 @@ use std::{cmp, env, fs, io, thread};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::{Rng, RngCore};
 use rusqlite::types::ToSql;
+use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -854,6 +856,49 @@ pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
     (stacks_tip_consensus_hash, block)
+}
+
+#[derive(Deserialize, Debug)]
+struct ReadOnlyResponse {
+    #[serde(rename = "okay")]
+    _okay: bool,
+    #[serde(rename = "result")]
+    result_hex: String,
+}
+
+impl ReadOnlyResponse {
+    pub fn result(&self) -> Result<Value, SerializationError> {
+        Value::try_deserialize_hex_untyped(&self.result_hex)
+    }
+}
+
+pub fn call_read_only(
+    conf: &Config,
+    principal: &StacksAddress,
+    contract: &str,
+    function: &str,
+    args: Vec<&str>,
+) -> Value {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+
+    let path = format!(
+        "{http_origin}/v2/contracts/call-read/{}/{}/{}",
+        principal, contract, function
+    );
+    let body = json!({
+        "arguments": args,
+        "sender": principal.to_string(),
+    });
+    let response: ReadOnlyResponse = client
+        .post(path)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    response.result().unwrap()
 }
 
 fn find_microblock_privkey(
