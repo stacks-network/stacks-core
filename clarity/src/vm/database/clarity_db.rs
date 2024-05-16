@@ -868,13 +868,12 @@ impl<'a> ClarityDatabase<'a> {
 
         // In epoch 2, we can only access the burn block associated with the last block
         if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
-            let last_mined_bhh = if cur_stacks_height == 0 {
+            if cur_stacks_height == 0 {
                 return Ok(self.burn_state_db.get_burn_start_height());
-            } else {
-                // Safety note: normal subtraction is safe here, because we've already checked
-                // that cur_stacks_height > 0.
-                self.get_index_block_header_hash(cur_stacks_height - 1)?
             };
+            // Safety note: normal subtraction is safe here, because we've already checked
+            // that cur_stacks_height > 0.
+            let last_mined_bhh = self.get_index_block_header_hash(cur_stacks_height - 1)?;
 
             self.get_burnchain_block_height(&last_mined_bhh)
                 .ok_or_else(|| {
