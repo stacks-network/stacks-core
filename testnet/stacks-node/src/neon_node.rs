@@ -3317,10 +3317,16 @@ impl RelayerThread {
     fn inner_generate_leader_key_register_op(
         vrf_public_key: VRFPublicKey,
         consensus_hash: &ConsensusHash,
+        miner_pk: Option<&StacksPublicKey>,
     ) -> BlockstackOperationType {
+        let memo = if let Some(pk) = miner_pk {
+            Hash160::from_node_public_key(pk).as_bytes().to_vec()
+        } else {
+            vec![]
+        };
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
-            memo: vec![],
+            memo,
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -3350,7 +3356,20 @@ impl RelayerThread {
         );
 
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-        let op = Self::inner_generate_leader_key_register_op(vrf_pk, burnchain_tip_consensus_hash);
+        // if the miner has set a mining key in preparation for epoch-3.0, register it as part of their VRF key registration
+        // once implemented in the nakamoto_node, this will allow miners to transition from 2.5 to 3.0 without submitting a new
+        // VRF key registration.
+        let miner_pk = self
+            .config
+            .miner
+            .mining_key
+            .as_ref()
+            .map(StacksPublicKey::from_private);
+        let op = Self::inner_generate_leader_key_register_op(
+            vrf_pk,
+            burnchain_tip_consensus_hash,
+            miner_pk.as_ref(),
+        );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
         if let Some(txid) =
