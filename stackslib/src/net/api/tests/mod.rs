@@ -51,6 +51,7 @@ use crate::net::{
 };
 
 mod callreadonly;
+mod get_tenures_fork_info;
 mod getaccount;
 mod getattachment;
 mod getattachmentsinv;
@@ -69,6 +70,7 @@ mod getmicroblocks_indexed;
 mod getmicroblocks_unconfirmed;
 mod getneighbors;
 mod getpoxinfo;
+mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;

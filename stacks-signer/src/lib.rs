@@ -20,6 +20,9 @@ Usage documentation can be found in the [README](https://github.com/Trust-Machin
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/// This module stores chainstate information about Stacks, SortitionDB for
+/// tracking by the signer.
+pub mod chainstate;
 /// The cli module for the signer binary
 pub mod cli;
 /// The signer client for communicating with stackerdb/stacks nodes

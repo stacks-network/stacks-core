@@ -1078,7 +1078,7 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
+    fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,

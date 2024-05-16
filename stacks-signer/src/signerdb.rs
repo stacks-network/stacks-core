@@ -25,6 +25,7 @@ use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
 use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use wsts::net::NonceRequest;
 
@@ -88,6 +89,9 @@ CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
+    consensus_hash TEXT NOT NULL,
+    signed_over INTEGER NOT NULL,
+    stacks_height INTEGER NOT NULL, 
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
@@ -173,6 +177,17 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the last signed block in a tenure (identified by its consensus hash)
+    pub fn get_last_signed_block_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
+        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+
+        try_deserialize(result)
+    }
+
     /// Insert a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
@@ -196,8 +211,13 @@ impl SignerDb {
         );
         self.db
             .execute(
-                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info) VALUES (?1, ?2, ?3, ?4)",
-                params![u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json],
+                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json,
+                    signed_over,
+                    u64_to_sql(block_info.block.header.chain_length)?,
+                    block_info.block.header.consensus_hash.to_hex(),
+                ],
             )?;
 
         Ok(())

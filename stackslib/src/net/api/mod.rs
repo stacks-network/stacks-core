@@ -32,6 +32,7 @@ use crate::net::Error as NetError;
 use crate::stacks_common::codec::StacksMessageCodec;
 
 pub mod callreadonly;
+pub mod get_tenures_fork_info;
 pub mod getaccount;
 pub mod getattachment;
 pub mod getattachmentsinv;
@@ -50,6 +51,7 @@ pub mod getmicroblocks_indexed;
 pub mod getmicroblocks_unconfirmed;
 pub mod getneighbors;
 pub mod getpoxinfo;
+pub mod getsortition;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
 pub mod getstackers;
@@ -127,6 +129,8 @@ impl StacksHttp {
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
+        self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
     }
 }
 

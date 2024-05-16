@@ -893,6 +893,7 @@ impl BlockMinerThread {
             block.header.block_hash(),
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
+            "consensus_hash" => %block.header.consensus_hash,
         );
 
         self.event_dispatcher.process_mined_nakamoto_block_event(
