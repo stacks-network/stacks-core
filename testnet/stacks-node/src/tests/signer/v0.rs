@@ -33,6 +33,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::boot_to_epoch_3_reward_set;
+use crate::tests::neon_integrations::test_observer;
 use crate::BurnchainController;
 
 impl SignerTest<SpawnedSigner> {
@@ -80,6 +81,15 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
+    info!("------------------------- Wait for StackerDB Initialization -------------------------");
+    let time = std::time::Instant::now();
+    while test_observer::get_stackerdb_chunks().is_empty() {
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(
+            time.elapsed() < short_timeout,
+            "Failed to get StackerDB chunks"
+        );
+    }
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
     let mut session = StackerDBSession::new(
@@ -102,46 +112,27 @@ fn block_proposal_rejection() {
         burn_height,
         reward_cycle: next_reward_cycle,
     });
-    // Just attempt to submit a chunk to all possible slots
-    // We just need one to be successful
-    // let mut results = vec![];
-    // for i in 0..2 {
-    //     let mut chunk = StackerDBChunkData::new(i, 0, message.serialize_to_vec());
-    //     chunk
-    //         .sign(
-    //             &signer_test
-    //                 .running_nodes
-    //                 .conf
-    //                 .miner
-    //                 .mining_key
-    //                 .expect("No mining key"),
-    //         )
-    //         .expect("Failed to sign message chunk");
-    //     let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-    //     debug!("Test Put Chunk ACK: {result:?}");
-    //     results.push(result);
-    // }
-    // assert!(
-    //     results.iter().any(|result| result.accepted),
-    //     "Failed to submit block proposal to signers"
-    // );
+    let mut miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .expect("No mining key");
+    miner_sk.set_compress_public(true);
 
-    let miner_index = signer_test.get_miner_index();
-    let mut chunk = StackerDBChunkData::new(miner_index.0, 0, message.serialize_to_vec());
-    chunk
-        .sign(
-            &signer_test
-                .running_nodes
-                .conf
-                .miner
-                .mining_key
-                .expect("No mining key"),
-        )
-        .expect("Failed to sign message chunk");
-    let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-    debug!("Test Put Chunk ACK: {result:?}");
+    // Just attempt to submit a chunk to all possible slots
+    let mut results = vec![];
+    // We just need one to be successful
+    for i in 0..2 {
+        let mut chunk = StackerDBChunkData::new(i, 0, message.serialize_to_vec());
+        chunk.sign(&miner_sk).expect("Failed to sign message chunk");
+        debug!("Produced a signature: {:?}", chunk.sig);
+        let result = session.put_chunk(&chunk).expect("Failed to put chunk");
+        debug!("Test Put Chunk ACK: {result:?}");
+        results.push(result);
+    }
     assert!(
-        result.accepted,
+        results.iter().any(|result| result.accepted),
         "Failed to submit block proposal to signers"
     );
 

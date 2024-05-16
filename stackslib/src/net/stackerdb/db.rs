@@ -303,7 +303,16 @@ impl<'a> StackerDBTx<'a> {
     ) -> Result<(), net_error> {
         let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
         let mut total_slots_read = 0u32;
+        debug!(
+            "Reconfiguring {} slots of StackerDB: {:?}",
+            slots.len(),
+            smart_contract
+        );
         for (principal, slot_count) in slots.iter() {
+            debug!(
+                "Reconfigure StackerDB slot: ({}, {})",
+                &principal, slot_count
+            );
             total_slots_read =
                 total_slots_read
                     .checked_add(*slot_count)

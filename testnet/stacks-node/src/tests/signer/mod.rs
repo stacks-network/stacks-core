@@ -38,7 +38,7 @@ use clarity::boot_util::boot_code_id;
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
+use stacks::chainstate::stacks::boot::SIGNERS_NAME;
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
@@ -352,40 +352,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
             .collect()
-    }
-
-    fn get_miner_index(&self) -> SignerSlotID {
-        let miners_contract_id = boot_code_id(MINERS_NAME, false);
-        let value = self
-            .stacks_client
-            .read_only_contract_call(
-                &miners_contract_id.issuer.into(),
-                &miners_contract_id.name,
-                &"stackerdb-get-signer-slots".into(),
-                &[],
-            )
-            .expect("Failed to get miner indices");
-        let miner_indices = self
-            .stacks_client
-            .parse_signer_slots(value)
-            .expect("Failed to parse miner indices");
-        miner_indices
-            .iter()
-            .position(|(address, _)| {
-                address
-                    == &to_addr(
-                        &self
-                            .running_nodes
-                            .conf
-                            .miner
-                            .mining_key
-                            .expect("no mining key specificed"),
-                    )
-            })
-            .map(|pos| {
-                SignerSlotID(u32::try_from(pos).expect("FATAL: number of miners exceeds u32::MAX"))
-            })
-            .expect("FATAL: miner not registered")
     }
 
     fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
