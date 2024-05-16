@@ -570,40 +570,51 @@ impl StacksBlock {
         epoch_id: StacksEpochId,
     ) -> bool {
         for tx in txs.iter() {
-            if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
-                if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
-                    // not supported
-                    error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    return false;
-                }
-                if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
-                    // not supported
-                    error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
-                    return false;
-                }
-                if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    return false;
-                }
-            }
-            if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-                if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Versioned smart contracts not supported before Stacks 2.1");
-                    return false;
-                }
-            }
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                if epoch_id < StacksEpochId::Epoch30 {
-                    error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    return false;
-                }
-            }
-            if !tx.auth.is_supported_in_epoch(epoch_id) {
-                error!("Authentication mode not supported in Epoch {epoch_id}");
+            if !StacksBlock::validate_transaction_static_epoch(tx, epoch_id) {
                 return false;
             }
+        }
+        return true;
+    }
+
+    /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
+    pub fn validate_transaction_static_epoch(
+        tx: &StacksTransaction,
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
+            if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
+                // not supported
+                error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
+                return false;
+            }
+            if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
+                // not supported
+                error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
+                return false;
+            }
+            if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                return false;
+            }
+        }
+        if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
+            if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Versioned smart contracts not supported before Stacks 2.1");
+                return false;
+            }
+        }
+        if let TransactionPayload::TenureChange(..) = &tx.payload {
+            if epoch_id < StacksEpochId::Epoch30 {
+                error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
+                return false;
+            }
+        }
+        if !tx.auth.is_supported_in_epoch(epoch_id) {
+            error!("Authentication mode not supported in Epoch {epoch_id}");
+            return false;
         }
         return true;
     }

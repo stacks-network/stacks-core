@@ -6666,7 +6666,7 @@ impl StacksChainState {
         }
 
         // 4: check if transaction is valid in the current epoch
-        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch) {
+        if !StacksBlock::validate_transaction_static_epoch(tx, epoch) {
             return Err(MemPoolRejection::Other(
                 "Transaction is not supported in this epoch".to_string(),
             ));
