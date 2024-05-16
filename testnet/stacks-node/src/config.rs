@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{fs, thread};
+use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -1321,6 +1321,20 @@ impl Config {
             return Some(miner_stats);
         }
         None
+    }
+
+    /// Determine how long the p2p state machine should poll for.
+    /// If the node is not mining, then use a default value.
+    /// If the node is mining, however, then at the time of this writing, the miner's latency is in
+    /// part dependent on the state machine getting block data back to the miner quickly, and thus
+    /// the poll time is dependent on the first attempt time.
+    pub fn get_poll_time(&self) -> u64 {
+        let poll_timeout = if self.node.miner {
+            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+        } else {
+            5000
+        };
+        poll_timeout
     }
 }
 

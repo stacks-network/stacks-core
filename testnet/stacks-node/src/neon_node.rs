@@ -298,7 +298,7 @@ pub struct StacksNode {
     /// True if we're a miner
     is_miner: bool,
     /// handle to the p2p thread
-    pub p2p_thread_handle: JoinHandle<()>,
+    pub p2p_thread_handle: JoinHandle<Option<PeerNetwork>>,
     /// handle to the relayer thread
     pub relayer_thread_handle: JoinHandle<()>,
 }
@@ -4171,7 +4171,7 @@ impl PeerThread {
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        let poll_timeout = config.get_poll_time();
 
         PeerThread {
             config,
@@ -4655,7 +4655,10 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+    ) -> Option<PeerNetwork> {
         let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
@@ -4718,6 +4721,7 @@ impl StacksNode {
             thread::sleep(Duration::from_secs(5));
         }
         info!("P2P thread exit!");
+        p2p_thread.net
     }
 
     /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
@@ -4814,7 +4818,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher)
             })
             .expect("FATAL: failed to start p2p thread");
 
@@ -5017,8 +5021,8 @@ impl StacksNode {
     }
 
     /// Join all inner threads
-    pub fn join(self) {
+    pub fn join(self) -> Option<PeerNetwork> {
         self.relayer_thread_handle.join().unwrap();
-        self.p2p_thread_handle.join().unwrap();
+        self.p2p_thread_handle.join().unwrap()
     }
 }

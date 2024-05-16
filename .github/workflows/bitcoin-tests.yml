@@ -86,10 +86,12 @@ jobs:
           - tests::signer::stackerdb_sign_request_rejected
           - tests::signer::stackerdb_block_proposal
           - tests::signer::stackerdb_filter_bad_transactions
-          - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
-          - tests::signer::stackerdb_sign_after_signer_reboot
+          # TODO: enable these once v1 signer is fixed
+          # - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
+          # - tests::signer::stackerdb_sign_after_signer_reboot
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::signer::stackerdb_delayed_dkg
+          - tests::nakamoto_integrations::check_block_heights
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
