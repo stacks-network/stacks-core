@@ -206,7 +206,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -812,7 +812,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -851,7 +851,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -1529,7 +1529,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
@@ -1548,7 +1548,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
@@ -1567,7 +1567,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_miner_sig
@@ -1720,7 +1720,7 @@ pub fn test_get_highest_nakamoto_tenure() {
             tx_merkle_root: Sha512Trunc256Sum([0x00; 32]),
             state_index_root: TrieHash([0x00; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::new(),
+            signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
         let tenure_change = TenureChangePayload {
@@ -2020,7 +2020,7 @@ fn test_make_miners_stackerdb_config() {
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::new(),
+            signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
         let block = NakamotoBlock {
@@ -2848,7 +2848,6 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
 }
 
-#[cfg(test)]
 pub mod nakamoto_block_signatures {
     use super::*;
 
@@ -2871,9 +2870,67 @@ pub mod nakamoto_block_signatures {
                         weight: *w,
                     }
                 })
-                .collect::<Vec<_>>(),
+                .collect(),
         );
         reward_set
+    }
+
+    #[test]
+    // Test that signatures succeed with exactly 70% of the votes
+    pub fn test_exactly_enough_votes() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 35),
+            (Secp256k1PrivateKey::default(), 35),
+            (Secp256k1PrivateKey::default(), 30),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+    }
+
+    #[test]
+    /// Test that signatures fail with just under 70% of the votes
+    pub fn test_just_not_enough_votes() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 3500),
+            (Secp256k1PrivateKey::default(), 3499),
+            (Secp256k1PrivateKey::default(), 3001),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected insufficient signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Not enough signatures"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
     }
 
     #[test]
@@ -3146,5 +3203,34 @@ pub mod nakamoto_block_signatures {
             }
             _ => panic!("Expected InvalidStacksBlock error"),
         }
+    }
+
+    #[test]
+    pub fn test_compute_voting_weight_threshold() {
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(100_u32).unwrap(),
+            70_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(10_u32).unwrap(),
+            7_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(3000_u32).unwrap(),
+            2100_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(4000_u32).unwrap(),
+            2800_u32,
+        );
+
+        // Round-up check
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(511_u32).unwrap(),
+            358_u32,
+        );
     }
 }

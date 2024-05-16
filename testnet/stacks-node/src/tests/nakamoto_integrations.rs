@@ -2248,7 +2248,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
-    proposed_zero_block.header.signer_signature = Vec::<MessageSignature>::new();
+    proposed_zero_block.header.signer_signature = vec![];
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
     coord_channel

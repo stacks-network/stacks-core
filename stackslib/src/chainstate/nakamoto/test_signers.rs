@@ -219,26 +219,32 @@ impl TestSigners {
         block.header.signer_signature = signer_signature;
     }
 
-    /// Sign a NakamotoBlock and maintain the order
+    /// Sign a NakamotoBlock and maintain the order and membership
     /// of the reward set signers in the resulting signatures.
     ///
     /// If any of [`Self::signer_keys`] are not in the reward set, their signatures
-    /// will be ignored.
+    /// will not be included.
     pub fn sign_block_with_reward_set(&self, block: &mut NakamotoBlock, reward_set: &RewardSet) {
-        let signatures = self.generate_block_signatures(block);
-        let reordered_signatures = self.reorder_signatures(signatures, reward_set);
-        block.header.signer_signature = reordered_signatures;
+        let signatures = self.generate_ordered_signatures(block, reward_set);
+        block.header.signer_signature = signatures;
     }
 
-    /// Sign a Nakamoto block and generate a vec of signatures
+    /// Sign a Nakamoto block and generate a vec of signatures. The signatures will
+    /// be ordered by the signer's public keys, but will not be checked against the
+    /// reward set.
     fn generate_block_signatures(&self, block: &NakamotoBlock) -> Vec<MessageSignature> {
         let msg = block.header.signer_signature_hash().0;
-        self.signer_keys
-            .iter()
-            .map(|key| key.sign(&msg).unwrap())
-            .collect::<Vec<MessageSignature>>()
+        let mut keys = self.signer_keys.clone();
+        keys.sort_by(|a, b| {
+            let a = Secp256k1PublicKey::from_private(a).to_bytes_compressed();
+            let b = Secp256k1PublicKey::from_private(b).to_bytes_compressed();
+            a.cmp(&b)
+        });
+        keys.iter().map(|key| key.sign(&msg).unwrap()).collect()
     }
 
+    /// Sign a Nakamoto block using the aggregate key.
+    /// NB: this function is current unused.
     fn sign_block_with_aggregate_key(&mut self, block: &NakamotoBlock) -> ThresholdSignature {
         let mut rng = rand_core::OsRng::default();
         let msg = block.header.signer_signature_hash().0;
@@ -255,18 +261,24 @@ impl TestSigners {
         ThresholdSignature(signature)
     }
 
-    /// Reorder a list of signatures to match the order of the reward set.
-    pub fn reorder_signatures(
+    /// Generate an list of signatures for a block. Only
+    /// signers in the reward set will be included.
+    pub fn generate_ordered_signatures(
         &self,
-        signatures: Vec<MessageSignature>,
+        block: &NakamotoBlock,
         reward_set: &RewardSet,
     ) -> Vec<MessageSignature> {
-        let test_signer_keys = &self
+        let msg = block.header.signer_signature_hash().0;
+
+        let test_signers_by_pk = self
             .signer_keys
             .iter()
             .cloned()
-            .map(|key| Secp256k1PublicKey::from_private(&key).to_bytes_compressed())
-            .collect::<Vec<_>>();
+            .map(|s| {
+                let pk = Secp256k1PublicKey::from_private(&s);
+                (pk.to_bytes_compressed(), s)
+            })
+            .collect::<HashMap<_, _>>();
 
         let reward_set_keys = &reward_set
             .clone()
@@ -276,19 +288,14 @@ impl TestSigners {
             .map(|s| s.signing_key.to_vec())
             .collect::<Vec<_>>();
 
-        let signature_keys_map = test_signer_keys
-            .iter()
-            .cloned()
-            .zip(signatures.iter().cloned())
-            .collect::<HashMap<_, _>>();
-
-        let mut reordered_signatures = Vec::with_capacity(reward_set_keys.len());
+        let mut signatures = Vec::with_capacity(reward_set_keys.len());
 
         let mut missing_keys = 0;
 
         for key in reward_set_keys {
-            if let Some(signature) = signature_keys_map.get(key) {
-                reordered_signatures.push(signature.clone());
+            if let Some(signer_key) = test_signers_by_pk.get(key) {
+                let signature = signer_key.sign(&msg).unwrap();
+                signatures.push(signature);
             } else {
                 missing_keys += 1;
             }
@@ -300,18 +307,7 @@ impl TestSigners {
             );
         }
 
-        reordered_signatures
-    }
-
-    // Sort [`Self::signer_keys`] by their compressed public key
-    pub fn sorted_signer_keys(&self) -> Vec<Secp256k1PrivateKey> {
-        let mut keys = self.signer_keys.clone();
-        keys.sort_by(|a, b| {
-            let a = Secp256k1PublicKey::from_private(a).to_bytes_compressed();
-            let b = Secp256k1PublicKey::from_private(b).to_bytes_compressed();
-            a.cmp(&b)
-        });
-        keys
+        signatures
     }
 
     // Generate and assign a new aggregate public key

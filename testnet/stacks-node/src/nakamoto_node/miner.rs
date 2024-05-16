@@ -198,7 +198,7 @@ impl BlockMinerThread {
                 };
 
                 new_block.header.signer_signature = signer_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), &Point::new(), reward_set) {
+                if let Err(e) = self.broadcast(new_block.clone(), None, reward_set) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -538,7 +538,7 @@ impl BlockMinerThread {
     fn broadcast(
         &self,
         block: NakamotoBlock,
-        aggregate_public_key: &Point,
+        aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
@@ -576,7 +576,7 @@ impl BlockMinerThread {
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
-            &aggregate_public_key,
+            aggregate_public_key,
             reward_set,
         )?;
         staging_tx.commit()?;

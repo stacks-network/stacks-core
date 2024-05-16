@@ -31,7 +31,6 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
-use serde_json::Value as SerdeValue;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -93,7 +92,7 @@ use crate::clarity_vm::clarity::{
     ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::BOOT_BLOCK_HASH;
+use crate::core::{BOOT_BLOCK_HASH, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD};
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
@@ -183,7 +182,7 @@ lazy_static! {
                      -- miner's signature over the block
                      miner_signature TEXT NOT NULL,
                      -- signers' signatures over the block
-                     signer_signature BLOB NOT NULL,
+                     signer_signature TEXT NOT NULL,
                      -- bitvec capturing stacker participation in signature
                      signer_bitvec TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
@@ -333,14 +332,9 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let state_index_root = row.get("state_index_root")?;
         let miner_signature = row.get("miner_signature")?;
         let signer_bitvec = row.get("signer_bitvec")?;
-        let signer_signature: SerdeValue = row.get_unwrap("signer_signature");
-        let signer_signature = signer_signature
-            .as_array()
-            .ok_or(DBError::Corruption)?
-            .iter()
-            .cloned()
-            .map(serde_json::from_value::<MessageSignature>)
-            .collect::<Result<Vec<_>, _>>()?;
+        let signer_signature_json: String = row.get("signer_signature")?;
+        let signer_signature: Vec<MessageSignature> =
+            serde_json::from_str(&signer_signature_json).map_err(|_e| DBError::ParseError)?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -532,16 +526,19 @@ impl NakamotoBlockHeader {
         // `last_index` is used to prevent out-of-order signatures
         let mut last_index = None;
 
-        let total_weight = signers.iter().map(|s| s.weight).sum::<u32>();
+        let total_weight = signers.iter().map(|s| s.weight).fold(0, |w, acc| {
+            acc.checked_add(w)
+                .expect("FATAL: Total signer weight > u32::MAX")
+        });
 
         // HashMap of <PublicKey, (Signer, Index)>
         let signers_by_pk = signers
             .iter()
             .enumerate()
-            .map(|(i, signer)| (signer.signing_key, (signer.clone(), i)))
+            .map(|(i, signer)| (&signer.signing_key, (signer, i)))
             .collect::<HashMap<_, _>>();
 
-        for signature in &self.signer_signature {
+        for signature in self.signer_signature.iter() {
             let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
                 .map_err(|_| {
                     ChainstateError::InvalidStacksBlock(format!(
@@ -550,38 +547,56 @@ impl NakamotoBlockHeader {
                     ))
                 })?;
 
-            let (signer, signer_index) = signers_by_pk
-                .get(public_key.to_bytes().as_slice())
-                .ok_or_else(|| {
-                    ChainstateError::InvalidStacksBlock(format!(
-                        "Public key {} not found in the reward set",
-                        public_key.to_hex()
-                    ))
-                })?;
+            let mut public_key_bytes = [0u8; 33];
+            public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
+
+            let (signer, signer_index) = signers_by_pk.get(&public_key_bytes).ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "Public key {} not found in the reward set",
+                    public_key.to_hex()
+                ))
+            })?;
 
             // Enforce order of signatures
-            match last_index {
-                Some(index) if index >= *signer_index => {
+            if let Some(index) = last_index.as_ref() {
+                if *index >= *signer_index {
                     return Err(ChainstateError::InvalidStacksBlock(
                         "Signatures are out of order".to_string(),
                     ));
                 }
-                _ => last_index = Some(*signer_index),
+            } else {
+                last_index = Some(*signer_index);
             }
 
-            total_weight_signed += signer.weight;
+            total_weight_signed = total_weight_signed
+                .checked_add(signer.weight)
+                .expect("FATAL: overflow while computing signer set threshold");
         }
 
-        // Calculate 70% of total weight as the threshold
-        let threshold = (total_weight as f64 * 7_f64 / 10_f64).ceil() as u32;
+        let threshold = Self::compute_voting_weight_threshold(total_weight)?;
 
         if total_weight_signed < threshold {
-            return Err(ChainstateError::InvalidStacksBlock(
-                "Not enough signatures".to_string(),
-            ));
+            return Err(ChainstateError::InvalidStacksBlock(format!(
+                "Not enough signatures. Needed at least {} but got {}",
+                threshold, total_weight_signed
+            )));
         }
 
         return Ok(());
+    }
+
+    pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
+        let ceil = if (total_weight as u64 * 7) % 10 == 0 {
+            0
+        } else {
+            1
+        };
+        u32::try_from((total_weight as u64 * NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD) / 10 + ceil)
+            .map_err(|_| {
+                ChainstateError::InvalidStacksBlock(
+                    "Overflow when computing nakamoto block approval threshold".to_string(),
+                )
+            })
     }
 
     /// Make an "empty" header whose block data needs to be filled in.
@@ -602,7 +617,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::with_capacity(SIGNERS_MAX_LIST_SIZE),
+            signer_signature: vec![],
             signer_bitvec: BitVec::ones(bitvec_len)
                 .expect("BUG: bitvec of length-1 failed to construct"),
         }
@@ -619,7 +634,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::with_capacity(SIGNERS_MAX_LIST_SIZE),
+            signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
@@ -635,7 +650,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::with_capacity(SIGNERS_MAX_LIST_SIZE),
+            signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
@@ -1784,7 +1799,7 @@ impl NakamotoChainState {
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
-        _aggregate_public_key: &Point,
+        _aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
@@ -1847,22 +1862,12 @@ impl NakamotoChainState {
         //     return Err(ChainstateError::InvalidStacksBlock(msg));
         // }
 
-        // TODO: epoch gate to verify signatures vec
         if let Err(e) = block.header.verify_signer_signatures(&reward_set) {
-            let reward_set_keys = reward_set
-                .clone()
-                .signers
-                .unwrap()
-                .iter()
-                .map(|s| to_hex(&s.signing_key))
-                .collect::<Vec<_>>();
             warn!("Received block, but the signer signatures are invalid";
                   "block_id" => %block.block_id(),
                   "error" => ?e,
-                  "signer_keys" => ?reward_set_keys
             );
-            let msg = format!("Received block, but the signer signatures are invalid");
-            return Err(ChainstateError::InvalidStacksBlock(msg));
+            return Err(e);
         }
 
         // if we pass all the tests, then along the way, we will have verified (in
@@ -2344,8 +2349,12 @@ impl NakamotoChainState {
 
         let vrf_proof_bytes = vrf_proof.map(|proof| proof.to_hex());
 
-        let signer_signature = serde_json::to_string(&header.signer_signature)
-            .expect("Unable to serialize signer signatures");
+        let signer_signature = serde_json::to_string(&header.signer_signature).map_err(|_| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "Failed to serialize signer signature for block {}",
+                block_hash
+            ))
+        })?;
 
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(*stacks_block_height)?,

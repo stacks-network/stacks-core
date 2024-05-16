@@ -103,7 +103,7 @@ fn test_nakamoto_tenure_downloader() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 
@@ -171,7 +171,7 @@ fn test_nakamoto_tenure_downloader() {
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: Vec::<MessageSignature>::new(),
+            signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).unwrap(),
         };
 
@@ -192,7 +192,7 @@ fn test_nakamoto_tenure_downloader() {
         tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
         state_index_root: TrieHash([0x08; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: Vec::<MessageSignature>::new(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
 

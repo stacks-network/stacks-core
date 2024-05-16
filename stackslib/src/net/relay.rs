@@ -763,8 +763,7 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            // &aggregate_public_key,
-            &Point::new(),
+            None,
             reward_set,
         )?;
         staging_db_tx.commit()?;
