@@ -1781,6 +1781,12 @@ pub struct NodeConfig {
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub wait_time_for_blocks: u64,
+    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
+    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
+    /// how frequently the miner checks if a new burnchain block has been processed.
+    ///
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
+    /// but environments where burn blocks are more frequent may want to decrease this value.
     pub next_initiative_delay: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
