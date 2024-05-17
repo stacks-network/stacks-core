@@ -201,8 +201,8 @@ impl Signer {
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
-            // We are not signing for this reward cycle. Reject the block
-            warn!(
+            // We are not signing for this reward cycle. Ignore the block.
+            debug!(
                 "{self}: Received a block proposal for a different reward cycle. Ignore it.";
                 "requested_reward_cycle" => block_proposal.reward_cycle
             );
