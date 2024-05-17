@@ -55,7 +55,7 @@ _Note on building_: you may set `RUSTFLAGS` to build binaries for your native cp
 RUSTFLAGS="-Ctarget-cpu=native"
 ```
 
-or uncomment these lines in `./cargo/config`:
+or uncomment these lines in `./cargo/config.toml`:
 
 ```
 # [build]
