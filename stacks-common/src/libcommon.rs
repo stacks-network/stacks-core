@@ -31,7 +31,6 @@ pub mod address;
 
 pub mod deps_common;
 
-#[cfg(feature = "canonical")]
 pub mod bitvec;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
