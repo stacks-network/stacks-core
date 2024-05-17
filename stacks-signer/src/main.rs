@@ -85,7 +85,8 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
         "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
         It's important to exercise caution if you are communicating with an external node, \
         as this could potentially expose sensitive data or functionalities to security risks \
-        if additional proper security checks are not integrated in place."
+        if additional proper security checks are not integrated in place. \
+        For more information, check [the documentation here](https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like)."
     );
     info!("Starting signer with config: {}", config);
     let (cmd_send, cmd_recv) = channel();
