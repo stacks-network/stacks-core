@@ -3509,7 +3509,7 @@ fn check_block_heights() {
         return;
     }
 
-    let signers = TestSigners::default();
+    let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -3589,7 +3589,7 @@ fn check_block_heights() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
