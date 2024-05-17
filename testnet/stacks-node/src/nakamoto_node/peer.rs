@@ -182,8 +182,13 @@ impl PeerThread {
             .parse()
             .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
-        net.bind(&p2p_sock, &rpc_sock)
-            .expect("BUG: PeerNetwork could not bind or is already bound");
+        let did_bind = net
+            .try_bind(&p2p_sock, &rpc_sock)
+            .expect("BUG: PeerNetwork could not bind");
+
+        if !did_bind {
+            info!("`PeerNetwork::bind()` skipped, already bound");
+        }
 
         let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
 

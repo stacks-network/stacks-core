@@ -161,12 +161,12 @@ pub struct StackerDBSyncResult {
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
     /// list of data to store
     pub chunks_to_store: Vec<StackerDBChunkData>,
-    /// neighbors that died while syncing
-    dead: HashSet<NeighborKey>,
-    /// neighbors that misbehaved while syncing
-    broken: HashSet<NeighborKey>,
     /// neighbors that have stale views, but are otherwise online
     pub(crate) stale: HashSet<NeighborAddress>,
+    /// number of connections made
+    pub num_connections: u64,
+    /// number of attempted connections
+    pub num_attempted_connections: u64,
 }
 
 /// Settings for the Stacker DB
@@ -390,6 +390,10 @@ pub struct StackerDBSync<NC: NeighborComms> {
     need_resync: bool,
     /// Track stale neighbors
     pub(crate) stale_neighbors: HashSet<NeighborAddress>,
+    /// How many attempted connections have been made in the last pass (gets reset)
+    num_attempted_connections: u64,
+    /// How many connections have been made in the last pass (gets reset)
+    num_connections: u64,
 }
 
 impl StackerDBSyncResult {
@@ -400,9 +404,9 @@ impl StackerDBSyncResult {
             contract_id: chunk.contract_id,
             chunk_invs: HashMap::new(),
             chunks_to_store: vec![chunk.chunk_data],
-            dead: HashSet::new(),
-            broken: HashSet::new(),
             stale: HashSet::new(),
+            num_attempted_connections: 0,
+            num_connections: 0,
         }
     }
 }
@@ -433,16 +437,6 @@ impl PeerNetwork {
             if let Some(config) = stacker_db_configs.get(sc) {
                 match stacker_db_sync.run(self, config) {
                     Ok(Some(result)) => {
-                        // clear broken nodes
-                        for broken in result.broken.iter() {
-                            debug!("StackerDB replica is broken: {:?}", broken);
-                            self.deregister_and_ban_neighbor(broken);
-                        }
-                        // clear dead nodes
-                        for dead in result.dead.iter() {
-                            debug!("StackerDB replica is dead: {:?}", dead);
-                            self.deregister_neighbor(dead);
-                        }
                         results.push(result);
                     }
                     Ok(None) => {}

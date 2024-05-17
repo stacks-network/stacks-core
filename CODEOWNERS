@@ -1,0 +1,20 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# @stacks-network/blockchain-team-codeowners will be requested for
+# review when someone opens a pull request.
+* @stacks-network/blockchain-team-codeowners
+
+# Generic file extensions that shouldn't require much scrutiny. Anyone with write access to the repo may approve a PR
+*.md @stacks-network/blockchain-team
+*.yml @stacks-network/blockchain-team
+*.yaml @stacks-network/blockchain-team
+*.txt @stacks-network/blockchain-team
+*.toml @stacks-network/blockchain-team
+
+# Signer code
+libsigner/**/*.rs @stacks-network/blockchain-team-signer
+stacks-signer/**/*.rs @stacks-network/blockchain-team-signer
+
+# CI workflows
+./github/workflows/ @stacks-network/blockchain-team-ci
+./github/actions/ @stacks-network/blockchain-team-ci
