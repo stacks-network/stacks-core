@@ -866,8 +866,11 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32> {
         let cur_stacks_height = self.store.get_current_block_height();
 
-        // In epoch 2, we can only access the burn block associated with the last block
-        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+        // Before epoch 3.0, we can only access the burn block associated with the last block
+        if !self
+            .get_clarity_epoch_version()?
+            .clarity_uses_tip_burn_block()
+        {
             if cur_stacks_height == 0 {
                 return Ok(self.burn_state_db.get_burn_start_height());
             };
@@ -926,7 +929,10 @@ impl<'a> ClarityDatabase<'a> {
     /// In Epoch 3+:
     /// 1. Get the SortitionId of the current Stacks tip
     fn get_sortition_id_for_stacks_tip(&mut self) -> Result<Option<SortitionId>> {
-        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+        if !self
+            .get_clarity_epoch_version()?
+            .clarity_uses_tip_burn_block()
+        {
             let current_stacks_height = self.get_current_block_height();
 
             if current_stacks_height < 1 {

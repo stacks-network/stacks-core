@@ -173,7 +173,7 @@ impl ClarityTestSim {
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch >= StacksEpochId::Epoch30 {
+            if cur_epoch.clarity_uses_tip_burn_block() {
                 db.begin();
                 db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");
@@ -227,7 +227,7 @@ impl ClarityTestSim {
             debug!("Execute block in epoch {}", &cur_epoch);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch >= StacksEpochId::Epoch30 {
+            if cur_epoch.clarity_uses_tip_burn_block() {
                 db.begin();
                 db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");

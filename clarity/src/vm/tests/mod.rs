@@ -166,7 +166,7 @@ impl MemoryEnvironmentGenerator {
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
         db.commit().unwrap();
-        if epoch >= StacksEpochId::Epoch30 {
+        if epoch.clarity_uses_tip_burn_block() {
             db.begin();
             db.set_tenure_height(1).unwrap();
             db.commit().unwrap();
@@ -185,7 +185,7 @@ impl TopLevelMemoryEnvironmentGenerator {
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
         db.commit().unwrap();
-        if epoch >= StacksEpochId::Epoch30 {
+        if epoch.clarity_uses_tip_burn_block() {
             db.begin();
             db.set_tenure_height(1).unwrap();
             db.commit().unwrap();

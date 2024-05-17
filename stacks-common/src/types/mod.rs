@@ -148,6 +148,13 @@ impl StacksEpochId {
             StacksEpochId::Epoch30 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
         }
     }
+
+    /// Returns whether or not this epoch uses the tip for reading burn block
+    /// info in Clarity (3.0+ behavior) or should use the parent block's burn
+    /// block (behavior before 3.0).
+    pub fn clarity_uses_tip_burn_block(&self) -> bool {
+        self >= &StacksEpochId::Epoch30
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {
