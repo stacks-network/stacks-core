@@ -576,6 +576,10 @@ impl SignCoordinator {
         ))
     }
 
+    /// Start gathering signatures for a Nakamoto block.
+    /// This function begins by sending a `BlockProposal` message
+    /// to the signers, and then waits for the signers to respond
+    /// with their signatures.
     pub fn begin_sign_v0(
         &mut self,
         block: &NakamotoBlock,
@@ -653,7 +657,7 @@ impl SignCoordinator {
                 continue;
             }
 
-            // TODO: get messages from signers
+            // TODO: get messages from signers (#4775)
         }
 
         Err(NakamotoNodeError::SignerSignatureError(
