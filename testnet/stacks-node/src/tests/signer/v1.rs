@@ -43,7 +43,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{SignerSlotID, StacksClient};
-use stacks_signer::runloop::{RunLoopCommand, SignerCommand};
+use stacks_signer::runloop::{RunLoopCommand, SignerCommand, SignerResult};
 use stacks_signer::v1::coordinator::CoordinatorSelector;
 use stacks_signer::v1::stackerdb_manager::StackerDBManager;
 use stacks_signer::v1::SpawnedSigner;
@@ -209,11 +209,16 @@ impl SignerTest<SpawnedSigner> {
                     .expect("failed to recv dkg results");
                 for result in results {
                     match result {
-                        OperationResult::Dkg(point) => {
+                        SignerResult::OperationResult(OperationResult::Dkg(point)) => {
                             info!("Received aggregate_group_key {point}");
                             aggregate_public_key = Some(point);
                         }
-                        other => panic!("{}", operation_panic_message(&other)),
+                        SignerResult::OperationResult(other) => {
+                            panic!("{}", operation_panic_message(&other))
+                        }
+                        SignerResult::StatusCheck(state) => {
+                            panic!("Received status check result: {:?}", state);
+                        }
                     }
                 }
                 if aggregate_public_key.is_some() || dkg_now.elapsed() > timeout {

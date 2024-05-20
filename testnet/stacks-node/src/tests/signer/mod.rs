@@ -48,6 +48,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
+use stacks_signer::runloop::{SignerResult, State};
 use stacks_signer::{Signer, SpawnedSigner};
 use wsts::curve::point::Point;
 use wsts::state_machine::PublicKeys;
@@ -145,6 +146,54 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             stacks_client,
             run_stamp,
         }
+    }
+
+    fn send_status_request(&self) {
+        for port in 3000..3000 + self.spawned_signers.len() {
+            let endpoint = format!("http://localhost:{}", port);
+            let path = format!("{endpoint}/status");
+            let client = reqwest::blocking::Client::new();
+            let response = client
+                .get(path)
+                .send()
+                .expect("Failed to send status request");
+            assert!(response.status().is_success())
+        }
+    }
+
+    /// Wait for the signers to respond to a status check
+    fn wait_for_states(&mut self, timeout: Duration) -> Vec<State> {
+        debug!("Waiting for Status...");
+        let now = std::time::Instant::now();
+        let mut states = Vec::with_capacity(self.spawned_signers.len());
+        for signer in self.spawned_signers.iter() {
+            let old_len = states.len();
+            loop {
+                assert!(
+                    now.elapsed() < timeout,
+                    "Timed out waiting for state checks"
+                );
+                let results = signer
+                    .res_recv
+                    .recv_timeout(timeout)
+                    .expect("failed to recv state results");
+                for result in results {
+                    match result {
+                        SignerResult::OperationResult(_operation) => {
+                            panic!("Recieved an operation result.");
+                        }
+                        SignerResult::StatusCheck(state) => {
+                            states.push(state);
+                        }
+                    }
+                }
+                if states.len() > old_len {
+                    break;
+                }
+            }
+        }
+        debug!("Finished waiting for state checks!");
+        states
     }
 
     fn nmb_blocks_to_reward_set_calculation(&mut self) -> u64 {
