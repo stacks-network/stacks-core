@@ -20,7 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName, Value};
-use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec};
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
 };
