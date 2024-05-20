@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::env;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use libsigner::v0::messages::{
@@ -25,6 +26,8 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::types::chainstate::StacksPrivateKey;
+use stacks::types::PublicKey;
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
@@ -33,7 +36,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
-use crate::tests::nakamoto_integrations::boot_to_epoch_3_reward_set;
+use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
 use crate::tests::neon_integrations::next_block_and_wait;
 use crate::BurnchainController;
 
@@ -96,6 +99,27 @@ impl SignerTest<SpawnedSigner> {
         debug!("Singers initialized");
 
         self.run_until_epoch_3_boundary();
+
+        let (vrfs_submitted, commits_submitted) = (
+            self.running_nodes.vrfs_submitted.clone(),
+            self.running_nodes.commits_submitted.clone(),
+        );
+        info!("Submitting 1 BTC block for miner VRF key registration");
+        // first block wakes up the run loop, wait until a key registration has been submitted.
+        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        })
+        .unwrap();
+
+        info!("Successfully triggered first block to wake up the miner runloop.");
+        // second block should confirm the VRF register, wait until a block commit is submitted
+        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        })
+        .unwrap();
+        info!("Ready to mine Nakamoto blocks!");
     }
 }
 
@@ -211,4 +235,64 @@ fn block_proposal_rejection() {
         }
     }
     signer_test.shutdown();
+}
+
+// Basic test to ensure that miners are able to gather block responses
+// from signers and create blocks.
+#[test]
+#[ignore]
+fn miner_gather_signatures() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
+    signer_test.boot_to_epoch_3();
+    let timeout = Duration::from_secs(30);
+
+    info!("------------------------- Try mining one block -------------------------");
+    signer_test.mine_nakamoto_block(timeout);
+
+    // Verify that the signers accepted the proposed block, sending back a validate ok response
+    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(timeout);
+    let message = proposed_signer_signature_hash.0;
+
+    info!("------------------------- Test Block Signed -------------------------");
+    // Verify that the signers signed the proposed block
+    let signature =
+        signer_test.wait_for_confirmed_block_v0(&proposed_signer_signature_hash, timeout);
+
+    info!("Got {} signatures", signature.len());
+
+    assert_eq!(signature.len(), num_signers);
+
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let signers = signer_test.get_reward_set_signers(reward_cycle);
+
+    // Verify that the signers signed the proposed block
+
+    let all_signed = signers.iter().zip(signature).all(|(signer, signature)| {
+        let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
+            .expect("Failed to convert signing key to StacksPublicKey");
+
+        // let valid = stacks_public_key.verify(message, signature);
+        let valid = stacks_public_key
+            .verify(&message, &signature)
+            .expect("Failed to verify signature");
+        if !valid {
+            error!(
+                "Failed to verify signature for signer: {:?}",
+                stacks_public_key
+            );
+        }
+        valid
+    });
+    assert!(all_signed);
 }

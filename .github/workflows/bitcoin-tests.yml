@@ -83,6 +83,7 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup
           - tests::nakamoto_integrations::forked_tenure_is_ignored
           - tests::signer::v0::block_proposal_rejection
+          - tests::signer::v0::miner_gather_signatures
           - tests::signer::v1::dkg
           - tests::signer::v1::sign_request_rejected
           - tests::signer::v1::filter_bad_transactions

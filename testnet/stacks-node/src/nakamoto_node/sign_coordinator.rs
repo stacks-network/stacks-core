@@ -13,17 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::SignerMessage as SignerMessageV0;
+use libsigner::v0::messages::{BlockResponse, SignerMessage as SignerMessageV0};
 use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
@@ -65,6 +66,8 @@ pub struct SignCoordinator {
     is_mainnet: bool,
     miners_session: StackerDBSession,
     signing_round_timeout: Duration,
+    signer_entries: HashMap<u32, NakamotoSignerEntry>,
+    weight_threshold: u32,
     pub next_signer_bitvec: BitVec<4000>,
 }
 
@@ -122,6 +125,7 @@ impl NakamotoSigningParams {
     }
 }
 
+#[allow(dead_code)]
 fn get_signer_commitments(
     is_mainnet: bool,
     reward_set: &[NakamotoSignerEntry],
@@ -196,9 +200,10 @@ impl SignCoordinator {
         reward_set: &RewardSet,
         reward_cycle: u64,
         message_key: Scalar,
-        aggregate_public_key: Point,
+        aggregate_public_key: Option<Point>,
         stackerdb_conn: &StackerDBs,
         config: &Config,
+        // v1: bool,
     ) -> Result<Self, ChainstateError> {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
@@ -250,6 +255,32 @@ impl SignCoordinator {
             ..Default::default()
         };
 
+        let total_weight =
+            reward_set_signers
+                .iter()
+                .cloned()
+                .map(|s| s.weight)
+                .fold(0, |w, acc| {
+                    acc.checked_add(w)
+                        .expect("FATAL: Total signer weight > u32::MAX")
+                });
+
+        let threshold = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)?;
+
+        let signer_public_keys = reward_set_signers
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(idx, signer)| {
+                let Ok(slot_id) = u32::try_from(idx) else {
+                    return Err(ChainstateError::InvalidStacksBlock(
+                        "Signer index exceeds u32".into(),
+                    ));
+                };
+                Ok((slot_id, signer))
+            })
+            .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
+
         let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
         #[cfg(test)]
         {
@@ -272,25 +303,31 @@ impl SignCoordinator {
                     miners_session,
                     signing_round_timeout: config.miner.wait_on_signers.clone(),
                     next_signer_bitvec,
+                    signer_entries: signer_public_keys,
+                    weight_threshold: threshold,
                 };
-                sign_coordinator
-                    .coordinator
-                    .set_aggregate_public_key(Some(aggregate_public_key));
+                if let Some(aggregate_public_key) = aggregate_public_key {
+                    sign_coordinator
+                        .coordinator
+                        .set_aggregate_public_key(Some(aggregate_public_key));
+                }
                 return Ok(sign_coordinator);
             }
         }
-        let party_polynomials = get_signer_commitments(
-            is_mainnet,
-            reward_set_signers.as_slice(),
-            stackerdb_conn,
-            reward_cycle,
-            &aggregate_public_key,
-        )?;
-        if let Err(e) = coordinator
-            .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
-        {
-            warn!("Failed to set a valid set of party polynomials"; "error" => %e);
-        };
+        if let Some(aggregate_public_key) = aggregate_public_key {
+            let party_polynomials = get_signer_commitments(
+                is_mainnet,
+                reward_set_signers.as_slice(),
+                stackerdb_conn,
+                reward_cycle,
+                &aggregate_public_key,
+            )?;
+            if let Err(e) = coordinator
+                .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
+            {
+                warn!("Failed to set a valid set of party polynomials"; "error" => %e);
+            };
+        }
 
         let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
         if replaced_other {
@@ -306,6 +343,8 @@ impl SignCoordinator {
             miners_session,
             signing_round_timeout: config.miner.wait_on_signers.clone(),
             next_signer_bitvec,
+            signer_entries: signer_public_keys,
+            weight_threshold: threshold,
         })
     }
 
@@ -606,6 +645,9 @@ impl SignCoordinator {
         };
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
+        debug!("Sending block proposal message to signers";
+            "signer_signature_hash" => ?&block.header.signer_signature_hash().0,
+        );
         Self::send_signers_message::<SignerMessageV0>(
             &self.message_key,
             sortdb,
@@ -636,6 +678,13 @@ impl SignCoordinator {
             ));
         };
 
+        let mut total_weight_signed: u32 = 0;
+        let mut gathered_signatures = BTreeMap::new();
+
+        info!("SignCoordinator: beginning to watch for block signatures.";
+            "threshold" => self.weight_threshold,
+        );
+
         let start_ts = Instant::now();
         while start_ts.elapsed() <= self.signing_round_timeout {
             let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
@@ -657,7 +706,88 @@ impl SignCoordinator {
                 continue;
             }
 
-            // TODO: get messages from signers (#4775)
+            let modified_slots = &event.modified_slots.clone();
+
+            // Update `next_signers_bitvec` with the slots that were modified in the event
+            modified_slots.iter().for_each(|chunk| {
+                if let Ok(slot_id) = chunk.slot_id.try_into() {
+                    match &self.next_signer_bitvec.set(slot_id, true) {
+                        Err(e) => {
+                            warn!("Failed to set bitvec for next signer: {e:?}");
+                        }
+                        _ => (),
+                    };
+                } else {
+                    error!("FATAL: slot_id greater than u16, which should never happen.");
+                }
+            });
+
+            let Ok(signer_event) = SignerEvent::<SignerMessageV0>::try_from(event).map_err(|e| {
+                warn!("Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
+            }) else {
+                continue;
+            };
+            let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
+                debug!("Received signer event other than a signer message. Ignoring.");
+                continue;
+            };
+            if signer_set != u32::try_from(reward_cycle_id % 2).unwrap() {
+                debug!("Received signer event for other reward cycle. Ignoring.");
+                continue;
+            };
+            let slot_ids = modified_slots
+                .iter()
+                .map(|chunk| chunk.slot_id)
+                .collect::<Vec<_>>();
+
+            debug!("SignCoordinator: Received messages from signers";
+                "count" => messages.len(),
+                "slot_ids" => ?slot_ids,
+                "threshold" => self.weight_threshold
+            );
+
+            for (message, slot_id) in messages.into_iter().zip(slot_ids) {
+                match message {
+                    SignerMessageV0::BlockResponse(BlockResponse::Accepted((
+                        response_hash,
+                        signature,
+                    ))) => {
+                        let block_sighash = block.header.signer_signature_hash();
+                        if block_sighash != response_hash {
+                            warn!(
+                                "Processed signature but didn't validate over the expected block. Returning error.";
+                                "signature" => %signature,
+                                "block_signer_signature_hash" => %block_sighash,
+                                "slot_id" => slot_id,
+                            );
+                            continue;
+                        }
+                        debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
+                        let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                            return Err(NakamotoNodeError::SignerSignatureError(
+                                "Signer entry not found".into(),
+                            ));
+                        };
+                        total_weight_signed = total_weight_signed
+                            .checked_add(signer_entry.weight)
+                            .expect("FATAL: total weight signed exceeds u32::MAX");
+                        debug!("SignCoordinator: Total weight signed: {total_weight_signed}");
+                        gathered_signatures.insert(slot_id, signature);
+                    }
+                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(_)) => {
+                        debug!("Received rejected block response. Ignoring.");
+                    }
+                    SignerMessageV0::BlockProposal(_) => {
+                        debug!("Received block proposal message. Ignoring.");
+                    }
+                }
+            }
+
+            // After gathering all signatures, return them if we've hit the threshold
+            if total_weight_signed >= self.weight_threshold {
+                info!("SignCoordinator: Received enough signatures. Continuing.");
+                return Ok(gathered_signatures.values().cloned().collect());
+            }
         }
 
         Err(NakamotoNodeError::SignerSignatureError(

@@ -310,7 +310,7 @@ impl BlockMinerThread {
             &reward_set,
             reward_cycle,
             miner_privkey_as_scalar,
-            aggregate_public_key,
+            Some(aggregate_public_key),
             &stackerdbs,
             &self.config,
         )
@@ -395,7 +395,7 @@ impl BlockMinerThread {
             &reward_set,
             reward_cycle,
             miner_privkey_as_scalar,
-            Point::new(),
+            None,
             &stackerdbs,
             &self.config,
         )
