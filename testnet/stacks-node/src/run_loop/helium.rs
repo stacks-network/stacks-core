@@ -89,11 +89,11 @@ impl RunLoop {
         let _ = burnchain.sortdb_mut();
 
         // Run the tenure, keep the artifacts
-        let artifacts_from_1st_tenure = match first_tenure.run(&burnchain.sortdb_ref().index_conn())
-        {
-            Some(res) => res,
-            None => panic!("Error while running 1st tenure"),
-        };
+        let artifacts_from_1st_tenure =
+            match first_tenure.run(&burnchain.sortdb_ref().index_handle_at_tip()) {
+                Some(res) => res,
+                None => panic!("Error while running 1st tenure"),
+            };
 
         // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
         // while having the option of running multiple tenures concurrently and try different strategies.
@@ -136,7 +136,7 @@ impl RunLoop {
             &burnchain_tip,
             &chain_tip,
             &mut self.node.chain_state,
-            &burnchain.sortdb_ref().index_conn(),
+            &burnchain.sortdb_ref().index_handle_at_tip(),
         );
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
@@ -160,7 +160,7 @@ impl RunLoop {
                         &chain_tip,
                         &mut tenure,
                     );
-                    tenure.run(&burnchain.sortdb_ref().index_conn())
+                    tenure.run(&burnchain.sortdb_ref().index_handle_at_tip())
                 }
                 None => None,
             };
@@ -214,7 +214,7 @@ impl RunLoop {
                         &burnchain_tip,
                         &chain_tip,
                         &mut self.node.chain_state,
-                        &burnchain.sortdb_ref().index_conn(),
+                        &burnchain.sortdb_ref().index_handle_at_tip(),
                     );
                 }
             };

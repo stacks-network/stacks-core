@@ -2595,6 +2595,19 @@ impl<'a> SortitionHandleConn<'a> {
             }
         }
     }
+
+    pub fn get_reward_set_payouts_at(
+        &self,
+        sortition_id: &SortitionId,
+    ) -> Result<(Vec<PoxAddress>, u128), db_error> {
+        let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
+
+        let pox_addrs: (Vec<PoxAddress>, u128) =
+            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        Ok(pox_addrs)
+    }
 }
 
 // Connection methods
@@ -2616,7 +2629,7 @@ impl SortitionDB {
         Ok(index_tx)
     }
 
-    /// Make an indexed connectino
+    /// Make an indexed connection
     pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
         SortitionDBConn::new(
             &self.marf,

@@ -36,7 +36,7 @@ use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
@@ -206,7 +206,7 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let burn_dbconn = sortdb.index_conn();
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle_at_tip();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn_opt =

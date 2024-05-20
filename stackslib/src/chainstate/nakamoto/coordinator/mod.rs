@@ -656,7 +656,7 @@ impl<
             if let Some(ref mut estimator) = self.cost_estimator {
                 let stacks_epoch = self
                     .sortition_db
-                    .index_conn()
+                    .index_handle_at_tip()
                     .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                     .expect("Could not find a stacks epoch.");
                 estimator.notify_block(
@@ -670,7 +670,7 @@ impl<
             if let Some(ref mut estimator) = self.fee_estimator {
                 let stacks_epoch = self
                     .sortition_db
-                    .index_conn()
+                    .index_handle_at_tip()
                     .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                     .expect("Could not find a stacks epoch.");
                 if let Err(e) = estimator.notify_block(&block_receipt, &stacks_epoch.block_limit) {

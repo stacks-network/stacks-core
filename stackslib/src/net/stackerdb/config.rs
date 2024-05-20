@@ -493,7 +493,7 @@ impl StackerDBConfig {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortition_db.conn(), burn_tip.block_height)?
             .expect("FATAL: no epoch defined");
 
-        let dbconn = sortition_db.index_conn();
+        let dbconn = sortition_db.index_handle_at_tip();
 
         // check the target contract
         let res = chainstate.with_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {

@@ -410,21 +410,25 @@ impl BlockMinerThread {
 
         // Get all nonces for the signers from clarity DB to use to validate transactions
         let account_nonces = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    addresses
-                        .iter()
-                        .map(|address| {
-                            (
-                                address.clone(),
-                                clarity_db
-                                    .get_account_nonce(&address.clone().into())
-                                    .unwrap_or(0),
-                            )
-                        })
-                        .collect::<HashMap<StacksAddress, u64>>()
-                })
-            })
+            .with_read_only_clarity_tx(
+                &sortdb.index_handle_at_tip(),
+                &stacks_block_id,
+                |clarity_tx| {
+                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                        addresses
+                            .iter()
+                            .map(|address| {
+                                (
+                                    address.clone(),
+                                    clarity_db
+                                        .get_account_nonce(&address.clone().into())
+                                        .unwrap_or(0),
+                                )
+                            })
+                            .collect::<HashMap<StacksAddress, u64>>()
+                    })
+                },
+            )
             .unwrap_or_default();
         let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
@@ -757,7 +761,7 @@ impl BlockMinerThread {
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            &burn_db.index_conn(),
+            &burn_db.index_handle_at_tip(),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_block.consensus_hash,
@@ -933,7 +937,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle_at_tip(),
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

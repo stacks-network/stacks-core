@@ -128,7 +128,7 @@ pub fn get_account(
 
     chainstate
         .with_read_only_clarity_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle_at_tip(),
             &tip.index_block_hash(),
             |clarity_conn| {
                 StacksChainState::get_account(clarity_conn, &addr.to_account_principal())

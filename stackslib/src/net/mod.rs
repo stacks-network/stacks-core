@@ -3531,7 +3531,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3742,7 +3742,7 @@ pub mod test {
                 |mut builder, ref mut miner, ref sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
-                    let sort_iconn = sortdb.index_conn();
+                    let sort_iconn = sortdb.index_handle_at_tip();
 
                     let mut miner_epoch_info = builder
                         .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)

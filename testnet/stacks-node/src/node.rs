@@ -891,7 +891,7 @@ impl Node {
         let mut fee_estimator = self.config.make_fee_estimator();
 
         let stacks_epoch = db
-            .index_conn()
+            .index_handle_at_tip()
             .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {

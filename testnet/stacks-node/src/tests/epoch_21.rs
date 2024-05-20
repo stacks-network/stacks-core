@@ -5143,7 +5143,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     for height in 211..tip_info.burn_block_height {
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_tip();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -5423,7 +5423,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     for height in 211..tip_info.burn_block_height {
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_tip();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

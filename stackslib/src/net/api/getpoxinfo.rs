@@ -190,7 +190,7 @@ impl RPCPoxInfoData {
             + 1;
 
         let data = chainstate
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            .maybe_read_only_clarity_tx(&sortdb.index_handle_at_tip(), tip, |clarity_tx| {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,

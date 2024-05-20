@@ -753,7 +753,7 @@ impl MicroblockMinerThread {
             .epoch_id;
 
         let mint_result = {
-            let ic = sortdb.index_conn();
+            let ic = sortdb.index_handle_at_tip();
             let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
                 chainstate,
                 &ic,
@@ -2352,7 +2352,7 @@ impl BlockMinerThread {
         }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &burn_db.index_conn(),
+            &burn_db.index_handle_at_tip(),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
@@ -2382,7 +2382,7 @@ impl BlockMinerThread {
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
                     &chain_state,
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle_at_tip(),
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
@@ -4047,7 +4047,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle_at_tip(),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

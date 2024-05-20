@@ -1915,7 +1915,7 @@ fn block_proposal_api_endpoint() {
         )
         .expect("Failed to build Nakamoto block");
 
-        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_conn();
+        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_handle_at_tip();
         let mut miner_tenure_info = builder
             .load_tenure_info(&mut chainstate, &burn_dbconn, tenure_cause)
             .unwrap();
@@ -3582,8 +3582,8 @@ fn check_block_heights() {
         "get-heights",
         vec![],
     );
-    let heights0 = heights0_value.expect_tuple().unwrap();
-    info!("Heights from pre-epoch 3.0: {}", heights0);
+    let preheights = heights0_value.expect_tuple().unwrap();
+    info!("Heights from pre-epoch 3.0: {}", preheights);
 
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -3601,7 +3601,7 @@ fn check_block_heights() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     println!("Chain info: {:?}", info);
-    let mut last_burn_block_height = info.burn_block_height as u128;
+    let mut last_burn_block_height;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
     let mut last_tenure_height = last_stacks_block_height as u128;
 
@@ -3615,14 +3615,8 @@ fn check_block_heights() {
     let heights0 = heights0_value.expect_tuple().unwrap();
     info!("Heights from epoch 3.0 start: {}", heights0);
     assert_eq!(
-        heights0
-            .get("burn-block-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap()
-            + 3,
-        last_burn_block_height,
+        heights0.get("burn-block-height"),
+        preheights.get("burn-block-height"),
         "Burn block height should match"
     );
     assert_eq!(

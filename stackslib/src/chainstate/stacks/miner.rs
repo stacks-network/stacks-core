@@ -39,7 +39,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -1803,7 +1805,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1912,7 +1914,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1974,7 +1976,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1993,7 +1995,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2385,7 +2387,7 @@ impl StacksBlockBuilder {
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)

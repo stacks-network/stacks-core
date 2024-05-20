@@ -641,7 +641,7 @@ simulating a miner.
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &sort_db.index_conn(),
+            &sort_db.index_handle_at_tip(),
             &mut mempool_db,
             &parent_header,
             chain_tip.total_burn,
@@ -1179,7 +1179,7 @@ simulating a miner.
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
                 p2p_chainstate
-                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_conn())
+                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_handle_at_tip())
                     .expect("Failed to open unconfirmed Clarity state");
 
                 sleep_ms(100);
@@ -1522,7 +1522,7 @@ simulating a miner.
 
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
-        &sort_db.index_conn(),
+        &sort_db.index_handle_at_tip(),
         &mut mempool_db,
         &parent_header,
         chain_tip.total_burn,

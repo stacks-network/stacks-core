@@ -483,7 +483,7 @@ pub fn readonly_call_with_sortdb(
     args: Vec<Value>,
 ) -> Value {
     chainstate
-        .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
+        .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), tip, |connection| {
             connection
                 .with_readonly_clarity_env(
                     false,

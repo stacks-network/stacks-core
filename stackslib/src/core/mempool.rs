@@ -322,7 +322,7 @@ impl MemPoolAdmitter {
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
         chainstate.will_admit_mempool_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle_at_tip(),
             &self.cur_consensus_hash,
             &self.cur_block,
             tx,

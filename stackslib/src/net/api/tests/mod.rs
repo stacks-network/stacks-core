@@ -454,7 +454,7 @@ impl<'a> TestRPC<'a> {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()],
                     )
                     .unwrap();
@@ -477,7 +477,7 @@ impl<'a> TestRPC<'a> {
             let sortdb = peer_1.sortdb.take().unwrap();
             Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
             let mblock = {
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
                     consensus_hash.clone(),
@@ -529,11 +529,11 @@ impl<'a> TestRPC<'a> {
             let sortdb2 = peer_2.sortdb.take().unwrap();
             peer_1
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb1.index_handle_at_tip(), canonical_tip.clone())
                 .unwrap();
             peer_2
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb2.index_handle_at_tip(), canonical_tip.clone())
                 .unwrap();
             peer_1.sortdb = Some(sortdb1);
             peer_2.sortdb = Some(sortdb2);
@@ -732,7 +732,7 @@ impl<'a> TestRPC<'a> {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![tx_coinbase_signed.clone()],
                     )
                     .unwrap();
