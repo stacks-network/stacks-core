@@ -119,6 +119,9 @@ use crate::util_lib::db::{
 };
 
 pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
+    -- Drop the existing table if it exists
+    DROP TABLE IF EXISTS nakamoto_tenures;
+
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -129,7 +132,7 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         burn_view_consensus_hash TEXT NOT NULL,
         -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
         -- this is equal to the `cause` field in a TenureChange
-        cause INETGER NOT NULL,
+        cause INTEGER NOT NULL,
         -- block hash of start-tenure block
         block_hash TEXT NOT NULL,
         -- block ID of this start block (this is the StacksBlockId of the above tenure_id_consensus_hash and block_hash)
@@ -144,9 +147,10 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         num_blocks_confirmed INTEGER NOT NULL,
         -- this is the ith tenure transaction in its respective Nakamoto chain history.
         tenure_index INTEGER NOT NULL,
-
+        -- schema version field
+        schema_version INTEGER NOT NULL DEFAULT 1,  
         PRIMARY KEY(burn_view_consensus_hash,tenure_index)
-    );
+    ) STRICT;
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
     CREATE INDEX nakamoto_tenures_by_tenure_id ON nakamoto_tenures(tenure_id_consensus_hash);
     CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
