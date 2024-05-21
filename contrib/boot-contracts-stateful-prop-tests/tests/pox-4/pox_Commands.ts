@@ -3,7 +3,9 @@ import { Real, Stacker, Stub, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxSigCommand } from "./pox_StackStxSigCommand";
+import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
 import { StackStxAuthCommand } from "./pox_StackStxAuthCommand";
+import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
 import { DelegateStxCommand } from "./pox_DelegateStxCommand";
 import { DelegateStackStxCommand } from "./pox_DelegateStackStxCommand";
 import { Simnet } from "@hirosystems/clarinet-sdk";
@@ -83,6 +85,36 @@ export function PoxCommands(
         r.margin,
       )
     ),
+    // StackStxAuthCommand_Err
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      period: fc.integer({ min: 1, max: 12 }),
+      margin: fc.integer({ min: 1, max: 9 }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        authId: number;
+        period: number;
+        margin: number;
+      },
+    ) =>
+      new StackStxAuthCommand_Err(
+        r.wallet,
+        r.authId,
+        r.period,
+        r.margin,
+        function (this: StackStxAuthCommand_Err, model: Readonly<Stub>): boolean {
+          const stacker = model.stackers.get(this.wallet.stxAddress)!;
+          console.log("I in StackStxAuthCommand_Err stacker", stacker);
+          return (
+            model.stackingMinimum > 0 && !stacker.isStacking &&
+            !stacker.hasDelegated
+          );
+        },
+        123,
+      )
+    ),
     // StackExtendAuthCommand
     fc
       .record({
@@ -105,6 +137,36 @@ export function PoxCommands(
             r.currentCycle,
           ),
       ),
+    // StackStxSigCommand_Err
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      period: fc.integer({ min: 1, max: 12 }),
+      margin: fc.integer({ min: 1, max: 9 }),
+    }).map((
+      r: {
+        wallet: Wallet;
+        authId: number;
+        period: number;
+        margin: number;
+      },
+    ) =>
+      new StackStxSigCommand_Err(
+        r.wallet,
+        r.authId,
+        r.period,
+        r.margin,
+        function (this: StackStxSigCommand_Err, model: Readonly<Stub>): boolean {
+          const stacker = model.stackers.get(this.wallet.stxAddress)!;
+          console.log("I in StackStxSigCommand_Err stacker", stacker);
+          return (
+            model.stackingMinimum > 0 && !stacker.isStacking &&
+            !stacker.hasDelegated
+          );
+        },
+        123,
+      )
+    ),
     // StackExtendSigCommand
     fc
       .record({
