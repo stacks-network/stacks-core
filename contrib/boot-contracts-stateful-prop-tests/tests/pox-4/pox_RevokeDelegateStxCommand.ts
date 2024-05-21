@@ -15,6 +15,7 @@ import { Cl, someCV, tupleCV } from "@stacks/transactions";
  *
  * Constraints for running this command include:
  * - The `Stacker` has to currently be delegating.
+ * - The `Stacker`'s delegation must not be expired
  */
 export class RevokeDelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
@@ -31,10 +32,12 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker has to currently be delegating.
-
+    // - The Stacker's delegation must not be expired
+    const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
       model.stackingMinimum > 0 &&
-      model.stackers.get(this.wallet.stxAddress)!.hasDelegated === true
+      stacker.hasDelegated === true &&
+      stacker.delegatedUntilBurnHt > model.burnBlockHeight
     );
   }
 
