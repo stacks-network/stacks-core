@@ -97,6 +97,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -118,6 +119,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -127,6 +129,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
+        failed_post_conditions: Vec<TransactionPostCondition>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -139,6 +142,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: Some(failed_post_conditions),
         }
     }
 
@@ -160,6 +164,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -169,6 +174,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         analysis: ContractAnalysis,
         cost: ExecutionCost,
+        failed_post_conditions: Vec<TransactionPostCondition>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -181,6 +187,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: Some(failed_post_conditions),
         }
     }
 
@@ -196,6 +203,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -238,6 +246,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
+            failed_post_conditions: None,
         }
     }
 
@@ -257,6 +266,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -277,6 +287,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(format!("{}", &error)),
+            failed_post_conditions: None,
         }
     }
 
@@ -296,6 +307,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(format!("{}", &error)),
+            failed_post_conditions: None,
         }
     }
 
@@ -311,6 +323,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            failed_post_conditions: None,
         }
     }
 
@@ -578,6 +591,7 @@ impl StacksChainState {
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
+        failed_post_conditions: &mut Vec<TransactionPostCondition>,
     ) -> Result<bool, InterpreterError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
@@ -608,6 +622,9 @@ impl StacksChainState {
                             "Post-condition check failure on STX owned by {}: {:?} {:?} {}",
                             account_principal, amount_sent_condition, condition_code, amount_sent
                         );
+
+                        failed_post_conditions.push(postcond.clone());
+
                         return Ok(false);
                     }
 
@@ -651,6 +668,7 @@ impl StacksChainState {
                         .unwrap_or(0);
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
+                        failed_post_conditions.push(postcond.clone());
                         return Ok(false);
                     }
 
@@ -685,6 +703,7 @@ impl StacksChainState {
                         .unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
                         info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
+                        failed_post_conditions.push(postcond.clone());
                         return Ok(false);
                     }
 
@@ -1026,6 +1045,7 @@ impl StacksChainState {
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
                 let epoch_id = clarity_tx.get_epoch();
+                let mut failed_post_conditions = vec![];
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
@@ -1039,6 +1059,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            &mut failed_post_conditions,
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
@@ -1081,13 +1102,15 @@ impl StacksChainState {
                                       "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args));
+                                      "function_args" => %VecDisplay(&contract_call.function_args),
+                                      "failed_post_conditions" => %VecDisplay(&failed_post_conditions));
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
                                     value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
                                     assets.get_stx_burned_total()?,
-                                    total_cost);
+                                    total_cost,
+                                    failed_post_conditions);
                             return Ok(receipt);
                         }
                         ClarityRuntimeTxError::CostError(cost_after, budget) => {
@@ -1189,6 +1212,9 @@ impl StacksChainState {
                     &contract_code_str,
                     ast_rules,
                 );
+
+                let mut failed_post_conditions = vec![];
+
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
@@ -1274,6 +1300,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            &mut failed_post_conditions,
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
@@ -1314,6 +1341,7 @@ impl StacksChainState {
                                 microblock_header: None,
                                 tx_index: 0,
                                 vm_error: Some(error.to_string()),
+                                failed_post_conditions: None,
                             };
                             return Ok(receipt);
                         }
@@ -1325,6 +1353,7 @@ impl StacksChainState {
                                     assets.get_stx_burned_total()?,
                                     contract_analysis,
                                     total_cost,
+                                    failed_post_conditions,
                                 );
                             return Ok(receipt);
                         }
@@ -6867,12 +6896,14 @@ pub mod test {
             let post_conditions = &test.1;
             let mode = &test.2;
             let origin = &test.3;
+            let mut failed_post_conditions = vec![];
 
             let result = StacksChainState::check_transaction_postconditions(
                 post_conditions,
                 mode,
                 origin,
                 &ft_transfer_2,
+                &mut failed_post_conditions, // TODO: validate failed post-conditions
             )
             .unwrap();
             if result != expected_result {
@@ -7220,12 +7251,14 @@ pub mod test {
             let post_conditions = &test.1;
             let mode = &test.2;
             let origin = &test.3;
+            let mut failed_post_conditions = vec![];
 
             let result = StacksChainState::check_transaction_postconditions(
                 post_conditions,
                 mode,
                 origin,
                 &nft_transfer_2,
+                &mut failed_post_conditions, // TODO: check failed post-conditions
             )
             .unwrap();
             if result != expected_result {
@@ -8038,11 +8071,14 @@ pub mod test {
                 let post_condition_mode = &test.2;
                 let origin_account = &test.3;
 
+                let mut failed_post_conditions = vec![];
+
                 let result = StacksChainState::check_transaction_postconditions(
                     post_conditions,
                     post_condition_mode,
                     origin_account,
                     asset_map,
+                    &mut failed_post_conditions, // TODO: check failed post-conditions
                 )
                 .unwrap();
                 if result != expected_result {

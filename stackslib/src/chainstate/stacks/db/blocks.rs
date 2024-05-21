@@ -4219,6 +4219,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            failed_post_conditions: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4314,6 +4315,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    failed_post_conditions: None,
                                 })
                             }
                             Err(e) => {
@@ -4420,6 +4422,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            failed_post_conditions: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4528,6 +4531,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            failed_post_conditions: None,
                         };
 
                         all_receipts.push(receipt);

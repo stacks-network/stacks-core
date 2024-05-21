@@ -56,6 +56,7 @@ pub struct StacksTransactionReceipt {
     pub tx_index: u32,
     /// This is really a string-formatted CheckError (which can't be clone()'ed)
     pub vm_error: Option<String>,
+    pub failed_post_conditions: Option<Vec<crate::chainstate::stacks::TransactionPostCondition>>,
 }
 
 #[derive(Clone)]

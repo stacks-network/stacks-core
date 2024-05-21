@@ -980,6 +980,18 @@ pub enum PostConditionPrincipal {
     Contract(StacksAddress, ContractName),
 }
 
+impl fmt::Display for PostConditionPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PostConditionPrincipal::Origin => write!(f, "Origin"),
+            PostConditionPrincipal::Standard(address) => write!(f, "Standard({})", address),
+            PostConditionPrincipal::Contract(address, contract_name) => {
+                write!(f, "Contract({}, {})", address, contract_name)
+            }
+        }
+    }
+}
+
 impl PostConditionPrincipal {
     pub fn to_principal_data(&self, origin_principal: &PrincipalData) -> PrincipalData {
         match *self {
@@ -1021,6 +1033,30 @@ pub enum TransactionPostCondition {
         Value,
         NonfungibleConditionCode,
     ),
+}
+
+impl fmt::Display for TransactionPostCondition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionPostCondition::STX(principal, condition_code, amount) => {
+                write!(f, "STX({}, {:?}, {})", principal, condition_code, amount)
+            }
+            TransactionPostCondition::Fungible(principal, asset_info, condition_code, amount) => {
+                write!(
+                    f,
+                    "Fungible({}, {:?}, {:?}, {})",
+                    principal, asset_info, condition_code, amount
+                )
+            }
+            TransactionPostCondition::Nonfungible(principal, asset_info, value, condition_code) => {
+                write!(
+                    f,
+                    "Nonfungible({}, {:?}, {:?}, {:?})",
+                    principal, asset_info, value, condition_code
+                )
+            }
+        }
+    }
 }
 
 /// Post-condition modes for unspecified assets
