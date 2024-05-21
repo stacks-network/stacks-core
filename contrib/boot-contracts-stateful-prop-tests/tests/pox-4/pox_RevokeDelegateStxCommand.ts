@@ -15,7 +15,7 @@ import { Cl, someCV, tupleCV } from "@stacks/transactions";
  *
  * Constraints for running this command include:
  * - The `Stacker` has to currently be delegating.
- * - The `Stacker`'s delegation must not be expired
+ * - The `Stacker`'s delegation must not be expired.
  */
 export class RevokeDelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
