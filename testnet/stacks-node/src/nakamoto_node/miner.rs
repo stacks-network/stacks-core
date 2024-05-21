@@ -155,6 +155,27 @@ impl BlockMinerThread {
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
 
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
+
+        let tip = SortitionDB::get_block_snapshot_consensus(
+            sort_db.conn(),
+            &self.burn_block.consensus_hash,
+        )
+        .expect("FATAL: could not retrieve chain tip")
+        .expect("FATAL: could not retrieve chain tip");
+
+        let reward_set = sort_db
+            .get_preprocessed_reward_set_of(&tip.sortition_id)
+            .expect("FATAL: Error fetching reward set")
+            .expect("FATAL: No reward set found for miner")
+            .known_selected_anchor_block_owned()
+            .expect("FATAL: No reward set found for miner");
+
         let mut attempts = 0;
         // now, actually run this tenure
         loop {
@@ -182,11 +203,12 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                let (reward_set, signer_signature) = match self.gather_signatures(
+                let signer_signature = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
                     &mut stackerdbs,
                     &mut attempts,
+                    &reward_set,
                 ) {
                     Ok(x) => x,
                     Err(e) => {
@@ -198,7 +220,7 @@ impl BlockMinerThread {
                 };
 
                 new_block.header.signer_signature = signer_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), None, reward_set) {
+                if let Err(e) = self.broadcast(new_block.clone(), None, reward_set.clone()) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -221,12 +243,6 @@ impl BlockMinerThread {
                 self.mined_blocks.push(new_block);
             }
 
-            let sort_db = SortitionDB::open(
-                &self.config.get_burn_db_file_path(),
-                true,
-                self.burnchain.pox_constants.clone(),
-            )
-            .expect("FATAL: could not open sortition DB");
             let wait_start = Instant::now();
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
@@ -342,7 +358,8 @@ impl BlockMinerThread {
         burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
-    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
+        reward_set: &RewardSet,
+    ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         let Some(miner_privkey) = self.config.miner.mining_key else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -369,26 +386,6 @@ impl BlockMinerThread {
                 self.burn_block.block_height,
             )
             .expect("FATAL: building on a burn block that is before the first burn block");
-
-        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
-                ));
-            }
-            Err(e) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
-                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
-                )));
-            }
-        };
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Current reward cycle did not select a reward set. Cannot mine!".into(),
-            ));
-        };
 
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
@@ -417,7 +414,7 @@ impl BlockMinerThread {
             &self.globals.counters,
         )?;
 
-        return Ok((reward_set, signature));
+        return Ok(signature);
     }
 
     fn get_stackerdb_contract_and_slots(
