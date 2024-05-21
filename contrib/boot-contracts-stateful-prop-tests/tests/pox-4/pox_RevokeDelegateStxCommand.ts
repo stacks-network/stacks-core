@@ -32,7 +32,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker has to currently be delegating.
-    // - The Stacker's delegation must not be expired
+    // - The Stacker's delegation must not be expired.
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
       model.stackingMinimum > 0 &&
