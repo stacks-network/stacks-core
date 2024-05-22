@@ -16,6 +16,7 @@ import { StackingClient } from "@stacks/stacking";
 
 import fc from "fast-check";
 import { PoxCommands } from "./pox_Commands.ts";
+import { ErrCommands } from "./err_Commands.ts";
 
 import fs from "fs";
 import path from "path";
@@ -143,9 +144,14 @@ it("statefully interacts with PoX-4", async () => {
 
   simnet.setEpoch("3.0");
 
+  const successPath = PoxCommands(model.wallets, model.stackers, sut.network);
+  const failurePath = ErrCommands(model.wallets, model.stackers, sut.network);
+
   fc.assert(
     fc.property(
-      PoxCommands(model.wallets, model.stackers, sut.network),
+      // More on size: https://github.com/dubzzz/fast-check/discussions/2978
+      // More on cmds: https://github.com/dubzzz/fast-check/discussions/3026
+      fc.commands(successPath.concat(failurePath), { size: "xsmall" }),
       (cmds) => {
         const initialState = () => ({ model: model, real: sut });
         fc.modelRun(initialState, cmds);
