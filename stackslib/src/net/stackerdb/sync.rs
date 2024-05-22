@@ -673,7 +673,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     self.num_attempted_connections += 1;
                 }
                 Err(_e) => {
-                    info!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
+                    debug!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
                 }
             }
         }
