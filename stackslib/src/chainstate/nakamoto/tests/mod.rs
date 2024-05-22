@@ -1844,10 +1844,12 @@ pub fn test_get_highest_nakamoto_tenure() {
         "stacks tip = {},{},{}",
         &stacks_ch, &stacks_bhh, stacks_height
     );
-    let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-            .unwrap()
-            .unwrap();
+    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+        chainstate.db(),
+        &sort_db.index_handle_at_tip(),
+    )
+    .unwrap()
+    .unwrap();
 
     let last_tenure_change = last_tenure_change.unwrap();
     let last_header = last_header.unwrap();
@@ -1882,10 +1884,12 @@ pub fn test_get_highest_nakamoto_tenure() {
     );
 
     // new tip doesn't include the last two tenures
-    let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-            .unwrap()
-            .unwrap();
+    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+        chainstate.db(),
+        &sort_db.index_handle_at_tip(),
+    )
+    .unwrap()
+    .unwrap();
     let last_tenure_change = &all_tenure_changes[2];
     let last_header = &all_headers[2];
     assert_eq!(
