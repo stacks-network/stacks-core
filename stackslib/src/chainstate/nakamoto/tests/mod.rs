@@ -92,8 +92,89 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
 
+/// WSTS aggregate public keys are not shipping immediately in Nakamoto, but there is still a lot
+/// of test coverage for it.  The code here is preserved to keep these tests working until WSTS's
+/// coordinator implementaiton is ready.
+impl NakamotoChainState {
+    /// Get the aggregate public key for the given block from the signers-voting contract
+    pub(crate) fn load_aggregate_public_key<SH: SortitionHandle>(
+        sortdb: &SortitionDB,
+        sort_handle: &SH,
+        chainstate: &mut StacksChainState,
+        for_burn_block_height: u64,
+        at_block_id: &StacksBlockId,
+        warn_if_not_found: bool,
+    ) -> Result<Point, ChainstateError> {
+        // Get the current reward cycle
+        let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
+            sort_handle.first_burn_block_height(),
+            for_burn_block_height,
+        ) else {
+            // This should be unreachable, but we'll return an error just in case.
+            let msg = format!(
+                "BUG: Failed to determine reward cycle of burn block height: {}.",
+                for_burn_block_height
+            );
+            warn!("{msg}");
+            return Err(ChainstateError::InvalidStacksBlock(msg));
+        };
+
+        test_debug!(
+            "get-approved-aggregate-key at block {}, cycle {}",
+            at_block_id,
+            rc
+        );
+        match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
+            Some(key) => Ok(key),
+            None => {
+                // this can happen for a whole host of reasons
+                if warn_if_not_found {
+                    warn!(
+                        "Failed to get aggregate public key";
+                        "block_id" => %at_block_id,
+                        "reward_cycle" => rc,
+                    );
+                }
+                Err(ChainstateError::InvalidStacksBlock(
+                    "Failed to get aggregate public key".into(),
+                ))
+            }
+        }
+    }
+
+    /// Get the aggregate public key for a block.
+    /// TODO: The block at which the aggregate public key is queried needs to be better defined.
+    /// See https://github.com/stacks-network/stacks-core/issues/4109
+    pub fn get_aggregate_public_key<SH: SortitionHandle>(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        sort_handle: &SH,
+        block: &NakamotoBlock,
+    ) -> Result<Point, ChainstateError> {
+        let block_sn =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &block.header.consensus_hash)?
+                .ok_or(ChainstateError::DBError(db_error::NotFoundError))?;
+        let aggregate_key_block_header =
+            Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
+            .ok_or(ChainstateError::InvalidStacksBlock(
+                "Failed to get epoch ID".into(),
+            ))?
+            .epoch_id;
+
+        let aggregate_public_key = Self::load_aggregate_public_key(
+            sortdb,
+            sort_handle,
+            chainstate,
+            block_sn.block_height,
+            &aggregate_key_block_header.index_block_hash(),
+            epoch_id >= StacksEpochId::Epoch30,
+        )?;
+        Ok(aggregate_public_key)
+    }
+}
+
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
-    #[cfg(test)]
     pub fn get_all_blocks_in_tenure(
         &self,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -1764,7 +1845,7 @@ pub fn test_get_highest_nakamoto_tenure() {
         &stacks_ch, &stacks_bhh, stacks_height
     );
     let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
             .unwrap()
             .unwrap();
 
@@ -1802,7 +1883,7 @@ pub fn test_get_highest_nakamoto_tenure() {
 
     // new tip doesn't include the last two tenures
     let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
             .unwrap()
             .unwrap();
     let last_tenure_change = &all_tenure_changes[2];
