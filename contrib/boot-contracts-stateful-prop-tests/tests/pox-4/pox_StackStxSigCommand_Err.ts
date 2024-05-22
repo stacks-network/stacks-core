@@ -26,7 +26,6 @@ export class StackStxSigCommand_Err implements PoxCommand {
   readonly authId: number;
   readonly period: number;
   readonly margin: number;
-
   readonly checkFunc: CheckFunc;
   readonly errorCode: number;
 
@@ -39,6 +38,7 @@ export class StackStxSigCommand_Err implements PoxCommand {
    * @param margin - Multiplier for minimum required uSTX to stack so that each
    *                 Stacker locks a different amount of uSTX across test runs.
    * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
   constructor(
     wallet: Wallet,
