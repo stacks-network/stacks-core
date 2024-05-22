@@ -3646,8 +3646,12 @@ impl SortitionDB {
             db_error::NotFoundError
         })?;
 
+        // NOTE: the .saturating_sub(1) is necessary because the reward set is calculated in epoch
+        // 2.5 and lower at reward cycle index 1, not 0.  This correction ensures that the last
+        // block is checked against the signers who were active just before the new reward set is
+        // calculated.
         let reward_cycle_id = pox_constants
-            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height)
+            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height.saturating_sub(1))
             .expect("FATAL: stored snapshot with block height < first_block_height");
 
         Self::inner_get_preprocessed_reward_set_for_reward_cycle(
