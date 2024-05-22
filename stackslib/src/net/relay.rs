@@ -30,7 +30,6 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, 
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{
@@ -723,26 +722,11 @@ impl Relayer {
         );
 
         let config = chainstate.config();
-
-        // TODO: epoch gate to verify with aggregate key
-        // let Ok(aggregate_public_key) =
-        //     NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
-        // else {
-        //     warn!("Failed to get aggregate public key. Will not store or relay";
-        //         "stacks_block_hash" => %block.header.block_hash(),
-        //         "consensus_hash" => %block.header.consensus_hash,
-        //         "burn_height" => block.header.chain_length,
-        //         "sortition_height" => block_sn.block_height,
-        //     );
-        //     return Ok(false);
-        // };
-
-        // TODO: epoch gate to use signatures vec
         let tip = block_sn.sortition_id;
 
         let reward_info = match sortdb.get_preprocessed_reward_set_of(&tip) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
+            Ok(x) => x,
+            Err(db_error::NotFoundError) => {
                 error!("No RewardCycleInfo found for tip {}", tip);
                 return Err(chainstate_error::PoxNoRewardCycle);
             }
@@ -763,7 +747,6 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            None,
             reward_set,
         )?;
         staging_db_tx.commit()?;
