@@ -287,9 +287,6 @@ impl BlockMinerThread {
             ));
         };
 
-        let chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-
         // NOTE: this is a placeholder until the API can be fixed
         let aggregate_public_key = {
             let key_bytes = [
