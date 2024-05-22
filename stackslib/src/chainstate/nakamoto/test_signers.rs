@@ -30,7 +30,9 @@ use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
@@ -52,6 +54,7 @@ use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::{
@@ -205,9 +208,6 @@ impl TestSigners {
             self.generate_aggregate_key(cycle);
         }
 
-        // TODO: epoch gate for aggregated signatures
-        // let signer_signature = self.sign_block_with_aggregate_key(&block);
-
         let signer_signature = self.generate_block_signatures(&block);
 
         test_debug!(
@@ -227,6 +227,42 @@ impl TestSigners {
     pub fn sign_block_with_reward_set(&self, block: &mut NakamotoBlock, reward_set: &RewardSet) {
         let signatures = self.generate_ordered_signatures(block, reward_set);
         block.header.signer_signature = signatures;
+    }
+
+    /// Synthesize a reward set from the signer for the purposes of signing and verifying blocks
+    /// later on
+    pub fn synthesize_reward_set(&self) -> RewardSet {
+        let mut signer_entries = vec![];
+        let mut pox_addrs = vec![];
+        for key in self.signer_keys.iter() {
+            let signing_key_vec = Secp256k1PublicKey::from_private(key).to_bytes_compressed();
+            let mut signing_key = [0u8; 33];
+            signing_key[0..33].copy_from_slice(&signing_key_vec[0..33]);
+
+            let nakamoto_signer_entry = NakamotoSignerEntry {
+                signing_key,
+                stacked_amt: 100_000_000_000,
+                weight: 1,
+            };
+            let pox_addr = PoxAddress::Standard(
+                StacksAddress {
+                    version: AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    bytes: Hash160::from_data(&nakamoto_signer_entry.signing_key),
+                },
+                Some(AddressHashMode::SerializeP2PKH),
+            );
+            signer_entries.push(nakamoto_signer_entry);
+            pox_addrs.push(pox_addr);
+        }
+
+        RewardSet {
+            rewarded_addresses: pox_addrs,
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+            signers: Some(signer_entries),
+            pox_ustx_threshold: Some(100_000_000_000),
+        }
     }
 
     /// Sign a Nakamoto block and generate a vec of signatures. The signatures will
