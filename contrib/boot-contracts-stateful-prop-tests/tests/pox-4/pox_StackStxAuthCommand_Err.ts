@@ -59,7 +59,6 @@ export class StackStxAuthCommand_Err implements PoxCommand {
   check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
     const currentRewCycle = currentCycle(real.network);
 
     // The maximum amount of uSTX that can be used (per tx) with this signer

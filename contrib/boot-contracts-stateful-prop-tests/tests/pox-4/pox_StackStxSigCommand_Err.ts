@@ -59,7 +59,6 @@ export class StackStxSigCommand_Err implements PoxCommand {
   check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
     const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
     const burnBlockHeight = Number(
       cvToValue(burnBlockHeightCV as ClarityValue),
