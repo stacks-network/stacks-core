@@ -110,7 +110,7 @@ export class StackStxSigCommand_Err implements PoxCommand {
         // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         poxAddressToTuple(this.wallet.btcAddress),
         // (start-burn-ht uint)
-        Cl.uint(burnBlockHeight),
+        Cl.uint(burnBlockHeight + 1),
         // (lock-period uint)
         Cl.uint(this.period),
         // (signer-sig (optional (buff 65)))
