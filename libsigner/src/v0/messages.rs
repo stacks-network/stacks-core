@@ -55,7 +55,10 @@ use tiny_http::{
 };
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::{BlockProposal, EventError};
+use crate::{
+    BlockProposal, EventError, MessageSlotID as MessageSlotIDTrait,
+    SignerMessage as SignerMessageTrait,
+};
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
@@ -66,6 +69,21 @@ MessageSlotID {
     /// Block Response message from signers
     BlockResponse = 1
 });
+
+impl MessageSlotIDTrait for MessageSlotID {
+    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+    fn all() -> &'static [Self] {
+        MessageSlotID::ALL
+    }
+}
+
+impl SignerMessageTrait<MessageSlotID> for SignerMessage {
+    fn msg_id(&self) -> MessageSlotID {
+        self.msg_id()
+    }
+}
 
 define_u8_enum!(
 /// Enum representing the SignerMessage type prefix
@@ -195,7 +213,9 @@ RejectCodeTypePrefix {
     /// The block was rejected due to validation issues
     ValidationFailed = 0,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues = 1
+    ConnectivityIssues = 1,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound = 2
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -212,6 +232,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
         match reject_code {
             RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
+            RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
         }
     }
 }
@@ -223,6 +244,8 @@ pub enum RejectCode {
     ValidationFailed(ValidateRejectCode),
     /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound,
 }
 
 define_u8_enum!(
@@ -390,7 +413,7 @@ impl StacksMessageCodec for RejectCode {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
-            RejectCode::ConnectivityIssues => {
+            RejectCode::ConnectivityIssues | RejectCode::RejectedInPriorRound => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -410,6 +433,7 @@ impl StacksMessageCodec for RejectCode {
                 })?,
             ),
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
+            RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
         };
         Ok(code)
     }
@@ -424,6 +448,10 @@ impl std::fmt::Display for RejectCode {
                 f,
                 "The block was rejected due to connectivity issues with the signer."
             ),
+            RejectCode::RejectedInPriorRound => write!(
+                f,
+                "The block was proposed before and rejected by the signer."
+            ),
         }
     }
 }
@@ -434,15 +462,9 @@ impl From<BlockResponse> for SignerMessage {
     }
 }
 
-impl From<BlockRejection> for SignerMessage {
-    fn from(block_rejection: BlockRejection) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
-    }
-}
-
-impl From<BlockValidateReject> for SignerMessage {
+impl From<BlockValidateReject> for BlockResponse {
     fn from(rejection: BlockValidateReject) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
+        Self::Rejected(rejection.into())
     }
 }
 

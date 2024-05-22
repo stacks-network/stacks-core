@@ -25,6 +25,7 @@ use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
+use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
 use stacks_common::types::StacksEpochId;
@@ -1464,7 +1465,7 @@ impl Relayer {
     /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
     /// problematic transactions. This is a static check -- we only look at the microblock
     /// contents.
-    ///  
+    ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
     pub fn static_check_problematic_relayed_microblock(
@@ -2644,6 +2645,7 @@ pub mod test {
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::tests::{
         make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
+        make_stacks_transfer_order_independent_p2sh, make_stacks_transfer_order_independent_p2wsh,
         make_user_stacks_transfer,
     };
     use crate::chainstate::stacks::{Error as ChainstateError, *};
@@ -2671,6 +2673,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -2822,6 +2825,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -5870,7 +5874,6 @@ pub mod test {
         peer.sortdb = Some(sortdb);
         peer.stacks_node = Some(node);
     }
-
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);

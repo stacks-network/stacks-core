@@ -14,78 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use libsigner::v1::messages::SignerMessage;
+
+use crate::v1::signer::Signer;
+
 /// The coordinator selector for the signer
 pub mod coordinator;
 /// The signer module for processing events
 pub mod signer;
-/// The state module for the signer
-pub mod signerdb;
+/// The stackerdb module for sending messages between signers and miners
+pub mod stackerdb_manager;
 
-use std::sync::mpsc::{channel, Receiver, Sender};
-
-use libsigner::v1::messages::SignerMessage;
-use libsigner::SignerEventReceiver;
-use slog::slog_info;
-use stacks_common::info;
-use wsts::state_machine::OperationResult;
-
-use crate::config::GlobalConfig;
-use crate::runloop::{RunLoop, RunLoopCommand};
-use crate::v1::signer::Signer;
-
-/// The signer type for the v1 signer
-pub type RunningSigner = libsigner::RunningSigner<
-    SignerEventReceiver<SignerMessage>,
-    Vec<OperationResult>,
-    SignerMessage,
->;
-
-/// The spawned signer type for the v1 signer
-pub struct SpawnedSigner {
-    /// The underlying running signer thread handle
-    running_signer: RunningSigner,
-    /// The command sender for interacting with the running signer
-    pub cmd_send: Sender<RunLoopCommand>,
-    /// The result receiver for interacting with the running signer
-    pub res_recv: Receiver<Vec<OperationResult>>,
-}
-
-impl From<GlobalConfig> for SpawnedSigner {
-    fn from(config: GlobalConfig) -> Self {
-        let endpoint = config.endpoint;
-        info!("Starting signer with config: {}", config);
-        let (cmd_send, cmd_recv) = channel();
-        let (res_send, res_recv) = channel();
-        let ev = SignerEventReceiver::new(config.network.is_mainnet());
-        #[cfg(feature = "monitoring_prom")]
-        {
-            crate::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
-        }
-        let runloop = RunLoop::new(config);
-        let mut signer: libsigner::Signer<
-            RunLoopCommand,
-            Vec<OperationResult>,
-            RunLoop<Signer, SignerMessage>,
-            SignerEventReceiver<SignerMessage>,
-            SignerMessage,
-        > = libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
-        let running_signer = signer.spawn(endpoint).unwrap();
-        SpawnedSigner {
-            running_signer,
-            cmd_send,
-            res_recv,
-        }
-    }
-}
-
-impl SpawnedSigner {
-    /// Stop the signer thread and return the final state
-    pub fn stop(self) -> Option<Vec<OperationResult>> {
-        self.running_signer.stop()
-    }
-
-    /// Wait for the signer to terminate, and get the final state. WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurred.
-    pub fn join(self) -> Option<Vec<OperationResult>> {
-        self.running_signer.join()
-    }
-}
+/// A v1 spawned signer
+pub type SpawnedSigner = crate::SpawnedSigner<Signer, SignerMessage>;

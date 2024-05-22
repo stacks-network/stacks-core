@@ -82,15 +82,16 @@ jobs:
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
           - tests::nakamoto_integrations::follower_bootup
           - tests::nakamoto_integrations::forked_tenure_is_ignored
-          - tests::signer::stackerdb_dkg
-          - tests::signer::stackerdb_sign_request_rejected
-          - tests::signer::stackerdb_block_proposal
-          - tests::signer::stackerdb_filter_bad_transactions
+          - tests::signer::v0::block_proposal_rejection
+          - tests::signer::v1::dkg
+          - tests::signer::v1::sign_request_rejected
+          - tests::signer::v1::filter_bad_transactions
+          - tests::signer::v1::delayed_dkg
           # TODO: enable these once v1 signer is fixed
-          # - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
-          # - tests::signer::stackerdb_sign_after_signer_reboot
+          # - tests::signer::v1::mine_2_nakamoto_reward_cycles
+          # - tests::signer::v1::sign_after_signer_reboot
+          # - tests::signer::v1::block_proposal
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
-          - tests::signer::stackerdb_delayed_dkg
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
           # Do not run this one until we figure out why it fails in CI

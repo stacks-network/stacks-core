@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(feature = "canonical")]
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+#[cfg(feature = "canonical")]
 use rusqlite::ToSql;
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +108,7 @@ impl<'de, const MAX_SIZE: u16> Deserialize<'de> for BitVec<MAX_SIZE> {
     }
 }
 
+#[cfg(feature = "canonical")]
 impl<const MAX_SIZE: u16> FromSql for BitVec<MAX_SIZE> {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let bytes = hex_bytes(value.as_str()?).map_err(|e| FromSqlError::Other(Box::new(e)))?;
@@ -114,6 +117,7 @@ impl<const MAX_SIZE: u16> FromSql for BitVec<MAX_SIZE> {
     }
 }
 
+#[cfg(feature = "canonical")]
 impl<const MAX_SIZE: u16> ToSql for BitVec<MAX_SIZE> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let hex = bytes_to_hex(self.serialize_to_vec().as_slice());

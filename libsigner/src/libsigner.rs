@@ -47,6 +47,13 @@ pub mod v0;
 /// v1 signer related code
 pub mod v1;
 
+use std::cmp::Eq;
+use std::fmt::Debug;
+use std::hash::Hash;
+
+use clarity::codec::StacksMessageCodec;
+use clarity::vm::types::QualifiedContractIdentifier;
+
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
     BlockProposal, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
@@ -55,3 +62,17 @@ pub use crate::events::{
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
 pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};
+
+/// A trait for message slots used for signer communication
+pub trait MessageSlotID: Sized + Eq + Hash + Debug + Copy {
+    /// The contract identifier for the message slot in stacker db
+    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier;
+    /// All possible Message Slot values
+    fn all() -> &'static [Self];
+}
+
+/// A trait for signer messages used in signer communciation
+pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
+    /// The contract identifier for the message slot in stacker db
+    fn msg_id(&self) -> T;
+}

@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+#[cfg(feature = "canonical")]
+pub mod sqlite;
+
 use crate::address::c32::{c32_address, c32_address_decode};
 use crate::address::{
     public_keys_to_address_hash, to_bits_p2pkh, AddressHashMode,
