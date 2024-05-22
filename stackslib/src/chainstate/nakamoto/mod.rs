@@ -2826,7 +2826,7 @@ impl NakamotoChainState {
                 // this block is mined in the ongoing tenure.
                 if !Self::check_tenure_continuity(
                     chainstate_tx,
-                    burn_dbconn.sqlite(),
+                    burn_dbconn,
                     &parent_ch,
                     &block.header,
                 )? {
