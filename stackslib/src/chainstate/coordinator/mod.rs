@@ -120,7 +120,7 @@ impl NewBurnchainBlockStatus {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardCycleInfo {
     pub reward_cycle: u64,
     pub anchor_status: PoxAnchorBlockStatus,
@@ -845,9 +845,21 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 .expect("FATAL: no start-of-prepare-phase sortition");
 
         let mut tx = sort_db.tx_begin()?;
-        if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?
-            .is_none()
-        {
+        let preprocessed_reward_set =
+            SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?;
+        let need_to_store = if let Some(reward_cycle_info) = preprocessed_reward_set {
+            // overwrite if we have an unknown anchor block
+            !reward_cycle_info.is_reward_info_known()
+        } else {
+            true
+        };
+        if need_to_store {
+            test_debug!(
+                "Store preprocessed reward set for cycle {} (prepare start sortition {}): {:?}",
+                prev_reward_cycle,
+                &first_prepare_sn.sortition_id,
+                &reward_cycle_info
+            );
             SortitionDB::store_preprocessed_reward_set(
                 &mut tx,
                 &first_prepare_sn.sortition_id,
