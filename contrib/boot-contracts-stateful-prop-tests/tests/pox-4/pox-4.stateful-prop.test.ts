@@ -109,7 +109,9 @@ it("statefully interacts with PoX-4", async () => {
   // commands are run at least once.
   const statistics = fs.readdirSync(path.join(__dirname)).filter((file) =>
     file.startsWith("pox_") && file.endsWith(".ts") &&
-    file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts"
+    file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts" &&
+    file !== "pox_StackStxAuthCommand_Err.ts" &&
+    file !== "pox_StackStxSigCommand_Err.ts"
   ).map((file) => file.slice(4, -3)); // Remove "pox_" prefix and ".ts" suffix.
 
   // This is the initial state of the model.
@@ -159,7 +161,7 @@ it("statefully interacts with PoX-4", async () => {
     ),
     {
       // Defines the number of test iterations to run; default is 100.
-      numRuns: 1000,
+      numRuns: 20000,
       // Adjusts the level of detail in test reports. Default is 0 (minimal).
       // At level 2, reports include extensive details, helpful for deep
       // debugging. This includes not just the failing case and its seed, but
