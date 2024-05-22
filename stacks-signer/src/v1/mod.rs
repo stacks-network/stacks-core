@@ -25,8 +25,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use libsigner::v1::messages::SignerMessage;
 use libsigner::SignerEventReceiver;
-use slog::slog_info;
-use stacks_common::info;
+use slog::{slog_info, slog_warn};
+use stacks_common::{info, warn};
 use wsts::state_machine::OperationResult;
 
 use crate::config::GlobalConfig;
@@ -53,6 +53,14 @@ pub struct SpawnedSigner {
 impl From<GlobalConfig> for SpawnedSigner {
     fn from(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
+        warn!(
+            "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
+            It's important to exercise caution if you are communicating with an external node, \
+            as this could potentially expose sensitive data or functionalities to security risks \
+            if additional proper security checks are not integrated in place. \
+            For more information, check the documentation at \
+            https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like."
+        );
         info!("Starting signer with config: {}", config);
         let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
