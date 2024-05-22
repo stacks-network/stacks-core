@@ -736,7 +736,7 @@ impl NakamotoBootPlan {
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
             let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
                     .unwrap()
                     .unwrap();
             (tenure, tip)
@@ -811,7 +811,7 @@ impl NakamotoBootPlan {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
                 let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
                     chainstate.db(),
-                    sort_db.conn(),
+                    &sort_db.index_handle_at_tip(),
                 )
                 .unwrap()
                 .unwrap();
