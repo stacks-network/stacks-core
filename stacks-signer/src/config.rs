@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -152,7 +152,7 @@ pub struct SignerConfig {
 }
 
 /// The parsed configuration for the signer
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GlobalConfig {
     /// endpoint to the stacks node
     pub node_host: String,
@@ -391,6 +391,12 @@ Metrics endpoint: {metrics_endpoint}
 }
 
 impl Display for GlobalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.config_to_log_string())
+    }
+}
+
+impl Debug for GlobalConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.config_to_log_string())
     }

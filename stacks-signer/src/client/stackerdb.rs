@@ -52,7 +52,7 @@ pub struct StackerDB<M: MessageSlotID + std::cmp::Eq> {
     reward_cycle: u64,
 }
 
-impl<M: MessageSlotID> From<&SignerConfig> for StackerDB<M> {
+impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
     fn from(config: &SignerConfig) -> Self {
         Self::new(
             &config.node_host,
@@ -64,7 +64,7 @@ impl<M: MessageSlotID> From<&SignerConfig> for StackerDB<M> {
     }
 }
 
-impl<M: MessageSlotID> StackerDB<M> {
+impl<M: MessageSlotID + 'static> StackerDB<M> {
     /// Create a new StackerDB client
     pub fn new(
         host: &str,
@@ -77,7 +77,7 @@ impl<M: MessageSlotID> StackerDB<M> {
         for msg_id in M::all() {
             let session =
                 StackerDBSession::new(host, msg_id.stacker_db_contract(is_mainnet, reward_cycle));
-            signers_message_stackerdb_sessions.insert(msg_id, session);
+            signers_message_stackerdb_sessions.insert(*msg_id, session);
         }
 
         Self {

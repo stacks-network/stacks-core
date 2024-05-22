@@ -120,7 +120,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         let runloop = RunLoop::new(config);
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
-        let running_signer = signer.spawn(endpoint).unwrap();
+        let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
         SpawnedSigner {
             running_signer,
             cmd_send,
