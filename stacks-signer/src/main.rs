@@ -42,7 +42,7 @@ use stacks_signer::cli::{
     RunSignerArgs, StackerDBArgs,
 };
 use stacks_signer::config::GlobalConfig;
-use stacks_signer::v1;
+use stacks_signer::v1::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -103,7 +103,7 @@ fn handle_put_chunk(args: PutChunkArgs) {
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    let spawned_signer = v1::SpawnedSigner::from(config);
+    let spawned_signer = SpawnedSigner::new(config);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
     let _ = spawned_signer.join();
