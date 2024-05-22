@@ -1012,7 +1012,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     continue;
                 }
                 Err(e) => {
-                    info!(
+                    debug!(
                         "{:?}: Failed to connect to {:?}: {:?}",
                         network.get_local_peer(),
                         &nk,
