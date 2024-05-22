@@ -281,6 +281,7 @@ impl TestSigners {
 
     /// Sign a Nakamoto block using the aggregate key.
     /// NB: this function is current unused.
+    #[allow(dead_code)]
     fn sign_block_with_aggregate_key(&mut self, block: &NakamotoBlock) -> ThresholdSignature {
         let mut rng = rand_core::OsRng::default();
         let msg = block.header.signer_signature_hash().0;

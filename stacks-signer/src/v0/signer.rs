@@ -24,11 +24,10 @@ use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, warn};
-use wsts::state_machine::OperationResult;
 
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::RunLoopCommand;
+use crate::runloop::{RunLoopCommand, SignerResult};
 use crate::signerdb::{BlockInfo, SignerDb};
 use crate::Signer as SignerTrait;
 
@@ -79,7 +78,7 @@ impl SignerTrait<SignerMessage> for Signer {
         &mut self,
         stacks_client: &StacksClient,
         event: Option<&SignerEvent<SignerMessage>>,
-        _res: Sender<Vec<OperationResult>>,
+        _res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -120,7 +119,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 }
             }
             Some(SignerEvent::StatusCheck) => {
-                debug!("{self}: Received a status check event.")
+                debug!("{self}: Received a status check event.");
             }
             Some(SignerEvent::NewBurnBlock(height)) => {
                 debug!("{self}: Receved a new burn block event for block height {height}")
@@ -202,8 +201,8 @@ impl Signer {
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
-            // We are not signing for this reward cycle. Reject the block
-            warn!(
+            // We are not signing for this reward cycle. Ignore the block.
+            debug!(
                 "{self}: Received a block proposal for a different reward cycle. Ignore it.";
                 "requested_reward_cycle" => block_proposal.reward_cycle
             );
