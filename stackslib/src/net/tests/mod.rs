@@ -735,10 +735,12 @@ impl NakamotoBootPlan {
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-                    .unwrap()
-                    .unwrap();
+            let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+                chainstate.db(),
+                &sort_db.index_handle_at_tip(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 
