@@ -556,17 +556,24 @@ impl NakamotoChainState {
     }
 
     /// Get the highest non-empty processed tenure on the canonical sortition history.
-    pub fn get_highest_nakamoto_tenure(
+    pub fn get_highest_nakamoto_tenure<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
-        // find the tenure for the Stacks chain tip
-        let (tip_ch, tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb_conn)?;
-        if tip_ch == FIRST_BURNCHAIN_CONSENSUS_HASH || tip_bhh == FIRST_STACKS_BLOCK_HASH {
-            // no chain tip, so no tenure
-            return Ok(None);
+        // NOTE: we do a *search* here in case the canonical Stacks pointer stored on the canonical
+        // sortition gets invalidated through a reorg.
+        let mut cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &sortdb_conn.tip())?
+            .ok_or(ChainstateError::NoSuchBlockError)?;
+        loop {
+            if let Some(tenure) = Self::get_highest_nakamoto_tenure_change_by_tenure_id(
+                headers_conn,
+                &cursor.consensus_hash,
+            )? {
+                return Ok(Some(tenure));
+            }
+            cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &cursor.parent_sortition_id)?
+                .ok_or(ChainstateError::NoSuchBlockError)?;
         }
-        Self::get_nakamoto_tenure_change_by_tenure_id(headers_conn, &tip_ch)
     }
 
     /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
@@ -857,9 +864,9 @@ impl NakamotoChainState {
     ///
     /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
     /// Returns Err(..) on DB error
-    pub(crate) fn check_tenure_continuity(
+    pub(crate) fn check_tenure_continuity<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
         parent_ch: &ConsensusHash,
         block_header: &NakamotoBlockHeader,
     ) -> Result<bool, ChainstateError> {
