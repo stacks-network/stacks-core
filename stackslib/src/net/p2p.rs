@@ -36,7 +36,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 use {mio, url};
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
@@ -45,7 +44,7 @@ use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{
     static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
-    static_get_stacks_tip_affirmation_map,
+    static_get_stacks_tip_affirmation_map, RewardCycleInfo,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -259,13 +258,10 @@ pub struct PeerNetwork {
     /// In epoch 2.x, this is the same as the tip block ID
     /// In nakamoto, this is the block ID of the first block in the current tenure
     pub tenure_start_block_id: StacksBlockId,
-    /// The aggregate public keys of each witnessed reward cycle.
-    /// Only active during epoch 3.x and beyond.
-    /// Gets refreshed on each new Stacks block arrival, which deals with burnchain forks.
-    /// Stored in a BTreeMap because we often need to query the last or second-to-last reward cycle
-    /// aggregate public key, and we need to determine whether or not to load new reward cycles'
-    /// keys.
-    pub aggregate_public_keys: BTreeMap<u64, Option<Point>>,
+    /// The reward sets of the current and past reward cycle.
+    /// Needed to validate blocks, which are signed by a threshold of stackers
+    pub current_reward_sets: BTreeMap<u64, RewardCycleInfo>,
+    pub current_reward_set_ids: BTreeMap<u64, SortitionId>,
 
     // information about the state of the network's anchor blocks
     pub heaviest_affirmation_map: AffirmationMap,
@@ -476,7 +472,8 @@ impl PeerNetwork {
             stacks_tip_sn: None,
             parent_stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
-            aggregate_public_keys: BTreeMap::new(),
+            current_reward_sets: BTreeMap::new(),
+            current_reward_set_ids: BTreeMap::new(),
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -5430,58 +5427,100 @@ impl PeerNetwork {
         ))
     }
 
-    /// Refresh our view of the aggregate public keys
-    /// Returns a list of (reward-cycle, option(pubkey)) pairs.
-    /// An option(pubkey) is defined for all reward cycles, but for epochs 2.4 and earlier, it will
-    /// be None.
-    fn find_new_aggregate_public_keys(
+    /// Refresh our view of the last two reward cycles
+    fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,
         tip_sn: &BlockSnapshot,
-        chainstate: &mut StacksChainState,
-        stacks_tip_block_id: &StacksBlockId,
-    ) -> Result<Vec<(u64, Option<Point>)>, net_error> {
-        let sort_tip_rc = self
+    ) -> Result<(), net_error> {
+        let cur_rc = self
             .burnchain
             .block_height_to_reward_cycle(tip_sn.block_height)
             .expect("FATAL: sortition from before system start");
-        let next_agg_pubkey_rc = self
-            .aggregate_public_keys
-            .last_key_value()
-            .map(|(rc, _)| rc.saturating_add(1))
-            .unwrap_or(0);
-        let mut new_agg_pubkeys: Vec<_> = (next_agg_pubkey_rc..=sort_tip_rc)
-            .filter_map(|key_rc| {
-                let ih = sortdb.index_handle(&tip_sn.sortition_id);
-                let agg_pubkey_opt = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
-                    None
-                } else {
-                    test_debug!(
-                        "Try to get aggregate public key for reward cycle {}",
-                        key_rc
-                    );
-                    NakamotoChainState::load_aggregate_public_key(
-                        sortdb,
-                        &ih,
-                        chainstate,
-                        self.burnchain.reward_cycle_to_block_height(key_rc),
-                        &stacks_tip_block_id,
-                        false,
-                    )
-                    .ok()
-                };
-                if agg_pubkey_opt.is_none() {
-                    return None;
-                }
-                Some((key_rc, agg_pubkey_opt))
-            })
-            .collect();
 
-        if new_agg_pubkeys.len() == 0 && self.aggregate_public_keys.len() == 0 {
-            // special case -- we're before epoch 3.0, so don't waste time doing this again
-            new_agg_pubkeys.push((sort_tip_rc, None));
+        let prev_rc = cur_rc.saturating_sub(1);
+
+        // keyed by both rc and sortition ID in case there's a bitcoin fork -- we'd want the
+        // canonical reward set to be loaded
+        let cur_rc_sortition_id = sortdb
+            .get_prepare_phase_start_sortition_id_for_reward_cycle(&tip_sn.sortition_id, cur_rc)?;
+        let prev_rc_sortition_id = sortdb
+            .get_prepare_phase_start_sortition_id_for_reward_cycle(&tip_sn.sortition_id, prev_rc)?;
+
+        for (rc, sortition_id) in [
+            (prev_rc, prev_rc_sortition_id),
+            (cur_rc, cur_rc_sortition_id),
+        ]
+        .into_iter()
+        {
+            if let Some(sort_id) = self.current_reward_set_ids.get(&rc) {
+                if sort_id == &sortition_id {
+                    continue;
+                }
+            }
+            let Ok((reward_cycle_info, reward_cycle_sort_id)) = sortdb
+                .get_preprocessed_reward_set_for_reward_cycle(&tip_sn.sortition_id, rc)
+                .map_err(|e| {
+                    warn!(
+                        "Failed to load reward set for cycle {} ({}): {:?}",
+                        rc, &sortition_id, &e
+                    );
+                    e
+                })
+            else {
+                // NOTE: this should never be reached
+                continue;
+            };
+            if !reward_cycle_info.is_reward_info_known() {
+                // haven't yet processed the anchor block, so don't store
+                test_debug!("Reward cycle info for cycle {} at sortition {} expects the PoX anchor block, so will not cache", rc, &reward_cycle_sort_id);
+                continue;
+            }
+
+            test_debug!(
+                "Reward cycle info for cycle {} at sortition {} is {:?}",
+                rc,
+                &reward_cycle_sort_id,
+                &reward_cycle_info
+            );
+            self.current_reward_sets.insert(rc, reward_cycle_info);
+            self.current_reward_set_ids.insert(rc, reward_cycle_sort_id);
         }
-        Ok(new_agg_pubkeys)
+
+        // free memory
+        if self.current_reward_sets.len() > 3 {
+            self.current_reward_sets.retain(|old_rc, _| {
+                if (*old_rc).saturating_add(1) < prev_rc {
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                }
+                let Some(old_sortition_id) = self.current_reward_set_ids.get(old_rc) else {
+                    // shouldn't happen
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                };
+                let Ok(prepare_phase_sort_id) = sortdb
+                    .get_prepare_phase_start_sortition_id_for_reward_cycle(
+                        &tip_sn.sortition_id,
+                        *old_rc,
+                    )
+                else {
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                };
+                if prepare_phase_sort_id != *old_sortition_id {
+                    // non-canonical reward cycle info
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                }
+                true
+            });
+        }
+        Ok(())
     }
 
     /// Refresh view of burnchain, if needed.
@@ -5511,14 +5550,13 @@ impl PeerNetwork {
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
             || stacks_tip_changed;
+
+        if stacks_tip_changed || burnchain_tip_changed {
+            self.refresh_reward_cycles(sortdb, &canonical_sn)?;
+        }
+
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
-        let aggregate_public_keys = self.find_new_aggregate_public_keys(
-            sortdb,
-            &canonical_sn,
-            chainstate,
-            &new_stacks_tip_block_id,
-        )?;
         let (parent_stacks_tip, tenure_start_block_id, stacks_tip_sn) = if stacks_tip_changed {
             let stacks_tip_sn =
                 SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
@@ -5692,9 +5730,6 @@ impl PeerNetwork {
         self.stacks_tip = stacks_tip;
         self.stacks_tip_sn = stacks_tip_sn;
         self.parent_stacks_tip = parent_stacks_tip;
-        for (key_rc, agg_pubkey_opt) in aggregate_public_keys {
-            self.aggregate_public_keys.insert(key_rc, agg_pubkey_opt);
-        }
         self.tenure_start_block_id = tenure_start_block_id;
 
         Ok(ret)
