@@ -83,7 +83,6 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::Error as NetError;
 use crate::util_lib::db::{
     db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
     query_row_panic, query_rows, sql_pragma, table_exists, tx_begin_immediate, tx_busy_handler,
@@ -3542,20 +3541,104 @@ impl SortitionDB {
         sortition_id: &SortitionId,
         rc_info: &RewardCycleInfo,
     ) -> Result<(), db_error> {
-        let sql = "INSERT INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
+        let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
         let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
     }
 
-    /// Figure out the reward cycle for `tip` and lookup the preprocessed
-    ///  reward set (if it exists) for the active reward cycle during `tip`
-    pub fn get_preprocessed_reward_set_of(
+    /// Get the prepare phase start sortition ID of a reward cycle
+    fn inner_get_prepare_phase_start_sortition_id_for_reward_cycle(
+        index_conn: &SortitionDBConn,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        let prepare_phase_start = pox_constants
+            .reward_cycle_to_block_height(first_block_height, reward_cycle_id)
+            .saturating_sub(pox_constants.prepare_length.into());
+
+        let first_sortition = get_ancestor_sort_id(index_conn, prepare_phase_start, tip)?
+            .ok_or_else(|| {
+                error!(
+                    "Could not find prepare phase start ancestor while fetching reward set";
+                    "tip_sortition_id" => %tip,
+                    "reward_cycle_id" => reward_cycle_id,
+                    "prepare_phase_start_height" => prepare_phase_start
+                );
+                db_error::NotFoundError
+            })?;
+        Ok(first_sortition)
+    }
+
+    pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
         &self,
         tip: &SortitionId,
-    ) -> Result<Option<RewardCycleInfo>, db_error> {
-        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        Self::inner_get_prepare_phase_start_sortition_id_for_reward_cycle(
+            &self.index_conn(),
+            &self.pox_constants,
+            self.first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+    }
+
+    /// Get the reward set for a reward cycle, given the reward cycle tip.
+    /// Return the reward cycle info for this reward cycle
+    fn inner_get_preprocessed_reward_set_for_reward_cycle(
+        index_conn: &SortitionDBConn,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<(RewardCycleInfo, SortitionId), db_error> {
+        let first_sortition = Self::inner_get_prepare_phase_start_sortition_id_for_reward_cycle(
+            index_conn,
+            pox_constants,
+            first_block_height,
+            tip,
+            reward_cycle_id,
+        )?;
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Ok((
+            Self::get_preprocessed_reward_set(index_conn, &first_sortition)?
+                .ok_or(db_error::NotFoundError)?,
+            first_sortition,
+        ))
+    }
+
+    pub fn get_preprocessed_reward_set_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<(RewardCycleInfo, SortitionId), db_error> {
+        Self::inner_get_preprocessed_reward_set_for_reward_cycle(
+            &self.index_conn(),
+            &self.pox_constants,
+            self.first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+    }
+
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    ///  reward set (if it exists) for the active reward cycle during `tip`
+    fn inner_get_preprocessed_reward_set_of(
+        index_conn: &SortitionDBConn,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+    ) -> Result<RewardCycleInfo, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(index_conn, tip)?.ok_or_else(|| {
             error!(
                 "Could not find snapshot for sortition while fetching reward set";
                 "tip_sortition_id" => %tip,
@@ -3563,38 +3646,30 @@ impl SortitionDB {
             db_error::NotFoundError
         })?;
 
-        let reward_cycle_id = self
-            .pox_constants
-            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
+        let reward_cycle_id = pox_constants
+            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height)
             .expect("FATAL: stored snapshot with block height < first_block_height");
 
-        let prepare_phase_start = self
-            .pox_constants
-            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
-            .saturating_sub(self.pox_constants.prepare_length.into());
+        Self::inner_get_preprocessed_reward_set_for_reward_cycle(
+            index_conn,
+            pox_constants,
+            first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+    }
 
-        let first_sortition = get_ancestor_sort_id(
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<RewardCycleInfo, db_error> {
+        Ok(Self::inner_get_preprocessed_reward_set_of(
             &self.index_conn(),
-            prepare_phase_start,
-            &tip_sn.sortition_id,
-        )?
-        .ok_or_else(|| {
-            error!(
-                "Could not find prepare phase start ancestor while fetching reward set";
-                "tip_sortition_id" => %tip,
-                "reward_cycle_id" => reward_cycle_id,
-                "prepare_phase_start_height" => prepare_phase_start
-            );
-            db_error::NotFoundError
-        })?;
-
-        info!("Fetching preprocessed reward set";
-              "tip_sortition_id" => %tip,
-              "reward_cycle_id" => reward_cycle_id,
-              "prepare_phase_start_sortition_id" => %first_sortition,
-        );
-
-        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+            &self.pox_constants,
+            self.first_block_height,
+            tip,
+        )?)
     }
 
     /// Get a pre-processed reawrd set.
@@ -3617,7 +3692,7 @@ impl SortitionDB {
     }
 
     pub fn get_preprocessed_reward_set_size(&self, tip: &SortitionId) -> Option<u16> {
-        let Ok(Some(reward_info)) = &self.get_preprocessed_reward_set_of(&tip) else {
+        let Ok(reward_info) = &self.get_preprocessed_reward_set_of(&tip) else {
             return None;
         };
         let Some(reward_set) = reward_info.known_selected_anchor_block() else {
@@ -3841,6 +3916,46 @@ impl<'a> SortitionDBConn<'a> {
         let pox_addrs: (Vec<PoxAddress>, u128) =
             serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
         Ok(pox_addrs)
+    }
+
+    pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        SortitionDB::inner_get_prepare_phase_start_sortition_id_for_reward_cycle(
+            self,
+            &self.context.pox_constants,
+            self.context.first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+    }
+
+    pub fn get_preprocessed_reward_set_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<(RewardCycleInfo, SortitionId), db_error> {
+        SortitionDB::inner_get_preprocessed_reward_set_for_reward_cycle(
+            self,
+            &self.context.pox_constants,
+            self.context.first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+    }
+
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        tip: &SortitionId,
+    ) -> Result<RewardCycleInfo, db_error> {
+        SortitionDB::inner_get_preprocessed_reward_set_of(
+            self,
+            &self.context.pox_constants,
+            self.context.first_block_height,
+            tip,
+        )
     }
 }
 
@@ -4559,12 +4674,14 @@ impl SortitionDB {
         Ok(ret)
     }
 
+    /// DO NOT CALL FROM CONSENSUS CODE
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
     }
 
     /// Open a tx handle at the burn chain tip
+    /// DO NOT CALL FROM CONSENSUS CODE
     pub fn tx_begin_at_tip<'a>(&'a mut self) -> SortitionHandleTx<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.tx_handle_begin(&sortition_id).unwrap()
@@ -4574,6 +4691,7 @@ impl SortitionDB {
     /// Returns Ok(Some(tip info)) on success
     /// Returns Ok(None) if there are no Nakamoto blocks in this tip
     /// Returns Err(..) on other DB error
+    /// DO NOT CALL FROM CONSENSUS CODE
     pub fn get_canonical_nakamoto_tip_hash_and_height(
         conn: &Connection,
         tip: &BlockSnapshot,
@@ -4598,6 +4716,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    /// DO NOT CALL FROM CONSENSUS CODE
     pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
@@ -4625,6 +4744,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    /// DO NOT CALL FROM CONSENSUS CODE
     pub fn get_canonical_stacks_chain_tip_hash(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
