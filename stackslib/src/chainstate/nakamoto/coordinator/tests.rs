@@ -406,7 +406,7 @@ fn replay_reward_cycle(
             block.clone(),
             None,
         )
-        .unwrap();
+        .unwrap_or(false);
         if accepted {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
@@ -1612,10 +1612,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1704,10 +1706,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1799,10 +1803,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -2000,10 +2006,12 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_db.index_handle_at_tip())
-                    .unwrap()
-                    .unwrap();
+            let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+                chainstate.db(),
+                &sort_db.index_handle_at_tip(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 
