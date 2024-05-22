@@ -19,5 +19,5 @@ users get started and help developers wrap their heads around the system's
 design.
 
 - [Meetups](https://www.meetup.com/topics/blockstack/)
-- [Events Calender](https://community.stacks.org/events#calendar)
+- [Events Calendar](https://community.stacks.org/events#calendar)
 - [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
