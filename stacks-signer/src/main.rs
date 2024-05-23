@@ -43,7 +43,7 @@ use stacks_signer::cli::{
     RunSignerArgs, StackerDBArgs,
 };
 use stacks_signer::config::GlobalConfig;
-use stacks_signer::v1::SpawnedSigner;
+use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
