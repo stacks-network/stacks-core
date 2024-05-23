@@ -4678,14 +4678,14 @@ impl SortitionDB {
         Ok(ret)
     }
 
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
     }
 
     /// Open a tx handle at the burn chain tip
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn tx_begin_at_tip<'a>(&'a mut self) -> SortitionHandleTx<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.tx_handle_begin(&sortition_id).unwrap()
@@ -4695,7 +4695,7 @@ impl SortitionDB {
     /// Returns Ok(Some(tip info)) on success
     /// Returns Ok(None) if there are no Nakamoto blocks in this tip
     /// Returns Err(..) on other DB error
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_nakamoto_tip_hash_and_height(
         conn: &Connection,
         tip: &BlockSnapshot,
@@ -4720,7 +4720,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
@@ -4748,7 +4748,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {

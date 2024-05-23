@@ -2009,7 +2009,7 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// DO NOT CALL FROM CONSENSUS CODE
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,

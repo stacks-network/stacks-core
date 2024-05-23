@@ -854,11 +854,11 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             true
         };
         if need_to_store {
-            test_debug!(
-                "Store preprocessed reward set for cycle {} (prepare start sortition {}): {:?}",
-                prev_reward_cycle,
-                &first_prepare_sn.sortition_id,
-                &reward_cycle_info
+            debug!(
+                "Store preprocessed reward set for cycle";
+                "reward_cycle" => prev_reward_cycle,
+                "prepare-start sortition" => %first_prepare_sn.sortition_id,
+                "reward_cycle_info" => format!("{:?}", &reward_cycle_info)
             );
             SortitionDB::store_preprocessed_reward_set(
                 &mut tx,
