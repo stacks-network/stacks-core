@@ -847,6 +847,14 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         let mut tx = sort_db.tx_begin()?;
         let preprocessed_reward_set =
             SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?;
+
+        // It's possible that we haven't processed the PoX anchor block at the time we have
+        // processed the burnchain block which commits to it.  In this case, the PoX anchor block
+        // status would be SelectedAndUnknown.  However, it's overwhelmingly likely (and in
+        // Nakamoto, _required_) that the PoX anchor block will be processed shortly thereafter.
+        // When this happens, we need to _update_ the sortition DB with the newly-processed reward
+        // set.  This code performs this check to determine whether or not we need to store this
+        // calculated reward set.
         let need_to_store = if let Some(reward_cycle_info) = preprocessed_reward_set {
             // overwrite if we have an unknown anchor block
             !reward_cycle_info.is_reward_info_known()
