@@ -124,6 +124,10 @@ it("statefully interacts with PoX-4", async () => {
       poolMembers: [],
       delegatedTo: "",
       delegatedMaxAmount: 0,
+      // We initialize delegatedUntilBurnHt to 0. It will be updated
+      // after successful delegate-stx calls. It's value will be either 
+      // the unwrapped until-burn-ht uint passed to the delegate-stx, 
+      // or undefined for indefinite delegations.
       delegatedUntilBurnHt: 0,
       delegatedPoxAddress: "",
       amountLocked: 0,
