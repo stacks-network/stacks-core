@@ -192,8 +192,13 @@ impl SignerTrait<SignerMessage> for Signer {
         }
         self.refresh_coordinator();
         debug!("{self}: Processing event: {event:?}");
+        let Some(event) = event else {
+            // No event. Do nothing.
+            debug!("{self}: No event received");
+            return;
+        };
         match event {
-            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
+            SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(
                     stacks_client,
@@ -202,7 +207,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     current_reward_cycle,
                 )
             }
-            Some(SignerEvent::SignerMessages(signer_set, messages)) => {
+            SignerEvent::SignerMessages(signer_set, messages) => {
                 if *signer_set != self.stackerdb_manager.get_signer_set() {
                     debug!("{self}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...");
                     return;
@@ -213,7 +218,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
+            SignerEvent::MinerMessages(messages, miner_key) => {
                 let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
                     .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
                 self.miner_key = Some(miner_key);
@@ -229,15 +234,11 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::StatusCheck) => {
+            SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.")
             }
-            Some(SignerEvent::NewBurnBlock(height)) => {
+            SignerEvent::NewBurnBlock(height) => {
                 debug!("{self}: Receved a new burn block event for block height {height}")
-            }
-            None => {
-                // No event. Do nothing.
-                debug!("{self}: No event received")
             }
         }
     }

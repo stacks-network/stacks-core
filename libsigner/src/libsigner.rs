@@ -68,7 +68,7 @@ pub trait MessageSlotID: Sized + Eq + Hash + Debug + Copy {
     /// The contract identifier for the message slot in stacker db
     fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier;
     /// All possible Message Slot values
-    fn all() -> Vec<Self>;
+    fn all() -> &'static [Self];
 }
 
 /// A trait for signer messages used in signer communciation
