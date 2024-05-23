@@ -708,20 +708,6 @@ impl SignCoordinator {
 
             let modified_slots = &event.modified_slots.clone();
 
-            // Update `next_signers_bitvec` with the slots that were modified in the event
-            for chunk in modified_slots.iter() {
-                let Ok(slot_id) = chunk.slot_id.try_into() else {
-                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                        "Unable to modify next_signer_bitvec: slot_id exceeds u16".into(),
-                    ));
-                };
-                if let Err(e) = &self.next_signer_bitvec.set(slot_id, true) {
-                    return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
-                        "Failed to set bitvec for next signer: {e:?}"
-                    )));
-                };
-            }
-
             let Ok(signer_event) = SignerEvent::<SignerMessageV0>::try_from(event).map_err(|e| {
                 warn!("Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
             }) else {

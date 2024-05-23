@@ -155,27 +155,6 @@ impl BlockMinerThread {
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
 
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .expect("FATAL: could not open sortition DB");
-
-        let tip = SortitionDB::get_block_snapshot_consensus(
-            sort_db.conn(),
-            &self.burn_block.consensus_hash,
-        )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
-
-        let reward_set = sort_db
-            .get_preprocessed_reward_set_of(&tip.sortition_id)
-            .expect("FATAL: Error fetching reward set")
-            .expect("FATAL: No reward set found for miner")
-            .known_selected_anchor_block_owned()
-            .expect("FATAL: No reward set found for miner");
-
         let mut attempts = 0;
         // now, actually run this tenure
         loop {
@@ -203,12 +182,11 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                let signer_signature = match self.gather_signatures(
+                let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
                     &mut stackerdbs,
                     &mut attempts,
-                    &reward_set,
                 ) {
                     Ok(x) => x,
                     Err(e) => {
@@ -242,6 +220,15 @@ impl BlockMinerThread {
                 }
                 self.mined_blocks.push(new_block);
             }
+
+            let Ok(sort_db) = SortitionDB::open(
+                &self.config.get_burn_db_file_path(),
+                true,
+                self.burnchain.pox_constants.clone(),
+            ) else {
+                error!("Failed to open sortition DB. Will try mining again.");
+                continue;
+            };
 
             let wait_start = Instant::now();
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
@@ -351,15 +338,14 @@ impl BlockMinerThread {
         Ok((aggregate_public_key, signature))
     }
 
-    /// Gather signatures from the signers for the block
+    /// Gather a list of signatures from the signers for the block
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
         burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
-        reward_set: &RewardSet,
-    ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
         let Some(miner_privkey) = self.config.miner.mining_key else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -370,13 +356,47 @@ impl BlockMinerThread {
             true,
             self.burnchain.pox_constants.clone(),
         )
-        .expect("FATAL: could not open sortition DB");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
         let tip = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &new_block.header.consensus_hash,
         )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
+
+        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set found. Cannot initialize miner coordinator.".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
 
         let reward_cycle = self
             .burnchain
@@ -385,7 +405,11 @@ impl BlockMinerThread {
                 self.burnchain.first_block_height,
                 self.burn_block.block_height,
             )
-            .expect("FATAL: building on a burn block that is before the first burn block");
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Building on a burn block that is before the first burn block".into(),
+                )
+            })?;
 
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
@@ -414,7 +438,7 @@ impl BlockMinerThread {
             &self.globals.counters,
         )?;
 
-        return Ok(signature);
+        return Ok((reward_set, signature));
     }
 
     fn get_stackerdb_contract_and_slots(
