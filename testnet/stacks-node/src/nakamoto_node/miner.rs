@@ -280,19 +280,6 @@ impl BlockMinerThread {
             })
         })?;
 
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure(
-                    "Building on a burn block that is before the first burn block".into(),
-                )
-            })?;
-
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
             Ok(Some(x)) => x,
             Ok(None) => {
@@ -328,19 +315,14 @@ impl BlockMinerThread {
         };
 
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            reward_cycle,
-            miner_privkey_as_scalar,
-            Some(aggregate_public_key),
-            &stackerdbs,
-            &self.config,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
 
         *attempts += 1;
         let signature = coordinator.begin_sign_v1(
@@ -417,33 +399,15 @@ impl BlockMinerThread {
             ));
         };
 
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure(
-                    "Building on a burn block that is before the first burn block".into(),
-                )
-            })?;
-
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            reward_cycle,
-            miner_privkey_as_scalar,
-            None,
-            &stackerdbs,
-            &self.config,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
 
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(

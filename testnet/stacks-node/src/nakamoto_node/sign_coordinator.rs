@@ -198,10 +198,7 @@ impl SignCoordinator {
     /// * `aggregate_public_key` - the active aggregate key for this cycle
     pub fn new(
         reward_set: &RewardSet,
-        reward_cycle: u64,
         message_key: Scalar,
-        aggregate_public_key: Option<Point>,
-        stackerdb_conn: &StackerDBs,
         config: &Config,
         // v1: bool,
     ) -> Result<Self, ChainstateError> {
@@ -281,7 +278,7 @@ impl SignCoordinator {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
-        let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
+        let coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
         #[cfg(test)]
         {
             // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
@@ -294,7 +291,7 @@ impl SignCoordinator {
                 if replaced_other {
                     warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
                 }
-                let mut sign_coordinator = Self {
+                let sign_coordinator = Self {
                     coordinator,
                     message_key,
                     receiver: Some(receiver),
@@ -306,27 +303,8 @@ impl SignCoordinator {
                     signer_entries: signer_public_keys,
                     weight_threshold: threshold,
                 };
-                if let Some(aggregate_public_key) = aggregate_public_key {
-                    sign_coordinator
-                        .coordinator
-                        .set_aggregate_public_key(Some(aggregate_public_key));
-                }
                 return Ok(sign_coordinator);
             }
-        }
-        if let Some(aggregate_public_key) = aggregate_public_key {
-            let party_polynomials = get_signer_commitments(
-                is_mainnet,
-                reward_set_signers.as_slice(),
-                stackerdb_conn,
-                reward_cycle,
-                &aggregate_public_key,
-            )?;
-            if let Err(e) = coordinator
-                .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
-            {
-                warn!("Failed to set a valid set of party polynomials"; "error" => %e);
-            };
         }
 
         let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
