@@ -258,13 +258,28 @@ impl BlockMinerThread {
             true,
             self.burnchain.pox_constants.clone(),
         )
-        .expect("FATAL: could not open sortition DB");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
         let tip = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &new_block.header.consensus_hash,
         )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
+
         let reward_cycle = self
             .burnchain
             .pox_constants
@@ -272,7 +287,11 @@ impl BlockMinerThread {
                 self.burnchain.first_block_height,
                 self.burn_block.block_height,
             )
-            .expect("FATAL: building on a burn block that is before the first burn block");
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Building on a burn block that is before the first burn block".into(),
+                )
+            })?;
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
             Ok(Some(x)) => x,

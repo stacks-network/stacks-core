@@ -42,8 +42,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
 use runloop::SignerResult;
-use slog::slog_info;
-use stacks_common::info;
+use slog::{slog_info, slog_warn};
+use stacks_common::{info, warn};
 
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
@@ -110,6 +110,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
         info!("Starting signer with config: {:?}", config);
+        warn!(
+            "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
+            It's important to exercise caution if you are communicating with an external node, \
+            as this could potentially expose sensitive data or functionalities to security risks \
+            if additional proper security checks are not integrated in place. \
+            For more information, check the documentation at \
+            https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like."
+        );
         let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
         let ev = SignerEventReceiver::new(config.network.is_mainnet());
@@ -120,7 +128,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         let runloop = RunLoop::new(config);
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
-        let running_signer = signer.spawn(endpoint).unwrap();
+        let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
         SpawnedSigner {
             running_signer,
             cmd_send,

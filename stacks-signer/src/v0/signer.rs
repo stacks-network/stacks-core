@@ -96,18 +96,23 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
         debug!("{self}: Processing event: {event:?}");
+        let Some(event) = event else {
+            // No event. Do nothing.
+            debug!("{self}: No event received");
+            return;
+        };
         match event {
-            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
+            SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(block_validate_response)
             }
-            Some(SignerEvent::SignerMessages(_signer_set, messages)) => {
+            SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
                     "{self}: Received {} messages from the other signers. Ignoring...",
                     messages.len()
                 );
             }
-            Some(SignerEvent::MinerMessages(messages, _)) => {
+            SignerEvent::MinerMessages(messages, _) => {
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -118,15 +123,11 @@ impl SignerTrait<SignerMessage> for Signer {
                     }
                 }
             }
-            Some(SignerEvent::StatusCheck) => {
+            SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.");
             }
-            Some(SignerEvent::NewBurnBlock(height)) => {
+            SignerEvent::NewBurnBlock(height) => {
                 debug!("{self}: Receved a new burn block event for block height {height}")
-            }
-            None => {
-                // No event. Do nothing.
-                debug!("{self}: No event received")
             }
         }
     }

@@ -532,11 +532,11 @@ impl NakamotoBlockHeader {
         });
 
         // HashMap of <PublicKey, (Signer, Index)>
-        let signers_by_pk = signers
+        let signers_by_pk: HashMap<_, _> = signers
             .iter()
             .enumerate()
             .map(|(i, signer)| (&signer.signing_key, (signer, i)))
-            .collect::<HashMap<_, _>>();
+            .collect();
 
         for signature in self.signer_signature.iter() {
             let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
@@ -585,18 +585,21 @@ impl NakamotoBlockHeader {
         return Ok(());
     }
 
+    /// Compute the threshold for the minimum number of signers (by weight) required
+    /// to approve a Nakamoto block.
     pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
-        let ceil = if (total_weight as u64 * 7) % 10 == 0 {
+        let threshold = NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
+        let total_weight = u64::from(total_weight);
+        let ceil = if (total_weight * threshold) % 10 == 0 {
             0
         } else {
             1
         };
-        u32::try_from((total_weight as u64 * NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD) / 10 + ceil)
-            .map_err(|_| {
-                ChainstateError::InvalidStacksBlock(
-                    "Overflow when computing nakamoto block approval threshold".to_string(),
-                )
-            })
+        u32::try_from((total_weight * threshold) / 10 + ceil).map_err(|_| {
+            ChainstateError::InvalidStacksBlock(
+                "Overflow when computing nakamoto block approval threshold".to_string(),
+            )
+        })
     }
 
     /// Make an "empty" header whose block data needs to be filled in.

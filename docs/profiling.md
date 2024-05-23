@@ -224,7 +224,7 @@ $ sudo sed -i "$ a kernel.kptr_restrict = 0" /etc/sysctl.conf
 $ sysctl --system
 ```
 
-Note that you need to uncomment the following in `.cargo/config` (see [flamegraph-rs](https://github.com/flamegraph-rs/flamegraph) for details)
+Note that you need to uncomment the following in `.cargo/config.toml` (see [flamegraph-rs](https://github.com/flamegraph-rs/flamegraph) for details)
 
 ```
 [target.x86_64-unknown-linux-gnu]
