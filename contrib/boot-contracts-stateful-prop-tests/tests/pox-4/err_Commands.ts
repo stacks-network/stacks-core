@@ -10,6 +10,7 @@ import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
 import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
 import { Simnet } from "@hirosystems/clarinet-sdk";
 import { RevokeDelegateStxCommand_Err } from "./pox_RevokeDelegateStxCommand_Err";
+import { DelegateStxCommand_Err } from "./pox_DelegateStxCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_ALREADY_STACKED: 3,
@@ -279,6 +280,44 @@ export function ErrCommands(
         POX_4_ERRORS.ERR_DELEGATION_ALREADY_REVOKED,
       )
     ),
+    // DelegateStxCommand_Err_Stacking_Already_Delegated
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      delegateTo: fc.constantFrom(...wallets.values()),
+      untilBurnHt: fc.integer({ min: 1 }),
+      amount: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
+    })
+      .map((
+        r: {
+          wallet: Wallet;
+          delegateTo: Wallet;
+          untilBurnHt: number;
+          amount: bigint;
+        },
+      ) =>
+        new DelegateStxCommand_Err(
+          r.wallet,
+          r.delegateTo,
+          r.untilBurnHt,
+          r.amount,
+          function (
+            this: DelegateStxCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.hasDelegated
+            ) {
+              model.trackCommandRun(
+                "DelegateStxCommand_Err_Stacking_Already_Delegated",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
+        )
+      ),
   ];
 
   return cmds;
