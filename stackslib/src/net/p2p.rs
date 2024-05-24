@@ -261,6 +261,10 @@ pub struct PeerNetwork {
     /// The reward sets of the current and past reward cycle.
     /// Needed to validate blocks, which are signed by a threshold of stackers
     pub current_reward_sets: BTreeMap<u64, RewardCycleInfo>,
+    /// The sortition IDs that began the prepare-phases for given reward cycles.  This is used to
+    /// determine whether or not the reward cycle info in `current_reward_sets` is still valid -- a
+    /// burnchain fork may invalidate them, so the code must check that the sortition ID for the
+    /// start of the prepare-phase is still canonical.
     pub current_reward_set_ids: BTreeMap<u64, SortitionId>,
 
     // information about the state of the network's anchor blocks
@@ -5427,6 +5431,47 @@ impl PeerNetwork {
         ))
     }
 
+    /// Clear out old reward cycles
+    fn free_old_reward_cycles(
+        &mut self,
+        sortdb: &SortitionDB,
+        tip_sortition_id: &SortitionId,
+        prev_rc: u64,
+    ) {
+        if self.current_reward_sets.len() > 3 {
+            self.current_reward_sets.retain(|old_rc, _| {
+                if (*old_rc).saturating_add(1) < prev_rc {
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                }
+                let Some(old_sortition_id) = self.current_reward_set_ids.get(old_rc) else {
+                    // shouldn't happen
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                };
+                let Ok(prepare_phase_sort_id) = sortdb
+                    .get_prepare_phase_start_sortition_id_for_reward_cycle(
+                        &tip_sortition_id,
+                        *old_rc,
+                    )
+                else {
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                };
+                if prepare_phase_sort_id != *old_sortition_id {
+                    // non-canonical reward cycle info
+                    self.current_reward_set_ids.remove(old_rc);
+                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                }
+                true
+            });
+        }
+    }
+
     /// Refresh our view of the last two reward cycles
     fn refresh_reward_cycles(
         &mut self,
@@ -5469,11 +5514,12 @@ impl PeerNetwork {
                 })
             else {
                 // NOTE: this should never be reached
+                error!("Unreachable code (but not panicking): no reward cycle info for reward cycle {}", rc);
                 continue;
             };
             if !reward_cycle_info.is_reward_info_known() {
                 // haven't yet processed the anchor block, so don't store
-                test_debug!("Reward cycle info for cycle {} at sortition {} expects the PoX anchor block, so will not cache", rc, &reward_cycle_sort_id);
+                debug!("Reward cycle info for cycle {} at sortition {} expects the PoX anchor block, so will not cache", rc, &reward_cycle_sort_id);
                 continue;
             }
 
@@ -5488,38 +5534,7 @@ impl PeerNetwork {
         }
 
         // free memory
-        if self.current_reward_sets.len() > 3 {
-            self.current_reward_sets.retain(|old_rc, _| {
-                if (*old_rc).saturating_add(1) < prev_rc {
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                }
-                let Some(old_sortition_id) = self.current_reward_set_ids.get(old_rc) else {
-                    // shouldn't happen
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                };
-                let Ok(prepare_phase_sort_id) = sortdb
-                    .get_prepare_phase_start_sortition_id_for_reward_cycle(
-                        &tip_sn.sortition_id,
-                        *old_rc,
-                    )
-                else {
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                };
-                if prepare_phase_sort_id != *old_sortition_id {
-                    // non-canonical reward cycle info
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                }
-                true
-            });
-        }
+        self.free_old_reward_cycles(sortdb, &tip_sn.sortition_id, prev_rc);
         Ok(())
     }
 

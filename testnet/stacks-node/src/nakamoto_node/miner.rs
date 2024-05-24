@@ -42,8 +42,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::ecdsa;
-use wsts::curve::point::{Compressed, Point};
+use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
 
 use super::relayer::RelayerThread;
@@ -288,16 +287,7 @@ impl BlockMinerThread {
         };
 
         // NOTE: this is a placeholder until the API can be fixed
-        let aggregate_public_key = {
-            let key_bytes = [
-                0x03, 0xd3, 0xe1, 0x5a, 0x36, 0xf3, 0x2a, 0x9e, 0x71, 0x31, 0x7f, 0xcb, 0x4a, 0x20,
-                0x1b, 0x0c, 0x08, 0xb3, 0xbc, 0xfb, 0xdc, 0x8a, 0xee, 0x2e, 0xe4, 0xd2, 0x69, 0x23,
-                0x00, 0x06, 0xb1, 0xa0, 0xcb,
-            ];
-            let ecdsa_pk = ecdsa::PublicKey::try_from(key_bytes.as_slice()).unwrap();
-            Point::try_from(&Compressed::from(ecdsa_pk.to_bytes())).unwrap()
-        };
-
+        let aggregate_public_key = Point::new();
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
             &reward_set,
