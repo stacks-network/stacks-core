@@ -9,10 +9,12 @@ import {
 import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
 import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
 import { Simnet } from "@hirosystems/clarinet-sdk";
+import { RevokeDelegateStxCommand_Err } from "./pox_RevokeDelegateStxCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_ALREADY_STACKED: 3,
   ERR_STACKING_ALREADY_DELEGATED: 20,
+  ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
 
 export function ErrCommands(
@@ -247,6 +249,34 @@ export function ErrCommands(
           } else return false;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
+      )
+    ),
+    // RevokeDelegateStxCommand_Err_Delegation_Already_Revoked
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+    }).map((
+      r: {
+        wallet: Wallet;
+      },
+    ) =>
+      new RevokeDelegateStxCommand_Err(
+        r.wallet,
+        function (
+          this: RevokeDelegateStxCommand_Err,
+          model: Readonly<Stub>,
+        ): boolean {
+          const stacker = model.stackers.get(this.wallet.stxAddress)!;
+          if (
+            model.stackingMinimum > 0 &&
+            !stacker.hasDelegated
+          ) {
+            model.trackCommandRun(
+              "RevokeDelegateStxCommand_Err_Delegation_Already_Revoked",
+            );
+            return true;
+          } else return false;
+        },
+        POX_4_ERRORS.ERR_DELEGATION_ALREADY_REVOKED,
       )
     ),
   ];
