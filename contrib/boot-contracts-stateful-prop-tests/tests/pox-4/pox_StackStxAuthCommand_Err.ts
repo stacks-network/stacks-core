@@ -6,15 +6,10 @@ import {
   Wallet,
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
-import { assert, expect } from "vitest";
-import {
-  Cl,
-  ClarityType,
-  ClarityValue,
-  cvToValue,
-  isClarityType,
-} from "@stacks/transactions";
+import { expect } from "vitest";
+import { Cl, ClarityValue, cvToValue } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
+import { tx } from "@hirosystems/clarinet-sdk";
 
 type CheckFunc = (
   this: StackStxAuthCommand_Err,
@@ -66,53 +61,50 @@ export class StackStxAuthCommand_Err implements PoxCommand {
     // in the given reward cycle multiplied by the margin, which is a randomly
     // generated number passed to the constructor of this class.
     const maxAmount = model.stackingMinimum * this.margin;
+    const amountUstx = maxAmount;
 
-    const { result: setAuthorization } = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "set-signer-key-authorization",
-      [
-        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        poxAddressToTuple(this.wallet.btcAddress),
-        // (period uint)
-        Cl.uint(this.period),
-        // (reward-cycle uint)
-        Cl.uint(currentRewCycle),
-        // (topic (string-ascii 14))
-        Cl.stringAscii("stack-stx"),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.wallet.signerPubKey),
-        // (allowed bool)
-        Cl.bool(true),
-        // (max-amount uint)
-        Cl.uint(maxAmount),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
-
-    expect(setAuthorization).toBeOk(Cl.bool(true));
     const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
     const burnBlockHeight = Number(
       cvToValue(burnBlockHeightCV as ClarityValue),
     );
 
-    // The amount of uSTX to be locked in the reward cycle. For this test, we
-    // will use the maximum amount of uSTX that can be used (per tx) with this
-    // signer key.
-    const amountUstx = maxAmount;
-
     // Act
-    const stackStx = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "stack-stx",
-      [
+
+    // Include the authorization and the `stack-stx` transactions in a single
+    // block. This way we ensure both the authorization and the stack-stx
+    // transactions are called during the same reward cycle, so the authorization
+    // currentRewCycle param is relevant for the upcoming stack-stx call.
+    const block = real.network.mineBlock([
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "set-signer-key-authorization",
+        [
+          // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+          poxAddressToTuple(this.wallet.btcAddress),
+          // (period uint)
+          Cl.uint(this.period),
+          // (reward-cycle uint)
+          Cl.uint(currentRewCycle),
+          // (topic (string-ascii 14))
+          Cl.stringAscii("stack-stx"),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.wallet.signerPubKey),
+          // (allowed bool)
+          Cl.bool(true),
+          // (max-amount uint)
+          Cl.uint(maxAmount),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.wallet.stxAddress,
+      ),
+      tx.callPublicFn("ST000000000000000000002AMW42H.pox-4", "stack-stx", [
         // (amount-ustx uint)
         Cl.uint(amountUstx),
         // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         poxAddressToTuple(this.wallet.btcAddress),
         // (start-burn-ht uint)
-        Cl.uint(burnBlockHeight + 1),
+        Cl.uint(burnBlockHeight),
         // (lock-period uint)
         Cl.uint(this.period),
         // (signer-sig (optional (buff 65)))
@@ -123,28 +115,12 @@ export class StackStxAuthCommand_Err implements PoxCommand {
         Cl.uint(maxAmount),
         // (auth-id uint)
         Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
-
-    const { result: rewardCycle } = real.network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "burn-height-to-reward-cycle",
-      [Cl.uint(burnBlockHeight)],
-      this.wallet.stxAddress,
-    );
-    assert(isClarityType(rewardCycle, ClarityType.UInt));
-
-    const { result: unlockBurnHeight } = real.network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "reward-cycle-to-burn-height",
-      [Cl.uint(Number(rewardCycle.value) + this.period + 1)],
-      this.wallet.stxAddress,
-    );
-    assert(isClarityType(unlockBurnHeight, ClarityType.UInt));
+      ], this.wallet.stxAddress),
+    ]);
 
     // Assert
-    expect(stackStx.result).toBeErr(Cl.int(this.errorCode));
+    expect(block[0].result).toBeOk(Cl.bool(true));
+    expect(block[1].result).toBeErr(Cl.int(this.errorCode));
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
