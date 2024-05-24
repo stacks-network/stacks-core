@@ -123,7 +123,7 @@ pub struct RunSignerArgs {
     pub config: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// Wrapper around `Pox4SignatureTopic` to implement `ValueEnum`
 pub struct StackingSignatureMethod(Pox4SignatureTopic);
 
@@ -150,22 +150,27 @@ impl ValueEnum for StackingSignatureMethod {
             Self(Pox4SignatureTopic::StackStx),
             Self(Pox4SignatureTopic::StackExtend),
             Self(Pox4SignatureTopic::AggregationCommit),
+            Self(Pox4SignatureTopic::AggregationIncrease),
+            Self(Pox4SignatureTopic::StackIncrease),
         ]
     }
 
     fn from_str(input: &str, _ignore_case: bool) -> Result<Self, String> {
         let topic = match input {
-            "stack-stx" => Pox4SignatureTopic::StackStx,
-            "stack-extend" => Pox4SignatureTopic::StackExtend,
             "aggregation-commit" => Pox4SignatureTopic::AggregationCommit,
-            "agg-commit" => Pox4SignatureTopic::AggregationCommit,
-            _ => return Err(format!("Invalid topic: {}", input)),
+            "aggregation-increase" => Pox4SignatureTopic::AggregationIncrease,
+            method => match Pox4SignatureTopic::lookup_by_name(method) {
+                Some(topic) => topic,
+                None => {
+                    return Err(format!("Invalid topic: {}", input));
+                }
+            },
         };
         Ok(topic.into())
     }
 }
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, PartialEq)]
 /// Arguments for the generate-stacking-signature command
 pub struct GenerateStackingSignatureArgs {
     /// BTC address used to receive rewards
@@ -403,5 +408,41 @@ mod tests {
             }
             _ => panic!("Invalid parsed address"),
         }
+    }
+
+    #[test]
+    fn test_parse_stacking_method() {
+        assert_eq!(
+            StackingSignatureMethod::from_str("agg-increase", true).unwrap(),
+            Pox4SignatureTopic::AggregationIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("agg-commit", true).unwrap(),
+            Pox4SignatureTopic::AggregationCommit.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-increase", true).unwrap(),
+            Pox4SignatureTopic::StackIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-extend", true).unwrap(),
+            Pox4SignatureTopic::StackExtend.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-stx", true).unwrap(),
+            Pox4SignatureTopic::StackStx.into()
+        );
+
+        // These don't exactly match the enum, but are accepted if passed as
+        // CLI args
+
+        assert_eq!(
+            StackingSignatureMethod::from_str("aggregation-increase", true).unwrap(),
+            Pox4SignatureTopic::AggregationIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("aggregation-commit", true).unwrap(),
+            Pox4SignatureTopic::AggregationCommit.into()
+        );
     }
 }
