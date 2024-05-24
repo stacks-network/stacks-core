@@ -466,7 +466,7 @@ impl StackerDBConfig {
             let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
             if peer_addr.is_in_private_range() {
                 debug!(
-                    "Ignoring private IP address '{}' in hint-replias",
+                    "Ignoring private IP address '{}' in hint-replicas",
                     &peer_addr.to_socketaddr(port as u16)
                 );
                 continue;
