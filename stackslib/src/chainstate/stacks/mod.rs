@@ -24,7 +24,7 @@ use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
@@ -1054,6 +1054,31 @@ impl fmt::Display for TransactionPostCondition {
                     "Nonfungible({}, {:?}, {:?}, {:?})",
                     principal, asset_info, value, condition_code
                 )
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TransactionPostConditionStatus {
+    Success,
+    UnmetPostCondition(TransactionPostCondition),
+    UncheckedFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
+    UncheckedNonFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
+}
+
+impl fmt::Display for TransactionPostConditionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TransactionPostConditionStatus::Success => write!(f, "Success"),
+            TransactionPostConditionStatus::UnmetPostCondition(condition) => {
+                write!(f, "Unmet post condition: {:?}", condition)
+            }
+            TransactionPostConditionStatus::UncheckedFungibleAsset(asset) => {
+                write!(f, "Unchecked fungible asset: {:?}", asset)
+            }
+            TransactionPostConditionStatus::UncheckedNonFungibleAsset(asset) => {
+                write!(f, "Unchecked non-fungible asset: {:?}", asset)
             }
         }
     }

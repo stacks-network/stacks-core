@@ -97,7 +97,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -119,7 +119,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -129,7 +129,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
-        failed_post_conditions: Vec<TransactionPostCondition>,
+        post_condition_status: TransactionPostConditionStatus,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -142,7 +142,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: Some(failed_post_conditions),
+            post_condition_status: Some(post_condition_status),
         }
     }
 
@@ -164,7 +164,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -174,7 +174,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         analysis: ContractAnalysis,
         cost: ExecutionCost,
-        failed_post_conditions: Vec<TransactionPostCondition>,
+        post_condition_status: TransactionPostConditionStatus,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -187,7 +187,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: Some(failed_post_conditions),
+            post_condition_status: Some(post_condition_status),
         }
     }
 
@@ -203,7 +203,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -246,7 +246,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -266,7 +266,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -287,7 +287,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(format!("{}", &error)),
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -307,7 +307,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(format!("{}", &error)),
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -323,7 +323,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
-            failed_post_conditions: None,
+            post_condition_status: None,
         }
     }
 
@@ -591,7 +591,7 @@ impl StacksChainState {
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
-        failed_post_conditions: &mut Vec<TransactionPostCondition>,
+        post_condition_statuses: &mut Vec<TransactionPostConditionStatus>,
     ) -> Result<bool, InterpreterError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
@@ -623,7 +623,9 @@ impl StacksChainState {
                             account_principal, amount_sent_condition, condition_code, amount_sent
                         );
 
-                        failed_post_conditions.push(postcond.clone());
+                        post_condition_statuses.push(
+                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                        );
 
                         return Ok(false);
                     }
@@ -668,7 +670,9 @@ impl StacksChainState {
                         .unwrap_or(0);
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
-                        failed_post_conditions.push(postcond.clone());
+                        post_condition_statuses.push(
+                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                        );
                         return Ok(false);
                     }
 
@@ -703,7 +707,9 @@ impl StacksChainState {
                         .unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
                         info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
-                        failed_post_conditions.push(postcond.clone());
+                        post_condition_statuses.push(
+                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                        );
                         return Ok(false);
                     }
 
@@ -746,17 +752,30 @@ impl StacksChainState {
                                     for v in values {
                                         if !nfts.contains(&v.clone().try_into()?) {
                                             info!("Post-condition check failure: Non-fungible asset {} value {:?} was moved by {} but not checked", &asset_identifier, &v, &principal);
+                                            post_condition_statuses.push(TransactionPostConditionStatus::UncheckedNonFungibleAsset((asset_identifier.clone(), principal, Some(v))));
                                             return Ok(false);
                                         }
                                     }
                                 } else {
                                     // no values covered
                                     info!("Post-condition check failure: No checks for non-fungible asset type {} moved by {}", &asset_identifier, &principal);
+                                    post_condition_statuses.push(
+                                        TransactionPostConditionStatus::UncheckedNonFungibleAsset(
+                                            (asset_identifier.clone(), principal, None),
+                                        ),
+                                    );
                                     return Ok(false);
                                 }
                             } else {
                                 // no NFT for this principal
                                 info!("Post-condition check failure: No checks for any non-fungible assets, but moved {} by {}", &asset_identifier, &principal);
+                                post_condition_statuses.push(
+                                    TransactionPostConditionStatus::UncheckedNonFungibleAsset((
+                                        asset_identifier.clone(),
+                                        principal,
+                                        None,
+                                    )),
+                                );
                                 return Ok(false);
                             }
                         }
@@ -767,10 +786,24 @@ impl StacksChainState {
                             {
                                 if !checked_ft_asset_ids.contains(&asset_identifier) {
                                     info!("Post-condition check failure: checks did not cover transfer of {} by {}", &asset_identifier, &principal);
+                                    post_condition_statuses.push(
+                                        TransactionPostConditionStatus::UncheckedFungibleAsset((
+                                            asset_identifier.clone(),
+                                            principal,
+                                            None,
+                                        )),
+                                    );
                                     return Ok(false);
                                 }
                             } else {
                                 info!("Post-condition check failure: No checks for fungible token type {} moved by {}", &asset_identifier, &principal);
+                                post_condition_statuses.push(
+                                    TransactionPostConditionStatus::UncheckedFungibleAsset((
+                                        asset_identifier.clone(),
+                                        principal,
+                                        None,
+                                    )),
+                                );
                                 return Ok(false);
                             }
                         }
@@ -778,6 +811,7 @@ impl StacksChainState {
                 }
             }
         }
+        post_condition_statuses.push(TransactionPostConditionStatus::Success);
         return Ok(true);
     }
 
@@ -1045,7 +1079,8 @@ impl StacksChainState {
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
                 let epoch_id = clarity_tx.get_epoch();
-                let mut failed_post_conditions = vec![];
+
+                let mut post_condition_statuses = vec![];
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
@@ -1059,7 +1094,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
-                            &mut failed_post_conditions,
+                            &mut post_condition_statuses,
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
@@ -1096,21 +1131,27 @@ impl StacksChainState {
                             (Value::err_none(), AssetMap::new(), vec![])
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
+                            let post_condition_status = post_condition_statuses
+                                .first()
+                                .unwrap_or(&TransactionPostConditionStatus::Success)
+                                .clone();
+
                             info!("Contract-call aborted by post-condition";
-                                      "txid" => %tx.txid(),
-                                      "origin" => %origin_account.principal,
-                                      "origin_nonce" => %origin_account.nonce,
-                                      "contract_name" => %contract_id,
-                                      "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "failed_post_conditions" => %VecDisplay(&failed_post_conditions));
+                                "txid" => %tx.txid(),
+                                "origin" => %origin_account.principal,
+                                "origin_nonce" => %origin_account.nonce,
+                                "contract_name" => %contract_id,
+                                "function_name" => %contract_call.function_name,
+                                "function_args" => %VecDisplay(&contract_call.function_args),
+                                "post_condition_status" => %post_condition_status,
+                            );
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
                                     value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
                                     assets.get_stx_burned_total()?,
                                     total_cost,
-                                    failed_post_conditions);
+                                    post_condition_status);
                             return Ok(receipt);
                         }
                         ClarityRuntimeTxError::CostError(cost_after, budget) => {
@@ -1213,7 +1254,7 @@ impl StacksChainState {
                     ast_rules,
                 );
 
-                let mut failed_post_conditions = vec![];
+                let mut post_condition_statuses = vec![];
 
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1300,7 +1341,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
-                            &mut failed_post_conditions,
+                            &mut post_condition_statuses,
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
@@ -1341,11 +1382,16 @@ impl StacksChainState {
                                 microblock_header: None,
                                 tx_index: 0,
                                 vm_error: Some(error.to_string()),
-                                failed_post_conditions: None,
+                                post_condition_status: None,
                             };
                             return Ok(receipt);
                         }
                         ClarityRuntimeTxError::AbortedByCallback(_, assets, events) => {
+                            let post_condition_status = post_condition_statuses
+                                .first()
+                                .unwrap_or(&TransactionPostConditionStatus::Success)
+                                .clone();
+
                             let receipt =
                                 StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(),
@@ -1353,7 +1399,7 @@ impl StacksChainState {
                                     assets.get_stx_burned_total()?,
                                     contract_analysis,
                                     total_cost,
-                                    failed_post_conditions,
+                                    post_condition_status,
                                 );
                             return Ok(receipt);
                         }
@@ -1642,6 +1688,42 @@ pub mod test {
         &TestBurnStateDB_20 as &dyn BurnStateDB,
         &TestBurnStateDB_2_05 as &dyn BurnStateDB,
     ];
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub enum TransactionPostConditionStatusAssert {
+        Success,
+        UnmetPostCondition,
+        UncheckedFungibleAsset,
+        UncheckedNonFungibleAsset,
+    }
+
+    impl TransactionPostConditionStatusAssert {
+        fn validate(&self, status: &TransactionPostConditionStatus) -> bool {
+            match self {
+                TransactionPostConditionStatusAssert::Success => {
+                    matches!(status, TransactionPostConditionStatus::Success)
+                }
+                TransactionPostConditionStatusAssert::UnmetPostCondition => {
+                    matches!(
+                        status,
+                        TransactionPostConditionStatus::UnmetPostCondition(_)
+                    )
+                }
+                TransactionPostConditionStatusAssert::UncheckedFungibleAsset => {
+                    matches!(
+                        status,
+                        TransactionPostConditionStatus::UncheckedFungibleAsset(_)
+                    )
+                }
+                TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset => {
+                    matches!(
+                        status,
+                        TransactionPostConditionStatus::UncheckedNonFungibleAsset(_)
+                    )
+                }
+            }
+        }
+    }
 
     #[test]
     fn contract_publish_runtime_error() {
@@ -5139,6 +5221,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in allow mode
             (
@@ -5151,6 +5234,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5162,6 +5246,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5173,6 +5258,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5184,6 +5270,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5195,6 +5282,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // two post-conditions on origin in allow mode
             (
@@ -5215,6 +5303,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5234,6 +5323,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5253,6 +5343,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5272,6 +5363,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5291,6 +5383,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // three post-conditions on origin in allow mode, one with sending 0 tokens
             (
@@ -5317,6 +5410,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5342,6 +5436,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5367,6 +5462,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5392,6 +5488,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5417,6 +5514,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
             // an unchecked address and a vacuous amount
@@ -5450,6 +5548,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5481,6 +5580,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5512,6 +5612,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5543,6 +5644,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5574,6 +5676,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in allow mode, explicit origin
             (
@@ -5586,6 +5689,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5597,6 +5701,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5608,6 +5713,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5619,6 +5725,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5630,6 +5737,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // two post-conditions on origin in allow mode, explicit origin
             (
@@ -5650,6 +5758,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5669,6 +5778,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5688,6 +5798,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5707,6 +5818,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5726,6 +5838,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
             // origin
@@ -5753,6 +5866,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5778,6 +5892,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5803,6 +5918,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5828,6 +5944,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5853,6 +5970,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
             // an unchecked address and a vacuous amount, explicit origin
@@ -5886,6 +6004,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5917,6 +6036,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5948,6 +6068,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -5979,6 +6100,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6010,6 +6132,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // no-postconditions in deny mode
             (
@@ -6017,6 +6140,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             // one post-condition on origin in allow mode
             (
@@ -6029,6 +6153,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6040,6 +6165,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6051,6 +6177,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6062,6 +6189,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6073,6 +6201,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             // two post-conditions on origin in allow mode
             (
@@ -6093,6 +6222,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6112,6 +6242,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6131,6 +6262,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6150,6 +6282,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6169,6 +6302,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // three post-conditions on origin in allow mode, one with sending 0 tokens
             (
@@ -6195,6 +6329,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6220,6 +6355,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6245,6 +6381,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6270,6 +6407,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6295,6 +6433,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
             // an unchecked address and a vacuous amount
@@ -6328,6 +6467,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6359,6 +6499,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6390,6 +6531,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6421,6 +6563,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6452,6 +6595,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in allow mode, explicit origin
             (
@@ -6464,6 +6608,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6475,6 +6620,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6486,6 +6632,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6497,6 +6644,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             (
                 false,
@@ -6508,6 +6656,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ),
             // two post-conditions on origin in allow mode, explicit origin
             (
@@ -6528,6 +6677,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6547,6 +6697,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6566,6 +6717,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6585,6 +6737,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6604,6 +6757,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
             // origin
@@ -6631,6 +6785,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6656,6 +6811,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6681,6 +6837,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6706,6 +6863,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6731,6 +6889,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
             // an unchecked address and a vacuous amount, explicit origin
@@ -6764,6 +6923,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6795,6 +6955,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6826,6 +6987,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6857,6 +7019,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6888,25 +7051,48 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
         ];
 
         for test in tests {
-            let expected_result = test.0;
-            let post_conditions = &test.1;
-            let mode = &test.2;
-            let origin = &test.3;
-            let mut failed_post_conditions = vec![];
+            let (expected_result, post_conditions, mode, origin, post_condition_status_assert) =
+                &test;
+
+            let mut post_condition_statuses = vec![];
 
             let result = StacksChainState::check_transaction_postconditions(
                 post_conditions,
                 mode,
                 origin,
                 &ft_transfer_2,
-                &mut failed_post_conditions, // TODO: validate failed post-conditions
+                &mut post_condition_statuses,
             )
             .unwrap();
-            if result != expected_result {
+
+            let post_condition_status = post_condition_statuses.first();
+
+            match post_condition_status_assert {
+                None => {
+                    assert!(
+                        post_condition_status.is_some_and(|post_condition| post_condition.eq(&TransactionPostConditionStatus::Success)),
+                        "transaction contains failed post conditions but test did not specify any expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                        ft_transfer_2, &test, post_condition_status_assert, post_condition_status,
+                    );
+                }
+                Some(post_condition_status_assert) => {
+                    let post_condition_status =
+                        post_condition_status.unwrap_or(&TransactionPostConditionStatus::Success);
+
+                    assert!(
+                        post_condition_status_assert.validate(post_condition_status),
+                        "transaction contains failed post conditions but did not match expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                        ft_transfer_2, &test, post_condition_status_assert, post_condition_status,
+                    );
+                }
+            }
+
+            if result != expected_result.clone() {
                 eprintln!(
                     "test failed:\nasset map: {:?}\nscenario: {:?}\n",
                     &ft_transfer_2, &test
@@ -6960,6 +7146,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in allow mode
             (
@@ -6972,6 +7159,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -6983,6 +7171,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // two post-conditions on origin in allow mode
             (
@@ -7003,6 +7192,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // post-condition on a non-sent asset
             (
@@ -7029,6 +7219,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in allow mode, explicit origin
             (
@@ -7041,6 +7232,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             (
                 true,
@@ -7052,6 +7244,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // two post-conditions on origin in allow mode, explicit origin
             (
@@ -7072,6 +7265,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // post-condition on a non-sent asset, explicit origin
             (
@@ -7098,6 +7292,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // no post-conditions in deny mode
             (
@@ -7105,6 +7300,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset),
             ),
             // one post-condition on origin in deny mode
             (
@@ -7117,6 +7313,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset),
             ),
             (
                 false,
@@ -7128,6 +7325,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset),
             ),
             // two post-conditions on origin in allow mode
             (
@@ -7148,6 +7346,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // post-condition on a non-sent asset
             (
@@ -7174,6 +7373,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // one post-condition on origin in deny mode, explicit origin
             (
@@ -7186,6 +7386,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset),
             ),
             (
                 false,
@@ -7197,6 +7398,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedNonFungibleAsset),
             ),
             // two post-conditions on origin in allow mode, explicit origin
             (
@@ -7217,6 +7419,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ),
             // post-condition on a non-sent asset, explicit origin
             (
@@ -7243,25 +7446,48 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ),
         ];
 
         for test in tests.iter() {
-            let expected_result = test.0;
-            let post_conditions = &test.1;
-            let mode = &test.2;
-            let origin = &test.3;
-            let mut failed_post_conditions = vec![];
+            let (expected_result, post_conditions, mode, origin, post_condition_status_assert) =
+                &test;
+
+            let mut post_condition_statuses = vec![];
 
             let result = StacksChainState::check_transaction_postconditions(
                 post_conditions,
                 mode,
                 origin,
                 &nft_transfer_2,
-                &mut failed_post_conditions, // TODO: check failed post-conditions
+                &mut post_condition_statuses,
             )
             .unwrap();
-            if result != expected_result {
+
+            let post_condition_status = post_condition_statuses.first();
+
+            match post_condition_status_assert {
+                None => {
+                    assert!(
+                        post_condition_status.is_some_and(|post_condition| post_condition.eq(&TransactionPostConditionStatus::Success)),
+                        "transaction contains failed post conditions but test did not specify any expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                        nft_transfer_2, &test, post_condition_status_assert, post_condition_status,
+                    );
+                }
+                Some(post_condition_status_assert) => {
+                    let post_condition_status =
+                        post_condition_status.unwrap_or(&TransactionPostConditionStatus::Success);
+
+                    assert!(
+                        post_condition_status_assert.validate(post_condition_status),
+                        "transaction contains failed post conditions but did not match expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                        nft_transfer_2, &test, post_condition_status_assert, post_condition_status,
+                    );
+                }
+            }
+
+            if result != expected_result.clone() {
                 eprintln!(
                     "test failed:\nasset map: {:?}\nscenario: {:?}\n",
                     &nft_transfer_2, &test
@@ -7309,6 +7535,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions on origin in allow mode
             (
@@ -7320,6 +7547,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7330,6 +7558,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7340,6 +7569,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7350,6 +7580,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7360,6 +7591,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions with an explicitly-set address in allow mode
             (
@@ -7371,6 +7603,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7381,6 +7614,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7391,6 +7625,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7401,6 +7636,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7411,6 +7647,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions with an unrelated contract address in allow mode
             (
@@ -7425,6 +7662,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7438,6 +7676,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7451,6 +7690,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7464,6 +7704,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions with both the origin and an unrelated contract address in allow mode
             (
@@ -7485,6 +7726,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7505,6 +7747,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7525,6 +7768,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7545,6 +7789,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions that fail since the amount is wrong
             (
@@ -7556,6 +7801,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -7566,6 +7812,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -7576,6 +7823,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -7586,6 +7834,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -7596,6 +7845,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             // no post-conditions in deny mode (should fail)
             (
@@ -7603,6 +7853,7 @@ pub mod test {
                 vec![],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ), // should fail
             // post-conditions on origin in deny mode (should all pass since origin is specified
             (
@@ -7614,6 +7865,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7624,6 +7876,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7634,6 +7887,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7644,6 +7898,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7654,6 +7909,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions with an explicitly-set address in deny mode (should all pass since
             // address matches the address in the asset map)
@@ -7666,6 +7922,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7676,6 +7933,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7686,6 +7944,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7696,6 +7955,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7706,6 +7966,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions with an unrelated contract address in allow mode, with check on
             // origin (should all pass)
@@ -7728,6 +7989,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7748,6 +8010,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7768,6 +8031,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7788,6 +8052,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Allow,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             // post-conditions with an unrelated contract address in deny mode (should all fail
             // since stx-transfer isn't covered)
@@ -7803,6 +8068,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ), // should fail
             (
                 false,
@@ -7816,6 +8082,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ), // should fail
             (
                 false,
@@ -7829,6 +8096,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ), // should fail
             (
                 false,
@@ -7842,6 +8110,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UncheckedFungibleAsset),
             ), // should fail
             // post-conditions with an unrelated contract address in deny mode, with check on
             // origin (should all pass)
@@ -7864,6 +8133,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7884,6 +8154,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7904,6 +8175,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             (
                 true,
@@ -7924,6 +8196,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should fail
             // post-conditions with both the origin and an unrelated contract address in deny mode (should all pass)
             (
@@ -7945,6 +8218,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7965,6 +8239,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -7985,6 +8260,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             (
                 true,
@@ -8005,6 +8281,7 @@ pub mod test {
                 ],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                None,
             ), // should pass
             // post-conditions that fail since the amount is wrong, even though all principals are
             // covered
@@ -8017,6 +8294,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -8027,6 +8305,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -8037,6 +8316,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -8047,6 +8327,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
             (
                 false,
@@ -8057,6 +8338,7 @@ pub mod test {
                 )],
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
+                Some(TransactionPostConditionStatusAssert::UnmetPostCondition),
             ), // should fail
         ];
 
@@ -8066,22 +8348,48 @@ pub mod test {
             &stx_transfer_burn_asset_map,
         ] {
             for test in tests.iter() {
-                let expected_result = test.0;
-                let post_conditions = &test.1;
-                let post_condition_mode = &test.2;
-                let origin_account = &test.3;
+                let (
+                    expected_result,
+                    post_conditions,
+                    post_condition_mode,
+                    origin_account,
+                    post_condition_status_assert,
+                ) = &test;
 
-                let mut failed_post_conditions = vec![];
+                let mut post_condition_statuses = vec![];
 
                 let result = StacksChainState::check_transaction_postconditions(
                     post_conditions,
                     post_condition_mode,
                     origin_account,
                     asset_map,
-                    &mut failed_post_conditions, // TODO: check failed post-conditions
+                    &mut post_condition_statuses,
                 )
                 .unwrap();
-                if result != expected_result {
+
+                let post_condition_status = post_condition_statuses.first();
+
+                match post_condition_status_assert {
+                    None => {
+                        assert!(
+                            post_condition_status.is_some_and(|post_condition| post_condition.eq(&TransactionPostConditionStatus::Success)),
+                            "transaction contains failed post conditions but test did not specify any expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                            asset_map, &test, post_condition_status_assert, post_condition_status,
+                        );
+                    }
+                    Some(post_condition_status_assert) => {
+                        let post_condition_status = post_condition_status
+                            .unwrap_or(&TransactionPostConditionStatus::Success);
+
+                        assert!(
+                            post_condition_status_assert.validate(post_condition_status),
+                            "transaction contains failed post conditions but did not match expectations.\nasset map: {:?}\nscenario: {:?}\nmatcher: {:?}\nstatus: {:?}",
+                            asset_map, &test, post_condition_status_assert, post_condition_status,
+                        );
+                    }
+                }
+
+                if result != expected_result.clone() {
                     eprintln!(
                         "test failed:\nasset map: {:?}\nscenario: {:?}\n",
                         asset_map, &test

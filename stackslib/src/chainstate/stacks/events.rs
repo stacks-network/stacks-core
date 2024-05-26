@@ -9,6 +9,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::hash::to_hex;
 
+use super::TransactionPostConditionStatus;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::NakamotoBlock;
@@ -56,7 +57,7 @@ pub struct StacksTransactionReceipt {
     pub tx_index: u32,
     /// This is really a string-formatted CheckError (which can't be clone()'ed)
     pub vm_error: Option<String>,
-    pub failed_post_conditions: Option<Vec<crate::chainstate::stacks::TransactionPostCondition>>,
+    pub post_condition_status: Option<TransactionPostConditionStatus>,
 }
 
 #[derive(Clone)]
