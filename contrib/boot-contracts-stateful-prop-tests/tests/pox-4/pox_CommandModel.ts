@@ -46,7 +46,13 @@ export class Stub {
 
   reportCommandRuns() {
     console.log("Command run method execution counts:");
-    this.statistics.forEach((count, commandName) => {
+    const orderedStatistics = Array.from(this.statistics.entries()).sort(
+      ([keyA], [keyB]) => {
+        return keyA.localeCompare(keyB);
+      },
+    );
+
+    orderedStatistics.forEach(([commandName, count]) => {
       console.log(`${commandName}: ${count}`);
     });
   }
