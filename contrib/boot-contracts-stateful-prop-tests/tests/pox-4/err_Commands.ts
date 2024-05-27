@@ -369,7 +369,7 @@ export function ErrCommands(
             if (
               operator.lockedAddresses.length > 0 &&
               !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit == 0
+              operator.amountToCommit === 0
             ) {
               model.trackCommandRun(
                 "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_1",
