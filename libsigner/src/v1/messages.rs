@@ -64,7 +64,7 @@ use wsts::schnorr::ID;
 use wsts::state_machine::{signer, SignError};
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::EventError;
+use crate::{EventError, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait};
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
@@ -99,6 +99,21 @@ MessageSlotID {
     /// Persisted encrypted signer state containing DKG shares
     EncryptedSignerState = 13
 });
+
+impl MessageSlotIDTrait for MessageSlotID {
+    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+    fn all() -> &'static [Self] {
+        MessageSlotID::ALL
+    }
+}
+
+impl SignerMessageTrait<MessageSlotID> for SignerMessage {
+    fn msg_id(&self) -> MessageSlotID {
+        self.msg_id()
+    }
+}
 
 define_u8_enum!(
 /// Enum representing the signer message type prefix
