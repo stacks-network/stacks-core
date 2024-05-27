@@ -11,9 +11,12 @@ import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
 import { Simnet } from "@hirosystems/clarinet-sdk";
 import { RevokeDelegateStxCommand_Err } from "./pox_RevokeDelegateStxCommand_Err";
 import { DelegateStxCommand_Err } from "./pox_DelegateStxCommand_Err";
+import { StackAggregationCommitSigCommand_Err } from "./pox_StackAggregationCommitSigCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_ALREADY_STACKED: 3,
+  ERR_STACKING_NO_SUCH_PRINCIPAL: 4,
+  ERR_STACKING_THRESHOLD_NOT_MET: 11,
   ERR_STACKING_ALREADY_DELEGATED: 20,
   ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
@@ -318,6 +321,92 @@ export function ErrCommands(
           POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
         )
       ),
+    // StackAggregationCommitSigCommand_Err_Stacking_Threshold_Not_Met
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+    }).map(
+      (r: { wallet: Wallet; authId: number }) =>
+        new StackAggregationCommitSigCommand_Err(
+          r.wallet,
+          r.authId,
+          function (
+            this: StackAggregationCommitSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operator = model.stackers.get(this.operator.stxAddress)!;
+
+            if (
+              operator.lockedAddresses.length > 0 &&
+              !(operator.amountToCommit >= model.stackingMinimum) &&
+              operator.amountToCommit > 0
+            ) {
+              model.trackCommandRun(
+                "StackAggregationCommitSigCommand_Err_Stacking_Threshold_Not_Met",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
+        ),
+    ),
+    // StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_1
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+    }).map(
+      (r: { wallet: Wallet; authId: number }) =>
+        new StackAggregationCommitSigCommand_Err(
+          r.wallet,
+          r.authId,
+          function (
+            this: StackAggregationCommitSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operator = model.stackers.get(this.operator.stxAddress)!;
+
+            if (
+              operator.lockedAddresses.length > 0 &&
+              !(operator.amountToCommit >= model.stackingMinimum) &&
+              operator.amountToCommit == 0
+            ) {
+              model.trackCommandRun(
+                "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_1",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
+        ),
+    ),
+    // StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_2
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+    }).map(
+      (r: { wallet: Wallet; authId: number }) =>
+        new StackAggregationCommitSigCommand_Err(
+          r.wallet,
+          r.authId,
+          function (
+            this: StackAggregationCommitSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operator = model.stackers.get(this.operator.stxAddress)!;
+
+            if (
+              !(operator.lockedAddresses.length > 0) &&
+              !(operator.amountToCommit >= model.stackingMinimum)
+            ) {
+              model.trackCommandRun(
+                "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_2",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
+        ),
+    ),
   ];
 
   return cmds;
