@@ -113,7 +113,8 @@ it("statefully interacts with PoX-4", async () => {
     file !== "pox_StackStxAuthCommand_Err.ts" &&
     file !== "pox_StackStxSigCommand_Err.ts" &&
     file !== "pox_RevokeDelegateStxCommand_Err.ts" &&
-    file !== "pox_DelegateStxCommand_Err.ts"
+    file !== "pox_DelegateStxCommand_Err.ts" &&
+    file !== "pox_StackAggregationCommitSigCommand_Err.ts"
   ).map((file) => file.slice(4, -3)); // Remove "pox_" prefix and ".ts" suffix.
 
   // This is the initial state of the model.
