@@ -144,6 +144,17 @@ impl SignerDb {
         )
     }
 
+     /// Get the sqlite version from the database
+     pub fn get_sqlite_version(
+        &self,
+    ) -> Result<Option<String>, DBError> {
+        query_row(
+            &self.db,
+            "SELECT sqlite_version()",
+            NO_PARAMS,
+        )
+    }
+
     /// Insert the given state in the `signer_states` table for the given reward cycle
     pub fn insert_encrypted_signer_state(
         &self,
@@ -390,5 +401,12 @@ mod tests {
             .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
+    }
+
+    #[test]
+    fn test_display_sqlite_version() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        println!("sqlite version is: {:#?}", db.get_sqlite_version());
     }
 }

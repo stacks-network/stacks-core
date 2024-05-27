@@ -207,18 +207,21 @@ lazy_static! {
           );
           CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
     "#.into(),
-        format!(
-            r#"ALTER TABLE payments
-               ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
-            "#,
-            HeaderTypeNames::Epoch2.get_name_str()),
-        r#"
-        UPDATE db_config SET version = "4";
-        "#.into(),
+    format!(
+        r#"ALTER TABLE payments
+            ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
+        "#,
+        HeaderTypeNames::Epoch2.get_name_str()),
+    r#"
+    UPDATE db_config SET version = "4";
+    "#.into(),
     ];
 
     pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_2.into()
+    NAKAMOTO_TENURES_SCHEMA_2.into(),
+    r#"
+    UPDATE db_config SET version = "5";
+    "#.into(),
     ];
 }
 

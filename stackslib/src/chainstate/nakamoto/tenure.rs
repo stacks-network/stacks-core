@@ -186,7 +186,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
         tenure_index INTEGER NOT NULL,
     
         PRIMARY KEY(burn_view_consensus_hash,tenure_index)
-    ) STRICT;
+    );
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
     CREATE INDEX nakamoto_tenures_by_tenure_id ON nakamoto_tenures(tenure_id_consensus_hash);
     CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
