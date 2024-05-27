@@ -144,15 +144,9 @@ impl SignerDb {
         )
     }
 
-     /// Get the sqlite version from the database
-     pub fn get_sqlite_version(
-        &self,
-    ) -> Result<Option<String>, DBError> {
-        query_row(
-            &self.db,
-            "SELECT sqlite_version()",
-            NO_PARAMS,
-        )
+    /// Get the sqlite version from the database
+    pub fn get_sqlite_version(&self) -> Result<Option<String>, DBError> {
+        query_row(&self.db, "SELECT sqlite_version()", NO_PARAMS)
     }
 
     /// Insert the given state in the `signer_states` table for the given reward cycle
