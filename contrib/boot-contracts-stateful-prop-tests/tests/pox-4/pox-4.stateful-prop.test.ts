@@ -110,12 +110,7 @@ it("statefully interacts with PoX-4", async () => {
   const statistics = fs.readdirSync(path.join(__dirname)).filter((file) =>
     file.startsWith("pox_") && file.endsWith(".ts") &&
     file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts" &&
-    file !== "pox_StackStxAuthCommand_Err.ts" &&
-    file !== "pox_StackStxSigCommand_Err.ts" &&
-    file !== "pox_RevokeDelegateStxCommand_Err.ts" &&
-    file !== "pox_DelegateStxCommand_Err.ts" &&
-    file !== "pox_StackAggregationCommitSigCommand_Err.ts" &&
-    file !== "pox_StackAggregationCommitAuthCommand_Err.ts"
+    !file.includes("_Err")
   ).map((file) => file.slice(4, -3)); // Remove "pox_" prefix and ".ts" suffix.
 
   // This is the initial state of the model.
