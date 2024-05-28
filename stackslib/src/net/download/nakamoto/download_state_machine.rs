@@ -269,8 +269,7 @@ impl NakamotoDownloadStateMachine {
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, tip_rc.saturating_add(1))
             .saturating_sub(1)
-            .min(tip.block_height)
-            .saturating_add(1);
+            .min(tip.block_height.saturating_add(1));
 
         test_debug!(
             "Load tip sortitions between {} and {} (loaded_so_far = {})",
@@ -1229,6 +1228,8 @@ impl NakamotoDownloadStateMachine {
                 .any(|(_, available)| available.contains_key(&wt.tenure_id_consensus_hash));
 
             if is_available && !wt.processed {
+                // a tenure is available but not yet processed, so we can't yet transition to
+                // fetching unconfirmed tenures (we'd have no way to validate them).
                 return false;
             }
         }
@@ -1294,14 +1295,16 @@ impl NakamotoDownloadStateMachine {
         count: usize,
         downloaders: &mut HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
         highest_processed_block_id: Option<StacksBlockId>,
-    ) {
-        while downloaders.len() < count {
-            let Some(naddr) = schedule.front() else {
-                break;
-            };
+    ) -> usize {
+        let mut added = 0;
+        schedule.retain(|naddr| {
             if downloaders.contains_key(naddr) {
-                continue;
+                return true;
             }
+            if added >= count {
+                return true;
+            }
+
             let unconfirmed_tenure_download = NakamotoUnconfirmedTenureDownloader::new(
                 naddr.clone(),
                 highest_processed_block_id.clone(),
@@ -1309,8 +1312,10 @@ impl NakamotoDownloadStateMachine {
 
             test_debug!("Request unconfirmed tenure state from neighbor {}", &naddr);
             downloaders.insert(naddr.clone(), unconfirmed_tenure_download);
-            schedule.pop_front();
-        }
+            added += 1;
+            false
+        });
+        added
     }
 
     /// Update our unconfirmed tenure download state machines

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
@@ -439,6 +439,62 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         burn_height: peer.network.burnchain_tip.block_height,
     };
 
+    // we can make unconfirmed tenure downloaders
+    {
+        let mut empty_schedule = VecDeque::new();
+        let mut full_schedule = {
+            let mut sched = VecDeque::new();
+            sched.push_back(naddr.clone());
+            sched
+        };
+        let mut empty_downloaders = HashMap::new();
+        let mut full_downloaders = {
+            let mut dl = HashMap::new();
+            let utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
+            dl.insert(naddr.clone(), utd);
+            dl
+        };
+        assert_eq!(
+            NakamotoDownloadStateMachine::make_unconfirmed_tenure_downloaders(
+                &mut empty_schedule,
+                10,
+                &mut empty_downloaders,
+                None
+            ),
+            0
+        );
+        assert_eq!(
+            NakamotoDownloadStateMachine::make_unconfirmed_tenure_downloaders(
+                &mut empty_schedule,
+                10,
+                &mut full_downloaders,
+                None
+            ),
+            0
+        );
+        assert_eq!(
+            NakamotoDownloadStateMachine::make_unconfirmed_tenure_downloaders(
+                &mut full_schedule,
+                10,
+                &mut full_downloaders,
+                None
+            ),
+            0
+        );
+        assert_eq!(full_schedule.len(), 1);
+        assert_eq!(
+            NakamotoDownloadStateMachine::make_unconfirmed_tenure_downloaders(
+                &mut full_schedule,
+                10,
+                &mut empty_downloaders,
+                None
+            ),
+            1
+        );
+        assert_eq!(full_schedule.len(), 0);
+        assert_eq!(empty_downloaders.len(), 1);
+    }
+
     // we've processed the tip already, so we transition straight to the Done state
     {
         let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
@@ -795,6 +851,74 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert!(utd
             .try_accept_unconfirmed_tenure_blocks(vec![bad_block])
             .is_err());
+    }
+
+    // Does not consume blocks beyond the highest processed block ID
+    {
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        utd.confirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.unconfirmed_aggregate_public_key =
+            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+
+        assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
+
+        let tenure_tip = RPCGetTenureInfo {
+            consensus_hash: peer.network.stacks_tip.0.clone(),
+            tenure_start_block_id: peer.network.tenure_start_block_id.clone(),
+            parent_consensus_hash: peer.network.parent_stacks_tip.0.clone(),
+            parent_tenure_start_block_id: StacksBlockId::new(
+                &peer.network.parent_stacks_tip.0,
+                &peer.network.parent_stacks_tip.1,
+            ),
+            tip_block_id: StacksBlockId::new(
+                &peer.network.stacks_tip.0,
+                &peer.network.stacks_tip.1,
+            ),
+            tip_height: peer.network.stacks_tip.2,
+            reward_cycle: tip_rc,
+        };
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        utd.try_accept_tenure_info(
+            &sortdb,
+            &sort_tip,
+            peer.chainstate(),
+            tenure_tip.clone(),
+            &agg_pubkeys,
+        )
+        .unwrap();
+
+        peer.sortdb = Some(sortdb);
+
+        assert!(utd.unconfirmed_tenure_start_block.is_some());
+
+        utd.highest_processed_block_id = Some(unconfirmed_tenure[1].header.block_id());
+        let res = utd
+            .try_accept_unconfirmed_tenure_blocks(
+                unconfirmed_tenure.clone().into_iter().rev().collect(),
+            )
+            .unwrap();
+        assert_eq!(res.unwrap().as_slice(), &unconfirmed_tenure[1..]);
+
+        assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::Done);
+
+        // we can request the highest-complete tenure
+        assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
+
+        let ntd = utd
+            .make_highest_complete_tenure_downloader(
+                &highest_confirmed_wanted_tenure,
+                &unconfirmed_wanted_tenure,
+            )
+            .unwrap();
+        assert_eq!(
+            ntd.state,
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                unconfirmed_wanted_tenure.winning_block_id.clone()
+            )
+        );
     }
 }
 
