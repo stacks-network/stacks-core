@@ -191,7 +191,7 @@ export type Stacker = {
   amountUnlocked: number;
   unlockHeight: number;
   firstLockedRewardCycle: number;
-  allowedContractCaller: StxAddress;
+  allowedContractCallers: StxAddress[];
   callerAllowedBy: StxAddress[];
   committedRewCycleIndexes: number[];
 };
