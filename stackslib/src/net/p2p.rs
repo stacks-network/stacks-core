@@ -265,6 +265,8 @@ pub struct PeerNetwork {
     /// determine whether or not the reward cycle info in `current_reward_sets` is still valid -- a
     /// burnchain fork may invalidate them, so the code must check that the sortition ID for the
     /// start of the prepare-phase is still canonical.
+    /// This needs to be in 1-to-1 correspondence with `current_reward_sets` -- the sortition IDs
+    /// that make up the values need to correspond to the reward sets computed as of the sortition.
     pub current_reward_set_ids: BTreeMap<u64, SortitionId>,
 
     // information about the state of the network's anchor blocks
