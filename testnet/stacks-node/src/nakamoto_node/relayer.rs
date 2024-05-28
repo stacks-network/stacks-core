@@ -647,6 +647,75 @@ impl RelayerThread {
         Ok(())
     }
 
+    fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
+        if let Err(e) = self.stop_tenure() {
+            error!("Relayer: Failed to stop tenure: {:?}", e);
+            return Ok(());
+        }
+        debug!("Relayer: successfully stopped tenure.");
+        // Check if we should undergo a tenure change to switch to the new burn view
+        let block_snapshot = self
+            .sortdb
+            .index_handle_at_tip()
+            .get_last_snapshot_with_sortition_from_tip()
+            .map_err(|e| {
+                error!("Relayer: failed to get last sortition snapshot: {e:?}");
+                NakamotoNodeError::SnapshotNotFoundForChainTip
+            })?;
+        let Some(block_header) = NakamotoChainState::get_block_header_by_consensus_hash(
+            self.chainstate.db(),
+            &block_snapshot.consensus_hash,
+        )
+        .map_err(|e| {
+            error!("Relayer: failed to get block header for the last sortition snapshsot: {e:?}");
+            NakamotoNodeError::MissingTenureStartBlockHeader
+        })?
+        else {
+            error!("Relayer: failed to get block header for the last sortition snapshsot");
+            return Err(NakamotoNodeError::MissingTenureStartBlockHeader);
+        };
+
+        if Some(block_snapshot.winning_block_txid) != self.current_mining_commit_tx {
+            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.");
+            return Ok(());
+        };
+
+        let Some(last_parent_tenure_header) =
+            NakamotoChainState::get_nakamoto_tenure_finish_block_header(
+                self.chainstate.db(),
+                &block_header.consensus_hash,
+            )
+            .map_err(|e| {
+                error!("Relayer: failed to get last block of parent tenure: {e:?}");
+                NakamotoNodeError::ParentNotFound
+            })?
+        else {
+            warn!("Failed loading last block of parent tenure"; "consensus_hash" => %block_header.consensus_hash);
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
+        let parent_tenure_info = ParentTenureInfo {
+            parent_tenure_blocks: 1 + last_parent_tenure_header.stacks_block_height
+                - block_header.stacks_block_height,
+            parent_tenure_consensus_hash: new_burn_view,
+        };
+        match self.start_new_tenure(
+            block_header.index_block_hash(),
+            block_snapshot,
+            MinerReason::Extended {
+                parent_tenure_info,
+                tenure_change_mined: false,
+            },
+        ) {
+            Ok(()) => {
+                debug!("Relayer: successfully started new tenure.");
+            }
+            Err(e) => {
+                error!("Relayer: Failed to start new tenure: {:?}", e);
+            }
+        }
+        Ok(())
+    }
+
     fn handle_sortition(
         &mut self,
         consensus_hash: ConsensusHash,
@@ -673,67 +742,13 @@ impl RelayerThread {
                 }
             },
             MinerDirective::ContinueTenure { new_burn_view } => {
-                match self.stop_tenure() {
+                match self.continue_tenure(new_burn_view) {
                     Ok(()) => {
-                        debug!("Relayer: successfully stopped tenure.");
-                        // Check if we should undergo a tenure change to switch to the new burn view
-                        let Ok(block_snapshot) = self
-                            .sortdb
-                            .index_handle_at_tip()
-                            .get_last_snapshot_with_sortition_from_tip()
-                        else {
-                            error!("Relayer: failed to get snapshot for current tip");
-                            return false;
-                        };
-                        let Ok(Some(block_header)) =
-                            NakamotoChainState::get_block_header_by_consensus_hash(
-                                self.chainstate.db(),
-                                &block_snapshot.consensus_hash,
-                            )
-                        else {
-                            error!("Relayer: failed to get block header for the last sortition snapshsot");
-                            return false;
-                        };
-
-                        let Some(current_mining_commit_tx) = self.current_mining_commit_tx else {
-                            error!("Relayer: no current mining commit txid following a ContinueTenure directive. This implies the miner won a sortition without a commit transaction.");
-                            return false;
-                        };
-                        if block_snapshot.winning_block_txid == current_mining_commit_tx {
-                            let Ok(Some(last_parent_tenure_header)) =
-                                NakamotoChainState::get_nakamoto_tenure_finish_block_header(
-                                    self.chainstate.db(),
-                                    &block_header.consensus_hash,
-                                )
-                            else {
-                                warn!("Failed loading last block of parent tenure"; "consensus_hash" => %block_header.consensus_hash);
-                                return false;
-                            };
-                            let parent_tenure_info = ParentTenureInfo {
-                                parent_tenure_blocks: 1 + last_parent_tenure_header
-                                    .stacks_block_height
-                                    - block_header.stacks_block_height,
-                                parent_tenure_consensus_hash: new_burn_view,
-                            };
-                            match self.start_new_tenure(
-                                block_header.index_block_hash(),
-                                block_snapshot,
-                                MinerReason::Extended {
-                                    parent_tenure_info,
-                                    tenure_change_mined: false,
-                                },
-                            ) {
-                                Ok(()) => {
-                                    debug!("Relayer: successfully started new tenure.");
-                                }
-                                Err(e) => {
-                                    error!("Relayer: Failed to start new tenure: {:?}", e);
-                                }
-                            }
-                        }
+                        debug!("Relayer: handled continue tenure.");
                     }
                     Err(e) => {
-                        error!("Relayer: Failed to stop tenure: {:?}", e);
+                        error!("Relayer: Failed to continue tenure: {:?}", e);
+                        return false;
                     }
                 }
             }

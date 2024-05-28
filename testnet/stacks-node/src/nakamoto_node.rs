@@ -103,6 +103,8 @@ pub enum Error {
     SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
     ChannelClosed,
+    /// The block header for the tenure start is missing
+    MissingTenureStartBlockHeader,
 }
 
 impl StacksNode {
