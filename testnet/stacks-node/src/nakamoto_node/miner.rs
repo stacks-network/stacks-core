@@ -198,7 +198,7 @@ impl BlockMinerThread {
                 };
 
                 new_block.header.signer_signature = signer_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), None, reward_set) {
+                if let Err(e) = self.broadcast(new_block.clone(), reward_set) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -291,12 +291,7 @@ impl BlockMinerThread {
             })?;
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
-                ));
-            }
+            Ok(x) => x,
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -310,25 +305,14 @@ impl BlockMinerThread {
             ));
         };
 
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let sortition_handle = sort_db.index_handle_at_tip();
-        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
-            &mut chain_state,
-            &sort_db,
-            &sortition_handle,
-            &new_block,
-        ) else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Failed to obtain the active aggregate public key. Cannot mine!".into(),
-            ));
-        };
-
+        // NOTE: this is a placeholder until the API can be fixed
+        let aggregate_public_key = Point::new();
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator = SignCoordinator::new(
             &reward_set,
             reward_cycle,
             miner_privkey_as_scalar,
+            // TODO: placeholder until the signer is working
             aggregate_public_key,
             &stackerdbs,
             &self.config,
@@ -390,12 +374,7 @@ impl BlockMinerThread {
             .expect("FATAL: building on a burn block that is before the first burn block");
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
-                ));
-            }
+            Ok(x) => x,
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -552,12 +531,9 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
-    /// TODO: update to utilize `signer_signature` vec instead of the aggregate
-    /// public key.
     fn broadcast(
         &self,
         block: NakamotoBlock,
-        aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
@@ -595,7 +571,6 @@ impl BlockMinerThread {
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
-            aggregate_public_key,
             reward_set,
         )?;
         staging_tx.commit()?;

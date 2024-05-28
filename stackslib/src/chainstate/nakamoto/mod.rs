@@ -496,16 +496,6 @@ impl NakamotoBlockHeader {
         Ok(())
     }
 
-    /// Verify the block header against an aggregate public key
-    pub fn verify_threshold_signer(
-        &self,
-        signer_aggregate: &Point,
-        signature: &ThresholdSignature,
-    ) -> bool {
-        let message = self.signer_signature_hash().0;
-        signature.verify(signer_aggregate, &message)
-    }
-
     /// Verify the block header against the list of signer signatures
     ///
     /// Validate against:
@@ -1802,7 +1792,6 @@ impl NakamotoChainState {
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
-        _aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
@@ -1850,21 +1839,6 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        // TODO: epoch gate to verify aggregate signature
-        // let schnorr_signature = &block.header.signer_signature.0;
-        // if !db_handle.expects_signer_signature(
-        //     &block.header.consensus_hash,
-        //     schnorr_signature,
-        //     &block.header.signer_signature_hash().0,
-        //     aggregate_public_key,
-        // )? {
-        //     let msg = format!(
-        //         "Received block, but the signer signature does not match the active stacking cycle"
-        //     );
-        //     warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
-        //     return Err(ChainstateError::InvalidStacksBlock(msg));
-        // }
-
         if let Err(e) = block.header.verify_signer_signatures(&reward_set) {
             warn!("Received block, but the signer signatures are invalid";
                   "block_id" => %block.block_id(),
@@ -1882,83 +1856,6 @@ impl NakamotoChainState {
         Self::store_block(staging_db_tx, block, burn_attachable)?;
         test_debug!("Stored Nakamoto block {}", &_block_id);
         Ok(true)
-    }
-
-    /// Get the aggregate public key for the given block from the signers-voting contract
-    pub(crate) fn load_aggregate_public_key<SH: SortitionHandle>(
-        sortdb: &SortitionDB,
-        sort_handle: &SH,
-        chainstate: &mut StacksChainState,
-        for_burn_block_height: u64,
-        at_block_id: &StacksBlockId,
-        warn_if_not_found: bool,
-    ) -> Result<Point, ChainstateError> {
-        // Get the current reward cycle
-        let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
-            sort_handle.first_burn_block_height(),
-            for_burn_block_height,
-        ) else {
-            // This should be unreachable, but we'll return an error just in case.
-            let msg = format!(
-                "BUG: Failed to determine reward cycle of burn block height: {}.",
-                for_burn_block_height
-            );
-            warn!("{msg}");
-            return Err(ChainstateError::InvalidStacksBlock(msg));
-        };
-
-        test_debug!(
-            "get-approved-aggregate-key at block {}, cycle {}",
-            at_block_id,
-            rc
-        );
-        match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
-            Some(key) => Ok(key),
-            None => {
-                // this can happen for a whole host of reasons
-                if warn_if_not_found {
-                    warn!(
-                        "Failed to get aggregate public key";
-                        "block_id" => %at_block_id,
-                        "reward_cycle" => rc,
-                    );
-                }
-                Err(ChainstateError::InvalidStacksBlock(
-                    "Failed to get aggregate public key".into(),
-                ))
-            }
-        }
-    }
-
-    /// Get the aggregate public key for a block.
-    /// TODO: The block at which the aggregate public key is queried needs to be better defined.
-    /// See https://github.com/stacks-network/stacks-core/issues/4109
-    pub fn get_aggregate_public_key<SH: SortitionHandle>(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-        sort_handle: &SH,
-        block: &NakamotoBlock,
-    ) -> Result<Point, ChainstateError> {
-        let block_sn =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &block.header.consensus_hash)?
-                .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-        let aggregate_key_block_header =
-            Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
-        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
-            .ok_or(ChainstateError::InvalidStacksBlock(
-                "Failed to get epoch ID".into(),
-            ))?
-            .epoch_id;
-
-        let aggregate_public_key = Self::load_aggregate_public_key(
-            sortdb,
-            sort_handle,
-            chainstate,
-            block_sn.block_height,
-            &aggregate_key_block_header.index_block_hash(),
-            epoch_id >= StacksEpochId::Epoch30,
-        )?;
-        Ok(aggregate_public_key)
     }
 
     /// Return the total ExecutionCost consumed during the tenure up to and including
@@ -2115,6 +2012,7 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2931,7 +2829,7 @@ impl NakamotoChainState {
                 // this block is mined in the ongoing tenure.
                 if !Self::check_tenure_continuity(
                     chainstate_tx,
-                    burn_dbconn.sqlite(),
+                    burn_dbconn,
                     &parent_ch,
                     &block.header,
                 )? {
