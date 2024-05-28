@@ -15,6 +15,7 @@ import { StackAggregationCommitSigCommand_Err } from "./pox_StackAggregationComm
 import { StackAggregationCommitAuthCommand_Err } from "./pox_StackAggregationCommitAuthCommand_Err";
 import { StackAggregationCommitIndexedSigCommand_Err } from "./pox_StackAggregationCommitIndexedSigCommand_Err";
 import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggregationCommitIndexedAuthCommand_Err";
+import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_ALREADY_STACKED: 3,
@@ -668,6 +669,49 @@ export function ErrCommands(
           POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
         ),
     ),
+    // StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+    }).chain((r) => {
+      const operator = stackers.get(r.wallet.stxAddress)!;
+      const committedRewCycleIndexesOrFallback =
+        operator.committedRewCycleIndexes.length > 0
+          ? operator.committedRewCycleIndexes
+          : [-1];
+      return fc
+        .record({
+          rewardCycleIndex: fc.constantFrom(
+            ...committedRewCycleIndexesOrFallback,
+          ),
+        })
+        .map((cycleIndex) => ({ ...r, ...cycleIndex }));
+    })
+      .map(
+        (r: { wallet: Wallet; rewardCycleIndex: number; authId: number }) =>
+          new StackAggregationIncreaseCommand_Err(
+            r.wallet,
+            r.rewardCycleIndex,
+            r.authId,
+            function (
+              this: StackAggregationIncreaseCommand_Err,
+              model: Readonly<Stub>,
+            ): boolean {
+              const operator = model.stackers.get(this.operator.stxAddress)!;
+              if (
+                operator.lockedAddresses.length > 0 &&
+                this.rewardCycleIndex >= 0 &&
+                !(operator.amountToCommit > 0)
+              ) {
+                model.trackCommandRun(
+                  "StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal",
+                );
+                return true;
+              } else return false;
+            },
+            POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
+          ),
+      ),
   ];
 
   return cmds;
