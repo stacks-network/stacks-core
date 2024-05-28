@@ -686,32 +686,31 @@ export function ErrCommands(
           ),
         })
         .map((cycleIndex) => ({ ...r, ...cycleIndex }));
-    })
-      .map(
-        (r: { wallet: Wallet; rewardCycleIndex: number; authId: number }) =>
-          new StackAggregationIncreaseCommand_Err(
-            r.wallet,
-            r.rewardCycleIndex,
-            r.authId,
-            function (
-              this: StackAggregationIncreaseCommand_Err,
-              model: Readonly<Stub>,
-            ): boolean {
-              const operator = model.stackers.get(this.operator.stxAddress)!;
-              if (
-                operator.lockedAddresses.length > 0 &&
-                this.rewardCycleIndex >= 0 &&
-                !(operator.amountToCommit > 0)
-              ) {
-                model.trackCommandRun(
-                  "StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal",
-                );
-                return true;
-              } else return false;
-            },
-            POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
-          ),
-      ),
+    }).map(
+      (r: { wallet: Wallet; rewardCycleIndex: number; authId: number }) =>
+        new StackAggregationIncreaseCommand_Err(
+          r.wallet,
+          r.rewardCycleIndex,
+          r.authId,
+          function (
+            this: StackAggregationIncreaseCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operator = model.stackers.get(this.operator.stxAddress)!;
+            if (
+              operator.lockedAddresses.length > 0 &&
+              this.rewardCycleIndex >= 0 &&
+              !(operator.amountToCommit > 0)
+            ) {
+              model.trackCommandRun(
+                "StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
+        ),
+    ),
   ];
 
   return cmds;
