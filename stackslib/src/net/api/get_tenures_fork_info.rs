@@ -77,7 +77,7 @@ pub struct TenureForkingInfo {
     ///  block or miner was chosen).
     pub was_sortition: bool,
     /// If the sortition occurred, and a block was mined during the tenure, this is the
-    /// tenure's block.
+    /// tenure's first block.
     #[serde(with = "prefix_opt_hex")]
     pub first_block_mined: Option<StacksBlockId>,
 }
