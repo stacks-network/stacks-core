@@ -476,7 +476,7 @@ export const currentCycleFirstBlock = (network: Simnet) =>
     ).result,
   ));
 
-const nextCycleFirstBlock = (network: Simnet) =>
+export const nextCycleFirstBlock = (network: Simnet) =>
   Number(cvToValue(
     network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",

@@ -16,12 +16,16 @@ import { StackAggregationCommitAuthCommand_Err } from "./pox_StackAggregationCom
 import { StackAggregationCommitIndexedSigCommand_Err } from "./pox_StackAggregationCommitIndexedSigCommand_Err";
 import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggregationCommitIndexedAuthCommand_Err";
 import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
+import { currentCycleFirstBlock, nextCycleFirstBlock } from "./pox_Commands";
+import { DelegateStackStxCommand_Err } from "./pox_DelegateStackStxCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_ALREADY_STACKED: 3,
   ERR_STACKING_NO_SUCH_PRINCIPAL: 4,
+  ERR_STACKING_PERMISSION_DENIED: 9,
   ERR_STACKING_THRESHOLD_NOT_MET: 11,
   ERR_STACKING_ALREADY_DELEGATED: 20,
+  ERR_DELEGATION_TOO_MUCH_LOCKED: 22,
   ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
 
@@ -711,6 +715,228 @@ export function ErrCommands(
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
     ),
+    // DelegateStackStxCommand_Err_Delegation_Too_Much_Locked
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      startBurnHt: fc.integer({
+        min: currentCycleFirstBlock(network),
+        max: nextCycleFirstBlock(network),
+      }),
+      period: fc.integer({ min: 1, max: 12 }),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      // Determine available stackers based on the operator
+      const availableStackers = operator.poolMembers.length > 0
+        ? operator.poolMembers
+        : [r.operator.stxAddress];
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackers),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      })).chain((resultWithStacker) => {
+        return fc.record({
+          unlockBurnHt: fc.constant(
+            currentCycleFirstBlock(network) +
+              1050 * (resultWithStacker.period + 1),
+          ),
+        }).map((additionalProps) => ({
+          ...resultWithStacker,
+          ...additionalProps,
+        }));
+      }).chain((resultWithUnlockHeight) => {
+        return fc.record({
+          amount: fc.bigInt({
+            min: 0n,
+            max: 100_000_000_000_000n,
+          }),
+        }).map((amountProps) => ({
+          ...resultWithUnlockHeight,
+          ...amountProps,
+        }));
+      });
+    }).map((finalResult) => {
+      return new DelegateStackStxCommand_Err(
+        finalResult.operator,
+        finalResult.stacker,
+        finalResult.period,
+        finalResult.amount,
+        finalResult.unlockBurnHt,
+        function (
+          this: DelegateStackStxCommand_Err,
+          model: Readonly<Stub>,
+        ): boolean {
+          const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+          const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
+          if (
+            model.stackingMinimum > 0 &&
+            !stackerWallet.isStacking &&
+            stackerWallet.hasDelegated &&
+            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) &&
+            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
+            Number(this.amountUstx) >= model.stackingMinimum &&
+            operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+            this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+          ) {
+            model.trackCommandRun(
+              "DelegateStackStxCommand_Err_Delegation_Too_Much_Locked",
+            );
+            return true;
+          } else return false;
+        },
+        POX_4_ERRORS.ERR_DELEGATION_TOO_MUCH_LOCKED,
+      );
+    }),
+    // DelegateStackStxCommand_Err_Stacking_Permission_Denied
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      startBurnHt: fc.integer({
+        min: currentCycleFirstBlock(network),
+        max: nextCycleFirstBlock(network),
+      }),
+      period: fc.integer({ min: 1, max: 12 }),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      // Determine available stackers based on the operator
+      const availableStackers = operator.poolMembers.length > 0
+        ? operator.poolMembers
+        : [r.operator.stxAddress];
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackers),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      })).chain((resultWithStacker) => {
+        return fc.record({
+          unlockBurnHt: fc.constant(
+            currentCycleFirstBlock(network) +
+              1050 * (resultWithStacker.period + 1),
+          ),
+        }).map((additionalProps) => ({
+          ...resultWithStacker,
+          ...additionalProps,
+        }));
+      }).chain((resultWithUnlockHeight) => {
+        return fc.record({
+          amount: fc.bigInt({
+            min: 0n,
+            max: BigInt(
+              stackers.get(resultWithUnlockHeight.stacker.stxAddress)!
+                .delegatedMaxAmount,
+            ),
+          }),
+        }).map((amountProps) => ({
+          ...resultWithUnlockHeight,
+          ...amountProps,
+        }));
+      });
+    }).map((finalResult) => {
+      return new DelegateStackStxCommand_Err(
+        finalResult.operator,
+        finalResult.stacker,
+        finalResult.period,
+        finalResult.amount,
+        finalResult.unlockBurnHt,
+        function (
+          this: DelegateStackStxCommand_Err,
+          model: Readonly<Stub>,
+        ): boolean {
+          const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+          const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
+          if (
+            model.stackingMinimum > 0 &&
+            !stackerWallet.isStacking &&
+            stackerWallet.hasDelegated &&
+            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
+            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
+            Number(this.amountUstx) >= model.stackingMinimum &&
+            !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+            this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+          ) {
+            model.trackCommandRun(
+              "DelegateStackStxCommand_Err_Stacking_Permission_Denied_1",
+            );
+            return true;
+          } else return false;
+        },
+        POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
+      );
+    }),
+    // DelegateStackStxCommand_Err_Stacking_Permission_Denied_2
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      startBurnHt: fc.integer({
+        min: currentCycleFirstBlock(network),
+        max: nextCycleFirstBlock(network),
+      }),
+      period: fc.integer({ min: 1, max: 12 }),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      // Determine available stackers based on the operator
+      const availableStackers = operator.poolMembers.length > 0
+        ? operator.poolMembers
+        : [r.operator.stxAddress];
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackers),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      })).chain((resultWithStacker) => {
+        return fc.record({
+          unlockBurnHt: fc.constant(
+            currentCycleFirstBlock(network) +
+              1050 * (resultWithStacker.period + 1),
+          ),
+        }).map((additionalProps) => ({
+          ...resultWithStacker,
+          ...additionalProps,
+        }));
+      }).chain((resultWithUnlockHeight) => {
+        return fc.record({
+          amount: fc.bigInt({
+            min: 0n,
+            max: 100_000_000_000_000n,
+          }),
+        }).map((amountProps) => ({
+          ...resultWithUnlockHeight,
+          ...amountProps,
+        }));
+      });
+    }).map((finalResult) => {
+      return new DelegateStackStxCommand_Err(
+        finalResult.operator,
+        finalResult.stacker,
+        finalResult.period,
+        finalResult.amount,
+        finalResult.unlockBurnHt,
+        function (
+          this: DelegateStackStxCommand_Err,
+          model: Readonly<Stub>,
+        ): boolean {
+          const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
+          const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
+          if (
+            model.stackingMinimum > 0 &&
+            !stackerWallet.isStacking &&
+            !(stackerWallet.hasDelegated) &&
+            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) &&
+            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
+            Number(this.amountUstx) >= model.stackingMinimum &&
+            !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) &&
+            !(this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+          ) {
+            model.trackCommandRun(
+              "DelegateStackStxCommand_Err_Stacking_Permission_Denied_2",
+            );
+            return true;
+          } else return false;
+        },
+        POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
+      );
+    }),
   ];
 
   return cmds;
