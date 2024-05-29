@@ -42,14 +42,14 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use reqwest::header::AUTHORIZATION;
 use serde_json::json;
-use slog::{slog_debug, slog_warn};
+use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::{debug, warn};
+use stacks_common::{debug, info, warn};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -370,6 +370,45 @@ impl StacksClient {
         chosen_parent: &ConsensusHash,
         last_sortition: &ConsensusHash,
     ) -> Result<Vec<TenureForkingInfo>, ClientError> {
+        let mut tenures = self.get_tenure_forking_info_step(chosen_parent, last_sortition)?;
+        if tenures.is_empty() {
+            return Ok(tenures);
+        }
+        while tenures.last().map(|x| &x.consensus_hash) != Some(chosen_parent) {
+            let new_start = tenures.last().ok_or_else(|| {
+                ClientError::InvalidResponse(
+                    "Should have tenure data in forking info response".into(),
+                )
+            })?;
+            let mut next_results =
+                self.get_tenure_forking_info_step(chosen_parent, &new_start.consensus_hash)?;
+            if next_results.is_empty() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            // SAFETY check: next_results isn't empty, because of the above check. otherwise, remove(0) could panic.
+            next_results.remove(0);
+            let info_log: Vec<_> = tenures.iter().map(|t| t.consensus_hash).collect();
+            info!("Current tenures = {:?}", info_log);
+            if next_results.is_empty() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            tenures.extend(next_results.into_iter());
+        }
+
+        Ok(tenures)
+    }
+
+    fn get_tenure_forking_info_step(
+        &self,
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<Vec<TenureForkingInfo>, ClientError> {
         let send_request = || {
             self.stacks_node_client
                 .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
@@ -381,6 +420,7 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         let tenures = response.json()?;
+
         Ok(tenures)
     }
 

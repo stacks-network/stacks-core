@@ -1,3 +1,18 @@
+// Copyright (C) 2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
@@ -10,7 +25,7 @@ use crate::client::{ClientError, StacksClient};
 use crate::signerdb::SignerDb;
 
 /// Captures this signer's current view of a sortition's miner.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum SortitionMinerStatus {
     /// The signer thinks this sortition's miner is invalid, and hasn't signed any blocks for them.
     InvalidatedBeforeFirstBlock,
@@ -21,7 +36,13 @@ pub enum SortitionMinerStatus {
 }
 
 /// Captures the Stacks sortition related state for
-///  a successful sortition
+///  a successful sortition.
+///
+/// Sortition state in this struct is
+///  is indexed using consensus hashes, and fetched from a single "get latest" RPC call
+///  to the stacks node. This ensures that the state in this struct is consistent with itself
+///  (i.e., it does not span a bitcoin fork) and up to date.
+#[derive(Debug)]
 pub struct SortitionState {
     /// The miner's pub key hash
     pub miner_pkh: Hash160,
@@ -33,22 +54,20 @@ pub struct SortitionState {
     pub parent_tenure_id: ConsensusHash,
     /// this sortition's consensus hash
     pub consensus_hash: ConsensusHash,
-    /// did the miner in this sortition do something
-    ///  to become invalidated as a miner?
-    pub invalidated: SortitionMinerStatus,
+    /// what is this signer's view of the this sortition's miner? did they misbehave?
+    pub miner_status: SortitionMinerStatus,
 }
 
 /// The signer's current view of the stacks chain's sortition
 ///  state
+#[derive(Debug)]
 pub struct SortitionsView {
     /// the prior successful sortition (this corresponds to the "prior" miner slot)
     pub last_sortition: Option<SortitionState>,
     /// the current successful sortition (this corresponds to the "current" miner slot)
-    pub cur_sortition: Option<SortitionState>,
-    /// is the view fresh?
-    pub fresh: bool,
-    /// the hash at which the sortitions view was last fetched
-    pub latest_consensus_hash: Option<ConsensusHash>,
+    pub cur_sortition: SortitionState,
+    /// the hash at which the sortitions view was fetched
+    pub latest_consensus_hash: ConsensusHash,
 }
 
 impl TryFrom<SortitionInfo> for SortitionState {
@@ -66,7 +85,7 @@ impl TryFrom<SortitionInfo> for SortitionState {
             parent_tenure_id: value
                 .stacks_parent_ch
                 .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
-            invalidated: SortitionMinerStatus::Valid,
+            miner_status: SortitionMinerStatus::Valid,
         })
     }
 }
@@ -79,44 +98,27 @@ enum ProposedBy<'a> {
 impl<'a> ProposedBy<'a> {
     pub fn state(&self) -> &SortitionState {
         match self {
-            ProposedBy::LastSortition(ref x) => x,
-            ProposedBy::CurrentSortition(ref x) => x,
+            ProposedBy::LastSortition(x) => x,
+            ProposedBy::CurrentSortition(x) => x,
         }
     }
 }
 
 impl SortitionsView {
-    /// Initialize an empty sortitions view struct -- it will refresh() before
-    ///  checking any proposals.
-    pub fn new() -> Self {
-        Self {
-            last_sortition: None,
-            cur_sortition: None,
-            fresh: false,
-            latest_consensus_hash: None,
-        }
-    }
-
     /// Apply checks from the SortitionsView on the block proposal.
-    ///
     pub fn check_proposal(
-        &mut self,
+        &self,
         client: &StacksClient,
         signer_db: &SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, ClientError> {
-        self.refresh_view(client)?;
         let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
-        let Some(proposed_by) = self
-            .cur_sortition
-            .as_ref()
-            .and_then(|cur_sortition| {
-                if block.header.consensus_hash == cur_sortition.consensus_hash {
-                    Some(ProposedBy::CurrentSortition(cur_sortition))
-                } else {
-                    None
-                }
+        let Some(proposed_by) =
+            (if block.header.consensus_hash == self.cur_sortition.consensus_hash {
+                Some(ProposedBy::CurrentSortition(&self.cur_sortition))
+            } else {
+                None
             })
             .or_else(|| {
                 self.last_sortition.as_ref().and_then(|last_sortition| {
@@ -132,7 +134,7 @@ impl SortitionsView {
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                "current_sortition_consensus_hash" => ?self.cur_sortition.as_ref().map(|x| x.consensus_hash),
+                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
                 "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
             );
             return Ok(false);
@@ -153,7 +155,7 @@ impl SortitionsView {
         // check that this miner is the most recent sortition
         match proposed_by {
             ProposedBy::CurrentSortition(sortition) => {
-                if sortition.invalidated != SortitionMinerStatus::Valid {
+                if sortition.miner_status != SortitionMinerStatus::Valid {
                     warn!(
                         "Current miner behaved improperly, this signer views the miner as invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
@@ -163,19 +165,17 @@ impl SortitionsView {
                 }
             }
             ProposedBy::LastSortition(_last_sortition) => {
-                if let Some(cur_sortition) = &self.cur_sortition {
-                    // should only consider blocks from the last sortition if the new sortition was invalidated
-                    //  before we signed their first block.
-                    if cur_sortition.invalidated
-                        != SortitionMinerStatus::InvalidatedBeforeFirstBlock
-                    {
-                        warn!(
-                            "Miner block proposal is from last sortition winner, when the new sortition winner is still valid. Considering proposal invalid.";
-                            "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                            "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                        );
-                        return Ok(false);
-                    }
+                // should only consider blocks from the last sortition if the new sortition was invalidated
+                //  before we signed their first block.
+                if self.cur_sortition.miner_status
+                    != SortitionMinerStatus::InvalidatedBeforeFirstBlock
+                {
+                    warn!(
+                        "Miner block proposal is from last sortition winner, when the new sortition winner is still valid. Considering proposal invalid.";
+                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    );
+                    return Ok(false);
                 }
             }
         };
@@ -258,7 +258,7 @@ impl SortitionsView {
             &sortition_state.parent_tenure_id,
             &sortition_state.prior_sortition,
         )?;
-        if tenures_reorged.len() == 0 {
+        if tenures_reorged.is_empty() {
             warn!("Miner is not building off of most recent tenure, but stacks node was unable to return information about the relevant sortitions. Marking miner invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
@@ -281,7 +281,7 @@ impl SortitionsView {
             }
         }
 
-        return Ok(true);
+        Ok(true)
     }
 
     fn check_tenure_change_block_confirmation(
@@ -314,7 +314,7 @@ impl SortitionsView {
             return Ok(true);
         };
         if block.header.chain_length > last_known_block.block.header.chain_length {
-            return Ok(true);
+            Ok(true)
         } else {
             warn!(
                 "Miner block proposal's tenure change transaction does not confirm as many blocks as we expect in the parent tenure";
@@ -323,23 +323,20 @@ impl SortitionsView {
                 "proposed_chain_length" => block.header.chain_length,
                 "expected_at_least" => last_known_block.block.header.chain_length + 1,
             );
-            return Ok(false);
+            Ok(false)
         }
     }
 
     /// Has the current tenure lasted long enough to extend the block limit?
     pub fn tenure_time_passed_block_lim() -> Result<bool, ClientError> {
         // TODO
-        return Ok(false);
+        Ok(false)
     }
 
-    /// If necessary, fetch a new view of the recent sortitions
-    pub fn refresh_view(&mut self, client: &StacksClient) -> Result<(), ClientError> {
-        if self.fresh {
-            return Ok(());
-        }
+    /// Fetch a new view of the recent sortitions
+    pub fn fetch_view(client: &StacksClient) -> Result<Self, ClientError> {
         let latest_state = client.get_latest_sortition()?;
-        let latest_ch = latest_state.consensus_hash.clone();
+        let latest_ch = latest_state.consensus_hash;
 
         // figure out what cur_sortition will be set to.
         //  if the latest sortition wasn't successful, query the last one that was.
@@ -361,15 +358,19 @@ impl SortitionsView {
             .map(|ch| client.get_sortition(ch))
             .transpose()?;
 
-        self.cur_sortition = Some(SortitionState::try_from(latest_success)?);
-        self.last_sortition = last_sortition
+        let cur_sortition = SortitionState::try_from(latest_success)?;
+        let last_sortition = last_sortition
             .map(SortitionState::try_from)
             .transpose()
             .ok()
             .flatten();
-        self.fresh = true;
-        self.latest_consensus_hash = Some(latest_ch);
 
-        Ok(())
+        let latest_consensus_hash = latest_ch;
+
+        Ok(Self {
+            cur_sortition,
+            last_sortition,
+            latest_consensus_hash,
+        })
     }
 }

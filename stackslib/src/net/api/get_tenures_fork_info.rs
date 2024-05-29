@@ -34,6 +34,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoSta
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
+use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::http::{
     parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
     HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -46,7 +47,7 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
-pub static RPC_TENURE_FORKING_INFO_PATH: &str = "/v3/tenures_fork_info";
+pub static RPC_TENURE_FORKING_INFO_PATH: &str = "/v3/tenures/fork_info";
 
 static DEPTH_LIMIT: usize = 10;
 
@@ -80,81 +81,6 @@ pub struct TenureForkingInfo {
     #[serde(with = "prefix_opt_hex")]
     pub first_block_mined: Option<StacksBlockId>,
 }
-
-mod prefix_opt_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::Display>(
-        val: &Option<T>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        match val {
-            Some(ref some_val) => {
-                let val_str = format!("0x{some_val}");
-                s.serialize_some(&val_str)
-            }
-            None => s.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<Option<T>, D::Error> {
-        let opt_inst_str: Option<String> = serde::Deserialize::deserialize(d)?;
-        let Some(inst_str) = opt_inst_str else {
-            return Ok(None);
-        };
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        let val = T::try_from(&hex_str).map_err(serde::de::Error::custom)?;
-        Ok(Some(val))
-    }
-}
-
-mod prefix_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::Display>(
-        val: &T,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{val}"))
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<T, D::Error> {
-        let inst_str: String = serde::Deserialize::deserialize(d)?;
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        T::try_from(&hex_str).map_err(serde::de::Error::custom)
-    }
-}
-
-trait HexDeser: Sized {
-    fn try_from(hex: &str) -> Result<Self, HexError>;
-}
-
-macro_rules! impl_hex_deser {
-    ($thing:ident) => {
-        impl HexDeser for $thing {
-            fn try_from(hex: &str) -> Result<Self, HexError> {
-                $thing::from_hex(hex)
-            }
-        }
-    };
-}
-
-impl_hex_deser!(BurnchainHeaderHash);
-impl_hex_deser!(StacksBlockId);
-impl_hex_deser!(SortitionId);
-impl_hex_deser!(ConsensusHash);
-impl_hex_deser!(BlockHeaderHash);
-impl_hex_deser!(Hash160);
 
 #[derive(Clone, Default)]
 pub struct GetTenuresForkInfo {
@@ -289,6 +215,11 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 .start_sortition
                 .clone()
                 .ok_or_else(|| ChainError::NoSuchBlockError)?;
+            let recurse_end_snapshot =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &recurse_end)?
+                    .ok_or_else(|| ChainError::NoSuchBlockError)?;
+            let height_bound = recurse_end_snapshot.block_height;
+
             let mut results = vec![];
             let mut cursor = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &start_from)?
                 .ok_or_else(|| ChainError::NoSuchBlockError)?;
@@ -299,7 +230,16 @@ impl RPCRequestHandler for GetTenuresForkInfo {
             let mut depth = 0;
             while depth < DEPTH_LIMIT && cursor.consensus_hash != recurse_end {
                 depth += 1;
-                cursor = handle.get_last_snapshot_with_sortition(cursor.block_height)?;
+                info!("Handling fork info request";
+                      "cursor.consensus_hash" => %cursor.consensus_hash,
+                      "cursor.block_height" => cursor.block_height,
+                      "recurse_end" => %recurse_end,
+                      "height_bound" => height_bound
+                );
+                if height_bound >= cursor.block_height {
+                    return Err(ChainError::NotInSameFork);
+                }
+                cursor = handle.get_last_snapshot_with_sortition(cursor.block_height - 1)?;
                 results.push(TenureForkingInfo::from_snapshot(
                     &cursor, sortdb, chainstate,
                 )?);
@@ -310,6 +250,16 @@ impl RPCRequestHandler for GetTenuresForkInfo {
 
         let tenures = match result {
             Ok(tenures) => tenures,
+            Err(ChainError::NotInSameFork) => {
+                return StacksHttpResponse::new_error(
+                    &preamble,
+                    &HttpBadRequest::new_json(serde_json::json!(
+                        "Supplied start and end sortitions are not in the same sortition fork"
+                    )),
+                )
+                .try_into_contents()
+                .map_err(NetError::from);
+            }
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
                     &preamble,

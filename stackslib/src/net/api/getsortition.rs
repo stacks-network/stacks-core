@@ -32,6 +32,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoSta
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
+use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::http::{
     parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
     HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -53,6 +54,7 @@ pub enum QuerySpecifier {
 }
 
 pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortition";
+static PATH_REGEX: &str = "^/v3/sortition(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
 
 /// Struct for sortition information returned via the GetSortition API call
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -98,90 +100,16 @@ pub struct SortitionInfo {
     pub committed_block_hash: Option<BlockHeaderHash>,
 }
 
-mod prefix_opt_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::Display>(
-        val: &Option<T>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        match val {
-            Some(ref some_val) => {
-                let val_str = format!("0x{some_val}");
-                s.serialize_some(&val_str)
-            }
-            None => s.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<Option<T>, D::Error> {
-        let opt_inst_str: Option<String> = serde::Deserialize::deserialize(d)?;
-        let Some(inst_str) = opt_inst_str else {
-            return Ok(None);
-        };
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        let val = T::try_from(&hex_str).map_err(serde::de::Error::custom)?;
-        Ok(Some(val))
-    }
-}
-
-mod prefix_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::Display>(
-        val: &T,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{val}"))
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<T, D::Error> {
-        let inst_str: String = serde::Deserialize::deserialize(d)?;
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        T::try_from(&hex_str).map_err(serde::de::Error::custom)
-    }
-}
-
-trait HexDeser: Sized {
-    fn try_from(hex: &str) -> Result<Self, HexError>;
-}
-
-macro_rules! impl_hex_deser {
-    ($thing:ident) => {
-        impl HexDeser for $thing {
-            fn try_from(hex: &str) -> Result<Self, HexError> {
-                $thing::from_hex(hex)
-            }
-        }
-    };
-}
-
-impl_hex_deser!(BurnchainHeaderHash);
-impl_hex_deser!(SortitionId);
-impl_hex_deser!(ConsensusHash);
-impl_hex_deser!(BlockHeaderHash);
-impl_hex_deser!(Hash160);
-
-impl TryFrom<(&String, &String)> for QuerySpecifier {
+impl TryFrom<(&str, &str)> for QuerySpecifier {
     type Error = Error;
 
-    fn try_from(value: (&String, &String)) -> Result<Self, Self::Error> {
+    fn try_from(value: (&str, &str)) -> Result<Self, Self::Error> {
         let hex_str = if value.1.starts_with("0x") {
             &value.1[2..]
         } else {
-            value.1.as_str()
+            value.1
         };
-        match value.0.as_str() {
+        match value.0 {
             "consensus" => Ok(Self::ConsensusHash(
                 ConsensusHash::from_hex(hex_str).map_err(|e| Error::DecodeError(e.to_string()))?,
             )),
@@ -219,7 +147,7 @@ impl HttpRequest for GetSortitionHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(&format!("^{RPC_SORTITION_INFO_PATH}$")).unwrap()
+        Regex::new(PATH_REGEX).unwrap()
     }
 
     /// Try to decode this request.
@@ -227,7 +155,7 @@ impl HttpRequest for GetSortitionHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        captures: &Captures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -238,14 +166,10 @@ impl HttpRequest for GetSortitionHandler {
         }
 
         let req_contents = HttpRequestContents::new().query_string(query);
-        if req_contents.get_query_args().len() > 1 {
-            return Err(Error::DecodeError(
-                "May only supply up to one query argument".into(),
-            ));
-        }
         self.query = QuerySpecifier::Latest;
-        for (key, value) in req_contents.get_query_args().iter() {
-            self.query = QuerySpecifier::try_from((key, value))?;
+        eprintln!("{captures:?}");
+        if let (Some(key), Some(value)) = (captures.name("key"), captures.name("value")) {
+            self.query = QuerySpecifier::try_from((key.as_str(), value.as_str()))?;
         }
 
         Ok(req_contents)

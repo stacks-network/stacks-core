@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
 
+const CREATE_INDEXES: &str = "
+CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
+";
+
 const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
@@ -124,6 +129,8 @@ impl SignerDb {
         if !table_exists(&self.db, "signer_states")? {
             self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
         }
+
+        self.db.execute_batch(CREATE_INDEXES)?;
 
         Ok(())
     }

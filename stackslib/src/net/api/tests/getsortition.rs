@@ -1,3 +1,18 @@
+// Copyright (C) 2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -32,13 +47,13 @@ fn test_parse_request() {
     let tests = vec![
         (make_preamble(""), Ok(QuerySpecifier::Latest)),
         (
-            make_preamble("?consensus=deadbeef00deadbeef01deadbeef02deadbeef03"),
+            make_preamble("/consensus/deadbeef00deadbeef01deadbeef02deadbeef03"),
             Ok(QuerySpecifier::ConsensusHash(
                 ConsensusHash::from_hex("deadbeef00deadbeef01deadbeef02deadbeef03").unwrap(),
             )),
         ),
         (
-            make_preamble("?burn=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
+            make_preamble("/burn/00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
             Ok(QuerySpecifier::BurnchainHeaderHash(
                 BurnchainHeaderHash::from_hex(
                     "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
@@ -47,41 +62,39 @@ fn test_parse_request() {
             )),
         ),
         (
-            make_preamble("?burn_height=100"),
+            make_preamble("/burn_height/100"),
             Ok(QuerySpecifier::BlockHeight(100)),
         ),
         (
-            make_preamble("?burn_height=a1be"),
-            Err(HttpError::DecodeError(
-                "invalid digit found in string".into(),
-            )),
+            make_preamble("/burn_height/a1be"),
+            Err(HttpError::DecodeError("invalid digit found in string".into()).into()),
         ),
         (
-            make_preamble("?burn=a1be0000"),
-            Err(HttpError::DecodeError("bad length 8 for hex string".into())),
+            make_preamble("/burn/a1be0000"),
+            Err(HttpError::DecodeError("bad length 8 for hex string".into()).into()),
         ),
         (
-            make_preamble("?consensus=a1be0000"),
-            Err(HttpError::DecodeError("bad length 8 for hex string".into())),
+            make_preamble("/consensus/a1be0000"),
+            Err(HttpError::DecodeError("bad length 8 for hex string".into()).into()),
         ),
         (
-            make_preamble("?burn_height=20&consensus=deadbeef00deadbeef01deadbeef02deadbeef03"),
-            Err(HttpError::DecodeError(
-                "May only supply up to one query argument".into(),
-            )),
+            make_preamble("/burn_height/20/consensus/deadbeef00deadbeef01deadbeef02deadbeef03"),
+            Err(NetError::NotFoundError),
         ),
     ];
 
     for (inp, expected_result) in tests.into_iter() {
         handler.restart();
         let parsed_request = http.handle_try_parse_request(&mut handler, &inp, &[]);
+        eprintln!("{}", &inp.path_and_query_str);
+        eprintln!("{parsed_request:?}");
         match expected_result {
             Ok(query) => {
                 assert!(parsed_request.is_ok());
                 assert_eq!(&handler.query, &query);
             }
             Err(e) => {
-                assert_eq!(NetError::Http(e), parsed_request.unwrap_err());
+                assert_eq!(e, parsed_request.unwrap_err());
             }
         }
     }

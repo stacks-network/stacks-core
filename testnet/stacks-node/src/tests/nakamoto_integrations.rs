@@ -4013,8 +4013,6 @@ fn signer_chainstate() {
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-    let mut sortitions_view = SortitionsView::new();
-
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
@@ -4051,15 +4049,6 @@ fn signer_chainstate() {
         false,
     );
 
-    // there hasn't been a successful nakamoto sortition yet, so expect an error
-    assert!(
-        matches!(
-            sortitions_view.refresh_view(&signer_client).unwrap_err(),
-            ClientError::UnexpectedSortitionInfo
-        ),
-        "Sortitions view should fail to refresh if there are no successful nakamoto sortitions yet",
-    );
-
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -4084,7 +4073,7 @@ fn signer_chainstate() {
         None;
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
-    for i in 0..5 {
+    for i in 0..15 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
             60,
@@ -4093,8 +4082,7 @@ fn signer_chainstate() {
         )
         .unwrap();
 
-        sortitions_view.fresh = false;
-        sortitions_view.refresh_view(&signer_client).unwrap();
+        let sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
 
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
@@ -4188,7 +4176,7 @@ fn signer_chainstate() {
         );
         // force the view to refresh and check again
 
-        sortitions_view.fresh = false;
+        let sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
@@ -4245,6 +4233,8 @@ fn signer_chainstate() {
         header: sibling_block_header,
         txs: vec![],
     };
+
+    let mut sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
 
     assert!(
         !sortitions_view
@@ -4362,12 +4352,7 @@ fn signer_chainstate() {
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view
-        .cur_sortition
-        .as_mut()
-        .map(|sortition_state| {
-            sortition_state.parent_tenure_id = reorg_to_block.header.consensus_hash.clone()
-        });
+    sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash.clone();
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
@@ -4422,7 +4407,9 @@ fn signer_chainstate() {
         "A sibling of a previously approved block must be rejected."
     );
 
-    sortitions_view.fresh = false;
+    // view is stale, if we ever expand this test, sortitions_view should
+    // be fetched again, so drop it here.
+    drop(sortitions_view);
 
     coord_channel
         .lock()
