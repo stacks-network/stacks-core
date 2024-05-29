@@ -230,12 +230,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
             let mut depth = 0;
             while depth < DEPTH_LIMIT && cursor.consensus_hash != recurse_end {
                 depth += 1;
-                info!("Handling fork info request";
-                      "cursor.consensus_hash" => %cursor.consensus_hash,
-                      "cursor.block_height" => cursor.block_height,
-                      "recurse_end" => %recurse_end,
-                      "height_bound" => height_bound
-                );
                 if height_bound >= cursor.block_height {
                     return Err(ChainError::NotInSameFork);
                 }

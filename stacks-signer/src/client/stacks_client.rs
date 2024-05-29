@@ -42,14 +42,14 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use reqwest::header::AUTHORIZATION;
 use serde_json::json;
-use slog::{slog_debug, slog_info, slog_warn};
+use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::{debug, info, warn};
+use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -390,8 +390,6 @@ impl StacksClient {
             }
             // SAFETY check: next_results isn't empty, because of the above check. otherwise, remove(0) could panic.
             next_results.remove(0);
-            let info_log: Vec<_> = tenures.iter().map(|t| t.consensus_hash).collect();
-            info!("Current tenures = {:?}", info_log);
             if next_results.is_empty() {
                 return Err(ClientError::InvalidResponse(
                     "Could not fetch forking info all the way back to the requested chosen_parent"

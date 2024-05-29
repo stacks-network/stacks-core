@@ -39,6 +39,10 @@ pub mod signerdb;
 pub mod v0;
 /// The v1 implementation of the singer. This includes WSTS support
 pub mod v1;
+
+#[cfg(test)]
+mod tests;
+
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
