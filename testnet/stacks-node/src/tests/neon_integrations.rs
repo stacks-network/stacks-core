@@ -3464,14 +3464,20 @@ fn microblock_fork_poison_integration_test() {
 
         chainstate
             .reload_unconfirmed_state(
-                &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+                &btc_regtest_controller
+                    .sortdb_ref()
+                    .index_handle_at_block(&chainstate, &tip_hash)
+                    .unwrap(),
                 tip_hash,
             )
             .unwrap();
         let first_microblock = make_microblock(
             &privk,
             &mut chainstate,
-            &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+            &btc_regtest_controller
+                .sortdb_ref()
+                .index_handle_at_block(&chainstate, &tip_hash)
+                .unwrap(),
             consensus_hash,
             stacks_block.clone(),
             vec![unconfirmed_tx],
@@ -3722,14 +3728,20 @@ fn microblock_integration_test() {
 
         chainstate
             .reload_unconfirmed_state(
-                &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+                &btc_regtest_controller
+                    .sortdb_ref()
+                    .index_handle_at_block(&chainstate, &tip_hash)
+                    .unwrap(),
                 tip_hash,
             )
             .unwrap();
         let first_microblock = make_microblock(
             &privk,
             &mut chainstate,
-            &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+            &btc_regtest_controller
+                .sortdb_ref()
+                .index_handle_at_block(&chainstate, &tip_hash)
+                .unwrap(),
             consensus_hash,
             stacks_block.clone(),
             vec![unconfirmed_tx],
@@ -9141,7 +9153,10 @@ fn use_latest_tip_integration_test() {
     // Initialize the unconfirmed state.
     chainstate
         .reload_unconfirmed_state(
-            &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+            &btc_regtest_controller
+                .sortdb_ref()
+                .index_handle_at_block(&chainstate, &tip_hash)
+                .unwrap(),
             tip_hash,
         )
         .unwrap();
@@ -9166,7 +9181,10 @@ fn use_latest_tip_integration_test() {
     let mblock = make_microblock(
         &privk,
         &mut chainstate,
-        &btc_regtest_controller.sortdb_ref().index_handle_at_tip(),
+        &btc_regtest_controller
+            .sortdb_ref()
+            .index_handle_at_block(&chainstate, &tip_hash)
+            .unwrap(),
         consensus_hash,
         stacks_block.clone(),
         vec_tx,

@@ -133,7 +133,7 @@ impl RPCRequestHandler for RPCGetContractAbiRequestHandler {
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
                         let epoch = clarity_tx.get_epoch();

@@ -727,7 +727,7 @@ impl MicroblockMinerThread {
                 .unwrap_or(0)
         );
 
-        let burn_height =
+        let block_snapshot =
             SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &self.parent_consensus_hash)
                 .map_err(|e| {
                     error!("Failed to find block snapshot for mined block: {}", e);
@@ -736,8 +736,8 @@ impl MicroblockMinerThread {
                 .ok_or_else(|| {
                     error!("Failed to find block snapshot for mined block");
                     ChainstateError::NoSuchBlockError
-                })?
-                .block_height;
+                })?;
+        let burn_height = block_snapshot.block_height;
 
         let ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), burn_height).map_err(|e| {
             error!("Failed to get AST rules for microblock: {}", e);
@@ -753,7 +753,10 @@ impl MicroblockMinerThread {
             .epoch_id;
 
         let mint_result = {
-            let ic = sortdb.index_handle_at_tip();
+            let ic = sortdb.index_handle_at_block(
+                &chainstate,
+                &block_snapshot.get_canonical_stacks_block_id(),
+            )?;
             let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
                 chainstate,
                 &ic,
@@ -2352,7 +2355,7 @@ impl BlockMinerThread {
         }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &burn_db.index_handle_at_tip(),
+            &burn_db.index_handle(&burn_tip.sortition_id),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
@@ -2382,7 +2385,7 @@ impl BlockMinerThread {
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
                     &chain_state,
-                    &burn_db.index_handle_at_tip(),
+                    &burn_db.index_handle(&burn_tip.sortition_id),
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
@@ -4066,7 +4069,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_handle_at_tip(),
+                    &burn_db.index_handle(&burn_chain_tip.sortition_id),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

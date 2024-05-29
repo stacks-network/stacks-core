@@ -641,7 +641,7 @@ simulating a miner.
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &sort_db.index_handle_at_tip(),
+            &sort_db.index_handle(&chain_tip.sortition_id),
             &mut mempool_db,
             &parent_header,
             chain_tip.total_burn,

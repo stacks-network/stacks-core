@@ -440,10 +440,7 @@ impl SortitionDBRef for SortitionHandleConn<'_> {
         parent_stacks_block_burn_ht: u64,
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
-        let readonly_marf = self
-            .index
-            .reopen_readonly()
-            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let readonly_marf = self.index.reopen_readonly()?;
         let mut context = self.context.clone();
         context.chain_tip = sortition_id.clone();
         let mut handle = SortitionHandleConn::new(&readonly_marf, context);
@@ -592,12 +589,18 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
 impl BurnStateDB for SortitionHandleConn<'_> {
     fn get_tip_burn_block_height(&self) -> Option<u32> {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn()).ok()?;
+        let tip = match SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip) {
+            Ok(Some(x)) => x,
+            _ => return None,
+        };
         tip.block_height.try_into().ok()
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn()).ok()?;
+        let tip = match SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip) {
+            Ok(Some(x)) => x,
+            _ => return None,
+        };
         Some(tip.sortition_id)
     }
 

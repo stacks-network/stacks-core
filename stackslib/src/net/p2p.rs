@@ -5892,7 +5892,7 @@ impl PeerNetwork {
             return false;
         }
         let stacks_epoch = match sortdb
-            .index_handle_at_tip()
+            .index_conn()
             .get_stacks_epoch(burnchain_tip.block_height as u32)
         {
             Some(epoch) => epoch,

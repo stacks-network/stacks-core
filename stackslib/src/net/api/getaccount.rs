@@ -147,7 +147,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
         let account_opt_res =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
                         clarity_tx.with_clarity_db_readonly(|clarity_db| {

@@ -235,7 +235,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 cost_limit.write_count = 0;
 
                 chainstate.maybe_read_only_clarity_tx(
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
                         let epoch = clarity_tx.get_epoch();

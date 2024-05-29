@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::thread::JoinHandle;
 use std::{env, thread, time};
 
-use clarity::vm::database::BurnStateDB;
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
@@ -891,7 +890,7 @@ impl Node {
         let mut fee_estimator = self.config.make_fee_estimator();
 
         let stacks_epoch = db
-            .index_handle_at_tip()
+            .index_conn()
             .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {

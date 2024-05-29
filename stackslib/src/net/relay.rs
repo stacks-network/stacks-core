@@ -1840,8 +1840,10 @@ impl Relayer {
             "Reload unconfirmed state off of {}/{}",
             &canonical_consensus_hash, &canonical_block_hash
         );
-        let processed_unconfirmed_state =
-            chainstate.reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip)?;
+        let processed_unconfirmed_state = chainstate.reload_unconfirmed_state(
+            &sortdb.index_handle_at_block(chainstate, &canonical_tip)?,
+            canonical_tip,
+        )?;
 
         Ok(processed_unconfirmed_state)
     }

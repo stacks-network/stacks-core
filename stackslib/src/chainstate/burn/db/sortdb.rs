@@ -2653,6 +2653,20 @@ impl SortitionDB {
         )
     }
 
+    pub fn index_handle_at_block<'a>(
+        &'a self,
+        chainstate: &StacksChainState,
+        stacks_block_id: &StacksBlockId,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let (consensus_hash, bhh) = match chainstate.get_block_header_hashes(stacks_block_id) {
+            Ok(Some(x)) => x,
+            _ => return Err(db_error::NotFoundError),
+        };
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &consensus_hash)?
+            .ok_or(db_error::NotFoundError)?;
+        Ok(self.index_handle(&snapshot.sortition_id))
+    }
+
     pub fn tx_handle_begin<'a>(
         &'a mut self,
         chain_tip: &SortitionId,

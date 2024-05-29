@@ -569,7 +569,7 @@ impl StacksChainState {
         boot_contract_name: &str,
         code: &str,
     ) -> Result<Value, Error> {
-        let iconn = sortdb.index_handle_at_tip();
+        let iconn = sortdb.index_handle_at_block(self, stacks_block_id)?;
         let dbconn = self.state_index.sqlite_conn();
         self.clarity_state
             .eval_read_only(
@@ -631,24 +631,28 @@ impl StacksChainState {
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
-            .maybe_read_only_clarity_tx(&sortdb.index_handle_at_tip(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(
-                    mainnet,
-                    chain_id,
-                    ClarityVersion::Clarity1,
-                    sender,
-                    None,
-                    cost_track,
-                    |env| {
-                        env.execute_contract(
-                            &contract_identifier,
-                            function,
-                            &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
-                            true,
-                        )
-                    },
-                )
-            })?
+            .maybe_read_only_clarity_tx(
+                &sortdb.index_handle_at_block(self, tip)?,
+                tip,
+                |clarity_tx| {
+                    clarity_tx.with_readonly_clarity_env(
+                        mainnet,
+                        chain_id,
+                        ClarityVersion::Clarity1,
+                        sender,
+                        None,
+                        cost_track,
+                        |env| {
+                            env.execute_contract(
+                                &contract_identifier,
+                                function,
+                                &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                                true,
+                            )
+                        },
+                    )
+                },
+            )?
             .ok_or_else(|| Error::NoSuchBlockError)??
             .expect_u128()
             .expect("FATAL: unexpected PoX structure");
@@ -1843,7 +1847,9 @@ pub mod test {
             let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
                 .with_read_only_clarity_tx(
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb
+                        .index_handle_at_block(&chainstate, &stacks_block_id)
+                        .unwrap(),
                     &stacks_block_id,
                     |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
                 )
@@ -1859,7 +1865,9 @@ pub mod test {
             let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
                 .with_read_only_clarity_tx(
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb
+                        .index_handle_at_block(chainstate, &stacks_block_id)
+                        .unwrap(),
                     &stacks_block_id,
                     |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
                 )

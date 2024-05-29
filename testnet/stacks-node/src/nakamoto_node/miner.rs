@@ -288,7 +288,7 @@ impl BlockMinerThread {
 
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
-        let sortition_handle = sort_db.index_handle_at_tip();
+        let sortition_handle = sort_db.index_handle(&tip.sortition_id);
         let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
             &mut chain_state,
             &sort_db,
@@ -411,7 +411,9 @@ impl BlockMinerThread {
         // Get all nonces for the signers from clarity DB to use to validate transactions
         let account_nonces = chainstate
             .with_read_only_clarity_tx(
-                &sortdb.index_handle_at_tip(),
+                &sortdb
+                    .index_handle_at_block(chainstate, &stacks_block_id)
+                    .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
                 &stacks_block_id,
                 |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
@@ -479,7 +481,8 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
-        let mut sortition_handle = sort_db.index_handle_at_tip();
+        let mut sortition_handle =
+            sort_db.index_handle_at_block(&chain_state, &block.block_id())?;
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
@@ -726,9 +729,10 @@ impl BlockMinerThread {
             }
         }
 
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
+
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = if let Some(ref par_tenure_info) = parent_block_info.parent_tenure {
-            let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
             let current_miner_nonce = parent_block_info.coinbase_nonce;
             let tenure_change_tx = self.generate_tenure_change_tx(
                 current_miner_nonce,
@@ -761,7 +765,9 @@ impl BlockMinerThread {
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            &burn_db.index_handle_at_tip(),
+            &burn_db
+                .index_handle_at_block(&chain_state, &parent_block_id)
+                .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_block.consensus_hash,
@@ -937,7 +943,9 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_handle_at_tip(),
+                    &burn_db
+                        .index_handle_at_block(&chain_state, &stacks_tip_header.index_block_hash())
+                        .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

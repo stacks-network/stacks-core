@@ -206,8 +206,8 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let burn_dbconn: SortitionHandleConn = sortdb.index_handle_at_tip();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
