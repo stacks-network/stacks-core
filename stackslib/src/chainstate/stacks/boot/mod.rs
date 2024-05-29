@@ -40,7 +40,9 @@ use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, StacksAddress, StacksBlockId, StacksPublicKey,
+};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
