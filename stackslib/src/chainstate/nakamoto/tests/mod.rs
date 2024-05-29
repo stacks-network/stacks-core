@@ -126,9 +126,12 @@ pub fn get_account(
         &tip
     );
 
+    let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)
+        .unwrap()
+        .unwrap();
     chainstate
         .with_read_only_clarity_tx(
-            &sortdb.index_handle_at_tip(),
+            &sortdb.index_handle(&snapshot.sortition_id),
             &tip.index_block_hash(),
             |clarity_conn| {
                 StacksChainState::get_account(clarity_conn, &addr.to_account_principal())

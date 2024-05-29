@@ -3471,13 +3471,14 @@ fn microblock_fork_poison_integration_test() {
                 tip_hash,
             )
             .unwrap();
+        let iconn = btc_regtest_controller
+            .sortdb_ref()
+            .index_handle_at_block(&chainstate, &tip_hash)
+            .unwrap();
         let first_microblock = make_microblock(
             &privk,
             &mut chainstate,
-            &btc_regtest_controller
-                .sortdb_ref()
-                .index_handle_at_block(&chainstate, &tip_hash)
-                .unwrap(),
+            &iconn,
             consensus_hash,
             stacks_block.clone(),
             vec![unconfirmed_tx],
@@ -3735,13 +3736,14 @@ fn microblock_integration_test() {
                 tip_hash,
             )
             .unwrap();
+        let iconn = btc_regtest_controller
+            .sortdb_ref()
+            .index_handle_at_block(&chainstate, &tip_hash)
+            .unwrap();
         let first_microblock = make_microblock(
             &privk,
             &mut chainstate,
-            &btc_regtest_controller
-                .sortdb_ref()
-                .index_handle_at_block(&chainstate, &tip_hash)
-                .unwrap(),
+            &iconn,
             consensus_hash,
             stacks_block.clone(),
             vec![unconfirmed_tx],
@@ -9178,13 +9180,14 @@ fn use_latest_tip_integration_test() {
     let vec_tx = vec![tx_1, tx_2];
     let privk =
         find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
+    let iconn = btc_regtest_controller
+        .sortdb_ref()
+        .index_handle_at_block(&chainstate, &tip_hash)
+        .unwrap();
     let mblock = make_microblock(
         &privk,
         &mut chainstate,
-        &btc_regtest_controller
-            .sortdb_ref()
-            .index_handle_at_block(&chainstate, &tip_hash)
-            .unwrap(),
+        &iconn,
         consensus_hash,
         stacks_block.clone(),
         vec_tx,

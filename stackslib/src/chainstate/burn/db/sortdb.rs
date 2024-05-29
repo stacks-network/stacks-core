@@ -67,7 +67,7 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
-use crate::chainstate::nakamoto::NakamotoBlockHeader;
+use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -2658,12 +2658,16 @@ impl SortitionDB {
         chainstate: &StacksChainState,
         stacks_block_id: &StacksBlockId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
-        let (consensus_hash, bhh) = match chainstate.get_block_header_hashes(stacks_block_id) {
+        let header = match NakamotoChainState::get_block_header(chainstate.db(), stacks_block_id) {
             Ok(Some(x)) => x,
-            _ => return Err(db_error::NotFoundError),
+            x => {
+                debug!("Failed to get block header: {:?}", x);
+                return Err(db_error::NotFoundError);
+            }
         };
-        let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &consensus_hash)?
-            .ok_or(db_error::NotFoundError)?;
+        let snapshot =
+            SortitionDB::get_block_snapshot_consensus(&self.conn(), &header.consensus_hash)?
+                .ok_or(db_error::NotFoundError)?;
         Ok(self.index_handle(&snapshot.sortition_id))
     }
 
