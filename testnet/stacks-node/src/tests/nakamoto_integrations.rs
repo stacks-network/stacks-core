@@ -3902,7 +3902,7 @@ fn check_block_heights() {
 /// Test config parameter `nakamoto_attempt_time_ms`
 #[test]
 #[ignore]
-fn test_nakamoto_attempt_time() {
+fn nakamoto_attempt_time() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
