@@ -18,14 +18,18 @@ import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggrega
 import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
 import { currentCycleFirstBlock, nextCycleFirstBlock } from "./pox_Commands";
 import { DelegateStackStxCommand_Err } from "./pox_DelegateStackStxCommand_Err";
+import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
 
 const POX_4_ERRORS = {
+  ERR_STACKING_INSUFFICIENT_FUNDS: 1,
   ERR_STACKING_ALREADY_STACKED: 3,
   ERR_STACKING_NO_SUCH_PRINCIPAL: 4,
   ERR_STACKING_PERMISSION_DENIED: 9,
   ERR_STACKING_THRESHOLD_NOT_MET: 11,
+  ERR_STACKING_INVALID_AMOUNT: 18,
   ERR_STACKING_ALREADY_DELEGATED: 20,
   ERR_DELEGATION_TOO_MUCH_LOCKED: 22,
+  ERR_STACKING_IS_DELEGATED: 30,
   ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
 
@@ -937,6 +941,108 @@ export function ErrCommands(
         POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
       );
     }),
+    // StackIncreaseSigCommand_Err_Stacking_Is_Delegated
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+      authId: fc.nat(),
+    }).map(
+      (r) =>
+        new StackIncreaseSigCommand_Err(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+          function (
+            this: StackIncreaseSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              !stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              this.increaseBy <= stacker.amountUnlocked &&
+              this.increaseBy >= 1
+            ) {
+              model.trackCommandRun(
+                "StackIncreaseSigCommand_Err_Stacking_Is_Delegated",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
+        ),
+    ),
+    // StackIncreaseSigCommand_Err_Stacking_Insufficient_Funds
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.constant(100_000_000_000_000),
+      authId: fc.nat(),
+    }).map(
+      (r) =>
+        new StackIncreaseSigCommand_Err(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+          function (
+            this: StackIncreaseSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              !(this.increaseBy <= stacker.amountUnlocked) &&
+              this.increaseBy >= 1
+            ) {
+              model.trackCommandRun(
+                "StackIncreaseSigCommand_Err_Stacking_Insufficient_Funds",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS,
+        ),
+    ),
+    // StackIncreaseSigCommand_Err_Stacking_Invalid_Amount
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.constant(0),
+      authId: fc.nat(),
+    }).map(
+      (r) =>
+        new StackIncreaseSigCommand_Err(
+          r.operator,
+          r.increaseBy,
+          r.authId,
+          function (
+            this: StackIncreaseSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              this.increaseBy <= stacker.amountUnlocked &&
+              !(this.increaseBy >= 1)
+            ) {
+              model.trackCommandRun(
+                "StackIncreaseSigCommand_Err_Stacking_Invalid_Amount",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
+        ),
+    ),
   ];
 
   return cmds;
