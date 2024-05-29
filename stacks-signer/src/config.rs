@@ -14,21 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
+use clarity::util::hash::to_hex;
 use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
+use stacks_common::util::hash::Hash160;
 use wsts::curve::scalar::Scalar;
 
 use crate::client::SignerSlotID;
@@ -152,7 +154,7 @@ pub struct SignerConfig {
 }
 
 /// The parsed configuration for the signer
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GlobalConfig {
     /// endpoint to the stacks node
     pub node_host: String,
@@ -286,13 +288,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 )
             })?;
         let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
-        let stacks_address = StacksAddress::from_public_keys(
-            raw_data.network.to_address_version(),
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![stacks_public_key],
-        )
-        .ok_or(ConfigError::UnsupportedAddressVersion)?;
+        let signer_hash = Hash160::from_data(stacks_public_key.to_bytes_compressed().as_slice());
+        let stacks_address =
+            StacksAddress::p2pkh_from_hash(raw_data.network.is_mainnet(), signer_hash);
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
         let dkg_end_timeout = raw_data.dkg_end_timeout_ms.map(Duration::from_millis);
@@ -381,7 +379,9 @@ Metrics endpoint: {metrics_endpoint}
             node_host = self.node_host,
             endpoint = self.endpoint,
             stacks_address = self.stacks_address,
-            public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
+            public_key = to_hex(
+                &StacksPublicKey::from_private(&self.stacks_private_key).to_bytes_compressed()
+            ),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
             tx_fee = tx_fee,
@@ -391,6 +391,12 @@ Metrics endpoint: {metrics_endpoint}
 }
 
 impl Display for GlobalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.config_to_log_string())
+    }
+}
+
+impl Debug for GlobalConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.config_to_log_string())
     }
@@ -644,5 +650,44 @@ Metrics endpoint: 0.0.0.0:9090
 "#
             )
         );
+    }
+
+    #[test]
+    // Test the same private key twice, with and without a compression flag.
+    // Ensure that the address is the same in both cases.
+    fn test_stacks_addr_from_priv_key() {
+        // 64 bytes, no compression flag
+        let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf28";
+
+        let expected_addr = "SP1286C62P3TAWVQV2VM2CEGTRBQZSZ6MHMS9RW05";
+
+        let config_toml = format!(
+            r#"
+stacks_private_key = "{sk_hex}"
+node_host = "localhost"
+endpoint = "localhost:30000"
+network = "mainnet"
+auth_password = "abcd"
+db_path = ":memory:"
+            "#
+        );
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert_eq!(config.stacks_address.to_string(), expected_addr);
+
+        // 65 bytes (with compression flag)
+        let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
+
+        let config_toml = format!(
+            r#"
+stacks_private_key = "{sk_hex}"
+node_host = "localhost"
+endpoint = "localhost:30000"
+network = "mainnet"
+auth_password = "abcd"
+db_path = ":memory:"
+            "#
+        );
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert_eq!(config.stacks_address.to_string(), expected_addr);
     }
 }

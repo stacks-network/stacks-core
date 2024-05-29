@@ -403,7 +403,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
                 "Usage: {} can-download-microblock <working-dir>
 
 Given a <working-dir>, obtain a 2100 header hash inventory (with an empty header cache), and then
-check if the associated microblocks can be downloaded 
+check if the associated microblocks can be downloaded
 ",
                 argv[0]
             );
@@ -1658,7 +1658,8 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         return;
     };
 
-    let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
+    let block =
+        StacksChainState::extract_stacks_block(&next_staging_block).expect("Failed to get block");
     let block_size = next_staging_block.block_data.len() as u64;
 
     let parent_block_header = match &parent_header_info.anchored_header {

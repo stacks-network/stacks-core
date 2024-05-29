@@ -311,7 +311,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         let Some(Some(unconfirmed_aggregate_public_key)) = agg_pubkeys.get(&tenure_rc).cloned()
         else {
             warn!(
-                "No aggregate public key for confirmed tenure {} (rc {})",
+                "No aggregate public key for unconfirmed tenure {} (rc {})",
                 &local_tenure_sn.consensus_hash, tenure_rc
             );
             return Err(NetError::InvalidState);
@@ -447,6 +447,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         // If there's a tenure-start block, it must be last.
         let mut expected_block_id = last_block_id;
         let mut finished_download = false;
+        let mut last_block_index = None;
         for (cnt, block) in tenure_blocks.iter().enumerate() {
             if &block.header.block_id() != expected_block_id {
                 warn!("Unexpected Nakamoto block -- not part of tenure";
@@ -493,6 +494,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 }
 
                 finished_download = true;
+                last_block_index = Some(cnt);
                 break;
             }
 
@@ -501,7 +503,9 @@ impl NakamotoUnconfirmedTenureDownloader {
             if let Some(highest_processed_block_id) = self.highest_processed_block_id.as_ref() {
                 if expected_block_id == highest_processed_block_id {
                     // got all the blocks we asked for
+                    debug!("Cancelling unconfirmed tenure download to {}: have processed block up to block {} already", &self.naddr, highest_processed_block_id);
                     finished_download = true;
+                    last_block_index = Some(cnt);
                     break;
                 }
             }
@@ -511,15 +515,22 @@ impl NakamotoUnconfirmedTenureDownloader {
             if let Some(highest_processed_block_height) =
                 self.highest_processed_block_height.as_ref()
             {
-                if &block.header.chain_length < highest_processed_block_height {
+                if &block.header.chain_length <= highest_processed_block_height {
                     // no need to continue this download
                     debug!("Cancelling unconfirmed tenure download to {}: have processed block at height {} already", &self.naddr, highest_processed_block_height);
                     finished_download = true;
+                    last_block_index = Some(cnt);
                     break;
                 }
             }
 
             expected_block_id = &block.header.parent_block_id;
+            last_block_index = Some(cnt);
+        }
+
+        // blocks after the last_block_index were not processed, so should be dropped
+        if let Some(last_block_index) = last_block_index {
+            tenure_blocks.truncate(last_block_index + 1);
         }
 
         if let Some(blocks) = self.unconfirmed_tenure_blocks.as_mut() {

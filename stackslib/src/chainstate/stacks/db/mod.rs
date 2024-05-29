@@ -53,7 +53,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -668,7 +668,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "4";
+pub const CHAINSTATE_VERSION: &'static str = "5";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1076,6 +1076,13 @@ impl StacksChainState {
                         // migrate to nakamoto 1
                         info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "4" => {
+                        // migrate to nakamoto 2
+                        info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }

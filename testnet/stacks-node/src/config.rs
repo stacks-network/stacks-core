@@ -1802,6 +1802,13 @@ pub struct NodeConfig {
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub wait_time_for_blocks: u64,
+    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
+    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
+    /// how frequently the miner checks if a new burnchain block has been processed.
+    ///
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
+    /// but environments where burn blocks are more frequent may want to decrease this value.
+    pub next_initiative_delay: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -2087,6 +2094,7 @@ impl Default for NodeConfig {
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
+            next_initiative_delay: 10_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -2537,6 +2545,7 @@ pub struct NodeConfigFile {
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub wait_time_for_blocks: Option<u64>,
+    pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
@@ -2597,6 +2606,9 @@ impl NodeConfigFile {
             wait_time_for_blocks: self
                 .wait_time_for_blocks
                 .unwrap_or(default_node_config.wait_time_for_blocks),
+            next_initiative_delay: self
+                .next_initiative_delay
+                .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
             marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self

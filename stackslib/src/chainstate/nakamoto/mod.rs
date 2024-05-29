@@ -76,7 +76,7 @@ use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegister
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
-use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
+use crate::chainstate::nakamoto::tenure::{NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
@@ -144,7 +144,7 @@ lazy_static! {
                      reward_set TEXT NOT NULL,
                      PRIMARY KEY (index_block_hash)
     );"#.into(),
-    NAKAMOTO_TENURES_SCHEMA.into(),
+    NAKAMOTO_TENURES_SCHEMA_1.into(),
     r#"
       -- Table for Nakamoto block headers
       CREATE TABLE nakamoto_block_headers (
@@ -152,7 +152,7 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
+                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
                      -- height of the burnchain block header that generated this consensus hash
@@ -188,7 +188,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -207,14 +207,21 @@ lazy_static! {
           );
           CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
     "#.into(),
-        format!(
-            r#"ALTER TABLE payments
-               ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
-            "#,
-            HeaderTypeNames::Epoch2.get_name_str()),
-        r#"
-        UPDATE db_config SET version = "4";
-        "#.into(),
+    format!(
+        r#"ALTER TABLE payments
+            ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
+        "#,
+        HeaderTypeNames::Epoch2.get_name_str()),
+    r#"
+    UPDATE db_config SET version = "4";
+    "#.into(),
+    ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
+    NAKAMOTO_TENURES_SCHEMA_2.into(),
+    r#"
+    UPDATE db_config SET version = "5";
+    "#.into(),
     ];
 }
 
