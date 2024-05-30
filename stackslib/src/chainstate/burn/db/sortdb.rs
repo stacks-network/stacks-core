@@ -2658,7 +2658,16 @@ impl SortitionDB {
         chainstate: &StacksChainState,
         stacks_block_id: &StacksBlockId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
-        let header = match NakamotoChainState::get_block_header(chainstate.db(), stacks_block_id) {
+        let lookup_block_id = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state {
+            if &unconfirmed_state.unconfirmed_chain_tip == stacks_block_id {
+                &unconfirmed_state.confirmed_chain_tip
+            } else {
+                stacks_block_id
+            }
+        } else {
+            stacks_block_id
+        };
+        let header = match NakamotoChainState::get_block_header(chainstate.db(), lookup_block_id) {
             Ok(Some(x)) => x,
             x => {
                 debug!("Failed to get block header: {:?}", x);
