@@ -294,16 +294,32 @@ impl DBConfig {
                     || self.version == "2"
                     || self.version == "3"
                     || self.version == "4"
+                    || self.version == "5"
             }
             StacksEpochId::Epoch2_05 => {
-                self.version == "2" || self.version == "3" || self.version == "4"
+                self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
             }
-            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch21 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch22 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch23 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch24 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch25 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch30 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
         }
     }
 }
@@ -2932,5 +2948,15 @@ pub mod test {
             format!("{}", genesis_root_hash),
             MAINNET_2_0_GENESIS_ROOT_HASH
         );
+    }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        let db = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: true,
+            chain_id: CHAIN_ID_MAINNET,
+        };
+        assert!(db.supports_epoch(StacksEpochId::latest()));
     }
 }
