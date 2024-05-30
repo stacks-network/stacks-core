@@ -3743,12 +3743,7 @@ pub mod test {
                 |mut builder, ref mut miner, ref sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
-                    let sort_iconn = sortdb
-                        .index_handle_at_block(
-                            &miner_chainstate,
-                            &builder.chain_tip.index_block_hash(),
-                        )
-                        .unwrap();
+                    let sort_iconn = sortdb.index_handle_at_tip();
 
                     let mut miner_epoch_info = builder
                         .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
