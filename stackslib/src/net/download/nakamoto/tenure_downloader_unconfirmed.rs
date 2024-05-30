@@ -62,7 +62,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -186,7 +186,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         local_sort_tip: &BlockSnapshot,
         chainstate: &StacksChainState,
         remote_tenure_tip: RPCGetTenureInfo,
-        current_reward_sets: &BTreeMap<u64, RewardCycleInfo>,
+        current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) -> Result<(), NetError> {
         if self.state != NakamotoUnconfirmedDownloadState::GetTenureInfo {
             return Err(NetError::InvalidState);
@@ -301,7 +301,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         // get reward set info for the unconfirmed tenure and highest-complete tenure sortitions
         let Some(Some(confirmed_reward_set)) = current_reward_sets
             .get(&parent_tenure_rc)
-            .map(|cycle_info| cycle_info.known_selected_anchor_block())
+            .map(|cycle_info| cycle_info.reward_set())
         else {
             warn!(
                 "No signer public keys for confirmed tenure {} (rc {})",
@@ -312,7 +312,7 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         let Some(Some(unconfirmed_reward_set)) = current_reward_sets
             .get(&tenure_rc)
-            .map(|cycle_info| cycle_info.known_selected_anchor_block())
+            .map(|cycle_info| cycle_info.reward_set())
         else {
             warn!(
                 "No signer public keys for unconfirmed tenure {} (rc {})",
@@ -717,7 +717,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         sortdb: &SortitionDB,
         local_sort_tip: &BlockSnapshot,
         chainstate: &StacksChainState,
-        current_reward_sets: &BTreeMap<u64, RewardCycleInfo>,
+        current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
         match &self.state {
             NakamotoUnconfirmedDownloadState::GetTenureInfo => {
