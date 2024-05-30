@@ -30,6 +30,8 @@ use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::types::PublicKey;
+use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
@@ -732,9 +734,32 @@ impl SignCoordinator {
                                 "Signer entry not found".into(),
                             ));
                         };
-                        total_weight_signed = total_weight_signed
-                            .checked_add(signer_entry.weight)
-                            .expect("FATAL: total weight signed exceeds u32::MAX");
+                        let Ok(signer_pubkey) =
+                            StacksPublicKey::from_slice(&signer_entry.signing_key)
+                        else {
+                            return Err(NakamotoNodeError::SignerSignatureError(
+                                "Failed to parse signer public key".into(),
+                            ));
+                        };
+                        let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature)
+                        else {
+                            warn!("Got invalid signature from a signer. Ignoring.");
+                            continue;
+                        };
+                        if !valid_sig {
+                            warn!(
+                                "Processed signature but didn't validate over the expected block. Ignoring";
+                                "signature" => %signature,
+                                "block_signer_signature_hash" => %block_sighash,
+                                "slot_id" => slot_id,
+                            );
+                            continue;
+                        }
+                        if !gathered_signatures.contains_key(&slot_id) {
+                            total_weight_signed = total_weight_signed
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight signed exceeds u32::MAX");
+                        }
                         debug!("SignCoordinator: Total weight signed: {total_weight_signed}");
                         gathered_signatures.insert(slot_id, signature);
                     }
