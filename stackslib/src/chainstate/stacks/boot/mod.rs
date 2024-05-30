@@ -277,6 +277,23 @@ impl RewardSet {
     pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
         serde_json::from_str(from).map_err(|e| e.to_string())
     }
+
+    /// Return the total `weight` of all signers in the reward set.
+    /// If there are no reward set signers, a ChainstateError is returned.
+    pub fn total_signing_weight(&self) -> Result<u32, String> {
+        let Some(ref reward_set_signers) = self.signers else {
+            return Err(format!(
+                "Unable to calculate total weight - No signers in reward set"
+            ));
+        };
+        Ok(reward_set_signers
+            .iter()
+            .map(|s| s.weight)
+            .fold(0, |s, acc| {
+                acc.checked_add(s)
+                    .expect("FATAL: Total signer weight > u32::MAX")
+            }))
+    }
 }
 
 impl RewardSetData {

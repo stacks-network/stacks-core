@@ -254,15 +254,10 @@ impl SignCoordinator {
             ..Default::default()
         };
 
-        let total_weight =
-            reward_set_signers
-                .iter()
-                .cloned()
-                .map(|s| s.weight)
-                .fold(0, |w, acc| {
-                    acc.checked_add(w)
-                        .expect("FATAL: Total signer weight > u32::MAX")
-                });
+        let total_weight = reward_set.total_signing_weight().map_err(|e| {
+            warn!("Failed to calculate total weight for the reward set: {e:?}");
+            ChainstateError::NoRegisteredSigners(0)
+        })?;
 
         let threshold = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)?;
 
@@ -760,7 +755,14 @@ impl SignCoordinator {
                                 .checked_add(signer_entry.weight)
                                 .expect("FATAL: total weight signed exceeds u32::MAX");
                         }
-                        debug!("SignCoordinator: Total weight signed: {total_weight_signed}");
+                        debug!("Signature Added to block";
+                            "block_signer_sighash" => %block_sighash,
+                            "signer_pubkey" => signer_pubkey.to_hex(),
+                            "signer_slot_id" => slot_id,
+                            "signature" => %signature,
+                            // "signer_weight" => signer_entry.weight // commented due to max size of `debug!`
+                            "total_weight_signed" => total_weight_signed,
+                        );
                         gathered_signatures.insert(slot_id, signature);
                     }
                     SignerMessageV0::BlockResponse(BlockResponse::Rejected(_)) => {
