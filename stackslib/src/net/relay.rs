@@ -4047,21 +4047,20 @@ pub mod test {
 
                     let chain_tip =
                         StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
+                    let iconn = sortdb
+                        .index_handle_at_block(&stacks_node.chainstate, &chain_tip)
+                        .unwrap();
                     let cur_nonce = stacks_node
                         .chainstate
-                        .with_read_only_clarity_tx(
-                            &sortdb.index_handle_at_tip(),
-                            &chain_tip,
-                            |clarity_tx| {
-                                clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                    clarity_db
-                                        .get_account_nonce(
-                                            &spending_account.origin_address().unwrap().into(),
-                                        )
-                                        .unwrap()
-                                })
-                            },
-                        )
+                        .with_read_only_clarity_tx(&iconn, &chain_tip, |clarity_tx| {
+                            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                                clarity_db
+                                    .get_account_nonce(
+                                        &spending_account.origin_address().unwrap().into(),
+                                    )
+                                    .unwrap()
+                            })
+                        })
                         .unwrap();
 
                     test_debug!(
@@ -5425,7 +5424,7 @@ pub mod test {
                 let block = StacksBlockBuilder::make_anchored_block_from_txs(
                     block_builder,
                     chainstate,
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx.clone()],
                 )
                 .unwrap()
@@ -5492,7 +5491,7 @@ pub mod test {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_handle_at_tip(),
+                        &sortdb.index_handle(&tip.sortition_id),
                         vec![coinbase_tx.clone(), bad_tx.clone()],
                     )
                 {
@@ -5514,7 +5513,7 @@ pub mod test {
                 let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     block_builder,
                     chainstate,
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx.clone()],
                 )
                 .unwrap();
@@ -5531,7 +5530,9 @@ pub mod test {
                 let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
                 bad_block.header.tx_merkle_root = merkle_tree.root();
 
-                let sort_ic = sortdb.index_handle_at_tip();
+                let sort_ic = sortdb
+                    .index_handle_at_block(chainstate, &parent_index_hash)
+                    .unwrap();
                 chainstate
                     .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
                     .unwrap();
@@ -5816,7 +5817,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx],
                 )
                 .unwrap();
@@ -5994,7 +5995,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx, versioned_contract],
                 )
                 .unwrap();
@@ -6181,7 +6182,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_handle_at_tip(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx],
                 )
                 .unwrap();
@@ -6220,8 +6221,12 @@ pub mod test {
             // tenure 28
             let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
             let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+            let snapshot =
+                SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash)
+                    .unwrap()
+                    .unwrap();
             match node.chainstate.will_admit_mempool_tx(
-                &sortdb.index_handle_at_tip(),
+                &sortdb.index_handle(&snapshot.sortition_id),
                 &consensus_hash,
                 &stacks_block.block_hash(),
                 &versioned_contract,
@@ -6270,8 +6275,11 @@ pub mod test {
         // tenure 28
         let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash)
+            .unwrap()
+            .unwrap();
         match node.chainstate.will_admit_mempool_tx(
-            &sortdb.index_handle_at_tip(),
+            &sortdb.index_handle(&snapshot.sortition_id),
             &consensus_hash,
             &stacks_block.block_hash(),
             &versioned_contract,
