@@ -760,7 +760,7 @@ impl SignCoordinator {
                             "signer_pubkey" => signer_pubkey.to_hex(),
                             "signer_slot_id" => slot_id,
                             "signature" => %signature,
-                            // "signer_weight" => signer_entry.weight // commented due to max size of `debug!`
+                            "signer_weight" => signer_entry.weight,
                             "total_weight_signed" => total_weight_signed,
                         );
                         gathered_signatures.insert(slot_id, signature);
