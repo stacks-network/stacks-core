@@ -37,6 +37,8 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, PreStxOp, StackStxOp, VoteForAggregateKeyOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::coordinator::OnChainRewardSetProvider;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -362,13 +364,29 @@ pub fn read_and_sign_block_proposal(
 ) -> Result<Sha512Trunc256Sum, String> {
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-    let reward_set = sortdb
-        .get_preprocessed_reward_set_of(&tip.sortition_id)
-        .expect("Failed to get reward cycle info")
-        .known_selected_anchor_block_owned()
-        .expect("Expected a reward set");
+    let reward_set = load_nakamoto_reward_set(
+        tip.block_height,
+        &tip.sortition_id,
+        &burnchain,
+        &mut chainstate,
+        &sortdb,
+        &OnChainRewardSetProvider::new(),
+    )
+    .expect("Failed to query reward set")
+    .expect("No reward set calculated")
+    .0
+    .known_selected_anchor_block_owned()
+    .expect("Expected a reward set");
 
     let mut proposed_block = get_latest_block_proposal(conf, &sortdb)?;
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
