@@ -60,6 +60,7 @@ use stacks::core::{
 };
 use stacks::libstackerdb::SlotMetadata;
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
+use stacks::net::api::get_tenures_fork_info::TenureForkingInfo;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
@@ -81,7 +82,6 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
-use stacks_signer::client::ClientError;
 use stacks_signer::signerdb::{BlockInfo, SignerDb};
 use wsts::net::Message;
 
@@ -4406,6 +4406,26 @@ fn signer_chainstate() {
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
+
+    let start_sortition = &reorg_to_block.header.consensus_hash;
+    let stop_sortition = &sortitions_view.cur_sortition.prior_sortition;
+    // check that the get_tenure_forking_info response is sane
+    let fork_info = signer_client
+        .get_tenure_forking_info(start_sortition, stop_sortition)
+        .unwrap();
+
+    // it should start and stop with the given inputs (reversed!)
+    assert_eq!(fork_info.first().unwrap().consensus_hash, *stop_sortition);
+    assert_eq!(fork_info.last().unwrap().consensus_hash, *start_sortition);
+
+    // every step of the return should be linked to the parent
+    let mut prior: Option<&TenureForkingInfo> = None;
+    for step in fork_info.iter().rev() {
+        if let Some(ref prior) = prior {
+            assert_eq!(prior.sortition_id, step.parent_sortition_id);
+        }
+        prior = Some(step);
+    }
 
     // view is stale, if we ever expand this test, sortitions_view should
     // be fetched again, so drop it here.
