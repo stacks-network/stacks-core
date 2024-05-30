@@ -4613,7 +4613,12 @@ impl StacksNode {
             stackerdb_configs.insert(contract.clone(), StackerDBConfig::noop());
         }
         let stackerdb_configs = stackerdbs
-            .create_or_reconfigure_stackerdbs(&mut chainstate, &sortdb, stackerdb_configs)
+            .create_or_reconfigure_stackerdbs(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_configs,
+                config.connection_options.num_neighbors,
+            )
             .unwrap();
 
         let stackerdb_contract_ids: Vec<QualifiedContractIdentifier> =
