@@ -194,10 +194,10 @@ impl RPCRequestHandler for GetSortitionHandler {
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let result =
-            node.with_node_state(|_network, sortdb, _chainstate, _mempool, _rpc_args| {
+            node.with_node_state(|network, sortdb, _chainstate, _mempool, _rpc_args| {
                 let query_result = match self.query {
                     QuerySpecifier::Latest => {
-                        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map(Some)
+                        Ok(Some(network.burnchain_tip.clone()))
                     },
                     QuerySpecifier::ConsensusHash(ref consensus_hash) => {
                         SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)
