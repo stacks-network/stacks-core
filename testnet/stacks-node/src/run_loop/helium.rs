@@ -223,7 +223,9 @@ impl RunLoop {
                         &burnchain_tip,
                         &chain_tip,
                         &mut self.node.chain_state,
-                        &burnchain.sortdb_ref().index_handle_at_tip(),
+                        &burnchain
+                            .sortdb_ref()
+                            .index_handle(&burnchain_tip.block_snapshot.sortition_id),
                     );
                 }
             };
