@@ -448,6 +448,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -456,6 +457,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -523,6 +525,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -531,6 +534,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -624,6 +628,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -632,6 +637,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -724,6 +730,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -732,6 +739,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -803,6 +811,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
@@ -811,6 +820,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .get(&tip_rc)
                 .cloned()
                 .unwrap()
+                .reward_cycle_info
                 .known_selected_anchor_block_owned()
                 .unwrap(),
         );
