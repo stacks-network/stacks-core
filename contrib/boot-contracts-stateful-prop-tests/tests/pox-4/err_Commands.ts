@@ -16,13 +16,21 @@ import { StackAggregationCommitAuthCommand_Err } from "./pox_StackAggregationCom
 import { StackAggregationCommitIndexedSigCommand_Err } from "./pox_StackAggregationCommitIndexedSigCommand_Err";
 import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggregationCommitIndexedAuthCommand_Err";
 import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
-import { currentCycleFirstBlock, nextCycleFirstBlock } from "./pox_Commands";
+import {
+  currentCycle,
+  currentCycleFirstBlock,
+  FIRST_BURNCHAIN_BLOCK_HEIGHT,
+  nextCycleFirstBlock,
+  REWARD_CYCLE_LENGTH,
+} from "./pox_Commands";
 import { DelegateStackStxCommand_Err } from "./pox_DelegateStackStxCommand_Err";
 import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
 import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err";
+import { StackExtendSigCommand_Err } from "./pox_StackExtendSigCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_INSUFFICIENT_FUNDS: 1,
+  ERR_STACKING_INVALID_LOCK_PERIOD: 2,
   ERR_STACKING_ALREADY_STACKED: 3,
   ERR_STACKING_NO_SUCH_PRINCIPAL: 4,
   ERR_STACKING_PERMISSION_DENIED: 9,
@@ -30,6 +38,7 @@ const POX_4_ERRORS = {
   ERR_STACKING_INVALID_AMOUNT: 18,
   ERR_STACKING_ALREADY_DELEGATED: 20,
   ERR_DELEGATION_TOO_MUCH_LOCKED: 22,
+  ERR_STACK_EXTEND_NOT_LOCKED: 26,
   ERR_STACKING_IS_DELEGATED: 30,
   ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
@@ -1144,6 +1153,266 @@ export function ErrCommands(
             } else return false;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
+        ),
+    ),
+    // StackExtendSigCommand_Err_Stacking_Is_Delegated_1
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      extendCount: fc.integer({ min: 1, max: 12 }),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (r: {
+        wallet: Wallet;
+        extendCount: number;
+        authId: number;
+        currentCycle: number;
+      }) =>
+        new StackExtendSigCommand_Err(
+          r.wallet,
+          r.extendCount,
+          r.authId,
+          r.currentCycle,
+          function (
+            this: StackExtendSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
+            const firstRewardCycle =
+              stacker.firstLockedRewardCycle < this.currentCycle
+                ? this.currentCycle
+                : stacker.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              !stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              stacker.poolMembers.length === 0 &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "StackExtendSigCommand_Err_Stacking_Is_Delegated_1",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
+        ),
+    ),
+    // StackExtendSigCommand_Err_Stacking_Is_Delegated_2
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      extendCount: fc.integer({ min: 1, max: 12 }),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (r: {
+        wallet: Wallet;
+        extendCount: number;
+        authId: number;
+        currentCycle: number;
+      }) =>
+        new StackExtendSigCommand_Err(
+          r.wallet,
+          r.extendCount,
+          r.authId,
+          r.currentCycle,
+          function (
+            this: StackExtendSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
+            const firstRewardCycle =
+              stacker.firstLockedRewardCycle < this.currentCycle
+                ? this.currentCycle
+                : stacker.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              !stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              !(stacker.poolMembers.length === 0) &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "StackExtendSigCommand_Err_Stacking_Is_Delegated_2",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
+        ),
+    ),
+    // StackExtendSigCommand_Err_Stacking_Already_Delegated
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      extendCount: fc.integer({ min: 1, max: 12 }),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (r: {
+        wallet: Wallet;
+        extendCount: number;
+        authId: number;
+        currentCycle: number;
+      }) =>
+        new StackExtendSigCommand_Err(
+          r.wallet,
+          r.extendCount,
+          r.authId,
+          r.currentCycle,
+          function (
+            this: StackExtendSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
+            const firstRewardCycle =
+              stacker.firstLockedRewardCycle < this.currentCycle
+                ? this.currentCycle
+                : stacker.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              stacker.isStackingSolo &&
+              stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              stacker.poolMembers.length === 0 &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "StackExtendSigCommand_Err_Stacking_Already_Delegated",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
+        ),
+    ),
+    // StackExtendSigCommand_Err_Stacking_Invalid_Lock_Period
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      extendCount: fc.integer(),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (r: {
+        wallet: Wallet;
+        extendCount: number;
+        authId: number;
+        currentCycle: number;
+      }) =>
+        new StackExtendSigCommand_Err(
+          r.wallet,
+          r.extendCount,
+          r.authId,
+          r.currentCycle,
+          function (
+            this: StackExtendSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
+            const firstRewardCycle =
+              stacker.firstLockedRewardCycle < this.currentCycle
+                ? this.currentCycle
+                : stacker.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            if (
+              model.stackingMinimum > 0 &&
+              stacker.isStacking &&
+              stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              stacker.amountLocked > 0 &&
+              stacker.poolMembers.length === 0 &&
+              !(totalPeriod <= 12)
+            ) {
+              model.trackCommandRun(
+                "StackExtendSigCommand_Err_Stacking_Invalid_Lock_Period",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD,
+        ),
+    ),
+    // StackExtendSigCommand_Err_Stack_Extend_Not_Locked
+    fc.record({
+      wallet: fc.constantFrom(...wallets.values()),
+      authId: fc.nat(),
+      extendCount: fc.integer({ min: 1, max: 12 }),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (r: {
+        wallet: Wallet;
+        extendCount: number;
+        authId: number;
+        currentCycle: number;
+      }) =>
+        new StackExtendSigCommand_Err(
+          r.wallet,
+          r.extendCount,
+          r.authId,
+          r.currentCycle,
+          function (
+            this: StackExtendSigCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
+            const firstRewardCycle =
+              stacker.firstLockedRewardCycle < this.currentCycle
+                ? this.currentCycle
+                : stacker.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            if (
+              model.stackingMinimum > 0 &&
+              !stacker.isStacking &&
+              !stacker.isStackingSolo &&
+              !stacker.hasDelegated &&
+              !(stacker.amountLocked > 0) &&
+              stacker.poolMembers.length === 0 &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "StackExtendSigCommand_Err_Stack_Extend_Not_Locked",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
         ),
     ),
   ];
