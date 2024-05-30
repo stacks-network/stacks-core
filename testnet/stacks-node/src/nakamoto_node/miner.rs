@@ -25,6 +25,8 @@ use libsigner::v1::messages::{MessageSlotID, SignerMessage};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use stacks::chainstate::coordinator::OnChainRewardSetProvider;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -277,6 +279,13 @@ impl BlockMinerThread {
             })
         })?;
 
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+
         let reward_cycle = self
             .burnchain
             .pox_constants
@@ -290,8 +299,20 @@ impl BlockMinerThread {
                 )
             })?;
 
-        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(x) => x,
+        let reward_info = match load_nakamoto_reward_set(
+            tip.block_height,
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &sort_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -373,8 +394,27 @@ impl BlockMinerThread {
             )
             .expect("FATAL: building on a burn block that is before the first burn block");
 
-        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(x) => x,
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+
+        let reward_info = match load_nakamoto_reward_set(
+            tip.block_height,
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &sort_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -839,8 +879,42 @@ impl BlockMinerThread {
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
-        let signer_bitvec_len =
-            &burn_db.get_preprocessed_reward_set_size(&self.burn_block.sortition_id);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::DBError(e)))?;
+
+        let reward_info = match load_nakamoto_reward_set(
+            tip.block_height,
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &burn_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
+        let signer_bitvec_len = reward_set
+            .signers
+            .as_ref()
+            .map(|x| x.len())
+            .unwrap_or(0)
+            .try_into()
+            .ok();
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
