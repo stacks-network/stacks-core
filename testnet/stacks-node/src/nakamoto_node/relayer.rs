@@ -662,7 +662,16 @@ impl RelayerThread {
                 error!("Relayer: failed to get last sortition snapshot: {e:?}");
                 NakamotoNodeError::SnapshotNotFoundForChainTip
             })?;
-        let Some(block_header) = NakamotoChainState::get_block_header_by_consensus_hash(
+
+        if Some(block_snapshot.winning_block_txid) != self.current_mining_commit_tx {
+            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.";
+                   "current_mining_commit_tx" => %self.current_mining_commit_tx.unwrap_or(Txid([0u8; 32])),
+                   "block_snapshot_winning_block_txid" => %block_snapshot.winning_block_txid
+            );
+            return Ok(());
+        };
+
+        let block_header = NakamotoChainState::get_block_header_by_consensus_hash(
             self.chainstate.db(),
             &block_snapshot.consensus_hash,
         )
@@ -670,17 +679,12 @@ impl RelayerThread {
             error!("Relayer: failed to get block header for the last sortition snapshsot: {e:?}");
             NakamotoNodeError::MissingTenureStartBlockHeader
         })?
-        else {
-            error!("Relayer: failed to get block header for the last sortition snapshsot");
-            return Err(NakamotoNodeError::MissingTenureStartBlockHeader);
-        };
+        .ok_or_else(|| {
+            error!("Relayer: failed to find block header for the last sortition snapshsot");
+            NakamotoNodeError::MissingTenureStartBlockHeader
+        })?;
 
-        if Some(block_snapshot.winning_block_txid) != self.current_mining_commit_tx {
-            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.");
-            return Ok(());
-        };
-
-        let Some(last_parent_tenure_header) =
+        let last_parent_tenure_header =
             NakamotoChainState::get_nakamoto_tenure_finish_block_header(
                 self.chainstate.db(),
                 &block_header.consensus_hash,
@@ -689,10 +693,11 @@ impl RelayerThread {
                 error!("Relayer: failed to get last block of parent tenure: {e:?}");
                 NakamotoNodeError::ParentNotFound
             })?
-        else {
-            warn!("Failed loading last block of parent tenure"; "consensus_hash" => %block_header.consensus_hash);
-            return Err(NakamotoNodeError::ParentNotFound);
-        };
+            .ok_or_else(|| {
+                error!("Relayer: failed to find block header for parent tenure");
+                NakamotoNodeError::ParentNotFound
+            })?;
+
         let parent_tenure_info = ParentTenureInfo {
             parent_tenure_blocks: 1 + last_parent_tenure_header.stacks_block_height
                 - block_header.stacks_block_height,
@@ -744,7 +749,7 @@ impl RelayerThread {
             MinerDirective::ContinueTenure { new_burn_view } => {
                 match self.continue_tenure(new_burn_view) {
                     Ok(()) => {
-                        debug!("Relayer: handled continue tenure.");
+                        debug!("Relayer: successfully handled continue tenure.");
                     }
                     Err(e) => {
                         error!("Relayer: Failed to continue tenure: {:?}", e);
