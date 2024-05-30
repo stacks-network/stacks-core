@@ -830,7 +830,8 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     };
 
     // cache the reward cycle info as of the first sortition in the prepare phase, so that
-    // the Nakamoto epoch can go find it later
+    // the first Nakamoto epoch can go find it later.  Subsequent Nakamoto epochs will use the
+    // reward set stored to the Nakamoto chain state.
     let ic = sort_db.index_handle(sortition_tip);
     let prev_reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_height)
