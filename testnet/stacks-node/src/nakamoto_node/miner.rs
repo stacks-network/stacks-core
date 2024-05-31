@@ -765,7 +765,7 @@ impl BlockMinerThread {
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
             &burn_db
-                .index_handle_at_block(&chain_state, &parent_block_id)
+                .index_handle_at_ch(&self.burn_block.consensus_hash)
                 .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
