@@ -3212,11 +3212,18 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         let pox_constants = self.pox_constants.clone();
         for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
-            if pox_constants.reward_cycle_to_block_height(self.first_block_height, rc)
-                > canonical_tip.block_height
-            {
+            let rc_start = pox_constants.reward_cycle_to_block_height(self.first_block_height, rc);
+            if rc_start > canonical_tip.block_height {
                 break;
             }
+            let epoch_at_height = SortitionDB::get_stacks_epoch(self.conn(), rc_start)?
+                .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", rc_start))
+                .epoch_id;
+
+            if epoch_at_height >= StacksEpochId::Epoch30 {
+                break;
+            }
+
             info!("Regenerating reward set for cycle {}", &rc);
             migrator.regenerate_reward_cycle_info(self, rc)?;
         }
@@ -3434,13 +3441,13 @@ impl SortitionDB {
 
     /// Store a pre-processed reward set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
-    /// No-op if the reward set is empty.
+    /// No-op if the reward set has a selected-and-unknown anchor block.
     pub fn store_preprocessed_reward_set(
         sort_tx: &mut DBTx,
         sortition_id: &SortitionId,
         rc_info: &RewardCycleInfo,
     ) -> Result<(), db_error> {
-        if rc_info.known_selected_anchor_block().is_none() {
+        if !rc_info.is_reward_info_known() {
             return Ok(());
         }
         let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
@@ -3777,12 +3784,8 @@ impl<'a> SortitionDBConn<'a> {
             db_error::NotFoundError
         })?;
 
-        // NOTE: the .saturating_sub(1) is necessary because the reward set is calculated in epoch
-        // 2.5 and lower at reward cycle index 1, not 0.  This correction ensures that the last
-        // block is checked against the signers who were active just before the new reward set is
-        // calculated.
         let reward_cycle_id = pox_constants
-            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height.saturating_sub(1))
+            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height)
             .expect("FATAL: stored snapshot with block height < first_block_height");
 
         self.get_preprocessed_reward_set_for_reward_cycle(
