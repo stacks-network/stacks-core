@@ -386,11 +386,12 @@ impl TestStacksNode {
                 .unwrap();
 
                 test_debug!(
-                    "Work in {} {} for Nakamoto parent: {},{}",
+                    "Work in {} {} for Nakamoto parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_sortition.total_burn,
                     last_parent.header.chain_length + 1,
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_sortition)
@@ -420,11 +421,12 @@ impl TestStacksNode {
                 let parent_tenure_id = parent_chain_tip.index_block_hash();
 
                 test_debug!(
-                    "Work in {} {} for Stacks 2.x parent: {},{}",
+                    "Work in {} {} for Stacks 2.x parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_stacks_block_snapshot.total_burn,
                     parent_chain_tip.anchored_header.height(),
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_stacks_block_snapshot)
