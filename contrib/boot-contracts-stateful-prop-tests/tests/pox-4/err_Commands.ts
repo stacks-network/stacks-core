@@ -1,4 +1,5 @@
 import fc from "fast-check";
+import { Simnet } from "@hirosystems/clarinet-sdk";
 import {
   PoxCommand,
   Stacker,
@@ -6,16 +7,6 @@ import {
   StxAddress,
   Wallet,
 } from "./pox_CommandModel";
-import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
-import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
-import { Simnet } from "@hirosystems/clarinet-sdk";
-import { RevokeDelegateStxCommand_Err } from "./pox_RevokeDelegateStxCommand_Err";
-import { DelegateStxCommand_Err } from "./pox_DelegateStxCommand_Err";
-import { StackAggregationCommitSigCommand_Err } from "./pox_StackAggregationCommitSigCommand_Err";
-import { StackAggregationCommitAuthCommand_Err } from "./pox_StackAggregationCommitAuthCommand_Err";
-import { StackAggregationCommitIndexedSigCommand_Err } from "./pox_StackAggregationCommitIndexedSigCommand_Err";
-import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggregationCommitIndexedAuthCommand_Err";
-import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
 import {
   currentCycle,
   currentCycleFirstBlock,
@@ -23,13 +14,22 @@ import {
   nextCycleFirstBlock,
   REWARD_CYCLE_LENGTH,
 } from "./pox_Commands";
-import { DelegateStackStxCommand_Err } from "./pox_DelegateStackStxCommand_Err";
-import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
-import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err";
-import { StackExtendSigCommand_Err } from "./pox_StackExtendSigCommand_Err";
-import { StackExtendAuthCommand_Err } from "./pox_StackExtendAuthCommand_Err";
 import { DelegateStackExtendCommand_Err } from "./pox_DelegateStackExtendCommand_Err";
 import { DelegateStackIncreaseCommand_Err } from "./pox_DelegateStackIncreaseCommand_Err";
+import { DelegateStackStxCommand_Err } from "./pox_DelegateStackStxCommand_Err";
+import { DelegateStxCommand_Err } from "./pox_DelegateStxCommand_Err";
+import { RevokeDelegateStxCommand_Err } from "./pox_RevokeDelegateStxCommand_Err";
+import { StackAggregationCommitAuthCommand_Err } from "./pox_StackAggregationCommitAuthCommand_Err";
+import { StackAggregationCommitIndexedAuthCommand_Err } from "./pox_StackAggregationCommitIndexedAuthCommand_Err";
+import { StackAggregationCommitIndexedSigCommand_Err } from "./pox_StackAggregationCommitIndexedSigCommand_Err";
+import { StackAggregationCommitSigCommand_Err } from "./pox_StackAggregationCommitSigCommand_Err";
+import { StackAggregationIncreaseCommand_Err } from "./pox_StackAggregationIncreaseCommand_Err";
+import { StackExtendAuthCommand_Err } from "./pox_StackExtendAuthCommand_Err";
+import { StackExtendSigCommand_Err } from "./pox_StackExtendSigCommand_Err";
+import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err";
+import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
+import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
+import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_INSUFFICIENT_FUNDS: 1,
