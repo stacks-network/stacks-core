@@ -481,7 +481,7 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
-        let mut sortition_handle = sort_db.index_handle_at_tip();
+        let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,

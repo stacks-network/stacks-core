@@ -70,7 +70,7 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::{
@@ -2674,9 +2674,24 @@ impl SortitionDB {
                 return Err(db_error::NotFoundError);
             }
         };
-        let snapshot =
-            SortitionDB::get_block_snapshot_consensus(&self.conn(), &header.consensus_hash)?
-                .ok_or(db_error::NotFoundError)?;
+        // if its a nakamoto block, we want to use the burnchain view of the block
+        let burn_view = match &header.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => header.consensus_hash,
+            StacksBlockHeaderTypes::Nakamoto(_) => {
+                NakamotoChainState::get_tenure_for_block(chainstate.db(), &header)
+                    .map_err(|e| {
+                        warn!(
+                            "Failed to get tenure for block header: {:?}", e;
+                            "block_id" => %stacks_block_id,
+                        );
+                        db_error::NotFoundError
+                    })?
+                    .burn_view_consensus_hash
+            }
+        };
+
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &burn_view)?
+            .ok_or(db_error::NotFoundError)?;
         Ok(self.index_handle(&snapshot.sortition_id))
     }
 
@@ -4602,6 +4617,17 @@ impl SortitionDB {
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
+    }
+
+    /// Open an index handle at the given consensus hash
+    /// Returns a db_error::NotFoundError if `ch` cannot be found
+    pub fn index_handle_at_ch<'a>(
+        &'a self,
+        ch: &ConsensusHash,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let sortition_id = Self::get_sortition_id_by_consensus(self.conn(), ch)?
+            .ok_or_else(|| db_error::NotFoundError)?;
+        Ok(self.index_handle(&sortition_id))
     }
 
     /// Open a tx handle at the burn chain tip

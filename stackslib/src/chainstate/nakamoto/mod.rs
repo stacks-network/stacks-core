@@ -1344,6 +1344,43 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
 
+        // set the sortition handle's pointer to the block's burnchain view.
+        //   this is either:
+        //    (1)  set by the tenure change tx if one exists
+        //    (2)  the same as parent block id
+
+        let burnchain_view = if let Some(tenure_change) = next_ready_block.get_tenure_tx_payload() {
+            tenure_change.burn_view_consensus_hash
+        } else {
+            let Some(current_tenure) = Self::get_highest_nakamoto_tenure_change_by_tenure_id(
+                &chainstate_tx.tx,
+                &next_ready_block.header.consensus_hash,
+            )?
+            else {
+                warn!(
+                    "Cannot process Nakamoto block: failed to find active tenure";
+                    "consensus_hash" => %next_ready_block.header.consensus_hash,
+                    "block_hash" => %next_ready_block.header.block_hash(),
+                    "parent_block_id" => %next_ready_block.header.parent_block_id
+                );
+                return Ok(None);
+            };
+            current_tenure.burn_view_consensus_hash
+        };
+        let Some(burnchain_view_sortid) =
+            SortitionDB::get_sortition_id_by_consensus(sort_tx.tx(), &burnchain_view)?
+        else {
+            warn!(
+                "Cannot process Nakamoto block: failed to find Sortition ID associated with burnchain view";
+                "consensus_hash" => %next_ready_block.header.consensus_hash,
+                "block_hash" => %next_ready_block.header.block_hash(),
+                "burn_view_consensus_hash" => %burnchain_view,
+            );
+            return Ok(None);
+        };
+
+        sort_tx.context.chain_tip = burnchain_view_sortid;
+
         // find commit and sortition burns if this is a tenure-start block
         let Ok(new_tenure) = next_ready_block.is_wellformed_tenure_start_block() else {
             return Err(ChainstateError::InvalidStacksBlock(

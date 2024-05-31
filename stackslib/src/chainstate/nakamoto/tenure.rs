@@ -595,6 +595,53 @@ impl NakamotoChainState {
         Ok(tenure_opt)
     }
 
+    /// Get the tenure change that was active for a given block header
+    /// If a tenure change occurred during this block, it will be returned
+    pub fn get_tenure_for_block(
+        headers_conn: &Connection,
+        block_header: &StacksHeaderInfo,
+    ) -> Result<NakamotoTenure, ChainstateError> {
+        let sql = "SELECT * FROM nakamoto_tenures WHERE block_id = ? LIMIT 1";
+        let tenure_opt: Option<NakamotoTenure> =
+            query_row(headers_conn, sql, &[block_header.index_block_hash()])?;
+        if let Some(tenure) = tenure_opt {
+            return Ok(tenure);
+        }
+        // there wasn't a tenure change at that block, so we need to figure out the active tenure
+        //  use the "tenure height" to query for `num_blocks_confirmed`
+        let block_height = block_header.stacks_block_height;
+        let tenure_start_height = Self::get_nakamoto_tenure_start_block_header(
+            headers_conn,
+            &block_header.consensus_hash,
+        )?
+        .ok_or_else(|| ChainstateError::NoSuchBlockError)?
+        .stacks_block_height;
+        let blocks_confirmed = u64_to_sql(block_height.saturating_sub(tenure_start_height))?;
+        // querying by blocks confirmed doesn't work if cause is blockfound,
+        // so don't try and instead failback to directly querying it
+        let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?
+                                                    AND num_blocks_confirmed <= ?
+                                                    AND cause <> ?
+                                               ORDER BY num_blocks_confirmed DESC LIMIT 1";
+        if let Some(tenure) = query_row(
+            headers_conn,
+            sql,
+            params![
+                &block_header.consensus_hash,
+                blocks_confirmed,
+                TenureChangeCause::BlockFound.as_u8()
+            ],
+        )? {
+            return Ok(tenure);
+        }
+        // failback to the BlockFound tenure change
+        Self::get_highest_nakamoto_tenure_change_by_tenure_id(
+            headers_conn,
+            &block_header.consensus_hash,
+        )?
+        .ok_or_else(|| ChainstateError::NoSuchBlockError)
+    }
+
     /// Get the highest non-empty processed tenure on the canonical sortition history.
     pub fn get_highest_nakamoto_tenure(
         headers_conn: &Connection,
