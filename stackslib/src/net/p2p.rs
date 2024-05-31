@@ -5474,7 +5474,7 @@ impl PeerNetwork {
         let ih = sortdb.index_handle(&tip_sn.sortition_id);
 
         for rc in [cur_rc, prev_rc, prev_prev_rc] {
-            let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc) + 1;
+            let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc);
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
             else {
@@ -5486,7 +5486,12 @@ impl PeerNetwork {
 
             if let Some(cached_rc_info) = self.current_reward_sets.get(&rc) {
                 if let Some(anchor_hash) = anchor_hash_opt.as_ref() {
-                    if cached_rc_info.anchor_block_hash == *anchor_hash {
+                    // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
+                    // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
+                    // deal with in the pre-Nakamoto days
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                        || cached_rc_info.anchor_block_hash == *anchor_hash
+                    {
                         // cached reward set data is still valid
                         continue;
                     }
@@ -5494,7 +5499,7 @@ impl PeerNetwork {
             }
 
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
-                rc,
+                rc_start_height,
                 &tip_sn.sortition_id,
                 &self.burnchain,
                 chainstate,
@@ -5519,6 +5524,11 @@ impl PeerNetwork {
                 anchor_block_hash: anchor_block_header.anchored_header.block_hash(),
             };
 
+            test_debug!(
+                "Store cached reward set for reward cycle {} anchor block {}",
+                rc,
+                &rc_info.anchor_block_hash
+            );
             self.current_reward_sets.insert(rc, rc_info);
         }
         self.free_old_reward_cycles(cur_rc);
