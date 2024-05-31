@@ -29,6 +29,7 @@ import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err
 import { StackExtendSigCommand_Err } from "./pox_StackExtendSigCommand_Err";
 import { StackExtendAuthCommand_Err } from "./pox_StackExtendAuthCommand_Err";
 import { DelegateStackExtendCommand_Err } from "./pox_DelegateStackExtendCommand_Err";
+import { DelegateStackIncreaseCommand_Err } from "./pox_DelegateStackIncreaseCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_INSUFFICIENT_FUNDS: 1,
@@ -1978,6 +1979,263 @@ export function ErrCommands(
             ) {
               model.trackCommandRun(
                 "DelegateStackExtendCommand_Err_Stacking_Permission_Denied",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
+        ),
+    ),
+    // DelegateStackIncreaseCommand_Err_Stacking_Insufficient_Funds
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.constant(Number.MAX_SAFE_INTEGER),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackIncreaseCommand_Err(
+          final.operator,
+          final.stacker,
+          final.increaseBy,
+          function (
+            this: DelegateStackIncreaseCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              stackerWallet.hasDelegated === true &&
+              stackerWallet.isStacking === true &&
+              this.increaseBy > 0 &&
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              !(stackerWallet.amountUnlocked >= this.increaseBy) &&
+              !(
+                stackerWallet.delegatedMaxAmount >=
+                  this.increaseBy + stackerWallet.amountLocked
+              ) &&
+              operatorWallet.lockedAddresses.indexOf(
+                  this.stacker.stxAddress,
+                ) > -1
+            ) {
+              model.trackCommandRun(
+                "DelegateStackIncreaseCommand_Err_Stacking_Insufficient_Funds",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS,
+        ),
+    ),
+    // DelegateStackIncreaseCommand_Err_Stacking_Invalid_Amount
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.constant(0),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackIncreaseCommand_Err(
+          final.operator,
+          final.stacker,
+          final.increaseBy,
+          function (
+            this: DelegateStackIncreaseCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              stackerWallet.hasDelegated === true &&
+              stackerWallet.isStacking === true &&
+              !(this.increaseBy > 0) &&
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              stackerWallet.amountUnlocked >= this.increaseBy &&
+              stackerWallet.delegatedMaxAmount >=
+                this.increaseBy + stackerWallet.amountLocked &&
+              operatorWallet.lockedAddresses.indexOf(
+                  this.stacker.stxAddress,
+                ) > -1
+            ) {
+              model.trackCommandRun(
+                "DelegateStackIncreaseCommand_Err_Stacking_Invalid_Amount",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
+        ),
+    ),
+    // DelegateStackIncreaseCommand_Err_Stacking_Not_Delegated
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackIncreaseCommand_Err(
+          final.operator,
+          final.stacker,
+          final.increaseBy,
+          function (
+            this: DelegateStackIncreaseCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              !(stackerWallet.hasDelegated === true) &&
+              stackerWallet.isStacking === true &&
+              stackerWallet.isStackingSolo === true &&
+              this.increaseBy > 0 &&
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              stackerWallet.amountUnlocked >= this.increaseBy &&
+              !(
+                stackerWallet.delegatedMaxAmount >=
+                  this.increaseBy + stackerWallet.amountLocked
+              ) &&
+              !(
+                operatorWallet.lockedAddresses.indexOf(
+                  this.stacker.stxAddress,
+                ) > -1
+              )
+            ) {
+              model.trackCommandRun(
+                "DelegateStackIncreaseCommand_Err_Stacking_Not_Delegated",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_NOT_DELEGATED,
+        ),
+    ),
+    // DelegateStackIncreaseCommand_Err_Stacking_Permission_Denied
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      increaseBy: fc.nat(),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+      }).map((stacker) => ({
+        ...r,
+        stacker: wallets.get(stacker.stacker)!,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackIncreaseCommand_Err(
+          final.operator,
+          final.stacker,
+          final.increaseBy,
+          function (
+            this: DelegateStackIncreaseCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              !(stackerWallet.hasDelegated === true) &&
+              stackerWallet.isStacking === true &&
+              this.increaseBy > 0 &&
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              stackerWallet.amountUnlocked >= this.increaseBy &&
+              !(
+                stackerWallet.delegatedMaxAmount >=
+                  this.increaseBy + stackerWallet.amountLocked
+              ) &&
+              operatorWallet.lockedAddresses.indexOf(
+                  this.stacker.stxAddress,
+                ) > -1
+            ) {
+              model.trackCommandRun(
+                "DelegateStackIncreaseCommand_Err_Stacking_Permission_Denied",
               );
               return true;
             } else return false;
