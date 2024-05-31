@@ -1379,8 +1379,6 @@ impl NakamotoChainState {
             return Ok(None);
         };
 
-        sort_tx.context.chain_tip = burnchain_view_sortid;
-
         // find commit and sortition burns if this is a tenure-start block
         let Ok(new_tenure) = next_ready_block.is_wellformed_tenure_start_block() else {
             return Err(ChainstateError::InvalidStacksBlock(
@@ -1418,7 +1416,12 @@ impl NakamotoChainState {
         // though it will always be None), which gets the borrow-checker to believe that it's safe
         // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
         // simply commit the block before beginning the second transaction to mark it processed.
-        let (ok_opt, err_opt) = match NakamotoChainState::append_block(
+
+        // set the sortition tx's tip to the burnchain view -- we must unset this after appending the block,
+        //  so we wrap this call in a closure to make sure that the unsetting is infallible
+        let prior_sort_tip =
+            std::mem::replace(&mut sort_tx.context.chain_tip, burnchain_view_sortid);
+        let (ok_opt, err_opt) = (|clarity_instance| match NakamotoChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -1437,7 +1440,9 @@ impl NakamotoChainState {
         ) {
             Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
             Err(e) => (None, Some(e)),
-        };
+        })(clarity_instance);
+
+        sort_tx.context.chain_tip = prior_sort_tip;
 
         if let Some(e) = err_opt {
             // force rollback
