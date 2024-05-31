@@ -879,7 +879,8 @@ fn block_proposal() {
 
     info!("------------------------- Test Block Signed -------------------------");
     // Verify that the signers signed the proposed block
-    let signature = signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, timeout);
+    let signature =
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, timeout);
     assert!(signature
         .0
         .verify(&key, proposed_signer_signature_hash.as_bytes()));
@@ -1098,7 +1099,7 @@ fn sign_after_signer_reboot() {
     signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let signature =
-        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
     assert!(
         signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
@@ -1119,7 +1120,7 @@ fn sign_after_signer_reboot() {
     let last_block = signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let frost_signature =
-        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
     // Check that the latest block's bitvec is all 1's
     assert_eq!(

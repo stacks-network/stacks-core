@@ -95,7 +95,12 @@ impl MonitoringServer {
             public_key,
             format!("http://{}", config.node_host),
         );
-        server.update_metrics()?;
+        if let Err(e) = server.update_metrics() {
+            warn!(
+                "Monitoring: Error updating metrics when starting server: {:?}",
+                e
+            );
+        };
         server.main_loop()
     }
 
