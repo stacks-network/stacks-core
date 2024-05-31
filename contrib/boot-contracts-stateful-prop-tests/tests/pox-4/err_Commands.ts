@@ -794,7 +794,8 @@ export function ErrCommands(
             Number(this.amountUstx) <= stackerWallet.ustxBalance &&
             Number(this.amountUstx) >= model.stackingMinimum &&
             operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-            this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+            (stackerWallet.delegatedUntilBurnHt === undefined ||
+              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
           ) {
             model.trackCommandRun(
               "DelegateStackStxCommand_Err_Delegation_Too_Much_Locked",
@@ -870,7 +871,8 @@ export function ErrCommands(
             Number(this.amountUstx) <= stackerWallet.ustxBalance &&
             Number(this.amountUstx) >= model.stackingMinimum &&
             !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-            this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+            (stackerWallet.delegatedUntilBurnHt === undefined ||
+              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
           ) {
             model.trackCommandRun(
               "DelegateStackStxCommand_Err_Stacking_Permission_Denied_1",
@@ -943,7 +945,8 @@ export function ErrCommands(
             Number(this.amountUstx) <= stackerWallet.ustxBalance &&
             Number(this.amountUstx) >= model.stackingMinimum &&
             !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) &&
-            !(this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+            !(stackerWallet.delegatedUntilBurnHt === undefined ||
+              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
           ) {
             model.trackCommandRun(
               "DelegateStackStxCommand_Err_Stacking_Permission_Denied_2",
@@ -1740,7 +1743,8 @@ export function ErrCommands(
               stackerWallet.hasDelegated === true &&
               stackerWallet.isStacking === true &&
               stackerWallet.delegatedTo === this.operator.stxAddress &&
-              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              !(stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
               stackerWallet.delegatedMaxAmount >= stackedAmount &&
               operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
               operatorWallet.lockedAddresses.includes(
@@ -1822,7 +1826,8 @@ export function ErrCommands(
               stackerWallet.isStacking === true &&
               stackerWallet.isStackingSolo === true &&
               !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              !(stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
               !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
               !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
               !operatorWallet.lockedAddresses.includes(
@@ -1900,7 +1905,8 @@ export function ErrCommands(
               stackerWallet.hasDelegated === true &&
               !(stackerWallet.isStacking === true) &&
               !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              stackerWallet.delegatedUntilBurnHt >= newUnlockHeight &&
+              (stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
               stackerWallet.delegatedMaxAmount >= stackedAmount &&
               !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
               !operatorWallet.lockedAddresses.includes(
@@ -1961,7 +1967,8 @@ export function ErrCommands(
               !(stackerWallet.hasDelegated === true) &&
               stackerWallet.isStacking === true &&
               !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              !(stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
               !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
               !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
               operatorWallet.lockedAddresses.includes(
