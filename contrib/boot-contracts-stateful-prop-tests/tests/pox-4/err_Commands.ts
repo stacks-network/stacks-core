@@ -30,6 +30,7 @@ import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err
 import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
 import { StackStxAuthCommand_Err } from "./pox_StackStxAuthCommand_Err";
 import { StackStxSigCommand_Err } from "./pox_StackStxSigCommand_Err";
+import { DisallowContractCallerCommand_Err } from "./pox_DisallowContractCallerCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_INSUFFICIENT_FUNDS: 1,
@@ -2241,6 +2242,39 @@ export function ErrCommands(
             } else return false;
           },
           POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
+        ),
+    ),
+    // DisallowContractCallerCommand_Err
+    fc.record({
+      stacker: fc.constantFrom(...wallets.values()),
+      callerToDisallow: fc.constantFrom(...wallets.values()),
+    }).map(
+      (r: { stacker: Wallet; callerToDisallow: Wallet }) =>
+        new DisallowContractCallerCommand_Err(
+          r.stacker,
+          r.callerToDisallow,
+          function (
+            this: DisallowContractCallerCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const stacker = model.stackers.get(this.stacker.stxAddress)!;
+            const callerToDisallow = model.stackers.get(
+              this.callerToDisallow.stxAddress,
+            )!;
+            if (
+              !stacker.allowedContractCallers.includes(
+                this.callerToDisallow.stxAddress,
+              ) &&
+              !callerToDisallow.callerAllowedBy.includes(
+                  this.stacker.stxAddress,
+                ) === true
+            ) {
+              model.trackCommandRun(
+                "DisallowContractCallerCommand_Err",
+              );
+              return true;
+            } else return false;
+          },
         ),
     ),
   ];
