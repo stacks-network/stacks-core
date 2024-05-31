@@ -28,6 +28,7 @@ import { StackIncreaseSigCommand_Err } from "./pox_StackIncreaseSigCommand_Err";
 import { StackIncreaseAuthCommand_Err } from "./pox_StackIncreaseAuthCommand_Err";
 import { StackExtendSigCommand_Err } from "./pox_StackExtendSigCommand_Err";
 import { StackExtendAuthCommand_Err } from "./pox_StackExtendAuthCommand_Err";
+import { DelegateStackExtendCommand_Err } from "./pox_DelegateStackExtendCommand_Err";
 
 const POX_4_ERRORS = {
   ERR_STACKING_INSUFFICIENT_FUNDS: 1,
@@ -41,6 +42,7 @@ const POX_4_ERRORS = {
   ERR_DELEGATION_TOO_MUCH_LOCKED: 22,
   ERR_STACK_EXTEND_NOT_LOCKED: 26,
   ERR_STACKING_IS_DELEGATED: 30,
+  ERR_STACKING_NOT_DELEGATED: 31,
   ERR_DELEGATION_ALREADY_REVOKED: 34,
 };
 
@@ -1674,6 +1676,306 @@ export function ErrCommands(
             } else return false;
           },
           POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
+        ),
+    ),
+    // DelegateStackExtendCommand_Err_Stacking_Invalid_Lock_Period
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      extendCount: fc.constant(100000000000000),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+        currentCycle: fc.constant(currentCycle(network)),
+      }).map((additionalProps) => ({
+        ...r,
+        stacker: wallets.get(additionalProps.stacker)!,
+        currentCycle: additionalProps.currentCycle,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackExtendCommand_Err(
+          final.operator,
+          final.stacker,
+          final.extendCount,
+          final.currentCycle,
+          function (
+            this: DelegateStackExtendCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            const firstRewardCycle =
+              this.currentCycle > stackerWallet.firstLockedRewardCycle
+                ? this.currentCycle
+                : stackerWallet.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            const newUnlockHeight =
+              REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
+              FIRST_BURNCHAIN_BLOCK_HEIGHT;
+            const stackedAmount = stackerWallet.amountLocked;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              stackerWallet.hasDelegated === true &&
+              stackerWallet.isStacking === true &&
+              stackerWallet.delegatedTo === this.operator.stxAddress &&
+              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              stackerWallet.delegatedMaxAmount >= stackedAmount &&
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              operatorWallet.lockedAddresses.includes(
+                this.stacker.stxAddress,
+              ) &&
+              !(totalPeriod <= 12)
+            ) {
+              model.trackCommandRun(
+                "DelegateStackExtendCommand_Err_Stacking_Invalid_Lock_Period",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD,
+        ),
+    ),
+    // DelegateStackExtendCommand_Err_Stacking_Not_Delegated
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      extendCount: fc.integer({ min: 1, max: 11 }),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc
+        .record({
+          stacker: fc.constantFrom(...availableStackersOrFallback),
+          currentCycle: fc.constant(currentCycle(network)),
+        })
+        .map((additionalProps) => ({
+          ...r,
+          stacker: wallets.get(additionalProps.stacker)!,
+          currentCycle: additionalProps.currentCycle,
+        }));
+    }).map(
+      (final) =>
+        new DelegateStackExtendCommand_Err(
+          final.operator,
+          final.stacker,
+          final.extendCount,
+          final.currentCycle,
+          function (
+            this: DelegateStackExtendCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            const firstRewardCycle =
+              this.currentCycle > stackerWallet.firstLockedRewardCycle
+                ? this.currentCycle
+                : stackerWallet.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            const newUnlockHeight =
+              REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
+              FIRST_BURNCHAIN_BLOCK_HEIGHT;
+            const stackedAmount = stackerWallet.amountLocked;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              !(stackerWallet.hasDelegated === true) &&
+              stackerWallet.isStacking === true &&
+              stackerWallet.isStackingSolo === true &&
+              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
+              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              !operatorWallet.lockedAddresses.includes(
+                this.stacker.stxAddress,
+              ) &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "DelegateStackExtendCommand_Err_Stacking_Not_Delegated",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_NOT_DELEGATED,
+        ),
+    ),
+    // DelegateStackExtendCommand_Err_Stack_Extend_Not_Locked
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      extendCount: fc.integer({ min: 1, max: 11 }),
+    }).chain((r) => {
+      const operator = stackers.get(r.operator.stxAddress)!;
+      const delegatorsList = operator.poolMembers;
+      const availableStackers = delegatorsList.filter((delegator) => {
+        const delegatorWallet = stackers.get(delegator)!;
+        return delegatorWallet.unlockHeight > nextCycleFirstBlock(network);
+      });
+
+      const availableStackersOrFallback = availableStackers.length === 0
+        ? [r.operator.stxAddress]
+        : availableStackers;
+
+      return fc.record({
+        stacker: fc.constantFrom(...availableStackersOrFallback),
+        currentCycle: fc.constant(currentCycle(network)),
+      }).map((additionalProps) => ({
+        ...r,
+        stacker: wallets.get(additionalProps.stacker)!,
+        currentCycle: additionalProps.currentCycle,
+      }));
+    }).map(
+      (final) =>
+        new DelegateStackExtendCommand_Err(
+          final.operator,
+          final.stacker,
+          final.extendCount,
+          final.currentCycle,
+          function (
+            this: DelegateStackExtendCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            const firstRewardCycle =
+              this.currentCycle > stackerWallet.firstLockedRewardCycle
+                ? this.currentCycle
+                : stackerWallet.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            const newUnlockHeight =
+              REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
+              FIRST_BURNCHAIN_BLOCK_HEIGHT;
+            const stackedAmount = stackerWallet.amountLocked;
+            if (
+              !(stackerWallet.amountLocked > 0) &&
+              stackerWallet.hasDelegated === true &&
+              !(stackerWallet.isStacking === true) &&
+              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
+              stackerWallet.delegatedUntilBurnHt >= newUnlockHeight &&
+              stackerWallet.delegatedMaxAmount >= stackedAmount &&
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              !operatorWallet.lockedAddresses.includes(
+                this.stacker.stxAddress,
+              ) &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "DelegateStackExtendCommand_Err_Stack_Extend_Not_Locked",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
+        ),
+    ),
+    // DelegateStackExtendCommand_Err_Stacking_Permission_Denied
+    fc.record({
+      operator: fc.constantFrom(...wallets.values()),
+      extendCount: fc.integer({ min: 1, max: 11 }),
+      stacker: fc.constantFrom(...wallets.values()),
+      currentCycle: fc.constant(currentCycle(network)),
+    }).map(
+      (final) =>
+        new DelegateStackExtendCommand_Err(
+          final.operator,
+          final.stacker,
+          final.extendCount,
+          final.currentCycle,
+          function (
+            this: DelegateStackExtendCommand_Err,
+            model: Readonly<Stub>,
+          ): boolean {
+            const operatorWallet = model.stackers.get(
+              this.operator.stxAddress,
+            )!;
+            const stackerWallet = model.stackers.get(
+              this.stacker.stxAddress,
+            )!;
+
+            const firstRewardCycle =
+              this.currentCycle > stackerWallet.firstLockedRewardCycle
+                ? this.currentCycle
+                : stackerWallet.firstLockedRewardCycle;
+            const firstExtendCycle = Math.floor(
+              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+                REWARD_CYCLE_LENGTH,
+            );
+            const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
+            const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
+            const newUnlockHeight =
+              REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
+              FIRST_BURNCHAIN_BLOCK_HEIGHT;
+            const stackedAmount = stackerWallet.amountLocked;
+
+            if (
+              stackerWallet.amountLocked > 0 &&
+              !(stackerWallet.hasDelegated === true) &&
+              stackerWallet.isStacking === true &&
+              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
+              !(stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
+              !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              operatorWallet.lockedAddresses.includes(
+                this.stacker.stxAddress,
+              ) &&
+              totalPeriod <= 12
+            ) {
+              model.trackCommandRun(
+                "DelegateStackExtendCommand_Err_Stacking_Permission_Denied",
+              );
+              return true;
+            } else return false;
+          },
+          POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
         ),
     ),
   ];
