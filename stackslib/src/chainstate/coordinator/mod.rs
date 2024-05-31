@@ -752,6 +752,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 ) -> Result<Option<RewardCycleInfo>, Error> {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
         .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height));
+
     if !burnchain.is_reward_cycle_start(burn_height) {
         return Ok(None);
     }
@@ -3531,6 +3532,7 @@ impl SortitionDBMigrator {
             .pox_constants
             .reward_cycle_to_block_height(sort_db.first_block_height, reward_cycle)
             .saturating_sub(1);
+
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
 
         let ancestor_sn = {
