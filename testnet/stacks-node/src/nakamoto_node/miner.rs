@@ -300,7 +300,9 @@ impl BlockMinerThread {
             })?;
 
         let reward_info = match load_nakamoto_reward_set(
-            tip.block_height,
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle for sortition"),
             &tip.sortition_id,
             &self.burnchain,
             &mut chain_state,
@@ -402,7 +404,9 @@ impl BlockMinerThread {
             })?;
 
         let reward_info = match load_nakamoto_reward_set(
-            tip.block_height,
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle for sortition"),
             &tip.sortition_id,
             &self.burnchain,
             &mut chain_state,
@@ -883,7 +887,9 @@ impl BlockMinerThread {
             .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::DBError(e)))?;
 
         let reward_info = match load_nakamoto_reward_set(
-            tip.block_height,
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle defined for sortition tip"),
             &tip.sortition_id,
             &self.burnchain,
             &mut chain_state,

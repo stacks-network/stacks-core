@@ -5499,7 +5499,7 @@ impl PeerNetwork {
             }
 
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
-                rc_start_height,
+                rc,
                 &tip_sn.sortition_id,
                 &self.burnchain,
                 chainstate,

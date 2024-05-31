@@ -585,7 +585,7 @@ impl TestStacksNode {
             // Get the reward set
             let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let reward_set = load_nakamoto_reward_set(
-                sort_tip_sn.block_height,
+                miner.burnchain.pox_reward_cycle(sort_tip_sn.block_height).expect("FATAL: no reward cycle for sortition"),
                 &sort_tip_sn.sortition_id,
                 &miner.burnchain,
                 chainstate,

@@ -375,7 +375,9 @@ pub fn read_and_sign_block_proposal(
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     let reward_set = load_nakamoto_reward_set(
-        tip.block_height,
+        burnchain
+            .pox_reward_cycle(tip.block_height.saturating_add(1))
+            .unwrap(),
         &tip.sortition_id,
         &burnchain,
         &mut chainstate,
