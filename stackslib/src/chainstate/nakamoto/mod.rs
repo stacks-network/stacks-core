@@ -516,10 +516,9 @@ impl NakamotoBlockHeader {
         // `last_index` is used to prevent out-of-order signatures
         let mut last_index = None;
 
-        let total_weight = signers.iter().map(|s| s.weight).fold(0, |w, acc| {
-            acc.checked_add(w)
-                .expect("FATAL: Total signer weight > u32::MAX")
-        });
+        let total_weight = reward_set
+            .total_signing_weight()
+            .map_err(|_| ChainstateError::NoRegisteredSigners(0))?;
 
         // HashMap of <PublicKey, (Signer, Index)>
         let signers_by_pk: HashMap<_, _> = signers
