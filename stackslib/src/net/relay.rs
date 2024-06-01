@@ -730,7 +730,9 @@ impl Relayer {
         let tip = block_sn.sortition_id;
 
         let reward_info = match load_nakamoto_reward_set(
-            burnchain.pox_reward_cycle(block_sn.block_height).expect("FATAL: block snapshot has no reward cycle"),
+            burnchain
+                .pox_reward_cycle(block_sn.block_height)
+                .expect("FATAL: block snapshot has no reward cycle"),
             &tip,
             burnchain,
             chainstate,

@@ -296,9 +296,14 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let prepare_end_height = burnchain
         .reward_cycle_to_block_height(reward_cycle)
         .saturating_sub(1);
-    
+
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_end_height)?
-        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", prepare_end_height));
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no epoch defined for burn height {}",
+                prepare_end_height
+            )
+        });
 
     let Some(prepare_end_sortition_id) =
         get_ancestor_sort_id(&sort_db.index_conn(), prepare_end_height, sortition_tip)?
@@ -317,7 +322,10 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
         .pox_reward_cycle(epoch_at_height.start_height)
         .expect("FATAL: no reward cycle for epoch 3.0 start height");
 
-    if !epoch_at_height.epoch_id.uses_nakamoto_reward_set(reward_cycle, first_epoch30_reward_cycle) {
+    if !epoch_at_height
+        .epoch_id
+        .uses_nakamoto_reward_set(reward_cycle, first_epoch30_reward_cycle)
+    {
         // in epoch 2.5, and in the first reward cycle of epoch 3.0, the reward set can *only* be found in the sortition DB.
         // The nakamoto chain-processing rules aren't active yet, so we can't look for the reward
         // cycle info in the nakamoto chain state.
@@ -484,22 +492,25 @@ pub fn get_nakamoto_next_recipients(
     chain_state: &mut StacksChainState,
     burnchain: &Burnchain,
 ) -> Result<Option<RewardSetInfo>, Error> {
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(sortition_tip.block_height.saturating_add(1)) {
-        let Some((reward_set, _)) = load_nakamoto_reward_set(
-            burnchain.pox_reward_cycle(sortition_tip.block_height.saturating_add(1)).expect("Sortition block height has no reward cycle"),
-            &sortition_tip.sortition_id,
-            burnchain,
-            chain_state,
-            sort_db,
-            &OnChainRewardSetProvider::new(),
-        )?
-        else {
-            return Ok(None);
+    let reward_cycle_info =
+        if burnchain.is_reward_cycle_start(sortition_tip.block_height.saturating_add(1)) {
+            let Some((reward_set, _)) = load_nakamoto_reward_set(
+                burnchain
+                    .pox_reward_cycle(sortition_tip.block_height.saturating_add(1))
+                    .expect("Sortition block height has no reward cycle"),
+                &sortition_tip.sortition_id,
+                burnchain,
+                chain_state,
+                sort_db,
+                &OnChainRewardSetProvider::new(),
+            )?
+            else {
+                return Ok(None);
+            };
+            Some(reward_set)
+        } else {
+            None
         };
-        Some(reward_set)
-    } else {
-        None
-    };
     sort_db
         .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
         .map_err(Error::from)
@@ -558,7 +569,9 @@ impl<
 
         // only proceed if we have processed the _anchor block_ for this reward cycle
         let Some((rc_info, _)) = load_nakamoto_reward_set(
-            self.burnchain.pox_reward_cycle(canonical_sn.block_height).expect("FATAL: snapshot has no reward cycle"),
+            self.burnchain
+                .pox_reward_cycle(canonical_sn.block_height)
+                .expect("FATAL: snapshot has no reward cycle"),
             &canonical_sn.sortition_id,
             &self.burnchain,
             &mut self.chain_state_db,
@@ -814,7 +827,9 @@ impl<
                 )?
                 .ok_or(DBError::NotFoundError)?;
                 let Some((rc_info, _)) = load_nakamoto_reward_set(
-                    self.burnchain.pox_reward_cycle(canonical_sn.block_height).expect("FATAL: snapshot has no reward cycle"),
+                    self.burnchain
+                        .pox_reward_cycle(canonical_sn.block_height)
+                        .expect("FATAL: snapshot has no reward cycle"),
                     &canonical_sn.sortition_id,
                     &self.burnchain,
                     &mut self.chain_state_db,

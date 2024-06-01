@@ -156,7 +156,11 @@ impl StacksEpochId {
     /// We use the epoch2 reward set in all pre-3.0 epochs.
     /// We also use the epoch2 reward set in the first 3.0 reward cycle.
     /// After that, we use the nakamoto reward set.
-    pub fn uses_nakamoto_reward_set(&self, cur_reward_cycle: u64, first_epoch30_reward_cycle: u64) -> bool {
+    pub fn uses_nakamoto_reward_set(
+        &self,
+        cur_reward_cycle: u64,
+        first_epoch30_reward_cycle: u64,
+    ) -> bool {
         match self {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -166,7 +170,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle
+            StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
     }
 }
