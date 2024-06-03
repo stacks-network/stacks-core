@@ -3457,8 +3457,10 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Wrapper around SortitionDBConn::get_prepare_phase_end_sortition_id_for_reward_cycle().
-    /// See that method for details.
+    /// Get the prepare phase end sortition ID of a reward cycle.  This is the last prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
+    /// Wrapper around SortitionDBConn::get_prepare_phase_end_sortition_id_for_reward_ccyle()
     pub fn get_prepare_phase_end_sortition_id_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3473,8 +3475,10 @@ impl SortitionDB {
             )
     }
 
+    /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
     /// Wrapper around SortitionDBConn::get_prepare_phase_start_sortition_id_for_reward_cycle().
-    /// See that method for details.
     pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3489,8 +3493,11 @@ impl SortitionDB {
             )
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    /// reward set (if it exists) for the active reward cycle during `tip`.
+    /// Returns the reward cycle info on success.
+    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
     /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_for_reward_cycle().
-    /// See that method for details.
     pub fn get_preprocessed_reward_set_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3505,8 +3512,11 @@ impl SortitionDB {
             )
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    /// reward set (if it exists) for the active reward cycle during `tip`.
+    /// Returns the reward cycle info on success.
+    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
     /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_of().
-    /// See that method for details.
     pub fn get_preprocessed_reward_set_of(
         &self,
         tip: &SortitionId,
