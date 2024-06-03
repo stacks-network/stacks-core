@@ -915,10 +915,22 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     // Does not consume blocks beyond the highest processed block ID
     {
         let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
-        utd.confirmed_aggregate_public_key =
-            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
-        utd.unconfirmed_aggregate_public_key =
-            Some(agg_pubkeys.get(&tip_rc).cloned().unwrap().unwrap());
+        utd.confirmed_signer_keys = Some(
+            current_reward_sets
+                .get(&tip_rc)
+                .cloned()
+                .unwrap()
+                .known_selected_anchor_block_owned()
+                .unwrap(),
+        );
+        utd.unconfirmed_signer_keys = Some(
+            current_reward_sets
+                .get(&tip_rc)
+                .cloned()
+                .unwrap()
+                .known_selected_anchor_block_owned()
+                .unwrap(),
+        );
 
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
 
@@ -945,7 +957,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             &sort_tip,
             peer.chainstate(),
             tenure_tip.clone(),
-            &agg_pubkeys,
+            &current_reward_sets,
         )
         .unwrap();
 

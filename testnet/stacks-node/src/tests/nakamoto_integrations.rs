@@ -3938,7 +3938,7 @@ fn nakamoto_attempt_time() {
         return;
     }
 
-    let signers = TestSigners::default();
+    let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     naka_conf.connection_options.block_proposal_token = Some(password.clone());
@@ -4019,7 +4019,7 @@ fn nakamoto_attempt_time() {
         &blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
-        Some(&signers),
+        &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
