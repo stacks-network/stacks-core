@@ -76,9 +76,14 @@ export class Stub {
 
         // Get the wallet's ex-delegators by comparing their delegatedUntilBurnHt
         // to the current burn block height (only if the wallet is a delegatee).
-        const expiredDelegators = wallet.poolMembers.filter((stackerAddress) =>
-          this.stackers.get(stackerAddress)!.delegatedUntilBurnHt <
-            burnBlockHeight
+        // If the delegatedUntilBurnHt is undefined, the delegator is considered
+        // active for an indefinite period (until a revoke-delegate-stx call).
+        const expiredDelegators = wallet.poolMembers.filter(
+          (stackerAddress) =>
+            this.stackers.get(stackerAddress)!.delegatedUntilBurnHt !==
+              undefined &&
+            this.stackers.get(stackerAddress)!.delegatedUntilBurnHt as number <
+              burnBlockHeight,
         );
 
         // Get the operator's pool stackers that no longer have partially commited
@@ -180,13 +185,13 @@ export type Stacker = {
   poolMembers: StxAddress[];
   delegatedTo: StxAddress;
   delegatedMaxAmount: number;
-  delegatedUntilBurnHt: number;
+  delegatedUntilBurnHt: number | undefined;
   delegatedPoxAddress: BtcAddress;
   amountLocked: number;
   amountUnlocked: number;
   unlockHeight: number;
   firstLockedRewardCycle: number;
-  allowedContractCaller: StxAddress;
+  allowedContractCallers: StxAddress[];
   callerAllowedBy: StxAddress[];
   committedRewCycleIndexes: number[];
 };

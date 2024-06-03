@@ -248,8 +248,6 @@ impl InvGenerator {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct NakamotoTenureInv {
-    /// What state is the machine in?
-    pub state: NakamotoInvState,
     /// Bitmap of which tenures a peer has.
     /// Maps reward cycle to bitmap.
     pub tenures_inv: BTreeMap<u64, BitVec<2100>>,
@@ -280,7 +278,6 @@ impl NakamotoTenureInv {
         neighbor_address: NeighborAddress,
     ) -> Self {
         Self {
-            state: NakamotoInvState::GetNakamotoInvBegin,
             tenures_inv: BTreeMap::new(),
             last_updated_at: 0,
             first_block_height,
@@ -336,7 +333,8 @@ impl NakamotoTenureInv {
 
     /// Add in a newly-discovered inventory.
     /// NOTE: inventories are supposed to be aligned to the reward cycle
-    /// Returns true if we learned about at least one new tenure-start block
+    /// Returns true if the tenure bitvec has changed -- we either learned about a new tenure-start
+    /// block, or the remote peer "un-learned" it (e.g. due to a reorg).
     /// Returns false if not.
     pub fn merge_tenure_inv(&mut self, tenure_inv: BitVec<2100>, reward_cycle: u64) -> bool {
         // populate the tenures bitmap to we can fit this tenures inv
@@ -368,7 +366,6 @@ impl NakamotoTenureInv {
             && (self.cur_reward_cycle >= cur_rc || !self.online)
         {
             test_debug!("Reset inv comms for {}", &self.neighbor_address);
-            self.state = NakamotoInvState::GetNakamotoInvBegin;
             self.online = true;
             self.start_sync_time = now;
             self.cur_reward_cycle = start_rc;
@@ -473,13 +470,6 @@ impl NakamotoTenureInv {
             }
         }
     }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum NakamotoInvState {
-    GetNakamotoInvBegin,
-    GetNakamotoInvFinish,
-    Done,
 }
 
 /// Nakamoto inventory state machine
