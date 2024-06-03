@@ -22,7 +22,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash,
 };
 use crate::util::hash::{Hash160, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
+use crate::util::secp256k1::{MessageSignature, SchnorrSignature};
 use crate::util::vrf::VRFProof;
 
 impl FromSql for Sha256dHash {
