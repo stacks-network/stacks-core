@@ -67,8 +67,8 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 ///   these different contexts can be mixed and matched (i.e., in a contract-call, you change
 ///   contract context), a single "invocation" will end up creating multiple environment
 ///   objects as context changes occur.
-pub struct Environment<'a, 'b> {
-    pub global_context: &'a mut GlobalContext<'b>,
+pub struct Environment<'a, 'b, 'hooks> {
+    pub global_context: &'a mut GlobalContext<'b, 'hooks>,
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
     pub sender: Option<PrincipalData>,
@@ -194,7 +194,7 @@ pub struct EventBatch {
      and is responsible for committing/rolling-back transactions as they error or
      abort.
 */
-pub struct GlobalContext<'a> {
+pub struct GlobalContext<'a, 'hooks> {
     asset_maps: Vec<AssetMap>,
     pub event_batches: Vec<EventBatch>,
     pub database: ClarityDatabase<'a>,
@@ -205,7 +205,7 @@ pub struct GlobalContext<'a> {
     pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
-    pub eval_hooks: Option<Vec<&'a mut dyn EvalHook>>,
+    pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -505,9 +505,9 @@ impl EventBatch {
     }
 }
 
-impl<'a> OwnedEnvironment<'a> {
+impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a> {
+    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, '_> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -521,7 +521,7 @@ impl<'a> OwnedEnvironment<'a> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, '_> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
@@ -548,7 +548,7 @@ impl<'a> OwnedEnvironment<'a> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a> {
+    ) -> OwnedEnvironment<'a, '_> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
@@ -565,7 +565,7 @@ impl<'a> OwnedEnvironment<'a> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a> {
+    ) -> OwnedEnvironment<'a, '_> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -584,7 +584,7 @@ impl<'a> OwnedEnvironment<'a> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a> {
+    ) -> OwnedEnvironment<'a, '_> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -596,7 +596,7 @@ impl<'a> OwnedEnvironment<'a> {
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
         context: &'b mut ContractContext,
-    ) -> Environment<'b, 'a> {
+    ) -> Environment<'b, 'a, 'hooks> {
         Environment::new(
             &mut self.context,
             context,
@@ -663,7 +663,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    #[cfg(feature = "sqlite")]
+    #[cfg(feature = "canonical")]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -825,7 +825,7 @@ impl<'a> OwnedEnvironment<'a> {
         self.context.destruct()
     }
 
-    pub fn add_eval_hook(&mut self, hook: &'a mut dyn EvalHook) {
+    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
         if let Some(mut hooks) = self.context.eval_hooks.take() {
             hooks.push(hook);
             self.context.eval_hooks = Some(hooks);
@@ -835,7 +835,7 @@ impl<'a> OwnedEnvironment<'a> {
     }
 }
 
-impl CostTracker for Environment<'_, '_> {
+impl CostTracker for Environment<'_, '_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -869,7 +869,7 @@ impl CostTracker for Environment<'_, '_> {
     }
 }
 
-impl CostTracker for GlobalContext<'_> {
+impl CostTracker for GlobalContext<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -901,20 +901,20 @@ impl CostTracker for GlobalContext<'_> {
     }
 }
 
-impl<'a, 'b> Environment<'a, 'b> {
+impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
     ///
     /// # Panics
     /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
     /// (Optional Principal) are incorrect.
     pub fn new(
-        global_context: &'a mut GlobalContext<'b>,
+        global_context: &'a mut GlobalContext<'b, 'hooks>,
         contract_context: &'a ContractContext,
         call_stack: &'a mut CallStack,
         sender: Option<PrincipalData>,
         caller: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-    ) -> Environment<'a, 'b> {
+    ) -> Environment<'a, 'b, 'hooks> {
         Environment {
             global_context,
             contract_context,
@@ -926,7 +926,10 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 
     /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
-    pub fn nest_as_principal<'c>(&'c mut self, sender: PrincipalData) -> Environment<'c, 'b> {
+    pub fn nest_as_principal<'c>(
+        &'c mut self,
+        sender: PrincipalData,
+    ) -> Environment<'c, 'b, 'hooks> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -937,7 +940,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         )
     }
 
-    pub fn nest_with_caller<'c>(&'c mut self, caller: PrincipalData) -> Environment<'c, 'b> {
+    pub fn nest_with_caller<'c>(
+        &'c mut self,
+        caller: PrincipalData,
+    ) -> Environment<'c, 'b, 'hooks> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -1320,7 +1326,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// This function should only be used for testing and the CLI interface.
     /// Normal execution reaches the `initialize_contract_from_ast` method
     /// below.
-    #[cfg(feature = "sqlite")]
+    #[cfg(feature = "canonical")]
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -1644,7 +1650,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 }
 
-impl<'a> GlobalContext<'a> {
+impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     // Instantiate a new Global Context
     pub fn new(
         mainnet: bool,

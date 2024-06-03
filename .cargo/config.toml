@@ -24,4 +24,4 @@ fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity
 # stacks-signer = { path = "stacks-signer" }
 
 # [patch.'https://github.com/stacks-network/clarity-wasm.git']
-# clar2wasm = { package = "clar2wasm", path = "../clar2wasm/." }
+# clar2wasm = { path = "../clarity-wasm/clar2wasm" }

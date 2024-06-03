@@ -21,7 +21,7 @@ use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
 use libsigner::BlockProposal;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;

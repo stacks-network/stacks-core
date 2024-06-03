@@ -238,7 +238,7 @@ fn test_get_block_info_eval_v210() {
     sim.execute_next_block_as_conn(|conn| {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-3").unwrap();
         let contract =
-            "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height)) 
+            "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height))
              (define-private (test-func-2 (height uint)) (get-block-info? miner-spend-winner height))
              (define-private (test-func-3 (height uint)) (get-block-info? miner-spend-total height))";
         let epoch = conn.get_epoch();
@@ -268,7 +268,7 @@ fn test_get_block_info_eval_v210() {
             tx.eval_read_only(&contract_identifier, "(test-func-3 u0)")
                 .unwrap()
         );
-        // only works at the first block and later (not the 0th block) 
+        // only works at the first block and later (not the 0th block)
         assert_eq!(
             Value::some(Value::UInt(3000)).unwrap(),
             tx.eval_read_only(&contract_identifier, "(test-func-1 u1)")
@@ -928,7 +928,7 @@ fn test_block_heights() {
         // Check both contracts in Clarity 1, publish the Clarity 1 contract
         conn.as_transaction(|clarity_db| {
             // analyze the contracts as Clarity 1
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier1,
                 ClarityVersion::Clarity1,
                 &contract_clarity1,
@@ -956,7 +956,8 @@ fn test_block_heights() {
                 .initialize_smart_contract(
                     &contract_identifier1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_clarity1,
                     None,
                     |_, _| false,
@@ -1003,7 +1004,7 @@ fn test_block_heights() {
                 panic!("Bad analysis result: {:?}", &res);
             }
 
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier2,
                 ClarityVersion::Clarity3,
                 &contract_clarity3,
@@ -1015,7 +1016,8 @@ fn test_block_heights() {
                 .initialize_smart_contract(
                     &contract_identifier2,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_clarity3,
                     None,
                     |_, _| false,
@@ -1168,7 +1170,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1185,7 +1187,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1198,7 +1201,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1215,7 +1218,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1233,7 +1237,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
@@ -1247,7 +1251,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| false,
@@ -1301,7 +1306,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1315,7 +1320,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1328,7 +1334,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1342,7 +1348,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1360,7 +1367,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
@@ -1374,7 +1381,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| false,
@@ -1445,7 +1453,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1459,7 +1467,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1472,7 +1481,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1486,7 +1495,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| false,
@@ -1504,7 +1514,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
@@ -1518,7 +1528,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| false,
@@ -1580,7 +1591,7 @@ fn test_block_heights_at_block() {
 
         conn.as_transaction(|clarity_db| {
             // Analyze the contract
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 ClarityVersion::Clarity3,
                 &contract,
@@ -1592,7 +1603,8 @@ fn test_block_heights_at_block() {
                 .initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract,
                     None,
                     |_, _| false,

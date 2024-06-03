@@ -41,7 +41,7 @@ pub extern crate rstest_reuse;
 #[macro_use]
 extern crate stacks_common;
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 pub extern crate rusqlite;
 
 pub use stacks_common::address::{
