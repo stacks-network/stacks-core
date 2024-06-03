@@ -573,13 +573,10 @@ impl<
 
         loop {
             // process at most one block per loop pass
-            let mut sortdb_handle = self
-                .sortition_db
-                .tx_handle_begin(&canonical_sortition_tip)?;
-
             let mut processed_block_receipt = match NakamotoChainState::process_next_nakamoto_block(
                 &mut self.chain_state_db,
-                &mut sortdb_handle,
+                &mut self.sortition_db,
+                &canonical_sortition_tip,
                 self.dispatcher,
             ) {
                 Ok(receipt_opt) => receipt_opt,
@@ -605,8 +602,6 @@ impl<
                     return Err(e.into());
                 }
             };
-
-            sortdb_handle.commit()?;
 
             let Some(block_receipt) = processed_block_receipt.take() else {
                 // out of blocks

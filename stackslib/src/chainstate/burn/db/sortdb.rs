@@ -2677,17 +2677,10 @@ impl SortitionDB {
         // if its a nakamoto block, we want to use the burnchain view of the block
         let burn_view = match &header.anchored_header {
             StacksBlockHeaderTypes::Epoch2(_) => header.consensus_hash,
-            StacksBlockHeaderTypes::Nakamoto(_) => {
-                NakamotoChainState::get_tenure_for_block(chainstate.db(), &header)
-                    .map_err(|e| {
-                        warn!(
-                            "Failed to get tenure for block header: {:?}", e;
-                            "block_id" => %stacks_block_id,
-                        );
-                        db_error::NotFoundError
-                    })?
-                    .burn_view_consensus_hash
-            }
+            StacksBlockHeaderTypes::Nakamoto(_) => header.burn_view.ok_or_else(|| {
+                error!("Loaded nakamoto block header without a burn view"; "block_id" => %stacks_block_id);
+                db_error::Other("Nakamoto block header without burn view".into())
+            })?,
         };
 
         let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &burn_view)?
