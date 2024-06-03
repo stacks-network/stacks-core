@@ -4717,7 +4717,7 @@ fn signer_chainstate() {
         let timer = Instant::now();
         while proposals_submitted.load(Ordering::SeqCst) <= before {
             thread::sleep(Duration::from_millis(5));
-            if timer.elapsed() > Duration::from_secs(20) {
+            if timer.elapsed() > Duration::from_secs(30) {
                 panic!("Timed out waiting for nakamoto miner to produce intermediate block");
             }
         }

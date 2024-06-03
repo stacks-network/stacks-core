@@ -44,7 +44,7 @@ use stacks::net::db::LocalPeer;
 use stacks::net::relay::Relayer;
 use stacks::net::NetworkResult;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksPublicKey, VRFSeed,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
@@ -507,6 +507,7 @@ impl RelayerThread {
             .get_active()
             .ok_or_else(|| NakamotoNodeError::NoVRFKeyActive)?;
         let op = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn,
             block_header_hash: BlockHeaderHash(parent_block_id.0),
             burn_fee: rest_commit,

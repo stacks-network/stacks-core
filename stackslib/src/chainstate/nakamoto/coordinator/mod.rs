@@ -90,6 +90,20 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
+        self.read_reward_set_nakamoto_of_cycle(cycle, chainstate, sortdb, block_id, debug_log)
+    }
+    /// Read a reward_set written while updating .signers at a given cycle_id
+    /// `debug_log` should be set to true if the reward set loading should
+    ///  log messages as `debug!` instead of `error!` or `info!`. This allows
+    ///  RPC endpoints to expose this without flooding loggers.
+    pub fn read_reward_set_nakamoto_of_cycle(
+        &self,
+        cycle: u64,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        debug_log: bool,
+    ) -> Result<RewardSet, Error> {
         // figure out the block ID
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(

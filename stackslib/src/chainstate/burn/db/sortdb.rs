@@ -279,6 +279,14 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
 
+        let punished_str: Option<String> = row.get_unwrap("punished");
+        let punished = punished_str
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|e| db_error::SerializationError(e))?
+            .unwrap_or_else(|| vec![]);
+
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
             new_seed,
@@ -298,6 +306,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             vtxindex,
             block_height,
             burn_header_hash,
+            punished,
         };
         Ok(block_commit)
     }
@@ -505,7 +514,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "8";
+pub const SORTITION_DB_VERSION: &'static str = "9";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -740,6 +749,9 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         PRIMARY KEY(txid,burn_header_hash)
     );"#,
 ];
+
+static SORTITION_DB_SCHEMA_9: &[&'static str] =
+    &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 
 const LAST_SORTITION_DB_INDEX: &'static str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
@@ -1558,6 +1570,11 @@ impl<'a> SortitionHandleTx<'a> {
         reward_set_vrf_seed: &SortitionHash,
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        let allow_nakamoto_punishment = SortitionDB::get_stacks_epoch(self.sqlite(), block_height)?
+            .ok_or_else(|| BurnchainError::NoStacksEpoch)?
+            .epoch_id
+            .allows_pox_punishment();
+
         if let Some(next_pox_info) = next_pox_info {
             if let PoxAnchorBlockStatus::SelectedAndKnown(
                 ref anchor_block,
@@ -1606,6 +1623,7 @@ impl<'a> SortitionHandleTx<'a> {
                             (recipient, u16::try_from(ix).unwrap())
                         })
                         .collect(),
+                    allow_nakamoto_punishment,
                 }))
             } else {
                 test_debug!(
@@ -1640,6 +1658,7 @@ impl<'a> SortitionHandleTx<'a> {
                     Ok(Some(RewardSetInfo {
                         anchor_block,
                         recipients,
+                        allow_nakamoto_punishment,
                     }))
                 }
             } else {
@@ -2795,6 +2814,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8_tables(&db_tx, epochs_ref)?;
+        SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -3030,75 +3050,20 @@ impl SortitionDB {
 
     /// Is a particular database version supported by a given epoch?
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
+        let version_u32: u32 = version.parse().unwrap_or_else(|e| {
+            error!("Failed to parse sortdb version as u32: {e}");
+            0
+        });
         match epoch {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => {
-                version == "1"
-                    || version == "2"
-                    || version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch2_05 => {
-                version == "2"
-                    || version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch21 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch22 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch23 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch24 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch25 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
-            StacksEpochId::Epoch30 => {
-                version == "3"
-                    || version == "4"
-                    || version == "5"
-                    || version == "6"
-                    || version == "7"
-                    || version == "8"
-            }
+            StacksEpochId::Epoch20 => version_u32 >= 1,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2,
+            StacksEpochId::Epoch21 => version_u32 >= 3,
+            StacksEpochId::Epoch22 => version_u32 >= 3,
+            StacksEpochId::Epoch23 => version_u32 >= 3,
+            StacksEpochId::Epoch24 => version_u32 >= 3,
+            StacksEpochId::Epoch25 => version_u32 >= 3,
+            StacksEpochId::Epoch30 => version_u32 >= 3,
         }
     }
 
@@ -3338,6 +3303,22 @@ impl SortitionDB {
         Ok(())
     }
 
+    #[cfg_attr(test, mutants::skip)]
+    fn apply_schema_9(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_9 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["9"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3398,6 +3379,10 @@ impl SortitionDB {
                         tx.commit()?;
 
                         self.apply_schema_8_migration(migrator.take())?;
+                    } else if version == "8" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_9(&tx.deref(), epochs)?;
+                        tx.commit()?;
                     } else if version == expected_version {
                         let tx = self.tx_begin()?;
                         SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
@@ -5756,10 +5741,11 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.sunset_burn.to_string(),
             &apparent_sender_str,
             &block_commit.burn_parent_modulus,
+            &serde_json::to_string(&block_commit.punished).unwrap(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)?;
 
         let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
 
@@ -7151,6 +7137,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+            punished: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -7869,6 +7856,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+            punished: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -10085,6 +10073,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+            punished: vec![],
         };
 
         // descends from genesis
@@ -10127,6 +10116,7 @@ pub mod tests {
             block_height: block_height + 3,
             burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x04; 32]),
+            punished: vec![],
         };
 
         // descends from block_commit_1
@@ -10169,6 +10159,7 @@ pub mod tests {
             block_height: block_height + 4,
             burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x05; 32]),
+            punished: vec![],
         };
 
         // descends from genesis_block_commit
@@ -10211,6 +10202,7 @@ pub mod tests {
             block_height: block_height + 5,
             burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x06; 32]),
+            punished: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();

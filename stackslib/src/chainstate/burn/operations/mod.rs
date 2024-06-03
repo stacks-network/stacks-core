@@ -27,6 +27,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
+use self::leader_block_commit::Treatment;
 use crate::burnchains::{
     Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
     BurnchainTransaction, Error as BurnchainError, PublicKey, Txid,
@@ -242,6 +243,13 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<PoxAddress>,
+
+    /// If this block commit punished one or both of its PoX recipients,
+    /// they will be in this vector.
+    ///
+    /// This value is set by the check() call.
+    pub punished: Vec<Treatment>,
+
     // PoX sunset burn
     pub sunset_burn: u64,
 

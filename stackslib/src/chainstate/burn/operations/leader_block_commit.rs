@@ -59,6 +59,33 @@ struct ParsedData {
     memo: u8,
 }
 
+/// This struct captures how a particular
+/// PoxAddress was treated by a given block commit.
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum Treatment {
+    Reward(PoxAddress),
+    Punish(PoxAddress),
+}
+
+impl Treatment {
+    pub fn is_reward(&self) -> bool {
+        matches!(self, Treatment::Reward(_))
+    }
+    pub fn is_punish(&self) -> bool {
+        matches!(self, Treatment::Punish(_))
+    }
+}
+
+impl std::ops::Deref for Treatment {
+    type Target = PoxAddress;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Treatment::Reward(ref a) | Treatment::Punish(ref a) => a,
+        }
+    }
+}
+
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
@@ -100,6 +127,7 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
+            punished: vec![],
         }
     }
 
@@ -138,6 +166,7 @@ impl LeaderBlockCommitOp {
                 - 1,
 
             burn_header_hash: BurnchainHeaderHash::zero(),
+            punished: vec![],
         }
     }
 
@@ -425,6 +454,7 @@ impl LeaderBlockCommitOp {
             input,
             apparent_sender,
 
+            punished: Vec::new(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height: block_height,
@@ -488,6 +518,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(PoxAddress, u16)>,
+    pub allow_nakamoto_punishment: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -518,8 +549,18 @@ impl RewardSetInfo {
             .get_reward_set_payouts_at(&intended_sortition)
             .map_err(|_e| op_error::BlockCommitBadOutputs)?
             .0;
+        let block_height = SortitionDB::get_block_snapshot(tx.tx(), intended_sortition)
+            .map_err(|_e| op_error::BlockCommitBadOutputs)?
+            .ok_or_else(|| op_error::BlockCommitBadOutputs)?
+            .block_height;
+        let allow_nakamoto_punishment = SortitionDB::get_stacks_epoch(tx.sqlite(), block_height)
+            .map_err(|_e| op_error::BlockCommitBadOutputs)?
+            .ok_or_else(|| op_error::BlockCommitBadOutputs)?
+            .epoch_id
+            .allows_pox_punishment();
 
         Ok(tx.get_last_anchor_block_hash()?.map(|bhh| RewardSetInfo {
+            allow_nakamoto_punishment,
             anchor_block: bhh,
             recipients: intended_recipients
                 .into_iter()
@@ -563,7 +604,7 @@ impl LeaderBlockCommitOp {
         burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
         reward_set_info: Option<&RewardSetInfo>,
-    ) -> Result<(), op_error> {
+    ) -> Result<Vec<Treatment>, op_error> {
         let parent_block_height = u64::from(self.parent_block_ptr);
 
         if PoxConstants::has_pox_sunset(epoch_id) {
@@ -595,110 +636,155 @@ impl LeaderBlockCommitOp {
         //       the commit outputs must = the expected set of commit outputs.
         //    * otherwise, the commit outputs must be burn outputs.
         /////////////////////////////////////////////////////////////////////////////////////
-        if let Some(reward_set_info) = reward_set_info {
-            // we do some check-inversion here so that we check the commit_outs _before_
-            //   we check whether or not the block is descended from the anchor.
-            // we do this because the descended_from check isn't particularly cheap, so
-            //   we want to make sure that any TX that forces us to perform the check
-            //   has either burned BTC or sent BTC to the PoX recipients
-
-            // if we're in the prepare phase, then this block-commit _must_ burn.
-            // No PoX descent check needs to be performed -- prepare-phase block commits
-            // stand alone.
-            if burnchain.is_in_prepare_phase(self.block_height) {
-                if let Err(e) = self.check_prepare_commit_burn() {
-                    warn!("Invalid block commit: in block {} which is in the prepare phase, but did not burn to a single output as expected ({:?})", self.block_height, &e);
-                    return Err(op_error::BlockCommitBadOutputs);
-                }
-            } else {
-                // Not in prepare phase, so this can be either PoB or PoX (a descent check from the
-                // anchor block will be necessary if the block-commit is well-formed).
-                //
-                // first, handle a corner case:
-                //    all of the commitment outputs are _burns_
-                //    _and_ the reward set chose two burn addresses as reward addresses.
-                // then, don't need to do a pox descendant check.
-                let recipient_set_all_burns = reward_set_info
-                    .recipients
-                    .iter()
-                    .fold(true, |prior_is_burn, (addr, ..)| {
-                        prior_is_burn && addr.is_burn()
-                    });
-
-                if recipient_set_all_burns {
-                    if !self.all_outputs_burn() {
-                        warn!("Invalid block commit: recipient set should be all burns");
-                        return Err(op_error::BlockCommitBadOutputs);
-                    }
-                } else {
-                    let expect_pox_descendant = if self.all_outputs_burn() {
-                        false
-                    } else {
-                        let mut check_recipients: Vec<_> = reward_set_info
-                            .recipients
-                            .iter()
-                            .map(|(addr, ..)| addr.clone())
-                            .collect();
-
-                        if check_recipients.len() == 1 {
-                            // If the number of recipients in the set was odd, we need to pad
-                            // with a burn address.
-                            // NOTE: this used the old burnchain.is_mainnet() code, which always
-                            // returns false
-                            check_recipients.push(PoxAddress::standard_burn_address(false))
-                        }
-
-                        if self.commit_outs.len() != check_recipients.len() {
-                            warn!(
-                                "Invalid block commit: expected {} PoX transfers, but commit has {}",
-                                reward_set_info.recipients.len(),
-                                self.commit_outs.len()
-                            );
-                            return Err(op_error::BlockCommitBadOutputs);
-                        }
-
-                        // sort check_recipients and commit_outs so that we can perform an
-                        //  iterative equality check
-                        check_recipients.sort();
-                        let mut commit_outs = self.commit_outs.clone();
-                        commit_outs.sort();
-                        for (found_commit, expected_commit) in
-                            commit_outs.iter().zip(check_recipients)
-                        {
-                            if expected_commit.to_burnchain_repr()
-                                != found_commit.to_burnchain_repr()
-                            {
-                                warn!("Invalid block commit: committed output {} does not match expected {}",
-                                      found_commit.to_burnchain_repr(), expected_commit.to_burnchain_repr());
-                                return Err(op_error::BlockCommitBadOutputs);
-                            }
-                        }
-                        true
-                    };
-
-                    let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
-                        .map_err(|e| {
-                            error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
-                                   parent_block_height, &reward_set_info.anchor_block, e);
-                            op_error::BlockCommitAnchorCheck})?;
-                    if descended_from_anchor != expect_pox_descendant {
-                        if descended_from_anchor {
-                            warn!("Invalid block commit: descended from PoX anchor {}, but used burn outputs", &reward_set_info.anchor_block);
-                        } else {
-                            warn!("Invalid block commit: not descended from PoX anchor {}, but used PoX outputs", &reward_set_info.anchor_block);
-                        }
-                        return Err(op_error::BlockCommitBadOutputs);
-                    }
-                }
-            }
-        } else {
+        let Some(reward_set_info) = reward_set_info else {
             // no recipient info for this sortition, so expect all burns
             if !self.all_outputs_burn() {
                 warn!("Invalid block commit: this transaction should only have burn outputs.");
                 return Err(op_error::BlockCommitBadOutputs);
             }
+            return Ok(vec![]);
         };
-        Ok(())
+
+        // we do some check-inversion here so that we check the commit_outs _before_
+        //   we check whether or not the block is descended from the anchor.
+        // we do this because the descended_from check isn't particularly cheap, so
+        //   we want to make sure that any TX that forces us to perform the check
+        //   has either burned BTC or sent BTC to the PoX recipients
+
+        // if we're in the prepare phase, then this block-commit _must_ burn.
+        // No PoX descent check needs to be performed -- prepare-phase block commits
+        // stand alone.
+        if burnchain.is_in_prepare_phase(self.block_height) {
+            if let Err(e) = self.check_prepare_commit_burn() {
+                warn!("Invalid block commit: in block {} which is in the prepare phase, but did not burn to a single output as expected ({:?})", self.block_height, &e);
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+            return Ok(vec![]);
+        }
+
+        // Not in prepare phase, so this can be either PoB or PoX (a descent check from the
+        // anchor block will be necessary if the block-commit is well-formed).
+        //
+        // first, handle a corner case:
+        //    all of the commitment outputs are _burns_
+        //    _and_ the reward set chose two burn addresses as reward addresses.
+        // then, don't need to do a pox descendant check.
+        let recipient_set_all_burns = reward_set_info
+            .recipients
+            .iter()
+            .fold(true, |prior_is_burn, (addr, ..)| {
+                prior_is_burn && addr.is_burn()
+            });
+
+        if recipient_set_all_burns {
+            if !self.all_outputs_burn() {
+                warn!("Invalid block commit: recipient set should be all burns");
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+            return Ok(vec![]);
+        }
+
+        // Now, we are checking the reward sets match, and if they don't,
+        //  whether or not pox descendant is necessary
+
+        let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+            .map_err(|e| {
+                error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
+                       parent_block_height, &reward_set_info.anchor_block, e);
+                op_error::BlockCommitAnchorCheck
+            })?;
+
+        if self.all_outputs_burn() {
+            // If we're not descended from the anchor, then great, this is just a "normal" non-descendant burn commit
+            // But, if we are descended from the anchor and nakamoto pox punishments are allowed, this commit may have
+            //  been a double punishment
+            if !descended_from_anchor {
+                return Ok(vec![]);
+            }
+            if reward_set_info.allow_nakamoto_punishment {
+                // all non-burn recipients were punished -- when we do the block processing
+                //  enforcement check, "burn recipients" can be treated as 1 or a 0 in the
+                //  bitvec interchangeably (whether they are punished or not doesn't matter).
+                let punished = reward_set_info
+                    .recipients
+                    .iter()
+                    .map(|(addr, _)| Treatment::Punish(addr.clone()))
+                    .collect();
+                return Ok(punished);
+            } else {
+                warn!(
+                    "Invalid block commit: descended from PoX anchor {}, but used burn outputs",
+                    &reward_set_info.anchor_block
+                );
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+        } else {
+            let mut check_recipients: Vec<_> = reward_set_info
+                .recipients
+                .iter()
+                .map(|(addr, ix)| (addr.clone(), *ix))
+                .collect();
+
+            if check_recipients.len() == 1 {
+                // If the number of recipients in the set was odd, we need to pad
+                // with a burn address.
+                // NOTE: this used the old burnchain.is_mainnet() code, which always
+                // returns false
+                check_recipients.push((PoxAddress::standard_burn_address(false), 0))
+            }
+
+            if self.commit_outs.len() != check_recipients.len() {
+                warn!(
+                    "Invalid block commit: expected {} PoX transfers, but commit has {}",
+                    reward_set_info.recipients.len(),
+                    self.commit_outs.len()
+                );
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+
+            // we've checked length equality, so we can just iterate through
+            //  self.commit_outs and check if each is in `check_recipients`
+            //  *OR* if `allows_pox_punishment`, then it could be a burn.
+            // NOTE: we do a find and remove here so that the same recipient
+            //  isn't found multiple times by different commit_outs.
+            let mut rewarded = vec![];
+            for self_commit in self.commit_outs.iter() {
+                let search_predicate = self_commit.to_burnchain_repr();
+                let found = check_recipients
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (check_commit, _))| {
+                        search_predicate == check_commit.to_burnchain_repr()
+                    });
+                if let Some((index, _)) = found {
+                    rewarded.push(Treatment::Reward(check_recipients.remove(index).0));
+                } else {
+                    // if we didn't find the pox output, then maybe its a pox punishment?
+                    if reward_set_info.allow_nakamoto_punishment && self_commit.is_burn() {
+                        continue;
+                    } else {
+                        warn!("Invalid block commit: committed output {} does not match expected recipient set: {:?}",
+                              self_commit.to_burnchain_repr(), check_recipients);
+                        return Err(op_error::BlockCommitBadOutputs);
+                    }
+                };
+            }
+
+            if !descended_from_anchor {
+                warn!(
+                    "Invalid block commit: not descended from PoX anchor {}, but used PoX outputs",
+                    &reward_set_info.anchor_block
+                );
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+
+            let mut punished_outputs: Vec<_> = check_recipients
+                .into_iter()
+                .map(|x| Treatment::Punish(x.0))
+                .collect();
+            punished_outputs.extend(rewarded);
+            return Ok(punished_outputs);
+        }
     }
 
     fn check_single_burn_output(&self) -> Result<(), op_error> {
@@ -962,8 +1048,9 @@ impl LeaderBlockCommitOp {
         Ok(())
     }
 
+    /// Returns Ok() and a vector of PoxAddresses which were punished by this op
     pub fn check(
-        &self,
+        &mut self,
         burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
         reward_set_info: Option<&RewardSetInfo>,
@@ -1017,7 +1104,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::MissedBlockCommit(missed_data));
         }
 
-        if burnchain
+        let punished = if burnchain
             .pox_constants
             .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
         {
@@ -1027,6 +1114,7 @@ impl LeaderBlockCommitOp {
                           "apparent_sender" => %apparent_sender_repr);
                 e
             })?;
+            vec![]
         } else {
             // either in epoch 2.1, or the PoX sunset hasn't completed yet
             self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
@@ -1034,10 +1122,14 @@ impl LeaderBlockCommitOp {
                     warn!("Invalid block-commit: bad PoX: {:?}", &e;
                           "apparent_sender" => %apparent_sender_repr);
                     e
-                })?;
-        }
+                })?
+        };
 
         self.check_common(epoch.epoch_id, tx)?;
+
+        if reward_set_info.is_some_and(|r| r.allow_nakamoto_punishment) {
+            self.punished = punished;
+        }
 
         // good to go!
         Ok(())
@@ -1662,7 +1754,7 @@ mod tests {
                     block_height: block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: burn_header_hash,
-                })
+                    punished: vec![],                })
             },
             OpFixture {
                 // invalid -- wrong opcode
@@ -1896,6 +1988,7 @@ mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            punished: vec![],
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner::mock_parts(
                 AddressHashMode::SerializeP2PKH,
@@ -2025,11 +2118,12 @@ mod tests {
             prev_snapshot.index_root.clone()
         };
 
-        let fixtures = vec![
+        let mut fixtures = vec![
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
+                    punished: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2079,6 +2173,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2129,6 +2224,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2179,6 +2275,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2241,6 +2338,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2292,7 +2390,7 @@ mod tests {
             },
         ];
 
-        for (ix, fixture) in fixtures.iter().enumerate() {
+        for (ix, fixture) in fixtures.iter_mut().enumerate() {
             eprintln!("Processing {}", ix);
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
@@ -2412,6 +2510,7 @@ mod tests {
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
             sunset_burn: 0,
+            punished: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -2556,10 +2655,11 @@ mod tests {
 
         let block_height = 124;
 
-        let fixtures = vec![
+        let mut fixtures = vec![
             CheckFixture {
                 // reject -- predates start block
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2611,6 +2711,7 @@ mod tests {
                 // reject -- no such leader key
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
+                    punished: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2660,6 +2761,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2710,6 +2812,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist in a different block
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2763,6 +2866,7 @@ mod tests {
                 // here)
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
+                    punished: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2812,6 +2916,7 @@ mod tests {
             CheckFixture {
                 // reject -- fee is 0
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2862,6 +2967,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2912,6 +3018,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2962,6 +3069,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
+                    punished: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -3011,7 +3119,7 @@ mod tests {
             },
         ];
 
-        for (ix, fixture) in fixtures.iter().enumerate() {
+        for (ix, fixture) in fixtures.iter_mut().enumerate() {
             eprintln!("Processing {}", ix);
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
@@ -3122,6 +3230,7 @@ mod tests {
         };
 
         let block_commit_pre_2_05 = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x02; 32]),
             new_seed: VRFSeed([0x03; 32]),
@@ -3151,6 +3260,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3180,6 +3290,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3209,6 +3320,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x04; 32]),
             new_seed: VRFSeed([0x05; 32]),
@@ -3238,6 +3350,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x05; 32]),
             new_seed: VRFSeed([0x06; 32]),
@@ -3267,6 +3380,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_valid = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3296,6 +3410,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3325,6 +3440,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x04; 32]),
             new_seed: VRFSeed([0x05; 32]),
@@ -3354,6 +3470,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x05; 32]),
             new_seed: VRFSeed([0x06; 32]),
@@ -3384,7 +3501,7 @@ mod tests {
 
         let all_leader_key_ops = vec![leader_key];
 
-        let all_block_commit_ops = vec![
+        let mut all_block_commit_ops = vec![
             (block_commit_pre_2_05, true),
             (block_commit_post_2_05_valid, true),
             (block_commit_post_2_05_valid_bigger_epoch, true),
@@ -3417,12 +3534,12 @@ mod tests {
                 eprintln!("Tip sortition is {}", &tip.sortition_id);
                 let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
 
-                for (op, pass) in all_block_commit_ops.iter() {
+                for (op, pass) in all_block_commit_ops.iter_mut() {
                     if op.block_height == i + 1 {
                         match op.check(&burnchain, &mut ic, None) {
                             Ok(_) => {
                                 assert!(
-                                    pass,
+                                    *pass,
                                     "Check succeeded when it should have failed: {:?}",
                                     &op
                                 );
@@ -3431,7 +3548,7 @@ mod tests {
                             }
                             Err(op_error::BlockCommitBadEpoch) => {
                                 assert!(
-                                    !pass,
+                                    !*pass,
                                     "Check failed when it should have succeeded: {:?}",
                                     &op
                                 );

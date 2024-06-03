@@ -1113,6 +1113,7 @@ impl BlockMinerThread {
         let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
         let sender = self.keychain.get_burnchain_signer();
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            punished: vec![],
             sunset_burn,
             block_header_hash,
             burn_fee,

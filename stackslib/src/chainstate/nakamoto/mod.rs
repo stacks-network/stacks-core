@@ -77,11 +77,13 @@ use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::coordinator::{BlockEventDispatcher, Error, OnChainRewardSetProvider};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::tenure::{NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
+use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
@@ -1417,6 +1419,33 @@ impl NakamotoChainState {
                "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
         );
 
+        let elected_height = sort_db
+            .get_consensus_hash_height(&next_ready_block.header.consensus_hash)?
+            .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+        let elected_in_cycle = sort_db
+            .pox_constants
+            .block_height_to_reward_cycle(sort_db.first_block_height, elected_height)
+            .ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(
+                    "Elected in block height before first_block_height".into(),
+                )
+            })?;
+        let active_reward_set = OnChainRewardSetProvider::<DummyEventDispatcher>(None).read_reward_set_nakamoto_of_cycle(
+            elected_in_cycle,
+            stacks_chain_state,
+            sort_db,
+            &next_ready_block.header.parent_block_id,
+            false,
+        ).map_err(|e| {
+            warn!(
+                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "err" => ?e,
+                "consensus_hash" => %next_ready_block.header.consensus_hash,
+                "block_hash" => %next_ready_block.header.block_hash(),
+                "parent_block_id" => %next_ready_block.header.parent_block_id,
+            );
+            ChainstateError::NoSuchBlockError
+        })?;
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
 
         // find parent header
@@ -1583,6 +1612,7 @@ impl NakamotoChainState {
             block_size,
             commit_burn,
             sortition_burn,
+            &active_reward_set,
         ) {
             Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
             Err(e) => (None, Some(e)),
@@ -2899,6 +2929,7 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
+        active_reward_set: &RewardSet,
     ) -> Result<
         (
             StacksEpochReceipt,
@@ -3034,24 +3065,95 @@ impl NakamotoChainState {
             ));
         }
 
+        // this block's bitvec header must match the miner's block commit punishments
+        let tenure_block_commit = SortitionDB::get_block_commit(
+            burn_dbconn.conn(),
+            &tenure_block_snapshot.winning_block_txid,
+            &tenure_block_snapshot.sortition_id,
+        )?
+        .ok_or_else(|| {
+            warn!("Invalid Nakamoto block: has no block-commit in its sortition";
+                      "block_id" => %block.header.block_id(),
+                      "sortition_id" => %tenure_block_snapshot.sortition_id,
+                      "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
+            ChainstateError::NoSuchBlockError
+        })?;
+
+        if !tenure_block_commit.punished.is_empty() {
+            // our block commit issued a punishment, check the reward set and bitvector
+            //  to ensure that this was valid.
+            for treated_addr in tenure_block_commit.punished.iter() {
+                if treated_addr.is_burn() {
+                    // Don't need to assert anything about burn addresses.
+                    // If they were in the reward set, "punishing" them is meaningless.
+                    continue;
+                }
+                // otherwise, we need to find the indices in the rewarded_addresses
+                //  corresponding to this address.
+                let address_indices = active_reward_set
+                    .rewarded_addresses
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(ix, addr)| {
+                        if addr == treated_addr.deref() {
+                            Some(ix)
+                        } else {
+                            None
+                        }
+                    });
+                // if any of them are 0, punishment is okay.
+                // if all of them are 1, punishment is not okay.
+                // if all of them are 0, *must* have punished
+                let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
+                    .map(
+                        |ix| {
+                            let ix = u16::try_from(ix)
+                                .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
+                            let bitvec_value = block.header.signer_bitvec.get(ix)
+                                .unwrap_or_else(|| {
+                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    true
+                                });
+                            Ok(bitvec_value)
+                        }
+                    )
+                    .collect();
+                let bitvec_values = bitvec_values?;
+                let all_1 = bitvec_values.iter().all(|x| *x);
+                let all_0 = bitvec_values.iter().all(|x| !x);
+                if all_1 {
+                    if treated_addr.is_punish() {
+                        warn!(
+                            "Invalid Nakamoto block: punished PoX address when bitvec contained 1s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                            "block_id" => %block.header.block_id(),
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                } else if all_0 {
+                    if treated_addr.is_reward() {
+                        warn!(
+                            "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                            "block_id" => %block.header.block_id(),
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                }
+            }
+        }
+
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.
         // (note that we can't check this earlier, since we need the parent tenure to have been
         // processed)
         if new_tenure && parent_chain_tip.is_nakamoto_block() && !block.is_first_mined() {
-            let tenure_block_commit = SortitionDB::get_block_commit(
-                burn_dbconn.conn(),
-                &tenure_block_snapshot.winning_block_txid,
-                &tenure_block_snapshot.sortition_id,
-            )?
-            .ok_or_else(|| {
-                warn!("Invalid Nakamoto block: has no block-commit in its sortition";
-                          "block_id" => %block.header.block_id(),
-                          "sortition_id" => %tenure_block_snapshot.sortition_id,
-                          "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
-                ChainstateError::NoSuchBlockError
-            })?;
-
             let parent_tenure_start_header =
                 Self::get_nakamoto_tenure_start_block_header(chainstate_tx.tx(), &parent_ch)?
                     .ok_or_else(|| {
