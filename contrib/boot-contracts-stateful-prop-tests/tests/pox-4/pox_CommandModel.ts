@@ -52,9 +52,43 @@ export class Stub {
       },
     );
 
-    orderedStatistics.forEach(([commandName, count]) => {
-      console.log(`${commandName}: ${count}`);
+    this.logAsTree(orderedStatistics);
+  }
+
+  private logAsTree(statistics: [string, number][]) {
+    const tree: { [key: string]: any } = {};
+
+    statistics.forEach(([commandName, count]) => {
+      const split = commandName.split("_");
+      let root: string = split[0],
+        rest: string = "base";
+
+      if (split.length > 1) {
+        rest = split.slice(1).join("_");
+      }
+      if (!tree[root]) {
+        tree[root] = {};
+      }
+      tree[root][rest] = count;
     });
+
+    const printTree = (node: any, indent: string = "") => {
+      const keys = Object.keys(node);
+      keys.forEach((key, index) => {
+        const isLast = index === keys.length - 1;
+        const boxChar = isLast ? "└─ " : "├─ ";
+        if (key !== "base") {
+          if (typeof node[key] === "object") {
+            console.log(`${indent}${boxChar}${key}: ${node[key]["base"]}`);
+            printTree(node[key], indent + (isLast ? "    " : "│   "));
+          } else {
+            console.log(`${indent}${boxChar}${key}: ${node[key]}`);
+          }
+        }
+      });
+    };
+
+    printTree(tree);
   }
 
   refreshStateForNextRewardCycle(real: Real) {
