@@ -93,7 +93,6 @@ features = ["serde"]
 [dependencies.time]
 version = "0.2.23"
 features = ["std"]
-mutants = "0.0.3"
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
