@@ -132,15 +132,22 @@ impl BlockMinerThread {
     }
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
-    pub fn stop_miner(globals: &Globals, prior_miner: JoinHandle<()>) {
+    pub fn stop_miner(
+        globals: &Globals,
+        prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
+    ) -> Result<(), NakamotoNodeError> {
         globals.block_miner();
         prior_miner
             .join()
-            .expect("FATAL: IO failure joining prior mining thread");
+            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))??;
         globals.unblock_miner();
+        Ok(())
     }
 
-    pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
+    pub fn run_miner(
+        mut self,
+        prior_miner: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
+    ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
         debug!(
@@ -150,10 +157,10 @@ impl BlockMinerThread {
             "thread_id" => ?thread::current().id(),
         );
         if let Some(prior_miner) = prior_miner {
-            Self::stop_miner(&self.globals, prior_miner);
+            Self::stop_miner(&self.globals, prior_miner)?;
         }
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
-            .expect("FATAL: failed to connect to stacker DB");
+            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
 
         let mut attempts = 0;
         // now, actually run this tenure
@@ -176,7 +183,9 @@ impl BlockMinerThread {
                     }
                     Err(e) => {
                         warn!("Failed to mine block: {e:?}");
-                        return;
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 }
             };
@@ -193,7 +202,9 @@ impl BlockMinerThread {
                         error!(
                             "Unrecoverable error while gathering signatures: {e:?}. Ending tenure."
                         );
-                        return;
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 };
 
@@ -234,7 +245,7 @@ impl BlockMinerThread {
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 if self.check_burn_tip_changed(&sort_db).is_err() {
-                    return;
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
                 }
             }
         }
