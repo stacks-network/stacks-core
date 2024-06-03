@@ -16,14 +16,14 @@
 
 use std::path::PathBuf;
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 use crate::vm::database::SqliteConnection;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
@@ -86,7 +86,8 @@ pub trait ClarityBackingStore {
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
-    #[cfg(feature = "sqlite")]
+
+    #[cfg(feature = "canonical")]
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -212,7 +213,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    #[cfg(feature = "sqlite")]
+    #[cfg(feature = "canonical")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }

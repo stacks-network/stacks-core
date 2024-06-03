@@ -195,21 +195,6 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     ReplaceAt("replace-at?", ClarityVersion::Clarity2),
 });
 
-impl NativeFunctions {
-    pub fn lookup_by_name_at_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeFunctions> {
-        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() <= version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
-}
-
 ///
 /// Returns a callable for the given native function if it exists in the provided
 ///   ClarityVersion

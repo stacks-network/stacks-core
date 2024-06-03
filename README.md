@@ -55,7 +55,7 @@ _Note on building_: you may set `RUSTFLAGS` to build binaries for your native cp
 RUSTFLAGS="-Ctarget-cpu=native"
 ```
 
-or uncomment these lines in `./cargo/config`:
+or uncomment these lines in `./cargo/config.toml`:
 
 ```
 # [build]
@@ -87,7 +87,7 @@ cd testnet/stacks-node
 cargo run --bin stacks-node -- start --config ./conf/testnet-follower-conf.toml
 ```
 
-_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
+_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
 
 Additional testnet documentation is available [here](./docs/testnet.md) and [here](https://docs.stacks.co/docs/nodes-and-miners/miner-testnet)
 

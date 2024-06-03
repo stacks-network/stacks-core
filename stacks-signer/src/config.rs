@@ -14,24 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
+use clarity::util::hash::to_hex;
 use libsigner::SignerEntries;
 use serde::Deserialize;
 use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
+use stacks_common::util::hash::Hash160;
 use wsts::curve::scalar::Scalar;
 
-use crate::signer::SignerSlotID;
+use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee to use in microstacks (if unspecificed in the config file)
@@ -152,7 +154,7 @@ pub struct SignerConfig {
 }
 
 /// The parsed configuration for the signer
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GlobalConfig {
     /// endpoint to the stacks node
     pub node_host: String,
@@ -186,6 +188,8 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<SocketAddr>,
 }
 
 /// Internal struct for loading up the config file
@@ -221,6 +225,8 @@ struct RawConfigFile {
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
     pub db_path: String,
+    /// Metrics endpoint
+    pub metrics_endpoint: Option<String>,
 }
 
 impl RawConfigFile {
@@ -282,13 +288,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 )
             })?;
         let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
-        let stacks_address = StacksAddress::from_public_keys(
-            raw_data.network.to_address_version(),
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![stacks_public_key],
-        )
-        .ok_or(ConfigError::UnsupportedAddressVersion)?;
+        let signer_hash = Hash160::from_data(stacks_public_key.to_bytes_compressed().as_slice());
+        let stacks_address =
+            StacksAddress::p2pkh_from_hash(raw_data.network.is_mainnet(), signer_hash);
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
         let dkg_end_timeout = raw_data.dkg_end_timeout_ms.map(Duration::from_millis);
@@ -297,6 +299,19 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         let db_path = raw_data.db_path.into();
+
+        let metrics_endpoint = match raw_data.metrics_endpoint {
+            Some(endpoint) => Some(
+                endpoint
+                    .to_socket_addrs()
+                    .map_err(|_| ConfigError::BadField("endpoint".to_string(), endpoint.clone()))?
+                    .next()
+                    .ok_or_else(|| {
+                        ConfigError::BadField("endpoint".to_string(), endpoint.clone())
+                    })?,
+            ),
+            None => None,
+        };
 
         Ok(Self {
             node_host: raw_data.node_host,
@@ -315,6 +330,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
+            metrics_endpoint,
         })
     }
 }
@@ -345,6 +361,10 @@ impl GlobalConfig {
             0 => "default".to_string(),
             _ => (self.tx_fee_ustx as f64 / 1_000_000.0).to_string(),
         };
+        let metrics_endpoint = match &self.metrics_endpoint {
+            Some(endpoint) => endpoint.to_string(),
+            None => "None".to_string(),
+        };
         format!(
             r#"
 Stacks node host: {node_host}
@@ -354,19 +374,29 @@ Public key: {public_key}
 Network: {network}
 Database path: {db_path}
 DKG transaction fee: {tx_fee} uSTX
+Metrics endpoint: {metrics_endpoint}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
             stacks_address = self.stacks_address,
-            public_key = StacksPublicKey::from_private(&self.stacks_private_key).to_hex(),
+            public_key = to_hex(
+                &StacksPublicKey::from_private(&self.stacks_private_key).to_bytes_compressed()
+            ),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
-            tx_fee = tx_fee
+            tx_fee = tx_fee,
+            metrics_endpoint = metrics_endpoint,
         )
     }
 }
 
 impl Display for GlobalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.config_to_log_string())
+    }
+}
+
+impl Debug for GlobalConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.config_to_log_string())
     }
@@ -384,6 +414,7 @@ pub fn build_signer_config_tomls(
     mut port_start: usize,
     max_tx_fee_ustx: Option<u64>,
     tx_fee_ustx: Option<u64>,
+    mut metrics_port_start: Option<usize>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -438,6 +469,17 @@ tx_fee_ustx = {tx_fee_ustx}
             )
         }
 
+        if let Some(metrics_port) = metrics_port_start {
+            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+metrics_endpoint = "{metrics_endpoint}"
+"#
+            );
+            metrics_port_start = Some(metrics_port + 1);
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
 
@@ -469,6 +511,7 @@ mod tests {
             3000,
             None,
             None,
+            Some(4000),
         );
 
         let config =
@@ -477,6 +520,7 @@ mod tests {
         assert_eq!(config.auth_password, "melon");
         assert!(config.max_tx_fee_ustx.is_none());
         assert!(config.tx_fee_ustx.is_none());
+        assert_eq!(config.metrics_endpoint, Some("localhost:4000".to_string()));
     }
 
     #[test]
@@ -499,6 +543,7 @@ mod tests {
             password,
             rand::random(),
             3000,
+            None,
             None,
             None,
         );
@@ -526,6 +571,7 @@ mod tests {
             3000,
             max_tx_fee_ustx,
             tx_fee_ustx,
+            None,
         );
 
         let config =
@@ -545,6 +591,7 @@ mod tests {
             rand::random(),
             3000,
             max_tx_fee_ustx,
+            None,
             None,
         );
 
@@ -570,6 +617,7 @@ mod tests {
             3000,
             None,
             tx_fee_ustx,
+            None,
         );
 
         let config =
@@ -598,8 +646,48 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Database path: :memory:
 DKG transaction fee: 0.01 uSTX
+Metrics endpoint: 0.0.0.0:9090
 "#
             )
         );
+    }
+
+    #[test]
+    // Test the same private key twice, with and without a compression flag.
+    // Ensure that the address is the same in both cases.
+    fn test_stacks_addr_from_priv_key() {
+        // 64 bytes, no compression flag
+        let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf28";
+
+        let expected_addr = "SP1286C62P3TAWVQV2VM2CEGTRBQZSZ6MHMS9RW05";
+
+        let config_toml = format!(
+            r#"
+stacks_private_key = "{sk_hex}"
+node_host = "localhost"
+endpoint = "localhost:30000"
+network = "mainnet"
+auth_password = "abcd"
+db_path = ":memory:"
+            "#
+        );
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert_eq!(config.stacks_address.to_string(), expected_addr);
+
+        // 65 bytes (with compression flag)
+        let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
+
+        let config_toml = format!(
+            r#"
+stacks_private_key = "{sk_hex}"
+node_host = "localhost"
+endpoint = "localhost:30000"
+network = "mainnet"
+auth_password = "abcd"
+db_path = ":memory:"
+            "#
+        );
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert_eq!(config.stacks_address.to_string(), expected_addr);
     }
 }

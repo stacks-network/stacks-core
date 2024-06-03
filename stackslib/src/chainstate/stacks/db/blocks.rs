@@ -4583,10 +4583,10 @@ impl StacksChainState {
                         // strictly speaking this check is defensive. It will never be the case
                         // that a `miner_reward` has a `recipient_contract` that is `Some(..)`
                         // unless the block was mined in Epoch 2.1.  But you can't be too
-                        // careful... 
+                        // careful...
                         if evaluated_epoch >= StacksEpochId::Epoch21 {
                             // in 2.1 or later, the coinbase may optionally specify a contract into
-                            // which the tokens get sent.  If this is not given, then they are sent 
+                            // which the tokens get sent.  If this is not given, then they are sent
                             // to the miner address.
                             miner_reward.recipient.clone()
                         }
@@ -6649,7 +6649,9 @@ impl StacksChainState {
         // 1: must parse (done)
 
         // 2: it must be validly signed.
-        StacksChainState::process_transaction_precheck(&chainstate_config, &tx)
+        let epoch = clarity_connection.get_epoch().clone();
+
+        StacksChainState::process_transaction_precheck(&chainstate_config, &tx, epoch)
             .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
 
         // 3: it must pay a tx fee
@@ -6662,7 +6664,14 @@ impl StacksChainState {
             ));
         }
 
-        // 4: the account nonces must be correct
+        // 4: check if transaction is valid in the current epoch
+        if !StacksBlock::validate_transaction_static_epoch(tx, epoch) {
+            return Err(MemPoolRejection::Other(
+                "Transaction is not supported in this epoch".to_string(),
+            ));
+        }
+
+        // 5: the account nonces must be correct
         let (origin, payer) =
             match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
                 Ok(x) => x,
@@ -6724,7 +6733,7 @@ impl StacksChainState {
                     },
                 )?;
 
-        // 5: the paying account must have enough funds
+        // 6: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(
             u128::from(fee),
             block_height,
@@ -6750,7 +6759,7 @@ impl StacksChainState {
             }
         }
 
-        // 6: payload-specific checks
+        // 7: payload-specific checks
         match &tx.payload {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
@@ -6853,7 +6862,7 @@ impl StacksChainState {
                 }
 
                 if let Some(_version) = version_opt.as_ref() {
-                    if clarity_connection.get_epoch() < StacksEpochId::Epoch21 {
+                    if epoch < StacksEpochId::Epoch21 {
                         return Err(MemPoolRejection::Other(
                             "Versioned smart contract transactions are not supported in this epoch"
                                 .to_string(),

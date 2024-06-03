@@ -142,7 +142,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    fn parse_signer_slots(
+    pub fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
@@ -207,6 +207,8 @@ impl StacksClient {
             estimated_len: Some(tx.tx_len()),
             transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
         };
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.fees_transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.fees_transaction_path())
@@ -219,6 +221,7 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
+        timer.stop_and_record();
         let fee_estimate_response = response.json::<RPCFeeEstimateResponse>()?;
         let fee = fee_estimate_response
             .estimations
@@ -268,6 +271,8 @@ impl StacksClient {
             block,
             chain_id: self.chain_id,
         };
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.block_proposal_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.block_proposal_path())
@@ -279,6 +284,7 @@ impl StacksClient {
         };
 
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -355,6 +361,8 @@ impl StacksClient {
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.core_info_path())
@@ -362,6 +370,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -402,6 +411,10 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
+        let timer = crate::monitoring::new_rpc_call_timer(
+            &self.reward_set_path(reward_cycle),
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
@@ -409,6 +422,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -419,6 +433,8 @@ impl StacksClient {
     /// Retreive the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
+        #[cfg(feature = "monitoring_prom")]
+        let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -426,6 +442,8 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        #[cfg(feature = "monitoring_prom")]
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -458,11 +476,13 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
-    fn get_account_entry(
+    pub fn get_account_entry(
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("Getting account info...");
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -470,6 +490,7 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -536,6 +557,8 @@ impl StacksClient {
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
+        let timer =
+            crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .post(self.transaction_path())
@@ -548,6 +571,7 @@ impl StacksClient {
                 })
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -576,12 +600,14 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
             .header("Content-Type", "application/json")
             .body(body)
             .send()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -706,18 +732,13 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
-    use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use clarity::vm::types::{
         ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
         TypeSignature,
     };
     use rand::thread_rng;
     use rand_core::RngCore;
-    use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-    use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
-    use stacks_common::util::hash::Sha512Trunc256Sum;
-    use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
 
     use super::*;
@@ -1203,18 +1224,7 @@ mod tests {
     #[test]
     fn submit_block_for_validation_should_succeed() {
         let mock = MockServerClient::new();
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 2,
-            burn_spent: 3,
-            consensus_hash: ConsensusHash([0x04; 20]),
-            parent_block_id: StacksBlockId([0x05; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-            state_index_root: TrieHash([0x07; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
+        let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock {
             header,
             txs: vec![],
@@ -1227,18 +1237,7 @@ mod tests {
     #[test]
     fn submit_block_for_validation_should_fail() {
         let mock = MockServerClient::new();
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 2,
-            burn_spent: 3,
-            consensus_hash: ConsensusHash([0x04; 20]),
-            parent_block_id: StacksBlockId([0x05; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-            state_index_root: TrieHash([0x07; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
+        let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock {
             header,
             txs: vec![],

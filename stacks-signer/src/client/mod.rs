@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// The stacker db module for communicating with the stackerdb contract
-mod stackerdb;
+pub(crate) mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
@@ -141,7 +141,6 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::{GlobalConfig, SignerConfig};
-    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,

@@ -53,7 +53,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -294,16 +294,32 @@ impl DBConfig {
                     || self.version == "2"
                     || self.version == "3"
                     || self.version == "4"
+                    || self.version == "5"
             }
             StacksEpochId::Epoch2_05 => {
-                self.version == "2" || self.version == "3" || self.version == "4"
+                self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
             }
-            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch21 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch22 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch23 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch24 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch25 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch30 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
         }
     }
 }
@@ -668,7 +684,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "4";
+pub const CHAINSTATE_VERSION: &'static str = "5";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1077,6 +1093,13 @@ impl StacksChainState {
                         // migrate to nakamoto 1
                         info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "4" => {
+                        // migrate to nakamoto 2
+                        info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }
@@ -2926,5 +2949,15 @@ pub mod test {
             format!("{}", genesis_root_hash),
             MAINNET_2_0_GENESIS_ROOT_HASH
         );
+    }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        let db = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: true,
+            chain_id: CHAIN_ID_MAINNET,
+        };
+        assert!(db.supports_epoch(StacksEpochId::latest()));
     }
 }

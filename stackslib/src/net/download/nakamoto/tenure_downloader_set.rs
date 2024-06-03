@@ -431,8 +431,8 @@ impl NakamotoTenureDownloaderSet {
             self.num_scheduled_downloaders()
         );
 
-        self.clear_available_peers();
         self.clear_finished_downloaders();
+        self.clear_available_peers();
         self.try_transition_fetch_tenure_end_blocks(tenure_block_ids);
         while self.inflight() < count {
             let Some(ch) = schedule.front() else {

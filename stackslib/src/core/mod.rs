@@ -40,7 +40,9 @@ pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
-pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
+pub use stacks_common::consts::{
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MINING_COMMITMENT_WINDOW, STACKS_EPOCH_MAX,
+};
 
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)
@@ -73,10 +75,6 @@ pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
-
-// sliding burnchain window over which a miner's past block-commit payouts will be used to weight
-// its current block-commit in a sortition
-pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
 // Number of previous burnchain blocks to search to find burnchain-hosted Stacks operations
 pub const BURNCHAIN_TX_SEARCH_WINDOW: u8 = 6;
@@ -1097,7 +1095,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,
@@ -1200,7 +1198,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,

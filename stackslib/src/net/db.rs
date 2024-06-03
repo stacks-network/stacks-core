@@ -1138,7 +1138,7 @@ impl PeerDB {
     }
 
     /// Set a peer as an initial peer
-    fn set_initial_peer(
+    pub fn set_initial_peer(
         tx: &Transaction,
         network_id: u32,
         peer_addr: &PeerAddress,

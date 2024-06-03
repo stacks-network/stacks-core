@@ -46,6 +46,7 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
+#[allow(unused_mut)]
 pub fn instrument_http_request_handler<F, R>(
     conv_http: &mut ConversationHttp,
     // mut is needed when feature = "monitoring_prom"

@@ -26,6 +26,8 @@ clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = { workspace = true }
 libsigner = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
 libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+lazy_static = "1.4.0"
+prometheus = { version = "0.9", optional = true }
 rand_core = "0.6"
 reqwest = { version = "0.11.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = "1"
@@ -37,6 +39,7 @@ slog-term = "2.6.0"
 stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
 stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
 thiserror = "1.0"
+tiny_http = { version = "0.12", optional = true }
 toml = "0.5.6"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
@@ -61,3 +64,6 @@ features = ["arbitrary_precision", "unbounded_depth"]
 [dependencies.secp256k1]
 version = "0.24.3"
 features = ["serde", "recovery"]
+
+[features]
+monitoring_prom = ["libsigner/monitoring_prom", "prometheus", "tiny_http"]

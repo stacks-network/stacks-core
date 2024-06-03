@@ -118,7 +118,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -145,6 +145,46 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         -- this is the ith tenure transaction in its respective Nakamoto chain history.
         tenure_index INTEGER NOT NULL,
 
+        PRIMARY KEY(burn_view_consensus_hash,tenure_index)
+    );
+    CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
+    CREATE INDEX nakamoto_tenures_by_tenure_id ON nakamoto_tenures(tenure_id_consensus_hash);
+    CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
+    CREATE INDEX nakamoto_tenures_by_burn_view_consensus_hash ON nakamoto_tenures(burn_view_consensus_hash);
+    CREATE INDEX nakamoto_tenures_by_tenure_index ON nakamoto_tenures(tenure_index);
+    CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
+"#;
+
+pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+    -- Drop the nakamoto_tenures table if it exists
+    DROP TABLE IF EXISTS nakamoto_tenures;
+
+    CREATE TABLE nakamoto_tenures (
+        -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
+        -- was mined)
+        tenure_id_consensus_hash TEXT NOT NULL,
+        -- consensus hash of the previous tenure's start-tenure block
+        prev_tenure_id_consensus_hash TEXT NOT NULL,
+        -- consensus hash of the last-processed sortition
+        burn_view_consensus_hash TEXT NOT NULL,
+        -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
+        -- this is equal to the `cause` field in a TenureChange
+        cause INTEGER NOT NULL,
+        -- block hash of start-tenure block
+        block_hash TEXT NOT NULL,
+        -- block ID of this start block (this is the StacksBlockId of the above tenure_id_consensus_hash and block_hash)
+        block_id TEXT NOT NULL,
+        -- this field is the total number of _sortition-induced_ tenures in the chain history (including this tenure),
+        -- as of the _end_ of this block.  A tenure can contain multiple TenureChanges; if so, then this
+        -- is the height of the _sortition-induced_ TenureChange that created it.
+        coinbase_height INTEGER NOT NULL,
+        -- number of blocks this tenure.
+        -- * for tenure-changes induced by sortitions, this is the number of blocks in the previous tenure
+        -- * for tenure-changes induced by extension, this is the number of blocks in the current tenure so far.
+        num_blocks_confirmed INTEGER NOT NULL,
+        -- this is the ith tenure transaction in its respective Nakamoto chain history.
+        tenure_index INTEGER NOT NULL,
+    
         PRIMARY KEY(burn_view_consensus_hash,tenure_index)
     );
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);

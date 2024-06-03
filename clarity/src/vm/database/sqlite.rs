@@ -287,6 +287,12 @@ pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
+impl Default for MemoryBackingStore {
+    fn default() -> Self {
+        MemoryBackingStore::new()
+    }
+}
+
 impl MemoryBackingStore {
     #[allow(clippy::unwrap_used)]
     pub fn new() -> MemoryBackingStore {
@@ -387,12 +393,6 @@ impl ClarityBackingStore for MemoryBackingStore {
         key: &str,
     ) -> Result<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
-    }
-}
-
-impl Default for MemoryBackingStore {
-    fn default() -> Self {
-        MemoryBackingStore::new()
     }
 }
 

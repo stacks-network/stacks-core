@@ -547,11 +547,12 @@ fn test_process_block_ops() {
 
         // everything will be included
         let block_opshash_124 = OpsHash::from_txids(
-            &block_ops_124
+            block_ops_124
                 .clone()
                 .into_iter()
                 .map(|bo| bo.txid())
-                .collect(),
+                .collect::<Vec<_>>()
+                .as_slice(),
         );
         let block_prev_chs_124 = vec![
             block_123_snapshot.consensus_hash.clone(),

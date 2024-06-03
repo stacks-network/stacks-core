@@ -39,6 +39,7 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 
 pub mod consts {
     use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
+    pub use crate::types::MINING_COMMITMENT_WINDOW;
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 

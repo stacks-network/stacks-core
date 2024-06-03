@@ -108,7 +108,7 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly invoked start_from_naka when active loop wasn't nakamoto");
         };
-        naka_loop.start(burnchain_opt, mine_start)
+        naka_loop.start(burnchain_opt, mine_start, None)
     }
 
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
@@ -120,7 +120,7 @@ impl BootRunLoop {
 
         let boot_thread = Self::spawn_stopper(&self.config, neon_loop)
             .expect("FATAL: failed to spawn epoch-2/3-boot thread");
-        neon_loop.start(burnchain_opt.clone(), mine_start);
+        let peer_network = neon_loop.start(burnchain_opt.clone(), mine_start);
 
         let monitoring_thread = neon_loop.take_monitoring_thread();
         // did we exit because of the epoch-3.0 transition, or some other reason?
@@ -150,7 +150,7 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly found epoch2 loop after setting epoch3 active");
         };
-        naka_loop.start(burnchain_opt, mine_start)
+        naka_loop.start(burnchain_opt, mine_start, peer_network)
     }
 
     fn spawn_stopper(

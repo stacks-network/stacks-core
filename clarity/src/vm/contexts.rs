@@ -76,8 +76,8 @@ pub struct Environment<'a, 'b> {
     pub sponsor: Option<PrincipalData>,
 }
 
-pub struct OwnedEnvironment<'a> {
-    context: GlobalContext<'a>,
+pub struct OwnedEnvironment<'a, 'hooks> {
+    pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
 }
 

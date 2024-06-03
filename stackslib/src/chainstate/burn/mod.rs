@@ -38,6 +38,7 @@ use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
 use crate::util_lib::db::Error as db_error;
 
+pub mod atc;
 /// This module contains the code for processing the burn chain state database
 pub mod db;
 pub mod distribution;
@@ -223,7 +224,7 @@ impl Opcodes {
 }
 
 impl OpsHash {
-    pub fn from_txids(txids: &Vec<Txid>) -> OpsHash {
+    pub fn from_txids(txids: &[Txid]) -> OpsHash {
         // NOTE: unlike stacks v1, we calculate the ops hash simply
         // from a hash-chain of txids.  There is no weird serialization
         // of operations, and we don't construct a merkle tree over

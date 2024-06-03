@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use hashbrown::HashMap;
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 pub use sqlite::MemoryBackingStore;
 
 pub use self::clarity_db::{
@@ -24,7 +24,7 @@ pub use self::clarity_db::{
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
@@ -34,6 +34,6 @@ pub use self::structures::{
 pub mod clarity_db;
 pub mod clarity_store;
 mod key_value_wrapper;
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "canonical")]
 pub mod sqlite;
 mod structures;

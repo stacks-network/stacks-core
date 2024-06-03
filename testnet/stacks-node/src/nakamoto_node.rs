@@ -25,6 +25,7 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::monitoring;
 use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
+use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks_common::types::chainstate::SortitionId;
@@ -132,6 +133,7 @@ impl StacksNode {
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
+        peer_network: Option<PeerNetwork>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
@@ -157,7 +159,8 @@ impl StacksNode {
             .connect_mempool_db()
             .expect("FATAL: database failure opening mempool");
 
-        let mut p2p_net = NeonNode::setup_peer_network(&config, &atlas_config, burnchain);
+        let mut p2p_net = peer_network
+            .unwrap_or_else(|| NeonNode::setup_peer_network(&config, &atlas_config, burnchain));
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

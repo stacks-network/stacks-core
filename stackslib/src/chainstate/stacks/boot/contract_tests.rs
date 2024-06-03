@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -84,7 +84,8 @@ lazy_static! {
 
 pub struct ClarityTestSim {
     marf: MarfedKV,
-    pub height: u64,
+    pub block_height: u64,
+    pub tenure_height: u64,
     fork: u64,
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
@@ -134,32 +135,42 @@ impl ClarityTestSim {
 
         ClarityTestSim {
             marf,
-            height: 0,
+            block_height: 0,
+            tenure_height: 0,
             fork: 0,
             epoch_bounds: vec![0, u64::MAX],
         }
     }
 
-    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
         let r = {
             let mut store = self.marf.begin(
-                &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
-                &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
             );
 
             let headers_db = TestSimHeadersDB {
-                height: self.height + 1,
+                height: self.block_height + 1,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap(),
+                height: (self.tenure_height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut db = store.as_clarity_db(&headers_db, &burn_db);
+            if cur_epoch >= StacksEpochId::Epoch30 {
+                db.begin();
+                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                    .expect("FAIL: unable to set tenure height in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit tenure height in Clarity database");
+            }
 
             let mut block_conn =
                 ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
@@ -169,7 +180,60 @@ impl ClarityTestSim {
             r
         };
 
-        self.height += 1;
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+        r
+    }
+
+    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut ClarityBlockConnection) -> R,
+    {
+        self.execute_next_block_as_conn_with_tenure(true, f)
+    }
+
+    pub fn execute_next_block_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
+    where
+        F: FnOnce(&mut OwnedEnvironment) -> R,
+    {
+        let mut store = self.marf.begin(
+            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
+        );
+
+        let r = {
+            let headers_db = TestSimHeadersDB {
+                height: self.block_height + 1,
+            };
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+                height: (self.tenure_height + 100).try_into().unwrap(),
+            };
+
+            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+            debug!("Execute block in epoch {}", &cur_epoch);
+
+            let mut db = store.as_clarity_db(&headers_db, &burn_db);
+            if cur_epoch >= StacksEpochId::Epoch30 {
+                db.begin();
+                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                    .expect("FAIL: unable to set tenure height in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit tenure height in Clarity database");
+            }
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
+            f(&mut owned_env)
+        };
+
+        store.test_commit();
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+
         r
     }
 
@@ -177,33 +241,7 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store = self.marf.begin(
-            &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
-            &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
-        );
-
-        let r = {
-            let headers_db = TestSimHeadersDB {
-                height: self.height + 1,
-            };
-            let burn_db = TestSimBurnStateDB {
-                epoch_bounds: self.epoch_bounds.clone(),
-                pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap(),
-            };
-
-            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
-            debug!("Execute block in epoch {}", &cur_epoch);
-
-            let db = store.as_clarity_db(&headers_db, &burn_db);
-            let mut owned_env = OwnedEnvironment::new_toplevel(db);
-            f(&mut owned_env)
-        };
-
-        store.test_commit();
-        self.height += 1;
-
-        r
+        self.execute_next_block_with_tenure(true, f)
     }
 
     fn check_and_bump_epoch(
@@ -253,7 +291,8 @@ impl ClarityTestSim {
         };
 
         store.test_commit();
-        self.height = parent_height + 1;
+        self.block_height = parent_height + 1;
+        self.tenure_height = parent_height + 1;
         self.fork += 1;
 
         r
@@ -370,7 +409,10 @@ impl BurnStateDB for TestSimBurnStateDB {
             2 => StacksEpochId::Epoch21,
             3 => StacksEpochId::Epoch22,
             4 => StacksEpochId::Epoch23,
-            _ => panic!("Epoch unknown"),
+            5 => StacksEpochId::Epoch24,
+            6 => StacksEpochId::Epoch25,
+            7 => StacksEpochId::Epoch30,
+            _ => panic!("Invalid epoch index"),
         };
 
         Some(StacksEpoch {
@@ -2711,7 +2753,7 @@ fn test_vote_fail() {
         );
     });
 
-    let fork_start = sim.height;
+    let fork_start = sim.block_height;
 
     for i in 0..25 {
         sim.execute_next_block(|env| {

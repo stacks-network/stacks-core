@@ -56,9 +56,8 @@ rstest_reuse = { version = "0.5.0" }
 
 [features]
 default = ["canonical", "log"]
-canonical = ["sqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
+canonical = ["rusqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
 log = ["slog", "stacks_common/log"]
-sqlite = ["rusqlite"]
 wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]

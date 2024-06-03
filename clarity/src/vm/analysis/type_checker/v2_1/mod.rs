@@ -858,6 +858,8 @@ fn type_reserved_variable(
                 .map_err(|_| CheckErrors::Expects("Bad construction".into()))?,
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
+            StacksBlockHeight => TypeSignature::UIntType,
+            TenureHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type())
                 .map_err(|_| CheckErrors::Expects("Bad construction".into()))?,

@@ -54,6 +54,7 @@ use crate::vm::types::{
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
+const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
@@ -853,6 +854,38 @@ impl<'a> ClarityDatabase<'a> {
         })?;
         self.set_ustx_liquid_supply(next)?;
         Ok(())
+    }
+
+    /// Returns the tenure height of the current block.
+    pub fn get_tenure_height(&mut self) -> Result<u32> {
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            // Before epoch 3.0, the tenure height was not stored in the
+            // Clarity state. Instead, it was the same as the block height.
+            return Ok(self.get_current_block_height());
+        }
+
+        self.get_data(TENURE_HEIGHT_KEY)?
+            .ok_or_else(|| {
+                InterpreterError::Expect("No tenure height in stored Clarity state".into()).into()
+            })
+            .and_then(|x| {
+                u32::try_into(x).map_err(|_| {
+                    InterpreterError::Expect("Bad tenure height in stored Clarity state".into())
+                        .into()
+                })
+            })
+    }
+
+    /// Set the tenure height of the current block. In the first block of a new
+    /// tenure, this height must be incremented before evaluating any
+    /// transactions in the block.
+    pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
+        if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
+            return Err(Error::Interpreter(InterpreterError::Expect(
+                "Setting tenure height in Clarity state is not supported before epoch 3.0".into(),
+            )));
+        }
+        self.put_data(TENURE_HEIGHT_KEY, &height)
     }
 
     pub fn destroy(self) -> RollbackWrapper<'a> {

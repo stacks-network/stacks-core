@@ -90,9 +90,8 @@ rand_core = { workspace = true }
 
 [features]
 default = ["canonical", "log", "developer-mode"]
-canonical = ["vrf", "sqlite", "secp256k1", "wsts"]
+canonical = ["rusqlite", "vrf", "secp256k1", "wsts"]
 log = ["slog", "slog-term", "slog-json"]
-sqlite = ["rusqlite"]
 vrf = ["ed25519-dalek", "curve25519-dalek"]
 wasm = ["libsecp256k1", "developer-mode", "getrandom"]
 developer-mode = []
