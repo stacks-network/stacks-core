@@ -946,8 +946,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         BurnchainDB::inner_get_canonical_chain_tip(&self.sql_tx)
     }
 
-    // TODO: #4587 add tests for `Ok(())` returning case
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4837
     #[cfg_attr(test, mutants::skip)]
     /// You'd only do this in network emergencies, where node operators are expected to declare an
     /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.

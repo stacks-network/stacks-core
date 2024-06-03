@@ -782,8 +782,7 @@ impl LimitedCostTracker {
 }
 
 impl TrackerData {
-    // TODO: #4587 add test for Err cases
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4831
     #[cfg_attr(test, mutants::skip)]
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
@@ -957,9 +956,7 @@ fn parse_cost(
     }
 }
 
-// TODO: #4587 create default for `ExecutionCost`, then check if mutation tests are caught for these case:
-// Ok(Default::default())
-// Or keep the skip and remove the comment
+// TODO: add tests from mutation testing results #4832
 #[cfg_attr(test, mutants::skip)]
 fn compute_cost(
     cost_tracker: &mut TrackerData,
