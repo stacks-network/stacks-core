@@ -906,9 +906,7 @@ simulating a miner.
                     .parse::<u64>()
                     .expect("<start_block> not a valid u64");
                 let arg5 = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
-                let start = arg4.saturating_sub(1);
-                let blocks = arg5.saturating_sub(arg4);
-                format!("SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {start}, {blocks}")
+                format!("SELECT index_block_hash FROM staging_blocks WHERE height >= {arg4} AND height < {arg5} ORDER BY height ASC, index_block_hash ASC")
             }
             Some("last") => format!(
                 "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
