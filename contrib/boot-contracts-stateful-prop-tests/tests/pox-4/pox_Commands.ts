@@ -163,13 +163,16 @@ export function PoxCommands(
     fc.record({
       wallet: fc.constantFrom(...wallets.values()),
       delegateTo: fc.constantFrom(...wallets.values()),
-      untilBurnHt: fc.integer({ min: 1 }),
+      untilBurnHt: fc.oneof(
+        fc.constant(Cl.none()),
+        fc.integer({ min: 1 }).map((value) => Cl.some(Cl.uint(value))),
+      ),
       amount: fc.bigInt({ min: 0n, max: 100_000_000_000_000n }),
     }).map((
       r: {
         wallet: Wallet;
         delegateTo: Wallet;
-        untilBurnHt: number;
+        untilBurnHt: OptionalCV<UIntCV>;
         amount: bigint;
       },
     ) =>

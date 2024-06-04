@@ -10832,4 +10832,12 @@ pub mod tests {
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
         assert_eq!(db_epochs, STACKS_EPOCHS_MAINNET.to_vec());
     }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        assert!(SortitionDB::is_db_version_supported_in_epoch(
+            StacksEpochId::latest(),
+            SORTITION_DB_VERSION
+        ));
+    }
 }
