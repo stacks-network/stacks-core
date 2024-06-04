@@ -4021,7 +4021,7 @@ fn continue_tenure_extend() {
     })
     .unwrap();
 
-    // Mine a regular nakamoto tenures
+    // Mine a regular nakamoto tenure
     next_block_and_mine_commit(
         &mut btc_regtest_controller,
         60,
@@ -4037,9 +4037,11 @@ fn continue_tenure_extend() {
         &signers,
     );
 
+    info!("Pausing commit op for the next block");
     TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
 
-    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
 
     signer_vote_if_needed(
         &btc_regtest_controller,
@@ -4048,7 +4050,6 @@ fn continue_tenure_extend() {
         &signers,
     );
 
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
     // Submit a TX
     let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
@@ -4072,14 +4073,47 @@ fn continue_tenure_extend() {
             &StacksEpochId::Epoch30,
         )
         .unwrap();
-    // Mine 15 more nakamoto tenures
+
+    debug!("MINING A STACKS BLOCK");
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    debug!("MINING THE NEXT BLOCK");
+    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    debug!("Unpausing commit op");
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+
+    debug!("MINING THE NEXT TENURES");
+    // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {
-        next_block_and_mine_commit(
-            &mut btc_regtest_controller,
-            60,
-            &coord_channel,
-            &commits_submitted,
-        )
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(commits_count > commits_before && blocks_processed > blocks_processed_before)
+        })
         .unwrap();
 
         signer_vote_if_needed(

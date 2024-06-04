@@ -732,7 +732,7 @@ impl NakamotoBlock {
             // discontinuous
             warn!(
                 "Invalid block -- discontiguous";
-                "previosu_tenure_end" => %tc_payload.previous_tenure_end,
+                "previous_tenure_end" => %tc_payload.previous_tenure_end,
                 "parent_block_id" => %self.header.parent_block_id
             );
             return Err(());
