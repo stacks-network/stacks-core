@@ -745,19 +745,20 @@ impl BlockMinerThread {
                 .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
+            debug!("HERE WE GO");
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let vrf_proof = self
             .make_vrf_proof()
             .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
-        if self.mined_blocks.is_empty() {
-            if parent_block_info.parent_tenure.is_none() {
-                warn!(
-                    "Miner should be starting a new tenure, but failed to load parent tenure info"
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            }
-        }
+        if self.mined_blocks.is_empty() && parent_block_info.parent_tenure.is_none() {
+            warn!(
+                "Miner should be starting a new tenure, but failed to load parent tenure info"
+            );
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
+
+        debug!("Parent block info parent tenure: {:?} and {:?} mined blocks", parent_block_info.parent_tenure, self.mined_blocks.len());
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info =
@@ -846,7 +847,7 @@ impl BlockMinerThread {
         let (tenure_change_tx, coinbase_tx) = if let Some(ref parent_tenure_info) =
             parent_block_info.parent_tenure
         {
-            debug!("Miner: Constructing tenure change and coinbase transactions");
+            debug!("Miner: Constructing tenure change and coinbase transactions: {}", self.reason);
             let num_blocks_so_far = u32::try_from(parent_tenure_info.parent_tenure_blocks)
                 .expect("FATAL: more than u32 blocks in a tenure");
             let mut payload = TenureChangePayload {
@@ -878,6 +879,7 @@ impl BlockMinerThread {
                 self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
             (Some(tenure_change_tx), Some(coinbase_tx))
         } else {
+            debug!("Miner: NOT Constructing tenure change and coinbase transactions");
             (None, None)
         };
 

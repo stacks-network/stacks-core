@@ -4040,8 +4040,7 @@ fn continue_tenure_extend() {
     info!("Pausing commit op for the next block");
     TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
     signer_vote_if_needed(
         &btc_regtest_controller,
