@@ -5377,6 +5377,7 @@ impl PeerNetwork {
             chainstate,
             sortdb,
             stacker_db_configs,
+            self.connection_opts.num_neighbors,
         )?;
         Ok(())
     }
