@@ -48,9 +48,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
-use slog::slog_info;
-use stacks_common::info;
-use wsts::state_machine::OperationResult;
+use runloop::SignerResult;
+use slog::{slog_info, slog_warn};
+use stacks_common::{info, warn};
 
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
@@ -69,7 +69,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         &mut self,
         stacks_client: &StacksClient,
         event: Option<&SignerEvent<T>>,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     );
     /// Process a command
@@ -82,17 +82,11 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
 }
 
 /// A wrapper around the running signer type for the signer
-pub type RunningSigner<T> =
-    libsigner::RunningSigner<SignerEventReceiver<T>, Vec<OperationResult>, T>;
+pub type RunningSigner<T> = libsigner::RunningSigner<SignerEventReceiver<T>, Vec<SignerResult>, T>;
 
 /// The wrapper for the runloop signer type
-type RunLoopSigner<S, T> = libsigner::Signer<
-    RunLoopCommand,
-    Vec<OperationResult>,
-    RunLoop<S, T>,
-    SignerEventReceiver<T>,
-    T,
->;
+type RunLoopSigner<S, T> =
+    libsigner::Signer<RunLoopCommand, Vec<SignerResult>, RunLoop<S, T>, SignerEventReceiver<T>, T>;
 
 /// The spawned signer
 pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
@@ -101,19 +95,19 @@ pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
     /// The command sender for interacting with the running signer
     pub cmd_send: Sender<RunLoopCommand>,
     /// The result receiver for interacting with the running signer
-    pub res_recv: Receiver<Vec<OperationResult>>,
+    pub res_recv: Receiver<Vec<SignerResult>>,
     /// Phantom data for the signer type
     _phantom: std::marker::PhantomData<S>,
 }
 
 impl<S: Signer<T> + Send, T: SignerEventTrait> SpawnedSigner<S, T> {
     /// Stop the signer thread and return the final state
-    pub fn stop(self) -> Option<Vec<OperationResult>> {
+    pub fn stop(self) -> Option<Vec<SignerResult>> {
         self.running_signer.stop()
     }
 
     /// Wait for the signer to terminate, and get the final state. WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurred.
-    pub fn join(self) -> Option<Vec<OperationResult>> {
+    pub fn join(self) -> Option<Vec<SignerResult>> {
         self.running_signer.join()
     }
 }
@@ -123,6 +117,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
         info!("Starting signer with config: {:?}", config);
+        warn!(
+            "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
+            It's important to exercise caution if you are communicating with an external node, \
+            as this could potentially expose sensitive data or functionalities to security risks \
+            if additional proper security checks are not integrated in place. \
+            For more information, check the documentation at \
+            https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like."
+        );
         let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
         let ev = SignerEventReceiver::new(config.network.is_mainnet());
@@ -133,7 +135,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         let runloop = RunLoop::new(config);
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
-        let running_signer = signer.spawn(endpoint).unwrap();
+        let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
         SpawnedSigner {
             running_signer,
             cmd_send,

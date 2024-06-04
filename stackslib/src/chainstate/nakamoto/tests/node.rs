@@ -583,7 +583,6 @@ impl TestStacksNode {
             let reward_set = sortdb
                 .get_preprocessed_reward_set_of(&sort_tip)
                 .expect("Failed to get reward cycle info")
-                .expect("Failed to get reward cycle info")
                 .known_selected_anchor_block_owned()
                 .expect("Expected a reward set");
 

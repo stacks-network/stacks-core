@@ -55,7 +55,7 @@ use wsts::v2;
 use super::stackerdb_manager::StackerDBManager;
 use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::{RunLoopCommand, SignerCommand};
+use crate::runloop::{RunLoopCommand, SignerCommand, SignerResult};
 use crate::signerdb::{BlockInfo, SignerDb};
 use crate::v1::coordinator::CoordinatorSelector;
 use crate::Signer as SignerTrait;
@@ -162,7 +162,7 @@ impl SignerTrait<SignerMessage> for Signer {
         &mut self,
         stacks_client: &StacksClient,
         event: Option<&SignerEvent<SignerMessage>>,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -192,8 +192,13 @@ impl SignerTrait<SignerMessage> for Signer {
         }
         self.refresh_coordinator();
         debug!("{self}: Processing event: {event:?}");
+        let Some(event) = event else {
+            // No event. Do nothing.
+            debug!("{self}: No event received");
+            return;
+        };
         match event {
-            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
+            SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(
                     stacks_client,
@@ -202,7 +207,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     current_reward_cycle,
                 )
             }
-            Some(SignerEvent::SignerMessages(signer_set, messages)) => {
+            SignerEvent::SignerMessages(signer_set, messages) => {
                 if *signer_set != self.stackerdb_manager.get_signer_set() {
                     debug!("{self}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...");
                     return;
@@ -213,7 +218,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::MinerMessages(messages, miner_key)) => {
+            SignerEvent::MinerMessages(messages, miner_key) => {
                 let miner_key = PublicKey::try_from(miner_key.to_bytes_compressed().as_slice())
                     .expect("FATAL: could not convert from StacksPublicKey to PublicKey");
                 self.miner_key = Some(miner_key);
@@ -229,15 +234,11 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
-            Some(SignerEvent::StatusCheck) => {
+            SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.")
             }
-            Some(SignerEvent::NewBurnBlock(height)) => {
+            SignerEvent::NewBurnBlock(height) => {
                 debug!("{self}: Receved a new burn block event for block height {height}")
-            }
-            None => {
-                // No event. Do nothing.
-                debug!("{self}: No event received")
             }
         }
     }
@@ -338,7 +339,7 @@ impl Signer {
     pub fn read_dkg_stackerdb_messages(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         if self.state != State::Uninitialized {
@@ -598,7 +599,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let mut block_info = match block_validate_response {
@@ -690,7 +691,7 @@ impl Signer {
     fn handle_signer_messages(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
@@ -733,7 +734,7 @@ impl Signer {
     fn handle_packets(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         packets: &[Packet],
         current_reward_cycle: u64,
     ) {
@@ -1398,11 +1399,11 @@ impl Signer {
     /// Send any operation results across the provided channel
     fn send_operation_results(
         &mut self,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         operation_results: Vec<OperationResult>,
     ) {
         let nmb_results = operation_results.len();
-        match res.send(operation_results) {
+        match res.send(operation_results.into_iter().map(|r| r.into()).collect()) {
             Ok(_) => {
                 debug!("{self}: Successfully sent {nmb_results} operation result(s)")
             }
@@ -1432,7 +1433,7 @@ impl Signer {
     pub fn refresh_dkg(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<OperationResult>>,
+        res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         // First attempt to retrieve the aggregate key from the contract.

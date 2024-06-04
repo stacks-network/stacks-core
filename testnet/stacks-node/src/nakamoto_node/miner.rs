@@ -132,15 +132,22 @@ impl BlockMinerThread {
     }
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
-    pub fn stop_miner(globals: &Globals, prior_miner: JoinHandle<()>) {
+    pub fn stop_miner(
+        globals: &Globals,
+        prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
+    ) -> Result<(), NakamotoNodeError> {
         globals.block_miner();
         prior_miner
             .join()
-            .expect("FATAL: IO failure joining prior mining thread");
+            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))??;
         globals.unblock_miner();
+        Ok(())
     }
 
-    pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
+    pub fn run_miner(
+        mut self,
+        prior_miner: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
+    ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
         debug!(
@@ -150,10 +157,10 @@ impl BlockMinerThread {
             "thread_id" => ?thread::current().id(),
         );
         if let Some(prior_miner) = prior_miner {
-            Self::stop_miner(&self.globals, prior_miner);
+            Self::stop_miner(&self.globals, prior_miner)?;
         }
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
-            .expect("FATAL: failed to connect to stacker DB");
+            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
 
         let mut attempts = 0;
         // now, actually run this tenure
@@ -176,7 +183,9 @@ impl BlockMinerThread {
                     }
                     Err(e) => {
                         warn!("Failed to mine block: {e:?}");
-                        return;
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 }
             };
@@ -193,12 +202,14 @@ impl BlockMinerThread {
                         error!(
                             "Unrecoverable error while gathering signatures: {e:?}. Ending tenure."
                         );
-                        return;
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 };
 
                 new_block.header.signer_signature = signer_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), None, reward_set) {
+                if let Err(e) = self.broadcast(new_block.clone(), reward_set) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -221,17 +232,20 @@ impl BlockMinerThread {
                 self.mined_blocks.push(new_block);
             }
 
-            let sort_db = SortitionDB::open(
+            let Ok(sort_db) = SortitionDB::open(
                 &self.config.get_burn_db_file_path(),
                 true,
                 self.burnchain.pox_constants.clone(),
-            )
-            .expect("FATAL: could not open sortition DB");
+            ) else {
+                error!("Failed to open sortition DB. Will try mining again.");
+                continue;
+            };
+
             let wait_start = Instant::now();
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 if self.check_burn_tip_changed(&sort_db).is_err() {
-                    return;
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
                 }
             }
         }
@@ -255,29 +269,30 @@ impl BlockMinerThread {
             true,
             self.burnchain.pox_constants.clone(),
         )
-        .expect("FATAL: could not open sortition DB");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
         let tip = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &new_block.header.consensus_hash,
         )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .expect("FATAL: building on a burn block that is before the first burn block");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
-                ));
-            }
+            Ok(x) => x,
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -291,34 +306,17 @@ impl BlockMinerThread {
             ));
         };
 
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let sortition_handle = sort_db.index_handle_at_tip();
-        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
-            &mut chain_state,
-            &sort_db,
-            &sortition_handle,
-            &new_block,
-        ) else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Failed to obtain the active aggregate public key. Cannot mine!".into(),
-            ));
-        };
-
+        // NOTE: this is a placeholder until the API can be fixed
+        let aggregate_public_key = Point::new();
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            reward_cycle,
-            miner_privkey_as_scalar,
-            aggregate_public_key,
-            &stackerdbs,
-            &self.config,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
 
         *attempts += 1;
         let signature = coordinator.begin_sign_v1(
@@ -335,7 +333,7 @@ impl BlockMinerThread {
         Ok((aggregate_public_key, signature))
     }
 
-    /// Gather signatures from the signers for the block
+    /// Gather a list of signatures from the signers for the block
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
@@ -353,30 +351,30 @@ impl BlockMinerThread {
             true,
             self.burnchain.pox_constants.clone(),
         )
-        .expect("FATAL: could not open sortition DB");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
         let tip = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &new_block.header.consensus_hash,
         )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
-
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .expect("FATAL: building on a burn block that is before the first burn block");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
 
         let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
-                return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
-                ));
-            }
+            Ok(x) => x,
             Err(e) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
@@ -391,19 +389,14 @@ impl BlockMinerThread {
         };
 
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            reward_cycle,
-            miner_privkey_as_scalar,
-            Point::new(),
-            &stackerdbs,
-            &self.config,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
 
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(
@@ -533,12 +526,9 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
-    /// TODO: update to utilize `signer_signature` vec instead of the aggregate
-    /// public key.
     fn broadcast(
         &self,
         block: NakamotoBlock,
-        aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
@@ -576,7 +566,6 @@ impl BlockMinerThread {
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
-            aggregate_public_key,
             reward_set,
         )?;
         staging_tx.commit()?;

@@ -83,7 +83,6 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::Error as NetError;
 use crate::util_lib::db::{
     db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
     query_row_panic, query_rows, sql_pragma, table_exists, tx_begin_immediate, tx_busy_handler,
@@ -3564,59 +3563,56 @@ impl SortitionDB {
         sortition_id: &SortitionId,
         rc_info: &RewardCycleInfo,
     ) -> Result<(), db_error> {
-        let sql = "INSERT INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
+        let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
         let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
     }
 
-    /// Figure out the reward cycle for `tip` and lookup the preprocessed
-    ///  reward set (if it exists) for the active reward cycle during `tip`
+    /// Wrapper around SortitionDBConn::get_prepare_phase_start_sortition_id_for_reward_cycle().
+    /// See that method for details.
+    pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        self.index_conn()
+            .get_prepare_phase_start_sortition_id_for_reward_cycle(
+                &self.pox_constants,
+                self.first_block_height,
+                tip,
+                reward_cycle_id,
+            )
+    }
+
+    /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_for_reward_cycle().
+    /// See that method for details.
+    pub fn get_preprocessed_reward_set_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<(RewardCycleInfo, SortitionId), db_error> {
+        self.index_conn()
+            .get_preprocessed_reward_set_for_reward_cycle(
+                &self.pox_constants,
+                self.first_block_height,
+                tip,
+                reward_cycle_id,
+            )
+    }
+
+    /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_of().
+    /// See that method for details.
     pub fn get_preprocessed_reward_set_of(
         &self,
         tip: &SortitionId,
-    ) -> Result<Option<RewardCycleInfo>, db_error> {
-        let tip_sn = SortitionDB::get_block_snapshot(self.conn(), tip)?.ok_or_else(|| {
-            error!(
-                "Could not find snapshot for sortition while fetching reward set";
-                "tip_sortition_id" => %tip,
-            );
-            db_error::NotFoundError
-        })?;
-
-        let reward_cycle_id = self
-            .pox_constants
-            .block_height_to_reward_cycle(self.first_block_height, tip_sn.block_height)
-            .expect("FATAL: stored snapshot with block height < first_block_height");
-
-        let prepare_phase_start = self
-            .pox_constants
-            .reward_cycle_to_block_height(self.first_block_height, reward_cycle_id)
-            .saturating_sub(self.pox_constants.prepare_length.into());
-
-        let first_sortition = get_ancestor_sort_id(
-            &self.index_conn(),
-            prepare_phase_start,
-            &tip_sn.sortition_id,
-        )?
-        .ok_or_else(|| {
-            error!(
-                "Could not find prepare phase start ancestor while fetching reward set";
-                "tip_sortition_id" => %tip,
-                "reward_cycle_id" => reward_cycle_id,
-                "prepare_phase_start_height" => prepare_phase_start
-            );
-            db_error::NotFoundError
-        })?;
-
-        info!("Fetching preprocessed reward set";
-              "tip_sortition_id" => %tip,
-              "reward_cycle_id" => reward_cycle_id,
-              "prepare_phase_start_sortition_id" => %first_sortition,
-        );
-
-        Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
+    ) -> Result<RewardCycleInfo, db_error> {
+        Ok(self.index_conn().get_preprocessed_reward_set_of(
+            &self.pox_constants,
+            self.first_block_height,
+            tip,
+        )?)
     }
 
     /// Get a pre-processed reawrd set.
@@ -3638,8 +3634,10 @@ impl SortitionDB {
         Ok(rc_info)
     }
 
+    /// Get the number of entries in the reward set, given a sortition ID within the reward cycle
+    /// for which this set is active.
     pub fn get_preprocessed_reward_set_size(&self, tip: &SortitionId) -> Option<u16> {
-        let Ok(Some(reward_info)) = &self.get_preprocessed_reward_set_of(&tip) else {
+        let Ok(reward_info) = &self.get_preprocessed_reward_set_of(&tip) else {
             return None;
         };
         let Some(reward_set) = reward_info.known_selected_anchor_block() else {
@@ -3863,6 +3861,100 @@ impl<'a> SortitionDBConn<'a> {
         let pox_addrs: (Vec<PoxAddress>, u128) =
             serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
         Ok(pox_addrs)
+    }
+
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    /// reward set (if it exists) for the active reward cycle during `tip`.
+    /// Returns the reward cycle info on success.
+    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
+    pub fn get_preprocessed_reward_set_of(
+        &self,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+    ) -> Result<RewardCycleInfo, db_error> {
+        let tip_sn = SortitionDB::get_block_snapshot(self, tip)?.ok_or_else(|| {
+            error!(
+                "Could not find snapshot for sortition while fetching reward set";
+                "tip_sortition_id" => %tip,
+            );
+            db_error::NotFoundError
+        })?;
+
+        // NOTE: the .saturating_sub(1) is necessary because the reward set is calculated in epoch
+        // 2.5 and lower at reward cycle index 1, not 0.  This correction ensures that the last
+        // block is checked against the signers who were active just before the new reward set is
+        // calculated.
+        let reward_cycle_id = pox_constants
+            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height.saturating_sub(1))
+            .expect("FATAL: stored snapshot with block height < first_block_height");
+
+        self.get_preprocessed_reward_set_for_reward_cycle(
+            pox_constants,
+            first_block_height,
+            tip,
+            reward_cycle_id,
+        )
+        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+    }
+
+    /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
+    pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
+        &self,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        let prepare_phase_start = pox_constants
+            .reward_cycle_to_block_height(first_block_height, reward_cycle_id)
+            .saturating_sub(pox_constants.prepare_length.into());
+
+        let first_sortition =
+            get_ancestor_sort_id(self, prepare_phase_start, tip)?.ok_or_else(|| {
+                error!(
+                    "Could not find prepare phase start ancestor while fetching reward set";
+                    "tip_sortition_id" => %tip,
+                    "reward_cycle_id" => reward_cycle_id,
+                    "prepare_phase_start_height" => prepare_phase_start
+                );
+                db_error::NotFoundError
+            })?;
+        Ok(first_sortition)
+    }
+
+    /// Get the reward set for a reward cycle, given the reward cycle tip.  The reward cycle info
+    /// will be returned for the reward set in which `tip` belongs (i.e. the reward set calculated
+    /// in the preceding reward cycle).
+    /// Return the reward cycle info for this reward cycle, as well as the first prepare-phase
+    /// sortition ID under which this reward cycle info is stored.
+    /// Returns Error on DB Error, or if the reward cycle info is not processed yet.
+    pub fn get_preprocessed_reward_set_for_reward_cycle(
+        &self,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<(RewardCycleInfo, SortitionId), db_error> {
+        let first_sortition = self.get_prepare_phase_start_sortition_id_for_reward_cycle(
+            pox_constants,
+            first_block_height,
+            tip,
+            reward_cycle_id,
+        )?;
+        info!("Fetching preprocessed reward set";
+              "tip_sortition_id" => %tip,
+              "reward_cycle_id" => reward_cycle_id,
+              "prepare_phase_start_sortition_id" => %first_sortition,
+        );
+
+        Ok((
+            SortitionDB::get_preprocessed_reward_set(self, &first_sortition)?
+                .ok_or(db_error::NotFoundError)?,
+            first_sortition,
+        ))
     }
 }
 
@@ -4581,12 +4673,14 @@ impl SortitionDB {
         Ok(ret)
     }
 
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
     }
 
     /// Open a tx handle at the burn chain tip
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn tx_begin_at_tip<'a>(&'a mut self) -> SortitionHandleTx<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.tx_handle_begin(&sortition_id).unwrap()
@@ -4596,6 +4690,7 @@ impl SortitionDB {
     /// Returns Ok(Some(tip info)) on success
     /// Returns Ok(None) if there are no Nakamoto blocks in this tip
     /// Returns Err(..) on other DB error
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_nakamoto_tip_hash_and_height(
         conn: &Connection,
         tip: &BlockSnapshot,
@@ -4620,6 +4715,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
@@ -4647,6 +4743,7 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
@@ -10851,5 +10948,13 @@ pub mod tests {
 
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
         assert_eq!(db_epochs, STACKS_EPOCHS_MAINNET.to_vec());
+    }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        assert!(SortitionDB::is_db_version_supported_in_epoch(
+            StacksEpochId::latest(),
+            SORTITION_DB_VERSION
+        ));
     }
 }

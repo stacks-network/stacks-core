@@ -38,16 +38,18 @@ use clarity::boot_util::boot_code_id;
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::SIGNERS_NAME;
+use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
+use stacks_signer::runloop::{SignerResult, State};
 use stacks_signer::{Signer, SpawnedSigner};
 use wsts::curve::point::Point;
 use wsts::state_machine::PublicKeys;
@@ -147,6 +149,54 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
+    fn send_status_request(&self) {
+        for port in 3000..3000 + self.spawned_signers.len() {
+            let endpoint = format!("http://localhost:{}", port);
+            let path = format!("{endpoint}/status");
+            let client = reqwest::blocking::Client::new();
+            let response = client
+                .get(path)
+                .send()
+                .expect("Failed to send status request");
+            assert!(response.status().is_success())
+        }
+    }
+
+    /// Wait for the signers to respond to a status check
+    fn wait_for_states(&mut self, timeout: Duration) -> Vec<State> {
+        debug!("Waiting for Status...");
+        let now = std::time::Instant::now();
+        let mut states = Vec::with_capacity(self.spawned_signers.len());
+        for signer in self.spawned_signers.iter() {
+            let old_len = states.len();
+            loop {
+                assert!(
+                    now.elapsed() < timeout,
+                    "Timed out waiting for state checks"
+                );
+                let results = signer
+                    .res_recv
+                    .recv_timeout(timeout)
+                    .expect("failed to recv state results");
+                for result in results {
+                    match result {
+                        SignerResult::OperationResult(_operation) => {
+                            panic!("Recieved an operation result.");
+                        }
+                        SignerResult::StatusCheck(state) => {
+                            states.push(state);
+                        }
+                    }
+                }
+                if states.len() > old_len {
+                    break;
+                }
+            }
+        }
+        debug!("Finished waiting for state checks!");
+        states
+    }
+
     fn nmb_blocks_to_reward_set_calculation(&mut self) -> u64 {
         let prepare_phase_len = self
             .running_nodes
@@ -194,7 +244,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ) -> MinedNakamotoBlockEvent {
         let new_block = self.mine_nakamoto_block(timeout);
         let signer_sighash = new_block.signer_signature_hash.clone();
-        let signature = self.wait_for_confirmed_block(&signer_sighash, timeout);
+        let signature = self.wait_for_confirmed_block_v1(&signer_sighash, timeout);
         assert!(signature.0.verify(&agg_key, signer_sighash.as_bytes()));
         new_block
     }
@@ -226,15 +276,51 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         test_observer::get_mined_nakamoto_blocks().pop().unwrap()
     }
 
-    fn wait_for_confirmed_block(
+    fn wait_for_confirmed_block_v1(
         &mut self,
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> ThresholdSignature {
+        let block_obj = self.wait_for_confirmed_block_with_hash(block_signer_sighash, timeout);
+        let signer_signature_hex = block_obj.get("signer_signature").unwrap().as_str().unwrap();
+        let signer_signature_bytes = hex_bytes(&signer_signature_hex[2..]).unwrap();
+        let signer_signature =
+            ThresholdSignature::consensus_deserialize(&mut signer_signature_bytes.as_slice())
+                .unwrap();
+        signer_signature
+    }
+
+    /// Wait for a confirmed block and return a list of individual
+    /// signer signatures
+    fn wait_for_confirmed_block_v0(
+        &mut self,
+        block_signer_sighash: &Sha512Trunc256Sum,
+        timeout: Duration,
+    ) -> Vec<MessageSignature> {
+        let block_obj = self.wait_for_confirmed_block_with_hash(block_signer_sighash, timeout);
+        block_obj
+            .get("signer_signature")
+            .unwrap()
+            .as_array()
+            .expect("Expected signer_signature to be an array")
+            .iter()
+            .cloned()
+            .map(serde_json::from_value::<MessageSignature>)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Unable to deserialize array of MessageSignature")
+    }
+
+    /// Wait for a confirmed block and return a list of individual
+    /// signer signatures
+    fn wait_for_confirmed_block_with_hash(
+        &mut self,
+        block_signer_sighash: &Sha512Trunc256Sum,
+        timeout: Duration,
+    ) -> serde_json::Map<String, serde_json::Value> {
         let t_start = Instant::now();
         while t_start.elapsed() <= timeout {
             let blocks = test_observer::get_blocks();
-            if let Some(signature) = blocks.iter().find_map(|block_json| {
+            if let Some(block) = blocks.iter().find_map(|block_json| {
                 let block_obj = block_json.as_object().unwrap();
                 let sighash = block_obj
                     // use the try operator because non-nakamoto blocks
@@ -245,16 +331,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 if sighash != &format!("0x{block_signer_sighash}") {
                     return None;
                 }
-                let signer_signature_hex =
-                    block_obj.get("signer_signature").unwrap().as_str().unwrap();
-                let signer_signature_bytes = hex_bytes(&signer_signature_hex[2..]).unwrap();
-                let signer_signature = ThresholdSignature::consensus_deserialize(
-                    &mut signer_signature_bytes.as_slice(),
-                )
-                .unwrap();
-                Some(signer_signature)
+                Some(block_obj.clone())
             }) {
-                return signature;
+                return block;
             }
             thread::sleep(Duration::from_millis(500));
         }
@@ -354,14 +433,19 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect()
     }
 
+    /// Get the wsts public keys for the given reward cycle
     fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
-        let entries = self
-            .stacks_client
-            .get_reward_set_signers(reward_cycle)
-            .unwrap()
-            .unwrap();
+        let entries = self.get_reward_set_signers(reward_cycle);
         let entries = SignerEntries::parse(false, &entries).unwrap();
         entries.public_keys
+    }
+
+    /// Get the signers for the given reward cycle
+    pub fn get_reward_set_signers(&self, reward_cycle: u64) -> Vec<NakamotoSignerEntry> {
+        self.stacks_client
+            .get_reward_set_signers(reward_cycle)
+            .unwrap()
+            .unwrap()
     }
 
     #[allow(dead_code)]

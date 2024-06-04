@@ -79,7 +79,7 @@ use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegister
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
-use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
+use crate::chainstate::nakamoto::tenure::{NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
@@ -147,7 +147,7 @@ lazy_static! {
                      reward_set TEXT NOT NULL,
                      PRIMARY KEY (index_block_hash)
     );"#.into(),
-    NAKAMOTO_TENURES_SCHEMA.into(),
+    NAKAMOTO_TENURES_SCHEMA_1.into(),
     r#"
       -- Table for Nakamoto block headers
       CREATE TABLE nakamoto_block_headers (
@@ -155,7 +155,7 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
+                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
                      -- height of the burnchain block header that generated this consensus hash
@@ -191,7 +191,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -210,14 +210,21 @@ lazy_static! {
           );
           CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
     "#.into(),
-        format!(
-            r#"ALTER TABLE payments
-               ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
-            "#,
-            HeaderTypeNames::Epoch2.get_name_str()),
-        r#"
-        UPDATE db_config SET version = "4";
-        "#.into(),
+    format!(
+        r#"ALTER TABLE payments
+            ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
+        "#,
+        HeaderTypeNames::Epoch2.get_name_str()),
+    r#"
+    UPDATE db_config SET version = "4";
+    "#.into(),
+    ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
+    NAKAMOTO_TENURES_SCHEMA_2.into(),
+    r#"
+    UPDATE db_config SET version = "5";
+    "#.into(),
     ];
 }
 
@@ -496,16 +503,6 @@ impl NakamotoBlockHeader {
         Ok(())
     }
 
-    /// Verify the block header against an aggregate public key
-    pub fn verify_threshold_signer(
-        &self,
-        signer_aggregate: &Point,
-        signature: &ThresholdSignature,
-    ) -> bool {
-        let message = self.signer_signature_hash().0;
-        signature.verify(signer_aggregate, &message)
-    }
-
     /// Verify the block header against the list of signer signatures
     ///
     /// Validate against:
@@ -526,17 +523,16 @@ impl NakamotoBlockHeader {
         // `last_index` is used to prevent out-of-order signatures
         let mut last_index = None;
 
-        let total_weight = signers.iter().map(|s| s.weight).fold(0, |w, acc| {
-            acc.checked_add(w)
-                .expect("FATAL: Total signer weight > u32::MAX")
-        });
+        let total_weight = reward_set
+            .total_signing_weight()
+            .map_err(|_| ChainstateError::NoRegisteredSigners(0))?;
 
         // HashMap of <PublicKey, (Signer, Index)>
-        let signers_by_pk = signers
+        let signers_by_pk: HashMap<_, _> = signers
             .iter()
             .enumerate()
             .map(|(i, signer)| (&signer.signing_key, (signer, i)))
-            .collect::<HashMap<_, _>>();
+            .collect();
 
         for signature in self.signer_signature.iter() {
             let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
@@ -585,18 +581,21 @@ impl NakamotoBlockHeader {
         return Ok(());
     }
 
+    /// Compute the threshold for the minimum number of signers (by weight) required
+    /// to approve a Nakamoto block.
     pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
-        let ceil = if (total_weight as u64 * 7) % 10 == 0 {
+        let threshold = NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
+        let total_weight = u64::from(total_weight);
+        let ceil = if (total_weight * threshold) % 10 == 0 {
             0
         } else {
             1
         };
-        u32::try_from((total_weight as u64 * NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD) / 10 + ceil)
-            .map_err(|_| {
-                ChainstateError::InvalidStacksBlock(
-                    "Overflow when computing nakamoto block approval threshold".to_string(),
-                )
-            })
+        u32::try_from((total_weight * threshold) / 10 + ceil).map_err(|_| {
+            ChainstateError::InvalidStacksBlock(
+                "Overflow when computing nakamoto block approval threshold".to_string(),
+            )
+        })
     }
 
     /// Make an "empty" header whose block data needs to be filled in.
@@ -1799,7 +1798,6 @@ impl NakamotoChainState {
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
-        _aggregate_public_key: Option<&Point>,
         reward_set: RewardSet,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
@@ -1847,21 +1845,6 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        // TODO: epoch gate to verify aggregate signature
-        // let schnorr_signature = &block.header.signer_signature.0;
-        // if !db_handle.expects_signer_signature(
-        //     &block.header.consensus_hash,
-        //     schnorr_signature,
-        //     &block.header.signer_signature_hash().0,
-        //     aggregate_public_key,
-        // )? {
-        //     let msg = format!(
-        //         "Received block, but the signer signature does not match the active stacking cycle"
-        //     );
-        //     warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
-        //     return Err(ChainstateError::InvalidStacksBlock(msg));
-        // }
-
         if let Err(e) = block.header.verify_signer_signatures(&reward_set) {
             warn!("Received block, but the signer signatures are invalid";
                   "block_id" => %block.block_id(),
@@ -1879,83 +1862,6 @@ impl NakamotoChainState {
         Self::store_block(staging_db_tx, block, burn_attachable)?;
         test_debug!("Stored Nakamoto block {}", &_block_id);
         Ok(true)
-    }
-
-    /// Get the aggregate public key for the given block from the signers-voting contract
-    pub(crate) fn load_aggregate_public_key<SH: SortitionHandle>(
-        sortdb: &SortitionDB,
-        sort_handle: &SH,
-        chainstate: &mut StacksChainState,
-        for_burn_block_height: u64,
-        at_block_id: &StacksBlockId,
-        warn_if_not_found: bool,
-    ) -> Result<Point, ChainstateError> {
-        // Get the current reward cycle
-        let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
-            sort_handle.first_burn_block_height(),
-            for_burn_block_height,
-        ) else {
-            // This should be unreachable, but we'll return an error just in case.
-            let msg = format!(
-                "BUG: Failed to determine reward cycle of burn block height: {}.",
-                for_burn_block_height
-            );
-            warn!("{msg}");
-            return Err(ChainstateError::InvalidStacksBlock(msg));
-        };
-
-        test_debug!(
-            "get-approved-aggregate-key at block {}, cycle {}",
-            at_block_id,
-            rc
-        );
-        match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
-            Some(key) => Ok(key),
-            None => {
-                // this can happen for a whole host of reasons
-                if warn_if_not_found {
-                    warn!(
-                        "Failed to get aggregate public key";
-                        "block_id" => %at_block_id,
-                        "reward_cycle" => rc,
-                    );
-                }
-                Err(ChainstateError::InvalidStacksBlock(
-                    "Failed to get aggregate public key".into(),
-                ))
-            }
-        }
-    }
-
-    /// Get the aggregate public key for a block.
-    /// TODO: The block at which the aggregate public key is queried needs to be better defined.
-    /// See https://github.com/stacks-network/stacks-core/issues/4109
-    pub fn get_aggregate_public_key<SH: SortitionHandle>(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-        sort_handle: &SH,
-        block: &NakamotoBlock,
-    ) -> Result<Point, ChainstateError> {
-        let block_sn =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &block.header.consensus_hash)?
-                .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-        let aggregate_key_block_header =
-            Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
-        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
-            .ok_or(ChainstateError::InvalidStacksBlock(
-                "Failed to get epoch ID".into(),
-            ))?
-            .epoch_id;
-
-        let aggregate_public_key = Self::load_aggregate_public_key(
-            sortdb,
-            sort_handle,
-            chainstate,
-            block_sn.block_height,
-            &aggregate_key_block_header.index_block_hash(),
-            epoch_id >= StacksEpochId::Epoch30,
-        )?;
-        Ok(aggregate_public_key)
     }
 
     /// Return the total ExecutionCost consumed during the tenure up to and including
@@ -2112,6 +2018,7 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2928,7 +2835,7 @@ impl NakamotoChainState {
                 // this block is mined in the ongoing tenure.
                 if !Self::check_tenure_continuity(
                     chainstate_tx,
-                    burn_dbconn.sqlite(),
+                    burn_dbconn,
                     &parent_ch,
                     &block.header,
                 )? {

@@ -685,6 +685,7 @@ macro_rules! fmax {
     }}
 }
 
+#[cfg(feature = "canonical")]
 macro_rules! impl_byte_array_rusqlite_only {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {

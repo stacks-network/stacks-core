@@ -25,12 +25,12 @@ use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
+use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{
@@ -723,26 +723,11 @@ impl Relayer {
         );
 
         let config = chainstate.config();
-
-        // TODO: epoch gate to verify with aggregate key
-        // let Ok(aggregate_public_key) =
-        //     NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
-        // else {
-        //     warn!("Failed to get aggregate public key. Will not store or relay";
-        //         "stacks_block_hash" => %block.header.block_hash(),
-        //         "consensus_hash" => %block.header.consensus_hash,
-        //         "burn_height" => block.header.chain_length,
-        //         "sortition_height" => block_sn.block_height,
-        //     );
-        //     return Ok(false);
-        // };
-
-        // TODO: epoch gate to use signatures vec
         let tip = block_sn.sortition_id;
 
         let reward_info = match sortdb.get_preprocessed_reward_set_of(&tip) {
-            Ok(Some(x)) => x,
-            Ok(None) => {
+            Ok(x) => x,
+            Err(db_error::NotFoundError) => {
                 error!("No RewardCycleInfo found for tip {}", tip);
                 return Err(chainstate_error::PoxNoRewardCycle);
             }
@@ -763,7 +748,6 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            None,
             reward_set,
         )?;
         staging_db_tx.commit()?;
@@ -1489,7 +1473,7 @@ impl Relayer {
     /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
     /// problematic transactions. This is a static check -- we only look at the microblock
     /// contents.
-    ///  
+    ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
     pub fn static_check_problematic_relayed_microblock(
@@ -2669,6 +2653,7 @@ pub mod test {
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::tests::{
         make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
+        make_stacks_transfer_order_independent_p2sh, make_stacks_transfer_order_independent_p2wsh,
         make_user_stacks_transfer,
     };
     use crate::chainstate::stacks::{Error as ChainstateError, *};
@@ -2696,6 +2681,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -2847,6 +2833,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -5891,7 +5878,6 @@ pub mod test {
         peer.sortdb = Some(sortdb);
         peer.stacks_node = Some(node);
     }
-
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);

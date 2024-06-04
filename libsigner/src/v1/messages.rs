@@ -104,8 +104,8 @@ impl MessageSlotIDTrait for MessageSlotID {
     fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
         NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
     }
-    fn all() -> Vec<Self> {
-        MessageSlotID::ALL.to_vec()
+    fn all() -> &'static [Self] {
+        MessageSlotID::ALL
     }
 }
 

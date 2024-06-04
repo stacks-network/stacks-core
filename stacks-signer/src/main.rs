@@ -30,19 +30,20 @@ use std::io::{self, Write};
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
+use clarity::types::chainstate::StacksPublicKey;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
     RunSignerArgs, StackerDBArgs,
 };
 use stacks_signer::config::GlobalConfig;
-use stacks_signer::v1::SpawnedSigner;
+use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -116,7 +117,8 @@ fn handle_generate_stacking_signature(
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
     let private_key = config.stacks_private_key;
-    let public_key = Secp256k1PublicKey::from_private(&private_key);
+    let public_key = StacksPublicKey::from_private(&private_key);
+    let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
     let signature = make_pox_4_signer_key_signature(
         &args.pox_address,
@@ -132,7 +134,7 @@ fn handle_generate_stacking_signature(
 
     let output_str = if args.json {
         serde_json::to_string(&serde_json::json!({
-            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerKey": pk_hex,
             "signerSignature": to_hex(signature.to_rsv().as_slice()),
             "authId": format!("{}", args.auth_id),
             "rewardCycle": args.reward_cycle,
@@ -145,7 +147,7 @@ fn handle_generate_stacking_signature(
     } else {
         format!(
             "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
-            to_hex(&public_key.to_bytes_compressed()),
+            pk_hex,
             to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
         )
     };

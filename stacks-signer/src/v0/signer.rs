@@ -24,11 +24,10 @@ use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, warn};
-use wsts::state_machine::OperationResult;
 
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::RunLoopCommand;
+use crate::runloop::{RunLoopCommand, SignerResult};
 use crate::signerdb::{BlockInfo, SignerDb};
 use crate::Signer as SignerTrait;
 
@@ -79,7 +78,7 @@ impl SignerTrait<SignerMessage> for Signer {
         &mut self,
         stacks_client: &StacksClient,
         event: Option<&SignerEvent<SignerMessage>>,
-        _res: Sender<Vec<OperationResult>>,
+        _res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -97,18 +96,23 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
         debug!("{self}: Processing event: {event:?}");
+        let Some(event) = event else {
+            // No event. Do nothing.
+            debug!("{self}: No event received");
+            return;
+        };
         match event {
-            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
+            SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(block_validate_response)
             }
-            Some(SignerEvent::SignerMessages(_signer_set, messages)) => {
+            SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
                     "{self}: Received {} messages from the other signers. Ignoring...",
                     messages.len()
                 );
             }
-            Some(SignerEvent::MinerMessages(messages, _)) => {
+            SignerEvent::MinerMessages(messages, _) => {
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -119,15 +123,11 @@ impl SignerTrait<SignerMessage> for Signer {
                     }
                 }
             }
-            Some(SignerEvent::StatusCheck) => {
-                debug!("{self}: Received a status check event.")
+            SignerEvent::StatusCheck => {
+                debug!("{self}: Received a status check event.");
             }
-            Some(SignerEvent::NewBurnBlock(height)) => {
+            SignerEvent::NewBurnBlock(height) => {
                 debug!("{self}: Receved a new burn block event for block height {height}")
-            }
-            None => {
-                // No event. Do nothing.
-                debug!("{self}: No event received")
             }
         }
     }
@@ -202,8 +202,8 @@ impl Signer {
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
-            // We are not signing for this reward cycle. Reject the block
-            warn!(
+            // We are not signing for this reward cycle. Ignore the block.
+            debug!(
                 "{self}: Received a block proposal for a different reward cycle. Ignore it.";
                 "requested_reward_cycle" => block_proposal.reward_cycle
             );
@@ -240,6 +240,7 @@ impl Signer {
                 "block_id" => %block_proposal.block.block_id(),
             );
             let block_info = BlockInfo::from(block_proposal.clone());
+            crate::monitoring::increment_block_proposals_received();
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
@@ -312,11 +313,17 @@ impl Signer {
         };
         // Submit a proposal response to the .signers contract for miners
         debug!("{self}: Broadcasting a block response to stacks node: {response:?}");
-        if let Err(e) = self
+        match self
             .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.into())
+            .send_message_with_retry::<SignerMessage>(response.clone().into())
         {
-            warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+            Ok(_) => {
+                let accepted = matches!(response, BlockResponse::Accepted(..));
+                crate::monitoring::increment_block_responses_sent(accepted);
+            }
+            Err(e) => {
+                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+            }
         }
         self.signer_db
             .insert_block(&block_info)

@@ -31,7 +31,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -41,6 +40,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
@@ -129,8 +129,8 @@ impl fmt::Display for NakamotoTenureDownloadState {
 ///    is configured to fetch the highest complete tenure (i.e. the parent of the ongoing tenure);
 ///    in this case, the end-block is the start-block of the ongoing tenure.
 /// 3. Obtain the blocks that lie between the first and last blocks of the tenure, in reverse
-///    order.  As blocks are found, their signer signatures will be validated against the aggregate
-///    public key for this tenure; their hash-chain continuity will be validated against the start
+///    order.  As blocks are found, their signer signatures will be validated against the signer
+///    public keys for this tenure; their hash-chain continuity will be validated against the start
 ///    and end block hashes; their quantity will be validated against the tenure-change transaction
 ///    in the end-block.
 ///
@@ -149,10 +149,10 @@ pub struct NakamotoTenureDownloader {
     pub tenure_end_block_id: StacksBlockId,
     /// Address of who we're asking for blocks
     pub naddr: NeighborAddress,
-    /// Aggregate public key that signed the start-block of this tenure
-    pub start_aggregate_public_key: Point,
-    /// Aggregate public key that signed the end-block of this tenure
-    pub end_aggregate_public_key: Point,
+    /// Signer public keys that signed the start-block of this tenure, in reward cycle order
+    pub start_signer_keys: RewardSet,
+    /// Signer public keys that signed the end-block of this tenure
+    pub end_signer_keys: RewardSet,
     /// Whether or not we're idle -- i.e. there are no ongoing network requests associated with
     /// this state machine.
     pub idle: bool,
@@ -178,8 +178,8 @@ impl NakamotoTenureDownloader {
         tenure_start_block_id: StacksBlockId,
         tenure_end_block_id: StacksBlockId,
         naddr: NeighborAddress,
-        start_aggregate_public_key: Point,
-        end_aggregate_public_key: Point,
+        start_signer_keys: RewardSet,
+        end_signer_keys: RewardSet,
     ) -> Self {
         test_debug!(
             "Instantiate downloader to {} for tenure {}",
@@ -191,8 +191,8 @@ impl NakamotoTenureDownloader {
             tenure_start_block_id,
             tenure_end_block_id,
             naddr,
-            start_aggregate_public_key,
-            end_aggregate_public_key,
+            start_signer_keys,
+            end_signer_keys,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block_id.clone()),
             tenure_start_block: None,
@@ -243,19 +243,18 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        // TODO: epoch-gated verify threshold or vec of signatures
-        // if !tenure_start_block
-        //     .header
-        //     .verify_threshold_signer(&self.start_aggregate_public_key)
-        // {
-        //     // signature verification failed
-        //     warn!("Invalid tenure-start block: bad signer signature";
-        //           "tenure_id" => %self.tenure_id_consensus_hash,
-        //           "block.header.block_id" => %tenure_start_block.header.block_id(),
-        //           "start_aggregate_public_key" => %self.start_aggregate_public_key,
-        //           "state" => %self.state);
-        //     return Err(NetError::InvalidMessage);
-        // }
+        if let Err(e) = tenure_start_block
+            .header
+            .verify_signer_signatures(&self.start_signer_keys)
+        {
+            // signature verification failed
+            warn!("Invalid tenure-start block: bad signer signature";
+                   "tenure_id" => %self.tenure_id_consensus_hash,
+                   "block.header.block_id" => %tenure_start_block.header.block_id(),
+                   "state" => %self.state,
+                   "error" => %e);
+            return Err(NetError::InvalidMessage);
+        }
 
         debug!(
             "Accepted tenure-start block for tenure {} block={}",
@@ -370,19 +369,18 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        // TODO: epoch-gated verify threshold or vec of signatures
-        // if !tenure_end_block
-        //     .header
-        //     .verify_threshold_signer(&self.end_aggregate_public_key)
-        // {
-        //     // bad signature
-        //     warn!("Invalid tenure-end block: bad signer signature";
-        //           "tenure_id" => %self.tenure_id_consensus_hash,
-        //           "block.header.block_id" => %tenure_end_block.header.block_id(),
-        //           "end_aggregate_public_key" => %self.end_aggregate_public_key,
-        //           "state" => %self.state);
-        //     return Err(NetError::InvalidMessage);
-        // }
+        if let Err(e) = tenure_end_block
+            .header
+            .verify_signer_signatures(&self.end_signer_keys)
+        {
+            // bad signature
+            warn!("Invalid tenure-end block: bad signer signature";
+                  "tenure_id" => %self.tenure_id_consensus_hash,
+                  "block.header.block_id" => %tenure_end_block.header.block_id(),
+                  "state" => %self.state,
+                  "error" => %e);
+            return Err(NetError::InvalidMessage);
+        }
 
         // extract the needful -- need the tenure-change payload (which proves that the tenure-end
         // block is the tenure-start block for the next tenure) and the parent block ID (which is
@@ -472,18 +470,17 @@ impl NakamotoTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            // TODO: epoch-gated verify threshold or vec of signatures
-            // if !block
-            //     .header
-            //     .verify_threshold_signer(&self.start_aggregate_public_key)
-            // {
-            //     warn!("Invalid block: bad signer signature";
-            //           "tenure_id" => %self.tenure_id_consensus_hash,
-            //           "block.header.block_id" => %block.header.block_id(),
-            //           "start_aggregate_public_key" => %self.start_aggregate_public_key,
-            //           "state" => %self.state);
-            //     return Err(NetError::InvalidMessage);
-            // }
+            if let Err(e) = block
+                .header
+                .verify_signer_signatures(&self.start_signer_keys)
+            {
+                warn!("Invalid block: bad signer signature";
+                      "tenure_id" => %self.tenure_id_consensus_hash,
+                      "block.header.block_id" => %block.header.block_id(),
+                      "state" => %self.state,
+                      "error" => %e);
+                return Err(NetError::InvalidMessage);
+            }
 
             expected_block_id = &block.header.parent_block_id;
             count += 1;
