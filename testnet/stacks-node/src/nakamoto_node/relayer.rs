@@ -660,10 +660,7 @@ impl RelayerThread {
         Ok(())
     }
 
-    fn continue_tenure(
-        &mut self,
-        new_burn_view: ConsensusHash,
-    ) -> Result<(), NakamotoNodeError> {
+    fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
             error!("Relayer: Failed to stop tenure: {:?}", e);
             return Ok(());
@@ -745,17 +742,17 @@ impl RelayerThread {
                     error!("Relayer: Failed to start new tenure: {:?}", e);
                 }
             },
-            MinerDirective::ContinueTenure {
-                new_burn_view,
-            } => match self.continue_tenure(new_burn_view) {
-                Ok(()) => {
-                    debug!("Relayer: successfully handled continue tenure.");
+            MinerDirective::ContinueTenure { new_burn_view } => {
+                match self.continue_tenure(new_burn_view) {
+                    Ok(()) => {
+                        debug!("Relayer: successfully handled continue tenure.");
+                    }
+                    Err(e) => {
+                        error!("Relayer: Failed to continue tenure: {:?}", e);
+                        return false;
+                    }
                 }
-                Err(e) => {
-                    error!("Relayer: Failed to continue tenure: {:?}", e);
-                    return false;
-                }
-            },
+            }
             MinerDirective::StopTenure => match self.stop_tenure() {
                 Ok(()) => {
                     debug!("Relayer: successfully stopped tenure.");

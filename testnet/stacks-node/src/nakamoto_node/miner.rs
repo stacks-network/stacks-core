@@ -67,9 +67,7 @@ pub enum MinerDirective {
         burnchain_tip: BlockSnapshot,
     },
     /// The miner should try to continue their tenure if they are the active miner
-    ContinueTenure {
-        new_burn_view: ConsensusHash,
-    },
+    ContinueTenure { new_burn_view: ConsensusHash },
     /// The miner did not win sortition
     StopTenure,
 }
@@ -859,9 +857,9 @@ impl BlockMinerThread {
                 self.reason
             );
             let mut payload = TenureChangePayload {
-                tenure_consensus_hash: self.burn_block.consensus_hash.clone(),
+                tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
                 prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
-                burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
+                burn_view_consensus_hash: self.burn_election_block.consensus_hash.clone(),
                 previous_tenure_end: parent_block_id,
                 previous_tenure_blocks: u32::try_from(parent_tenure_info.parent_tenure_blocks)
                     .expect("FATAL: more than u32 blocks in a tenure"),
@@ -872,29 +870,34 @@ impl BlockMinerThread {
             match &self.reason {
                 MinerReason::BlockFound => {
                     debug!("Miner: Constructing tenure change and coinbase transactions");
-                    let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload)?;
-                    let coinbase_tx =
-                        self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
+                    let tenure_change_tx =
+                        self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                    let coinbase_tx = self.generate_coinbase_tx(
+                        current_miner_nonce + 1,
+                        target_epoch_id,
+                        vrf_proof,
+                    );
                     (Some(tenure_change_tx), Some(coinbase_tx))
-                },
+                }
                 MinerReason::Extended {
                     burn_view_consensus_hash,
                     tenure_change_mined,
                 } => {
-                    let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
-                        chainstate.db(),
-                        &self.burn_election_block.consensus_hash,
-                    )
-                    .map_err(NakamotoNodeError::MiningFailure)?;
                     debug!("Tenure change mined {tenure_change_mined}");
                     if !*tenure_change_mined {
+                        let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                            chainstate.db(),
+                            &self.burn_election_block.consensus_hash,
+                        )
+                        .map_err(NakamotoNodeError::MiningFailure)?;
                         debug!("Miner: Extending tenure"; "burn_view_consensus_hash" => %burn_view_consensus_hash, "parent_block_id" => %parent_block_id, "num_blocks_so_far" => num_blocks_so_far);
                         payload = payload.extend(
                             *burn_view_consensus_hash,
                             parent_block_id,
                             num_blocks_so_far,
                         );
-                        let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                        let tenure_change_tx =
+                            self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                         (Some(tenure_change_tx), None)
                     } else {
                         (None, None)
