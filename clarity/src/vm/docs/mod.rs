@@ -1746,8 +1746,15 @@ be the same `principal` that received the block reward, since Stacks 2.1 support
 the address of the `principal` that produced the block.
 
 `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
+which roughly corresponds to when the block was mined.
+  In Clarity 2, this timestamp comes from the burnchain block. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+  In Clarity 3, which activates with epoch 3.0 (Nakamoto), this timestamp comes from the Stacks block itself. **Note**: this is the time, according to the miner, when
+the block started to be mined, but is not guaranteed to be accurate. It will be validated by the signers to be:
+  - Greater than the timestamp of the previous block
+  - Less than 15 seconds into the future (according to their own local clocks)
+
+`vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding block.
 
 New in Stacks 2.1:
 
@@ -2739,6 +2746,9 @@ mod test {
         }
         fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
             Some(1557860301)
+        }
+        fn get_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+            Some(1557860302)
         }
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
             Some(567890)

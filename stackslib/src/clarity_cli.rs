@@ -703,6 +703,15 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        let conn = self.conn();
+        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
+            Some((height * 10 + 1713799973) as u64)
+        } else {
+            None
+        }
+    }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {

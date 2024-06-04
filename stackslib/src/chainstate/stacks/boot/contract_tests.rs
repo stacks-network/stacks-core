@@ -565,6 +565,11 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
 
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        let block_height = test_sim_hash_to_height(&id_bhh.0)?;
+        Some(1713799973 + block_height)
+    }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)

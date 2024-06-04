@@ -93,6 +93,7 @@ pub trait HeadersDB {
         -> Option<BurnchainHeaderHash>;
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
@@ -168,6 +169,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_burn_block_time_for_block(&self, bhh: &StacksBlockId) -> Option<u64> {
         (*self).get_burn_block_time_for_block(bhh)
+    }
+    fn get_block_time_for_block(&self, bhh: &StacksBlockId) -> Option<u64> {
+        (*self).get_block_time_for_block(bhh)
     }
     fn get_burn_block_height_for_block(&self, bhh: &StacksBlockId) -> Option<u32> {
         (*self).get_burn_block_height_for_block(bhh)
@@ -311,6 +315,9 @@ impl HeadersDB for NullHeadersDB {
         } else {
             None
         }
+    }
+    fn get_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        None
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
@@ -993,10 +1000,17 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
-    pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
+    pub fn get_burn_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
             .get_burn_block_time_for_block(&id_bhh)
+            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
+    }
+
+    pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
+        let id_bhh = self.get_index_block_header_hash(block_height)?;
+        self.headers_db
+            .get_block_time_for_block(&id_bhh)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 

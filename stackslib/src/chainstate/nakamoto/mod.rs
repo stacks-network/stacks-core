@@ -223,6 +223,10 @@ lazy_static! {
     pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
     NAKAMOTO_TENURES_SCHEMA_2.into(),
     r#"
+    ALTER TABLE nakamoto_block_headers
+      ADD COLUMN timestamp INTEGER NOT NULL;
+    "#.into(),
+    r#"
     UPDATE db_config SET version = "5";
     "#.into(),
     ];
@@ -313,6 +317,11 @@ pub struct NakamotoBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     /// The MARF trie root hash after this block has been processed
     pub state_index_root: TrieHash,
+    /// A Unix time timestamp of when this block was mined, according to the miner.
+    /// For the signers to consider a block valid, this timestamp must be:
+    ///  * Greater than the timestamp of its parent block
+    ///  * Less than 15 seconds into the future
+    pub timestamp: u64,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
     /// The set of recoverable ECDSA signatures over
@@ -337,6 +346,8 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let parent_block_id = row.get("parent_block_id")?;
         let tx_merkle_root = row.get("tx_merkle_root")?;
         let state_index_root = row.get("state_index_root")?;
+        let timestamp_i64: i64 = row.get("timestamp")?;
+        let timestamp = timestamp_i64.try_into().map_err(|_| DBError::ParseError)?;
         let miner_signature = row.get("miner_signature")?;
         let signer_bitvec = row.get("signer_bitvec")?;
         let signer_signature_json: String = row.get("signer_signature")?;
@@ -351,6 +362,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             parent_block_id,
             tx_merkle_root,
             state_index_root,
+            timestamp,
             signer_signature,
             miner_signature,
             signer_bitvec,
@@ -402,6 +414,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.parent_block_id)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.timestamp)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
         write_next(fd, &self.signer_bitvec)?;
@@ -418,6 +431,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             parent_block_id: read_next(fd)?,
             tx_merkle_root: read_next(fd)?,
             state_index_root: read_next(fd)?,
+            timestamp: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
             signer_bitvec: read_next(fd)?,
@@ -452,6 +466,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.parent_block_id)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.timestamp)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -467,6 +482,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.parent_block_id)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.timestamp)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_bitvec)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
@@ -615,6 +631,7 @@ impl NakamotoBlockHeader {
             parent_block_id,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
+            timestamp: get_epoch_time_secs(),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             signer_bitvec: BitVec::ones(bitvec_len)
@@ -632,6 +649,7 @@ impl NakamotoBlockHeader {
             parent_block_id: StacksBlockId([0u8; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
+            timestamp: 0,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
@@ -648,6 +666,7 @@ impl NakamotoBlockHeader {
             parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0.clone()),
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
+            timestamp: get_epoch_time_secs(),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
@@ -2279,6 +2298,7 @@ impl NakamotoChainState {
             &signer_signature,
             &header.tx_merkle_root,
             &header.state_index_root,
+            &u64_to_sql(header.timestamp)?,
             &block_hash,
             &index_block_hash,
             block_cost,
@@ -2299,6 +2319,7 @@ impl NakamotoChainState {
                      header_type,
                      version, chain_length, burn_spent,
                      miner_signature, signer_signature, tx_merkle_root, state_index_root,
+                     timestamp,
 
                      block_hash,
                      index_block_hash,
@@ -2310,7 +2331,7 @@ impl NakamotoChainState {
                      vrf_proof,
                      signer_bitvec
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             args
         )?;
 

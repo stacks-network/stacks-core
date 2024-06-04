@@ -161,6 +161,9 @@ impl HeadersDB for UnitTestHeaderDB {
             Some(1 + 10 * (id_bhh.as_bytes()[0] as u64))
         }
     }
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        Some(1713799973 + 10 * (id_bhh.as_bytes()[0] as u64))
+    }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {

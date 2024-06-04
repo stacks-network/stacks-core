@@ -71,6 +71,12 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         })
     }
 
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        get_stacks_header_column(self.0, id_bhh, "timestamp", |r| {
+            u64::from_row(r).expect("FATAL: malformed timestamp")
+        })
+    }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         get_stacks_header_column(self.0, id_bhh, "burn_header_height", |r| {
             u64::from_row(r)
@@ -142,6 +148,12 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_column(self.deref().deref(), id_bhh, "burn_header_timestamp", |r| {
             u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
+        })
+    }
+
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        get_stacks_header_column(self.deref().deref(), id_bhh, "timestamp", |r| {
+            u64::from_row(r).expect("FATAL: malformed timestamp")
         })
     }
 
@@ -219,6 +231,12 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_column(self.sqlite_conn(), id_bhh, "burn_header_timestamp", |r| {
             u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
+        })
+    }
+
+    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        get_stacks_header_column(self.sqlite_conn(), id_bhh, "timestamp", |r| {
+            u64::from_row(r).expect("FATAL: malformed timestamp")
         })
     }
 

@@ -34,7 +34,7 @@ use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
     TupleData, TypeSignature, Value, BUFF_32,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -732,11 +732,10 @@ pub fn special_get_block_info(
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
-        property_name,
-        env.contract_context.get_clarity_version(),
-    )
-    .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+    let version = env.contract_context.get_clarity_version();
+
+    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
@@ -757,7 +756,13 @@ pub fn special_get_block_info(
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_block_time(height_value)?;
+            let block_time = if version.uses_nakamoto_block_timestamp() {
+                env.global_context.database.get_block_time(height_value)?
+            } else {
+                env.global_context
+                    .database
+                    .get_burn_block_time(height_value)?
+            };
             Value::UInt(u128::from(block_time))
         }
         BlockInfoProperty::VrfSeed => {
