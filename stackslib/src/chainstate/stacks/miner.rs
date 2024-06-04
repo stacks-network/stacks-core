@@ -170,9 +170,7 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
-    // TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
-    // Default::default()
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4873
     #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
@@ -183,9 +181,7 @@ impl BlockBuilderSettings {
         }
     }
 
-    // TODO: #4587 create default for BlockBuilderSettings,  then check if mutation tests are caught for these case:
-    // Default::default()
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4873
     #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
