@@ -178,8 +178,7 @@ fn vote_for_aggregate_public_key_success() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_key = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key = Value::buff_from(aggregate_key.compress().data.to_vec())
         .expect("Failed to serialize aggregate public key");
 
@@ -334,8 +333,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_key = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key = Value::buff_from(aggregate_key.compress().data.to_vec())
         .expect("Failed to serialize aggregate public key");
 
@@ -621,8 +619,7 @@ fn vote_for_aggregate_public_key_out_of_window() {
     let stacker3_index = get_signer_index(&mut peer, latest_block_id, stacker3_address, cycle_id);
     let stacker4_index = get_signer_index(&mut peer, latest_block_id, stacker4_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_key = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key = Value::buff_from(aggregate_key.compress().data.to_vec())
         .expect("Failed to serialize aggregate public key");
 
@@ -825,8 +822,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
 
     let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_public_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_public_key = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
 
     let txs = vec![
         // cast a vote for the aggregate public key
@@ -911,9 +907,8 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     let cycle_id: u128 = current_reward_cycle;
-    let mut signers = TestSigners::default();
-    let aggregate_public_key_1 = signers.generate_aggregate_key(cycle_id as u64 + 1);
-    let aggregate_public_key_2 = signers.generate_aggregate_key(cycle_id as u64 + 2);
+    let aggregate_public_key_1 = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_public_key_2 = test_signers.generate_aggregate_key(cycle_id as u64 + 2);
 
     // create vote txs for alice
     let signer_1_nonce = 1; // Start at 1 because the signer has already voted once
@@ -1056,8 +1051,7 @@ fn vote_for_duplicate_aggregate_public_key() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_public_key_point = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_public_key_point = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key =
         Value::buff_from(aggregate_public_key_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1105,7 +1099,7 @@ fn vote_for_duplicate_aggregate_public_key() {
     let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
     let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
 
-    let aggregate_public_key_point = signers.generate_aggregate_key(cycle_id as u64 + 2);
+    let aggregate_public_key_point = test_signers.generate_aggregate_key(cycle_id as u64 + 2);
     let aggregate_public_key_2 =
         Value::buff_from(aggregate_public_key_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1206,12 +1200,11 @@ fn vote_for_aggregate_public_key_two_rounds() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_public_key_0_point = signers.generate_aggregate_key(0);
+    let aggregate_public_key_0_point = test_signers.generate_aggregate_key(0);
     let aggregate_public_key_0 =
         Value::buff_from(aggregate_public_key_0_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
-    let aggregate_public_key_1_point = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_public_key_1_point = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key_1 =
         Value::buff_from(aggregate_public_key_1_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1402,11 +1395,11 @@ fn vote_for_aggregate_public_key_two_rounds() {
 
     // In this cycle, the two rounds are in separate tenures.
 
-    let aggregate_public_key_0_point = signers.generate_aggregate_key(1);
+    let aggregate_public_key_0_point = test_signers.generate_aggregate_key(1);
     let aggregate_public_key_0 =
         Value::buff_from(aggregate_public_key_0_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
-    let aggregate_public_key_1_point = signers.generate_aggregate_key(cycle_id as u64 + 2);
+    let aggregate_public_key_1_point = test_signers.generate_aggregate_key(cycle_id as u64 + 2);
     let aggregate_public_key_1 =
         Value::buff_from(aggregate_public_key_1_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1643,8 +1636,7 @@ fn vote_for_aggregate_public_key_early() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_key = signers.generate_aggregate_key(cycle_id as u64 + 1);
+    let aggregate_key = test_signers.generate_aggregate_key(cycle_id as u64 + 1);
     let aggregate_public_key = Value::buff_from(aggregate_key.compress().data.to_vec())
         .expect("Failed to serialize aggregate public key");
 
@@ -1688,7 +1680,7 @@ fn vote_for_aggregate_public_key_early() {
     let _ = nakamoto_tenure(&mut peer, &mut test_signers, Vec::new());
 
     // In this tenure, signers have not been set yet, so the vote should fail
-    let aggregate_public_key_point = signers.generate_aggregate_key(cycle_id as u64 + 2);
+    let aggregate_public_key_point = test_signers.generate_aggregate_key(cycle_id as u64 + 2);
     let aggregate_public_key =
         Value::buff_from(aggregate_public_key_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1872,8 +1864,7 @@ fn vote_for_aggregate_public_key_mixed_rounds() {
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
 
-    let mut signers = TestSigners::default();
-    let aggregate_public_key_point = signers.generate_aggregate_key(0);
+    let aggregate_public_key_point = test_signers.generate_aggregate_key(0);
     let aggregate_public_key =
         Value::buff_from(aggregate_public_key_point.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");

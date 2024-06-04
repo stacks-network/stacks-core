@@ -154,7 +154,7 @@ pub struct RelayerThread {
     relayer: Relayer,
 
     /// handle to the subordinate miner thread
-    miner_thread: Option<JoinHandle<()>>,
+    miner_thread: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
     /// The relayer thread reads directives from the relay_rcv, but it also periodically wakes up
     ///  to check if it should issue a block commit or try to register a VRF key
     next_initiative: Instant,

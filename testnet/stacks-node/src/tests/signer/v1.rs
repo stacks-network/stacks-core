@@ -30,9 +30,8 @@ use stacks::chainstate::stacks::boot::{SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOT
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
-    StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
-    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
-    TransactionVersion,
+    StacksPrivateKey, StacksTransaction, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
@@ -534,7 +533,7 @@ fn sign_request_rejected() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block1 = NakamotoBlock {
@@ -561,7 +560,7 @@ fn sign_request_rejected() {
         tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
         state_index_root: TrieHash([0x08; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
+        signer_signature: vec![],
         signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block2 = NakamotoBlock {
@@ -880,7 +879,8 @@ fn block_proposal() {
 
     info!("------------------------- Test Block Signed -------------------------");
     // Verify that the signers signed the proposed block
-    let signature = signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, timeout);
+    let signature =
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, timeout);
     assert!(signature
         .0
         .verify(&key, proposed_signer_signature_hash.as_bytes()));
@@ -1099,7 +1099,7 @@ fn sign_after_signer_reboot() {
     signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let signature =
-        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
     assert!(
         signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
@@ -1120,7 +1120,7 @@ fn sign_after_signer_reboot() {
     let last_block = signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let frost_signature =
-        signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+        signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
     // Check that the latest block's bitvec is all 1's
     assert_eq!(

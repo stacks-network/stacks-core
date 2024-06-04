@@ -2021,6 +2021,7 @@ pub mod test {
         /// What services should this peer support?
         pub services: u16,
         /// aggregate public key to use
+        /// (NOTE: will be used post-Nakamoto)
         pub aggregate_public_key: Option<Point>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
