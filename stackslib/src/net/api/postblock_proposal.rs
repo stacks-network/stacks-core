@@ -30,9 +30,9 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
@@ -40,7 +40,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
@@ -236,6 +236,27 @@ impl NakamotoBlockProposal {
             reason_code: ValidateRejectCode::InvalidBlock,
             reason: "Invalid parent block".into(),
         })?;
+
+        // Validate the block's timestamp. It must be:
+        // - Greater than the parent block's timestamp
+        // - Less than 15 seconds into the future
+        if let StacksBlockHeaderTypes::Nakamoto(parent_nakamoto_header) =
+            &parent_stacks_header.anchored_header
+        {
+            if self.block.header.timestamp <= parent_nakamoto_header.timestamp {
+                return Err(BlockValidateRejectReason {
+                    reason_code: ValidateRejectCode::InvalidBlock,
+                    reason: "Block timestamp is not greater than parent block".into(),
+                });
+            }
+        }
+        if self.block.header.timestamp > get_epoch_time_secs() + 15 {
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::InvalidBlock,
+                reason: "Block timestamp is too far into the future".into(),
+            });
+        }
+
         let tenure_change = self
             .block
             .txs
