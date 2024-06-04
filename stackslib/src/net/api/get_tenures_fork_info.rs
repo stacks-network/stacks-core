@@ -233,7 +233,8 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 if height_bound >= cursor.block_height {
                     return Err(ChainError::NotInSameFork);
                 }
-                cursor = handle.get_last_snapshot_with_sortition(cursor.block_height - 1)?;
+                cursor = handle
+                    .get_last_snapshot_with_sortition(cursor.block_height.saturating_sub(1))?;
                 results.push(TenureForkingInfo::from_snapshot(
                     &cursor, sortdb, chainstate,
                 )?);

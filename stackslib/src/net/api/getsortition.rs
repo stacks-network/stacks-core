@@ -53,8 +53,8 @@ pub enum QuerySpecifier {
     Latest,
 }
 
-pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortition";
-static PATH_REGEX: &str = "^/v3/sortition(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
+pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortitions";
+static PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
 
 /// Struct for sortition information returned via the GetSortition API call
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -167,7 +167,6 @@ impl HttpRequest for GetSortitionHandler {
 
         let req_contents = HttpRequestContents::new().query_string(query);
         self.query = QuerySpecifier::Latest;
-        eprintln!("{captures:?}");
         if let (Some(key), Some(value)) = (captures.name("key"), captures.name("value")) {
             self.query = QuerySpecifier::try_from((key.as_str(), value.as_str()))?;
         }
