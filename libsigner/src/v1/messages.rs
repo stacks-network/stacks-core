@@ -1448,8 +1448,7 @@ mod test {
 
     use super::{StacksMessageCodecExtensions, *};
 
-    // This test is disabled because the last signer slot can't be introduced until after Nakamoto
-    // #[test]
+    #[test]
     fn signer_slots_count_is_sane() {
         let slot_identifiers_len = MessageSlotID::ALL.len();
         assert!(
