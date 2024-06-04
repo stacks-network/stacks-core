@@ -50,8 +50,7 @@ use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, Transa
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangePayload,
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion,
-    MAX_BLOCK_LEN
+    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
@@ -84,8 +83,8 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
-use stacks_signer::signerdb::{BlockInfo, SignerDb};
 use stacks_signer::chainstate::SortitionsView;
+use stacks_signer::signerdb::{BlockInfo, SignerDb};
 use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
