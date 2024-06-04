@@ -31,7 +31,7 @@ fn make_preamble<T: Display, R: Display>(start: &T, stop: &R) -> HttpRequestPrea
     HttpRequestPreamble {
         version: HttpVersion::Http11,
         verb: "GET".into(),
-        path_and_query_str: format!("/v3/tenures_fork_info/{start}/{stop}"),
+        path_and_query_str: format!("/v3/tenures/fork_info/{start}/{stop}"),
         host: PeerHost::DNS("localhost".into(), 0),
         content_type: None,
         content_length: Some(0),

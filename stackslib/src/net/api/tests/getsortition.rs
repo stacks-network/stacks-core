@@ -29,7 +29,7 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
     HttpRequestPreamble {
         version: HttpVersion::Http11,
         verb: "GET".into(),
-        path_and_query_str: format!("/v3/sortition{query}"),
+        path_and_query_str: format!("/v3/sortitions{query}"),
         host: PeerHost::DNS("localhost".into(), 0),
         content_type: None,
         content_length: Some(0),
