@@ -72,10 +72,6 @@ impl<'a> Tenure {
         }
     }
 
-    // TODO: #4587 create default for `TenureArtifacts` , then check if mutation tests are caught for these case:
-    // Some(Default::default())
-    // Or keep the skip and remove the comment
-    #[cfg_attr(test, mutants::skip)]
     pub fn run(&mut self, burn_dbconn: &SortitionDBConn) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 

@@ -277,15 +277,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // TODO: #4587 create default for `SymbolicExpression`, then check if mutation tests are caught for these cases:
-    // ParseResult::from_iter([Some(Default::default())])
-    // ParseResult::new(None)
-    // ParseResult::from_iter([None])
-    // ParseResult::new(Some(Default::default()))
-    // ParseResult::from(None)
-    // ParseResult::from(Some(Default::default()))
-    // ParseResult::new()
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4848
     #[cfg_attr(test, mutants::skip)]
     fn handle_open_tuple(
         &mut self,

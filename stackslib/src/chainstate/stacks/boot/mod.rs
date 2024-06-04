@@ -423,8 +423,7 @@ impl StacksChainState {
         result
     }
 
-    // TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
-    // Ok(vec![Default::default()])
+    // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
@@ -438,8 +437,7 @@ impl StacksChainState {
         Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox2)
     }
 
-    // TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
-    // Ok(vec![Default::default()])
+    // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
@@ -453,8 +451,7 @@ impl StacksChainState {
         Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox3)
     }
 
-    // TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
-    // Ok(vec![Default::default()])
+    // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
@@ -469,8 +466,7 @@ impl StacksChainState {
         Ok(vec![])
     }
 
-    // TODO: #4587 create default for StacksTransactionEvent , then check if mutation tests are caught for these cases:
-    // Ok(vec![Default::default()])
+    // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
@@ -764,8 +760,7 @@ impl StacksChainState {
         Some(signer_set)
     }
 
-    // TODO: #4587 create default for RewardSet , then check if mutation tests are caught for these cases:
-    // Default::default()
+    // TODO: add tests from mutation testing results #4855
     #[cfg_attr(test, mutants::skip)]
     /// Given a threshold and set of registered addresses, return a reward set where
     ///   every entry address has stacked more than the threshold, and addresses

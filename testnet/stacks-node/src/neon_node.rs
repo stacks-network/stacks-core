@@ -1507,10 +1507,7 @@ impl BlockMinerThread {
         Some((*best_tip).clone())
     }
 
-    // TODO: #4587 create default for `ParentStacksBlockInfo`, then check if mutation tests are caught for these cases:
-    // (Some(Default::default()), true)
-    // (Some(Default::default()), false)
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4870
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
@@ -2227,9 +2224,7 @@ impl BlockMinerThread {
         return false;
     }
 
-    // TODO: #4587 create default for `MinerThreadResult`, then check if mutation tests are caught for these case:
-    // Some(Default::default())
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4871
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
@@ -3105,7 +3100,7 @@ impl RelayerThread {
         (true, miner_tip)
     }
 
-    // TODO: #4587 add tests for `true` and `false` returning cases
+    // TODO: add tests from mutation testing results #4872
     #[cfg_attr(test, mutants::skip)]
     /// Process all new tenures that we're aware of.
     /// Clear out stale tenure artifacts as well.
@@ -3580,7 +3575,7 @@ impl RelayerThread {
         true
     }
 
-    // TODO: #4587 add tests for `true` and `false` returning cases
+    // TODO: add tests from mutation testing results #4872
     #[cfg_attr(test, mutants::skip)]
     /// See if we should run a microblock tenure now.
     /// Return true if so; false if not

@@ -827,9 +827,7 @@ impl Config {
         }
     }
 
-    // TODO: #4587 create default for `StacksEpoch`, then check if mutation tests are caught for these case:
-    // Ok(vec![Default::default()])
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4866
     #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
@@ -1278,8 +1276,7 @@ impl Config {
         }
     }
 
-    // TODO: #4587 create default for BlockBuilderSettings, then check if mutation tests are caught for these case:
-    // Default::default()
+    // TODO: add tests from mutation testing results #4867
     #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder_settings(
         &self,

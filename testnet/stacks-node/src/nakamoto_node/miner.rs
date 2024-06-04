@@ -576,9 +576,7 @@ impl BlockMinerThread {
         tx_signer.get_tx().unwrap()
     }
 
-    // TODO: #4587 create default for `NakamotoNodeError` and `ParentStacksBlockInfo`, then check if mutation tests are caught for these case:
-    // Ok(Default::default())
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
@@ -683,9 +681,7 @@ impl BlockMinerThread {
         Some(vrf_proof)
     }
 
-    // TODO: #4587 create default for `NakamotoBlock` and `NakamotoNodeError`, then check if mutation tests are caught for these case:
-    // Ok(Default::default())
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
@@ -840,9 +836,7 @@ impl BlockMinerThread {
 }
 
 impl ParentStacksBlockInfo {
-    // TODO: #4587 craete default for `NakamotoBlock` and `NakamotoNodeError`, then check if mutation tests are caught for these case:
-    // Ok(Default::default())
-    // Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Determine where in the set of forks to attempt to mine the next anchored block.
     /// `mine_tip_ch` and `mine_tip_bhh` identify the parent block on top of which to mine.
