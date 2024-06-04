@@ -445,8 +445,7 @@ impl StacksClient {
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
         let send_request = || {
             self.stacks_node_client
-                .get(self.sortition_info_path())
-                .query(&[("consensus", ch.to_hex().as_str())])
+                .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
                 .send()
                 .map_err(|e| {
                     warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);

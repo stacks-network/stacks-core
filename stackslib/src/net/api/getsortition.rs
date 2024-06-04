@@ -243,7 +243,7 @@ impl RPCRequestHandler for GetSortitionHandler {
                         stacks_parent_sn.consensus_hash.clone()
                     } else {
                         // we actually need to perform the marf lookup
-                        let last_sortition = handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
+                        let last_sortition = handle.get_last_snapshot_with_sortition(stacks_parent_sn.block_height)?;
                         last_sortition.consensus_hash
                     };
 

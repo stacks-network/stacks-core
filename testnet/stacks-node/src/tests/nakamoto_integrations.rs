@@ -4402,7 +4402,19 @@ fn signer_chainstate() {
             }
         }
 
-        let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
+        // make sure we're getting a proposal from the current sortition (not 100% guaranteed by
+        //  `next_block_and_mine_commit`) by looping
+        let time_start = Instant::now();
+        let proposal = loop {
+            let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
+            if proposal.0.header.consensus_hash == sortitions_view.latest_consensus_hash {
+                break proposal;
+            }
+            if time_start.elapsed() > Duration::from_secs(20) {
+                panic!("Timed out waiting for block proposal from the current bitcoin block");
+            }
+            thread::sleep(Duration::from_secs(1));
+        };
 
         let valid = sortitions_view
             .check_proposal(&signer_client, &signer_db, &proposal.0, &proposal.1)

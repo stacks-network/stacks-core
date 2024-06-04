@@ -137,9 +137,16 @@ impl BlockMinerThread {
         prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
     ) -> Result<(), NakamotoNodeError> {
         globals.block_miner();
-        prior_miner
+        let prior_miner_result = prior_miner
             .join()
-            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))??;
+            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))?;
+        if let Err(e) = prior_miner_result {
+            // it's okay if the prior miner thread exited with an error.
+            // in many cases this is expected (i.e., a burnchain block occurred)
+            // if some error condition should be handled though, this is the place
+            //  to do that handling.
+            debug!("Prior mining thread exited with: {e:?}");
+        }
         globals.unblock_miner();
         Ok(())
     }
@@ -155,6 +162,7 @@ impl BlockMinerThread {
             "had_prior_miner" => prior_miner.is_some(),
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
+            "burn_block_consensus_hash" => %self.burn_block.consensus_hash,
         );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner)?;
