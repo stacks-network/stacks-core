@@ -83,7 +83,8 @@ export class DelegateStackExtendCommand implements PoxCommand {
       stackerWallet.hasDelegated === true &&
       stackerWallet.isStacking === true &&
       stackerWallet.delegatedTo === this.operator.stxAddress &&
-      stackerWallet.delegatedUntilBurnHt >= newUnlockHeight &&
+      (stackerWallet.delegatedUntilBurnHt === undefined ||
+        stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
       stackerWallet.delegatedMaxAmount >= stackedAmount &&
       operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
       operatorWallet.lockedAddresses.includes(this.stacker.stxAddress) &&

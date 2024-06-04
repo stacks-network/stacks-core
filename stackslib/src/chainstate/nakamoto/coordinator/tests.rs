@@ -406,7 +406,7 @@ fn replay_reward_cycle(
             block.clone(),
             None,
         )
-        .unwrap();
+        .unwrap_or(false);
         if accepted {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
@@ -426,8 +426,7 @@ fn replay_reward_cycle(
 /// Mine a single Nakamoto tenure with a single Nakamoto block
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
@@ -491,8 +490,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -617,8 +615,7 @@ fn test_nakamoto_chainstate_getters() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -638,12 +635,11 @@ fn test_nakamoto_chainstate_getters() {
         let sort_handle = sort_db.index_handle(&sort_tip.sortition_id);
 
         // no tenures yet
-        assert!(NakamotoChainState::get_highest_nakamoto_tenure(
-            chainstate.db(),
-            sort_handle.sqlite()
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_handle,)
+                .unwrap()
+                .is_none()
+        );
 
         // sortition-existence-check works
         assert_eq!(
@@ -773,7 +769,7 @@ fn test_nakamoto_chainstate_getters() {
 
         // we now have a tenure, and it confirms the last epoch2 block
         let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_tx)
                 .unwrap()
                 .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 12);
@@ -801,7 +797,7 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            sort_tx.sqlite(),
+            &sort_tx,
             &blocks[0].header.consensus_hash,
             &blocks[1].header,
         )
@@ -973,7 +969,7 @@ fn test_nakamoto_chainstate_getters() {
 
         // we now have a new highest tenure
         let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_tx)
                 .unwrap()
                 .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 13);
@@ -998,14 +994,14 @@ fn test_nakamoto_chainstate_getters() {
         .is_none());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            sort_tx.sqlite(),
+            &sort_tx,
             &new_blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
         .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            sort_tx.sqlite(),
+            &sort_tx,
             &blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
@@ -1127,8 +1123,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1528,8 +1523,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1618,10 +1612,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1710,10 +1706,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1805,10 +1803,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-                .unwrap()
-                .unwrap();
+        let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+            chainstate.db(),
+            &sort_db.index_handle_at_tip(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1866,8 +1866,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -2007,10 +2006,12 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-                    .unwrap()
-                    .unwrap();
+            let tenure = NakamotoChainState::get_ongoing_nakamoto_tenure(
+                chainstate.db(),
+                &sort_db.index_handle_at_tip(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 

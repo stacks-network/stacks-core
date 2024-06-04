@@ -95,17 +95,21 @@ impl TestStacker {
 
     /// make a set of stackers who will share a single signing key and stack with
     /// `Self::DEFAULT_STACKER_AMOUNT`
-    pub fn common_signing_set(test_signers: &TestSigners) -> Vec<TestStacker> {
-        let mut signing_key_seed = test_signers.num_keys.to_be_bytes().to_vec();
+    pub fn common_signing_set() -> (TestSigners, Vec<TestStacker>) {
+        let num_keys: u32 = 10;
+        let mut signing_key_seed = num_keys.to_be_bytes().to_vec();
         signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
         let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
-        (0..test_signers.num_keys)
+        let stackers = (0..num_keys)
             .map(|index| TestStacker {
                 signer_private_key: signing_key.clone(),
                 stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                 amount: Self::DEFAULT_STACKER_AMOUNT,
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        let test_signers = TestSigners::new(vec![signing_key]);
+        (test_signers, stackers)
     }
 }
 
@@ -578,13 +582,22 @@ impl TestStacksNode {
                 .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
                 .unwrap();
 
+            // Get the reward set
+            let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+            let reward_set = sortdb
+                .get_preprocessed_reward_set_of(&sort_tip)
+                .expect("Failed to get reward cycle info")
+                .known_selected_anchor_block_owned()
+                .expect("Expected a reward set");
+
             test_debug!(
                 "Signing Nakamoto block {} in tenure {} with key in cycle {}",
                 nakamoto_block.block_id(),
                 tenure_id_consensus_hash,
                 cycle
             );
-            signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
+
+            signers.sign_block_with_reward_set(&mut nakamoto_block, &reward_set);
 
             let block_id = nakamoto_block.block_id();
             debug!(

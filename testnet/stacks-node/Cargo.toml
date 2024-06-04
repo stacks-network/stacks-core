@@ -62,7 +62,7 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom"]
+monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []

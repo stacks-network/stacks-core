@@ -349,7 +349,11 @@ pub fn prepare_signers_test<'a>(
     stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {
-    let mut test_signers = TestSigners::default();
+    let signer_keys = stackers
+        .iter()
+        .map(|s| s.signer_private_key.clone())
+        .collect::<Vec<_>>();
+    let mut test_signers = TestSigners::new(signer_keys);
 
     let mut peer = boot_nakamoto(
         test_name,

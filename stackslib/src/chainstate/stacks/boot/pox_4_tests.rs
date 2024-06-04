@@ -4258,7 +4258,7 @@ fn stack_agg_increase() {
 
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
@@ -6468,7 +6468,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     TestPeerConfig,
 ) {
     // Setup code extracted from your original test
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let private_key = peer_config.private_key.clone();

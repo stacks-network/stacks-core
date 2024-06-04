@@ -240,6 +240,7 @@ impl Signer {
                 "block_id" => %block_proposal.block.block_id(),
             );
             let block_info = BlockInfo::from(block_proposal.clone());
+            crate::monitoring::increment_block_proposals_received();
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
@@ -312,11 +313,17 @@ impl Signer {
         };
         // Submit a proposal response to the .signers contract for miners
         debug!("{self}: Broadcasting a block response to stacks node: {response:?}");
-        if let Err(e) = self
+        match self
             .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.into())
+            .send_message_with_retry::<SignerMessage>(response.clone().into())
         {
-            warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+            Ok(_) => {
+                let accepted = matches!(response, BlockResponse::Accepted(..));
+                crate::monitoring::increment_block_responses_sent(accepted);
+            }
+            Err(e) => {
+                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+            }
         }
         self.signer_db
             .insert_block(&block_info)
