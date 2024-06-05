@@ -2123,6 +2123,28 @@ impl<'a> SortitionHandleConn<'a> {
         })
     }
 
+    /// Get the latest block snapshot on this fork where a sortition occured.
+    pub fn get_last_snapshot_with_sortition_from_tip(&self) -> Result<BlockSnapshot, db_error> {
+        let ancestor_hash =
+            match self.get_indexed(&self.context.chain_tip, &db_keys::last_sortition())? {
+                Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: corrupt database: failed to parse {} into a hex string",
+                        &hex_str
+                    )
+                }),
+                None => {
+                    // no prior sortitions, so get the first
+                    return self.get_first_block_snapshot();
+                }
+            };
+
+        self.get_block_snapshot(&ancestor_hash).map(|snapshot_opt| {
+            snapshot_opt
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: no snapshot {}", ancestor_hash))
+        })
+    }
+
     pub fn get_leader_key_at(
         &self,
         key_block_height: u64,

@@ -164,6 +164,7 @@ impl BlockMinerThread {
             "had_prior_miner" => prior_miner.is_some(),
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
+            "burn_block_consensus_hash" => %self.burn_block.consensus_hash,
         );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner)?;
@@ -991,6 +992,7 @@ impl BlockMinerThread {
             block.header.block_hash(),
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
+            "consensus_hash" => %block.header.consensus_hash,
         );
 
         self.event_dispatcher.process_mined_nakamoto_block_event(

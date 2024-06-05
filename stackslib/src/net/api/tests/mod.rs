@@ -22,10 +22,11 @@ use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -40,6 +41,7 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::MemPoolDB;
+use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
@@ -51,6 +53,7 @@ use crate::net::{
 };
 
 mod callreadonly;
+mod get_tenures_fork_info;
 mod getaccount;
 mod getattachment;
 mod getattachmentsinv;
@@ -69,6 +72,7 @@ mod getmicroblocks_indexed;
 mod getmicroblocks_unconfirmed;
 mod getneighbors;
 mod getpoxinfo;
+mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
@@ -1072,4 +1076,96 @@ impl<'a> TestRPC<'a> {
 pub fn test_rpc(test_name: &str, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
     let test = TestRPC::setup(test_name);
     test.run(requests)
+}
+
+#[test]
+fn prefixed_opt_hex_serialization() {
+    let tests_32b = [
+        None,
+        Some([0u8; 32]),
+        Some([15; 32]),
+        Some([
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15,
+        ]),
+    ];
+
+    for test in tests_32b.iter() {
+        let inp = test.clone().map(|bytes| BurnchainHeaderHash(bytes));
+        let mut out_buff = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut out_buff);
+        prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();
+        let hex_str = String::from_utf8(out_buff).unwrap();
+        eprintln!("{hex_str}");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&hex_str);
+        let out: Option<BurnchainHeaderHash> =
+            prefix_opt_hex::deserialize(&mut deserializer).unwrap();
+
+        assert_eq!(out, inp);
+        if test.is_some() {
+            assert_eq!(
+                hex_str,
+                format!("\"0x{}\"", to_hex(&inp.as_ref().unwrap().0))
+            );
+        } else {
+            assert_eq!(hex_str, "null");
+        }
+    }
+}
+
+#[test]
+fn prefixed_hex_bad_desers() {
+    let inp = "\"1\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "invalid length 1, expected at least length 2 string".to_string(),
+    );
+    let inp = "\"0x\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "bad length 0 for hex string".to_string(),
+    );
+    let inp = "\"0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "bad length 66 for hex string".to_string(),
+    );
+}
+
+#[test]
+fn prefixed_hex_serialization() {
+    let tests_32b = [
+        [0u8; 32],
+        [1; 32],
+        [15; 32],
+        [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15,
+        ],
+    ];
+
+    for test in tests_32b.iter() {
+        let inp = BurnchainHeaderHash(test.clone());
+        let mut out_buff = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut out_buff);
+        prefix_hex::serialize(&inp, &mut serializer).unwrap();
+        let hex_str = String::from_utf8(out_buff).unwrap();
+        eprintln!("{hex_str}");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&hex_str);
+        let out: BurnchainHeaderHash = prefix_hex::deserialize(&mut deserializer).unwrap();
+
+        assert_eq!(out, inp);
+        assert_eq!(hex_str, format!("\"0x{}\"", to_hex(&inp.0)));
+    }
 }

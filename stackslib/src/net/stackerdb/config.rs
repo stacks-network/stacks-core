@@ -385,7 +385,7 @@ impl StackerDBConfig {
         }
 
         if max_neighbors > u128::from(local_max_neighbors) {
-            warn!(
+            debug!(
                 "Contract {} stipulates a maximum number of neighbors ({}) beyond locally-configured maximum {}; defaulting to locally-configured maximum",
                 contract_id,
                 max_neighbors,
