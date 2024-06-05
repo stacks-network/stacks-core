@@ -667,7 +667,7 @@ where
 {
     with_sortdb(peer, |ref mut c, ref sortdb| {
         let headers_db = HeadersDBConn(c.state_index.sqlite_conn());
-        let burn_db = sortdb.index_conn();
+        let burn_db = sortdb.index_handle_at_tip();
         let mut read_only_clar = c
             .clarity_state
             .read_only_connection(tip, &headers_db, &burn_db);
@@ -3794,7 +3794,7 @@ fn test_get_pox_addrs() {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         block_txs,
                     )
                     .unwrap();
@@ -3896,7 +3896,7 @@ fn test_get_pox_addrs() {
             let addrs_and_payout = with_sortdb(&mut peer, |ref mut chainstate, ref mut sortdb| {
                 let addrs = chainstate
                     .maybe_read_only_clarity_tx(
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &tip_index_block,
                         |clarity_tx| {
                             clarity_tx
@@ -4091,7 +4091,7 @@ fn test_stack_with_segwit() {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         block_txs,
                     )
                     .unwrap();
@@ -4193,7 +4193,7 @@ fn test_stack_with_segwit() {
             let addrs_and_payout = with_sortdb(&mut peer, |ref mut chainstate, ref mut sortdb| {
                 let addrs = chainstate
                     .maybe_read_only_clarity_tx(
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &tip_index_block,
                         |clarity_tx| {
                             clarity_tx

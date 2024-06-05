@@ -568,9 +568,13 @@ impl TestStacksNode {
             tenure_change = None;
             coinbase = None;
 
-            let (mut nakamoto_block, size, cost) =
-                Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
-                    .unwrap();
+            let (mut nakamoto_block, size, cost) = Self::make_nakamoto_block_from_txs(
+                builder,
+                chainstate,
+                &sortdb.index_handle_at_tip(),
+                txs,
+            )
+            .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
 
             let tenure_sn =
@@ -667,7 +671,7 @@ impl TestStacksNode {
     pub fn make_nakamoto_block_from_txs(
         mut builder: NakamotoBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
         use clarity::vm::ast::ASTRules;

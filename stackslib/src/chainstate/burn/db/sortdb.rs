@@ -65,10 +65,10 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
-use crate::chainstate::nakamoto::NakamotoBlockHeader;
+use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::{
@@ -2514,6 +2514,19 @@ impl<'a> SortitionHandleConn<'a> {
             }
         }
     }
+
+    pub fn get_reward_set_payouts_at(
+        &self,
+        sortition_id: &SortitionId,
+    ) -> Result<(Vec<PoxAddress>, u128), db_error> {
+        let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
+
+        let pox_addrs: (Vec<PoxAddress>, u128) =
+            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        Ok(pox_addrs)
+    }
 }
 
 // Connection methods
@@ -2535,7 +2548,7 @@ impl SortitionDB {
         Ok(index_tx)
     }
 
-    /// Make an indexed connectino
+    /// Make an indexed connection
     pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
         SortitionDBConn::new(
             &self.marf,
@@ -2557,6 +2570,41 @@ impl SortitionDB {
                 dryrun: self.dryrun,
             },
         )
+    }
+
+    pub fn index_handle_at_block<'a>(
+        &'a self,
+        chainstate: &StacksChainState,
+        stacks_block_id: &StacksBlockId,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let lookup_block_id = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state {
+            if &unconfirmed_state.unconfirmed_chain_tip == stacks_block_id {
+                &unconfirmed_state.confirmed_chain_tip
+            } else {
+                stacks_block_id
+            }
+        } else {
+            stacks_block_id
+        };
+        let header = match NakamotoChainState::get_block_header(chainstate.db(), lookup_block_id) {
+            Ok(Some(x)) => x,
+            x => {
+                debug!("Failed to get block header: {:?}", x);
+                return Err(db_error::NotFoundError);
+            }
+        };
+        // if its a nakamoto block, we want to use the burnchain view of the block
+        let burn_view = match &header.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => header.consensus_hash,
+            StacksBlockHeaderTypes::Nakamoto(_) => header.burn_view.ok_or_else(|| {
+                error!("Loaded nakamoto block header without a burn view"; "block_id" => %stacks_block_id);
+                db_error::Other("Nakamoto block header without burn view".into())
+            })?,
+        };
+
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &burn_view)?
+            .ok_or(db_error::NotFoundError)?;
+        Ok(self.index_handle(&snapshot.sortition_id))
     }
 
     pub fn tx_handle_begin<'a>(
@@ -4635,6 +4683,17 @@ impl SortitionDB {
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
+    }
+
+    /// Open an index handle at the given consensus hash
+    /// Returns a db_error::NotFoundError if `ch` cannot be found
+    pub fn index_handle_at_ch<'a>(
+        &'a self,
+        ch: &ConsensusHash,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let sortition_id = Self::get_sortition_id_by_consensus(self.conn(), ch)?
+            .ok_or_else(|| db_error::NotFoundError)?;
+        Ok(self.index_handle(&sortition_id))
     }
 
     /// Open a tx handle at the burn chain tip
