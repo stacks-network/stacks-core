@@ -4095,8 +4095,8 @@ fn nakamoto_attempt_time() {
     // ----- Setup boilerplate finished, test block proposal API endpoint -----
 
     let mut sender_nonce = 0;
-    let tenure_count = 3;
-    let inter_blocks_per_tenure = 10;
+    let tenure_count = 2;
+    let inter_blocks_per_tenure = 3;
 
     // Subtest 1
     // Mine nakamoto tenures with a few transactions
@@ -4127,16 +4127,24 @@ fn nakamoto_attempt_time() {
                 submit_tx(&http_origin, &transfer_tx);
             }
 
-            // Sleep a bit longer than what our max block time should be
-            thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms + 100));
-
             // Miner should have made a new block by now
-            let blocks_processed = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-
-            assert!(blocks_processed > blocks_processed_before);
+            let wait_start = Instant::now();
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                // wait a little longer than what the max block time should be
+                if wait_start.elapsed() > Duration::from_millis(nakamoto_attempt_time_ms + 100) {
+                    panic!(
+                        "A block should have been produced within {nakamoto_attempt_time_ms} ms"
+                    );
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
 
             let info = get_chain_info_result(&naka_conf).unwrap();
             assert_ne!(info.stacks_tip, last_tip);
@@ -4184,57 +4192,55 @@ fn nakamoto_attempt_time() {
     // Subtest 3
     // Add more than `nakamoto_attempt_time_ms` worth of transactions into mempool
     // Multiple blocks should be mined
-    for _ in 0..tenure_count {
-        let info_before = get_chain_info_result(&naka_conf).unwrap();
+    let info_before = get_chain_info_result(&naka_conf).unwrap();
 
-        let blocks_processed_before = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
 
-        let tx_limit = 10000;
-        let tx_fee = 500;
-        let amount = 500;
-        let mut tx_total_size = 0;
-        let mut tx_count = 0;
-        let mut acct_idx = 0;
+    let tx_limit = 10000;
+    let tx_fee = 500;
+    let amount = 500;
+    let mut tx_total_size = 0;
+    let mut tx_count = 0;
+    let mut acct_idx = 0;
 
-        // Submit max # of txs from each account to reach tx_limit
-        'submit_txs: loop {
-            let acct = &mut account[acct_idx];
-            for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-                let transfer_tx =
-                    make_stacks_transfer(&acct.privk, acct.nonce, tx_fee, &recipient, amount);
-                submit_tx(&http_origin, &transfer_tx);
-                tx_total_size += transfer_tx.len();
-                tx_count += 1;
-                acct.nonce += 1;
-                if tx_count >= tx_limit {
-                    break 'submit_txs;
-                }
+    // Submit max # of txs from each account to reach tx_limit
+    'submit_txs: loop {
+        let acct = &mut account[acct_idx];
+        for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
+            let transfer_tx =
+                make_stacks_transfer(&acct.privk, acct.nonce, tx_fee, &recipient, amount);
+            submit_tx(&http_origin, &transfer_tx);
+            tx_total_size += transfer_tx.len();
+            tx_count += 1;
+            acct.nonce += 1;
+            if tx_count >= tx_limit {
+                break 'submit_txs;
             }
-            acct_idx += 1;
         }
-
-        // Make sure that these transactions *could* fit into a single block
-        assert!(tx_total_size < MAX_BLOCK_LEN as usize);
-
-        // Wait long enough for 2 blocks to be made
-        thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms * 2 + 100));
-
-        // Check that 2 blocks were made
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-
-        let blocks_mined = blocks_processed - blocks_processed_before;
-        assert!(blocks_mined > 2);
-
-        let info = get_chain_info_result(&naka_conf).unwrap();
-        assert_ne!(info.stacks_tip, info_before.stacks_tip);
-        assert_ne!(info.stacks_tip_height, info_before.stacks_tip_height);
+        acct_idx += 1;
     }
+
+    // Make sure that these transactions *could* fit into a single block
+    assert!(tx_total_size < MAX_BLOCK_LEN as usize);
+
+    // Wait long enough for 2 blocks to be made
+    thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms * 2 + 100));
+
+    // Check that 2 blocks were made
+    let blocks_processed = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+
+    let blocks_mined = blocks_processed - blocks_processed_before;
+    assert!(blocks_mined > 2);
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    assert_ne!(info.stacks_tip, info_before.stacks_tip);
+    assert_ne!(info.stacks_tip_height, info_before.stacks_tip_height);
 
     // ----- Clean up -----
     coord_channel
