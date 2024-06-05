@@ -46,7 +46,9 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{
     ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
 };
-use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
+use crate::chainstate::nakamoto::coordinator::{
+    get_nakamoto_next_recipients, load_nakamoto_reward_set,
+};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -384,11 +386,12 @@ impl TestStacksNode {
                 .unwrap();
 
                 test_debug!(
-                    "Work in {} {} for Nakamoto parent: {},{}",
+                    "Work in {} {} for Nakamoto parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_sortition.total_burn,
                     last_parent.header.chain_length + 1,
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_sortition)
@@ -418,11 +421,12 @@ impl TestStacksNode {
                 let parent_tenure_id = parent_chain_tip.index_block_hash();
 
                 test_debug!(
-                    "Work in {} {} for Stacks 2.x parent: {},{}",
+                    "Work in {} {} for Stacks 2.x parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_stacks_block_snapshot.total_burn,
                     parent_chain_tip.anchored_header.height(),
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_stacks_block_snapshot)
@@ -583,12 +587,23 @@ impl TestStacksNode {
                 .unwrap();
 
             // Get the reward set
-            let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-            let reward_set = sortdb
-                .get_preprocessed_reward_set_of(&sort_tip)
-                .expect("Failed to get reward cycle info")
-                .known_selected_anchor_block_owned()
-                .expect("Expected a reward set");
+            let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let reward_set = load_nakamoto_reward_set(
+                miner
+                    .burnchain
+                    .pox_reward_cycle(sort_tip_sn.block_height)
+                    .expect("FATAL: no reward cycle for sortition"),
+                &sort_tip_sn.sortition_id,
+                &miner.burnchain,
+                chainstate,
+                sortdb,
+                &OnChainRewardSetProvider::new(),
+            )
+            .expect("Failed to load reward set")
+            .expect("Expected a reward set")
+            .0
+            .known_selected_anchor_block_owned()
+            .expect("Unknown reward set");
 
             test_debug!(
                 "Signing Nakamoto block {} in tenure {} with key in cycle {}",
@@ -613,6 +628,7 @@ impl TestStacksNode {
             let mut sort_handle = sortdb.index_handle(&sort_tip);
             info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
+                &miner.burnchain,
                 sortdb,
                 &mut sort_handle,
                 chainstate,
@@ -916,7 +932,12 @@ impl<'a> TestPeer<'a> {
         }
 
         // patch in reward set info
-        match get_nakamoto_next_recipients(&tip, &mut sortdb, &self.config.burnchain) {
+        match get_nakamoto_next_recipients(
+            &tip,
+            &mut sortdb,
+            &mut stacks_node.chainstate,
+            &self.config.burnchain,
+        ) {
             Ok(recipients) => {
                 block_commit_op.commit_outs = match recipients {
                     Some(info) => {
@@ -1134,6 +1155,7 @@ impl<'a> TestPeer<'a> {
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
             let accepted = Relayer::process_new_nakamoto_block(
+                &self.network.burnchain,
                 &sortdb,
                 &mut sort_handle,
                 &mut node.chainstate,

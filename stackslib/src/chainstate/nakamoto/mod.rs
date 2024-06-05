@@ -2822,6 +2822,12 @@ impl NakamotoChainState {
                 &mut clarity_tx,
                 vote_for_agg_key_ops.clone(),
             ));
+
+            if signer_set_calc.is_some() {
+                debug!("Setup block: computed reward set for the next reward cycle";
+                       "anchor_block_height" => coinbase_height,
+                       "burn_header_height" => burn_header_height);
+            }
         } else {
             signer_set_calc = None;
         }

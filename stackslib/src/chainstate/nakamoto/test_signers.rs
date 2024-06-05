@@ -50,7 +50,6 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{
     ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
 };
-use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;

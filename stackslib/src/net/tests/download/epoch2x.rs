@@ -329,10 +329,12 @@ where
             let mut result = peer.step_dns(&mut dns_clients[i]).unwrap();
 
             let lp = peer.network.local_peer.clone();
+            let burnchain = peer.network.burnchain.clone();
             peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
                 relayer.process_network_result(
                     &lp,
                     &mut result,
+                    &burnchain,
                     sortdb,
                     chainstate,
                     mempool,

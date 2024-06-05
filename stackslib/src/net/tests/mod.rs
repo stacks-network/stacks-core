@@ -230,6 +230,7 @@ impl NakamotoBootPlan {
             for block in blocks {
                 let block_id = block.block_id();
                 let accepted = Relayer::process_new_nakamoto_block(
+                    &peer.network.burnchain,
                     &sortdb,
                     &mut sort_handle,
                     &mut node.chainstate,

@@ -752,6 +752,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 ) -> Result<Option<RewardCycleInfo>, Error> {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
         .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height));
+
     if !burnchain.is_reward_cycle_start(burn_height) {
         return Ok(None);
     }
@@ -830,7 +831,8 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     };
 
     // cache the reward cycle info as of the first sortition in the prepare phase, so that
-    // the Nakamoto epoch can go find it later
+    // the first Nakamoto epoch can go find it later.  Subsequent Nakamoto epochs will use the
+    // reward set stored to the Nakamoto chain state.
     let ic = sort_db.index_handle(sortition_tip);
     let prev_reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_height)
@@ -3530,6 +3532,7 @@ impl SortitionDBMigrator {
             .pox_constants
             .reward_cycle_to_block_height(sort_db.first_block_height, reward_cycle)
             .saturating_sub(1);
+
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
 
         let ancestor_sn = {
