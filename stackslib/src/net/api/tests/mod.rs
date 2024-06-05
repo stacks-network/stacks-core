@@ -47,7 +47,8 @@ use crate::net::rpc::ConversationHttp;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{
-    Attachment, AttachmentInstance, RPCHandlerArgs, StackerDBConfig, StacksNodeState, UrlString,
+    Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
+    StacksNodeState, UrlString,
 };
 
 mod callreadonly;
@@ -77,6 +78,7 @@ mod gettenureinfo;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
+mod postblock_proposal;
 mod postfeerate;
 mod postmempoolquery;
 mod postmicroblock;
@@ -258,6 +260,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
+        peer_1_config.connection_opts.block_proposal_token = Some("password".to_string());
 
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
@@ -267,6 +270,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
+        peer_2_config.connection_opts.block_proposal_token = Some("password".to_string());
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
@@ -907,9 +911,17 @@ impl<'a> TestRPC<'a> {
         }
     }
 
+    pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
+        self.run_with_observer(requests, None)
+    }
+
     /// Run zero or more HTTP requests on this setup RPC test harness.
     /// Return the list of responses.
-    pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
+    pub fn run_with_observer(
+        self,
+        requests: Vec<StacksHttpRequest>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Vec<StacksHttpResponse> {
         let mut peer_1 = self.peer_1;
         let mut peer_2 = self.peer_2;
         let peer_1_indexer = self.peer_1_indexer;
@@ -943,7 +955,8 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = RPCHandlerArgs::default();
+                rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_1.network,
                     &peer_1_sortdb,
@@ -985,7 +998,8 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = RPCHandlerArgs::default();
+                rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_2.network,
                     &peer_2_sortdb,

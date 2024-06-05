@@ -1126,12 +1126,15 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
+    use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
     use super::*;
+    use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::core::*;
     use crate::net::codec::test::check_codec_and_corruption;
@@ -1652,6 +1655,110 @@ pub mod test {
         };
 
         StacksBlock {
+            header,
+            txs: txs_anchored,
+        }
+    }
+
+    pub fn make_codec_test_nakamoto_block(
+        num_txs: usize,
+        epoch_id: StacksEpochId,
+    ) -> NakamotoBlock {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+        let mut tx_coinbase = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
+        );
+        let tx_coinbase_proof = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof.clone())),
+        );
+
+        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+        let tx_tenure_change = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            origin_auth.clone(),
+            TransactionPayload::TenureChange(TenureChangePayload {
+                tenure_consensus_hash: ConsensusHash([0x01; 20]),
+                prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
+                previous_tenure_end: StacksBlockId([0x05; 32]),
+                previous_tenure_blocks: 0,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0x00; 20]),
+            }),
+        );
+
+        let mut all_txs = codec_all_transactions(
+            &TransactionVersion::Testnet,
+            0x80000000,
+            &TransactionAnchorMode::OnChainOnly,
+            &TransactionPostConditionMode::Allow,
+            epoch_id,
+        );
+
+        // remove all coinbases, except for an initial coinbase
+        let mut txs_anchored = vec![];
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            txs_anchored.push(tx_tenure_change);
+            txs_anchored.push(tx_coinbase_proof);
+        } else {
+            txs_anchored.push(tx_coinbase);
+        }
+
+        for tx in all_txs.drain(..) {
+            match tx.payload {
+                TransactionPayload::Coinbase(..) => {
+                    continue;
+                }
+                _ => {}
+            }
+            txs_anchored.push(tx);
+            if txs_anchored.len() >= num_txs {
+                break;
+            }
+        }
+
+        let txid_vecs = txs_anchored
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+        let tr = tx_merkle_root.as_bytes().to_vec();
+
+        let header = NakamotoBlockHeader {
+            version: 0x01,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([4u8; 20]),
+            parent_block_id: StacksBlockId([5u8; 32]),
+            tx_merkle_root,
+            state_index_root: TrieHash([8u8; 32]),
+            timestamp: get_epoch_time_secs(),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: Vec::new(),
+            signer_bitvec: BitVec::zeros(8).unwrap(),
+        };
+
+        NakamotoBlock {
             header,
             txs: txs_anchored,
         }
