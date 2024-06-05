@@ -400,6 +400,7 @@ fn replay_reward_cycle(
         info!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
 
         let accepted = Relayer::process_new_nakamoto_block(
+            &peer.config.burnchain,
             &sortdb,
             &mut sort_handle,
             &mut node.chainstate,

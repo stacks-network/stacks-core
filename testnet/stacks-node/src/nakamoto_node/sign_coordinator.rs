@@ -206,7 +206,8 @@ impl SignCoordinator {
     ) -> Result<Self, ChainstateError> {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
-            error!("Could not initialize WSTS coordinator for reward set without signer");
+            error!("Could not initialize signing coordinator for reward set without signer");
+            debug!("reward set: {:?}", &reward_set);
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
