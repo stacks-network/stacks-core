@@ -579,6 +579,17 @@ impl NakamotoChainState {
         Ok(tenure_opt)
     }
 
+    /// Get the nakamoto tenure by burn view
+    pub fn get_nakamoto_tenure_change_by_burn_view(
+        headers_conn: &Connection,
+        burn_view: &ConsensusHash,
+    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
+        let sql = "SELECT * FROM nakamoto_tenures WHERE burn_view_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
+        let args = rusqlite::params![burn_view];
+        let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
+        Ok(tenure_opt)
+    }
+
     /// Get a nakamoto tenure-change by its tenure ID consensus hash.
     /// Get the highest such record.  It will be the last-processed BlockFound tenure
     /// for the given sortition consensus hash.
@@ -595,18 +606,58 @@ impl NakamotoChainState {
         Ok(tenure_opt)
     }
 
-    /// Get the highest non-empty processed tenure on the canonical sortition history.
-    pub fn get_highest_nakamoto_tenure(
+    /// Get the highest non-empty processed tenure-change on the canonical sortition history.
+    /// It will be a BlockFound tenure.
+    pub fn get_highest_nakamoto_tenure<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
-        // find the tenure for the Stacks chain tip
-        let (tip_ch, tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb_conn)?;
-        if tip_ch == FIRST_BURNCHAIN_CONSENSUS_HASH || tip_bhh == FIRST_STACKS_BLOCK_HASH {
-            // no chain tip, so no tenure
-            return Ok(None);
+        // NOTE: we do a *search* here in case the canonical Stacks pointer stored on the canonical
+        // sortition gets invalidated through a reorg.
+        let mut cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &sortdb_conn.tip())?
+            .ok_or(ChainstateError::NoSuchBlockError)?;
+
+        // if there's been no activity for more than 2*reward_cycle_length sortitions, then the
+        // chain is dead anyway
+        for _ in 0..(2 * sortdb_conn.pox_constants().reward_cycle_length) {
+            if let Some(tenure) = Self::get_highest_nakamoto_tenure_change_by_tenure_id(
+                headers_conn,
+                &cursor.consensus_hash,
+            )? {
+                return Ok(Some(tenure));
+            }
+            cursor =
+                SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &cursor.parent_sortition_id)?
+                    .ok_or(ChainstateError::NoSuchBlockError)?;
         }
-        Self::get_nakamoto_tenure_change_by_tenure_id(headers_conn, &tip_ch)
+        Ok(None)
+    }
+
+    /// Get the ongoing tenure (i.e. last tenure-change tx record) from the sortition pointed to by
+    /// sortdb_conn.
+    /// It will be a BlockFound or an Extension tenure.
+    pub fn get_ongoing_nakamoto_tenure<SH: SortitionHandle>(
+        headers_conn: &Connection,
+        sortdb_conn: &SH,
+    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
+        // NOTE: we do a *search* here in case the canonical Stacks pointer stored on the canonical
+        // sortition gets invalidated through a reorg.
+        let mut cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &sortdb_conn.tip())?
+            .ok_or(ChainstateError::NoSuchBlockError)?;
+
+        // if there's been no activity for more than 2*reward_cycle_length sortitions, then the
+        // chain is dead anyway
+        for _ in 0..(2 * sortdb_conn.pox_constants().reward_cycle_length) {
+            if let Some(tenure) =
+                Self::get_nakamoto_tenure_change_by_burn_view(headers_conn, &cursor.consensus_hash)?
+            {
+                return Ok(Some(tenure));
+            }
+            cursor =
+                SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &cursor.parent_sortition_id)?
+                    .ok_or(ChainstateError::NoSuchBlockError)?;
+        }
+        Ok(None)
     }
 
     /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
@@ -897,9 +948,9 @@ impl NakamotoChainState {
     ///
     /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
     /// Returns Err(..) on DB error
-    pub(crate) fn check_tenure_continuity(
+    pub(crate) fn check_tenure_continuity<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
         parent_ch: &ConsensusHash,
         block_header: &NakamotoBlockHeader,
     ) -> Result<bool, ChainstateError> {

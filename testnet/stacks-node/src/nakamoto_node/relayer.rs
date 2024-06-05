@@ -154,7 +154,7 @@ pub struct RelayerThread {
     relayer: Relayer,
 
     /// handle to the subordinate miner thread
-    miner_thread: Option<JoinHandle<()>>,
+    miner_thread: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
     /// The relayer thread reads directives from the relay_rcv, but it also periodically wakes up
     ///  to check if it should issue a block commit or try to register a VRF key
     next_initiative: Instant,
@@ -258,6 +258,7 @@ impl RelayerThread {
             .process_network_result(
                 &self.local_peer,
                 &mut net_result,
+                &self.burnchain,
                 &mut self.sortdb,
                 &mut self.chainstate,
                 &mut self.mempool,
@@ -416,11 +417,16 @@ impl RelayerThread {
                 .unwrap_or_else(|| VRFProof::empty());
 
         // let's figure out the recipient set!
-        let recipients = get_nakamoto_next_recipients(&sort_tip, &mut self.sortdb, &self.burnchain)
-            .map_err(|e| {
-                error!("Relayer: Failure fetching recipient set: {:?}", e);
-                NakamotoNodeError::SnapshotNotFoundForChainTip
-            })?;
+        let recipients = get_nakamoto_next_recipients(
+            &sort_tip,
+            &mut self.sortdb,
+            &mut self.chainstate,
+            &self.burnchain,
+        )
+        .map_err(|e| {
+            error!("Relayer: Failure fetching recipient set: {:?}", e);
+            NakamotoNodeError::SnapshotNotFoundForChainTip
+        })?;
 
         let block_header =
             NakamotoChainState::get_block_header_by_consensus_hash(self.chainstate.db(), target_ch)

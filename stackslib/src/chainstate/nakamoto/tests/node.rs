@@ -46,7 +46,9 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{
     ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
 };
-use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
+use crate::chainstate::nakamoto::coordinator::{
+    get_nakamoto_next_recipients, load_nakamoto_reward_set,
+};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -95,17 +97,21 @@ impl TestStacker {
 
     /// make a set of stackers who will share a single signing key and stack with
     /// `Self::DEFAULT_STACKER_AMOUNT`
-    pub fn common_signing_set(test_signers: &TestSigners) -> Vec<TestStacker> {
-        let mut signing_key_seed = test_signers.num_keys.to_be_bytes().to_vec();
+    pub fn common_signing_set() -> (TestSigners, Vec<TestStacker>) {
+        let num_keys: u32 = 10;
+        let mut signing_key_seed = num_keys.to_be_bytes().to_vec();
         signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
         let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
-        (0..test_signers.num_keys)
+        let stackers = (0..num_keys)
             .map(|index| TestStacker {
                 signer_private_key: signing_key.clone(),
                 stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                 amount: Self::DEFAULT_STACKER_AMOUNT,
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        let test_signers = TestSigners::new(vec![signing_key]);
+        (test_signers, stackers)
     }
 }
 
@@ -380,11 +386,12 @@ impl TestStacksNode {
                 .unwrap();
 
                 test_debug!(
-                    "Work in {} {} for Nakamoto parent: {},{}",
+                    "Work in {} {} for Nakamoto parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_sortition.total_burn,
                     last_parent.header.chain_length + 1,
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_sortition)
@@ -414,11 +421,12 @@ impl TestStacksNode {
                 let parent_tenure_id = parent_chain_tip.index_block_hash();
 
                 test_debug!(
-                    "Work in {} {} for Stacks 2.x parent: {},{}",
+                    "Work in {} {} for Stacks 2.x parent: {},{}. Last tenure ID is {}",
                     burn_block.block_height,
                     burn_block.parent_snapshot.burn_header_hash,
                     parent_stacks_block_snapshot.total_burn,
                     parent_chain_tip.anchored_header.height(),
+                    &parent_tenure_id,
                 );
 
                 (parent_tenure_id, parent_stacks_block_snapshot)
@@ -574,13 +582,33 @@ impl TestStacksNode {
                 .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
                 .unwrap();
 
+            // Get the reward set
+            let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let reward_set = load_nakamoto_reward_set(
+                miner
+                    .burnchain
+                    .pox_reward_cycle(sort_tip_sn.block_height)
+                    .expect("FATAL: no reward cycle for sortition"),
+                &sort_tip_sn.sortition_id,
+                &miner.burnchain,
+                chainstate,
+                sortdb,
+                &OnChainRewardSetProvider::new(),
+            )
+            .expect("Failed to load reward set")
+            .expect("Expected a reward set")
+            .0
+            .known_selected_anchor_block_owned()
+            .expect("Unknown reward set");
+
             test_debug!(
                 "Signing Nakamoto block {} in tenure {} with key in cycle {}",
                 nakamoto_block.block_id(),
                 tenure_id_consensus_hash,
                 cycle
             );
-            signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
+
+            signers.sign_block_with_reward_set(&mut nakamoto_block, &reward_set);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -596,6 +624,7 @@ impl TestStacksNode {
             let mut sort_handle = sortdb.index_handle(&sort_tip);
             info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
+                &miner.burnchain,
                 sortdb,
                 &mut sort_handle,
                 chainstate,
@@ -899,7 +928,12 @@ impl<'a> TestPeer<'a> {
         }
 
         // patch in reward set info
-        match get_nakamoto_next_recipients(&tip, &mut sortdb, &self.config.burnchain) {
+        match get_nakamoto_next_recipients(
+            &tip,
+            &mut sortdb,
+            &mut stacks_node.chainstate,
+            &self.config.burnchain,
+        ) {
             Ok(recipients) => {
                 block_commit_op.commit_outs = match recipients {
                     Some(info) => {
@@ -1117,6 +1151,7 @@ impl<'a> TestPeer<'a> {
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
             let accepted = Relayer::process_new_nakamoto_block(
+                &self.network.burnchain,
                 &sortdb,
                 &mut sort_handle,
                 &mut node.chainstate,

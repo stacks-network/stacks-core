@@ -72,7 +72,8 @@ pub(crate) struct InvTenureInfo {
 
 impl InvTenureInfo {
     /// Load up cacheable tenure state for a given tenure-ID consensus hash.
-    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash.
+    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash
+    /// (i.e. it was a BlockFound tenure, not an Extension tenure)
     pub fn load(
         chainstate: &StacksChainState,
         consensus_hash: &ConsensusHash,

@@ -31,13 +31,17 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, 
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandle, SortitionHandleConn,
+};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::coordinator::{
+    BlockEventDispatcher, Error as CoordinatorError, OnChainRewardSetProvider,
+};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
@@ -654,6 +658,7 @@ impl Relayer {
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
@@ -722,17 +727,46 @@ impl Relayer {
         );
 
         let config = chainstate.config();
-        let Ok(aggregate_public_key) =
-            NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
-        else {
-            warn!("Failed to get aggregate public key. Will not store or relay";
-                "stacks_block_hash" => %block.header.block_hash(),
-                "consensus_hash" => %block.header.consensus_hash,
-                "burn_height" => block.header.chain_length,
-                "sortition_height" => block_sn.block_height,
-            );
-            return Ok(false);
+        let tip = block_sn.sortition_id;
+
+        let reward_info = match load_nakamoto_reward_set(
+            burnchain
+                .pox_reward_cycle(block_sn.block_height)
+                .expect("FATAL: block snapshot has no reward cycle"),
+            &tip,
+            burnchain,
+            chainstate,
+            sortdb,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, ..))) => reward_info,
+            Ok(None) => {
+                error!("No RewardCycleInfo found for tip {}", tip);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
+            Err(CoordinatorError::DBError(db_error::NotFoundError)) => {
+                error!("No RewardCycleInfo found for tip {}", tip);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
+            Err(CoordinatorError::ChainstateError(e)) => {
+                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
+                return Err(e);
+            }
+            Err(CoordinatorError::DBError(e)) => {
+                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
+                return Err(chainstate_error::DBError(e));
+            }
+            Err(e) => {
+                error!("Failed to load RewardCycleInfo for tip {}: {:?}", tip, &e);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
         };
+        let reward_cycle = reward_info.reward_cycle;
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
+        };
+
         let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
@@ -740,7 +774,7 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            &aggregate_public_key,
+            reward_set,
         )?;
         staging_db_tx.commit()?;
 
@@ -761,6 +795,7 @@ impl Relayer {
     /// Process nakamoto blocks.
     /// Log errors but do not return them.
     pub fn process_nakamoto_blocks(
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         blocks: impl Iterator<Item = NakamotoBlock>,
@@ -771,6 +806,7 @@ impl Relayer {
         for block in blocks {
             let block_id = block.block_id();
             if let Err(e) = Self::process_new_nakamoto_block(
+                burnchain,
                 sortdb,
                 &mut sort_handle,
                 chainstate,
@@ -2020,6 +2056,7 @@ impl Relayer {
         &mut self,
         _local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
+        burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
@@ -2113,6 +2150,7 @@ impl Relayer {
         let nakamoto_blocks =
             std::mem::replace(&mut network_result.nakamoto_blocks, HashMap::new());
         if let Err(e) = Relayer::process_nakamoto_blocks(
+            burnchain,
             sortdb,
             chainstate,
             nakamoto_blocks.into_values(),
