@@ -2784,6 +2784,10 @@ impl NakamotoChainState {
             )
         };
 
+        error!(
+            "Processing block: block.header.consensus_hash {:?}, parent_ch {:?}",
+            block.header.consensus_hash, parent_ch
+        );
         let parent_block_id = StacksBlockId::new(&parent_ch, &parent_block_hash);
         if parent_block_id != block.header.parent_block_id {
             warn!("Error processing nakamoto block: Parent consensus hash does not match db view";
@@ -2802,44 +2806,31 @@ impl NakamotoChainState {
         let burn_header_height = tenure_block_snapshot.block_height;
         let block_hash = block.header.block_hash();
 
-        let new_tenure = match block.is_wellformed_tenure_start_block() {
-            Ok(true) => true,
-            Ok(false) => {
-                // this block is mined in the ongoing tenure.
-                if !Self::check_tenure_continuity(
-                    chainstate_tx,
-                    burn_dbconn.sqlite(),
-                    &parent_ch,
-                    &block.header,
-                )? {
-                    // this block is not part of the ongoing tenure; it's invalid
-                    return Err(ChainstateError::ExpectedTenureChange);
-                }
-                false
-            }
-            Err(_) => {
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Invalid tenure changes in nakamoto block".into(),
-                ));
-            }
-        };
+        let new_tenure = block.is_wellformed_tenure_start_block().map_err(|_| {
+            ChainstateError::InvalidStacksBlock("Invalid tenure changes in nakamoto block".into())
+        })?;
+        // this block is mined in the ongoing tenure.
+        if !new_tenure
+            && !Self::check_tenure_continuity(
+                chainstate_tx,
+                burn_dbconn.sqlite(),
+                &parent_ch,
+                &block.header,
+            )?
+        {
+            warn!("FAILED");
+            // this block is not part of the ongoing tenure; it's invalid
+            return Err(ChainstateError::ExpectedTenureChange);
+        }
+        let tenure_extend = block.is_wellformed_tenure_extend_block().map_err(|_| {
+            ChainstateError::InvalidStacksBlock("Invalid tenure changes in nakamoto block".into())
+        })?;
 
-        let tenure_extend = match block.is_wellformed_tenure_extend_block() {
-            Ok(true) => {
-                if new_tenure {
-                    return Err(ChainstateError::InvalidStacksBlock(
-                        "Both started and extended tenure".into(),
-                    ));
-                }
-                true
-            }
-            Ok(false) => false,
-            Err(_) => {
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Invalid tenure extend in nakamoto block".into(),
-                ));
-            }
-        };
+        if tenure_extend && new_tenure {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Both started and extended tenure".into(),
+            ));
+        }
 
         let parent_coinbase_height = if block.is_first_mined() {
             0

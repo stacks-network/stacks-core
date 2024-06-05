@@ -79,6 +79,7 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
+#[derive(Debug)]
 pub struct NakamotoTenureInfo {
     /// Coinbase tx, if this is a new tenure
     pub coinbase_tx: Option<StacksTransaction>,
@@ -410,6 +411,13 @@ impl NakamotoBlockBuilder {
         signer_transactions: Vec<StacksTransaction>,
         signer_bitvec_len: u16,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
+        let parent_block_id = parent_stacks_header.index_block_hash();
+        info!("Building a nakamoto block"; 
+            "parent_block_id" => %parent_block_id,
+            "tenure_id_consensus_hash" => %tenure_id_consensus_hash,
+            "parent_consensus_hash" => %parent_stacks_header.consensus_hash,
+            "tenure_info" => ?tenure_info
+        );
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -503,6 +511,7 @@ impl NakamotoBlockBuilder {
             "execution_consumed" => %consumed,
             "%-full" => block_limit.proportion_largest_dimension(&consumed),
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
+            "consensus_hash" => %block.header.consensus_hash
         );
 
         Ok((block, consumed, size, tx_events))

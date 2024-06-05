@@ -542,8 +542,8 @@ impl RelayerThread {
     fn create_block_miner(
         &mut self,
         registered_key: RegisteredKey,
-        burn_tip: BlockSnapshot,
         burn_election_block: BlockSnapshot,
+        burn_tip: BlockSnapshot,
         parent_tenure_id: StacksBlockId,
         reason: MinerReason,
     ) -> Result<BlockMinerThread, NakamotoNodeError> {
@@ -573,7 +573,7 @@ impl RelayerThread {
             return Err(NakamotoNodeError::MissedMiningOpportunity);
         }
 
-        debug!(
+        info!(
             "Relayer: Spawn tenure thread";
             "height" => burn_tip.block_height,
             "burn_header_hash" => %burn_header_hash,
@@ -597,8 +597,8 @@ impl RelayerThread {
     fn start_new_tenure(
         &mut self,
         parent_tenure_start: StacksBlockId,
-        burn_tip: BlockSnapshot,
         block_election_snapshot: BlockSnapshot,
+        burn_tip: BlockSnapshot,
         reason: MinerReason,
     ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
@@ -614,8 +614,8 @@ impl RelayerThread {
             })?;
         let new_miner_state = self.create_block_miner(
             vrf_key,
-            burn_tip,
             block_election_snapshot,
+            burn_tip,
             parent_tenure_start,
             reason,
         )?;
@@ -699,8 +699,8 @@ impl RelayerThread {
 
         match self.start_new_tenure(
             burn_tip.get_canonical_stacks_block_id(), // For tenure extend, we should be extending off the canonical tip
-            burn_tip,
             block_election_snapshot,
+            burn_tip,
             MinerReason::Extended {
                 burn_view_consensus_hash: new_burn_view,
                 tenure_change_mined: false,
