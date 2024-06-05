@@ -31,7 +31,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -41,6 +40,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
@@ -57,7 +57,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -129,8 +129,8 @@ impl fmt::Display for NakamotoTenureDownloadState {
 ///    is configured to fetch the highest complete tenure (i.e. the parent of the ongoing tenure);
 ///    in this case, the end-block is the start-block of the ongoing tenure.
 /// 3. Obtain the blocks that lie between the first and last blocks of the tenure, in reverse
-///    order.  As blocks are found, their signer signatures will be validated against the aggregate
-///    public key for this tenure; their hash-chain continuity will be validated against the start
+///    order.  As blocks are found, their signer signatures will be validated against the signer
+///    public keys for this tenure; their hash-chain continuity will be validated against the start
 ///    and end block hashes; their quantity will be validated against the tenure-change transaction
 ///    in the end-block.
 ///
@@ -149,10 +149,10 @@ pub struct NakamotoTenureDownloader {
     pub tenure_end_block_id: StacksBlockId,
     /// Address of who we're asking for blocks
     pub naddr: NeighborAddress,
-    /// Aggregate public key that signed the start-block of this tenure
-    pub start_aggregate_public_key: Point,
-    /// Aggregate public key that signed the end-block of this tenure
-    pub end_aggregate_public_key: Point,
+    /// Signer public keys that signed the start-block of this tenure, in reward cycle order
+    pub start_signer_keys: RewardSet,
+    /// Signer public keys that signed the end-block of this tenure
+    pub end_signer_keys: RewardSet,
     /// Whether or not we're idle -- i.e. there are no ongoing network requests associated with
     /// this state machine.
     pub idle: bool,
@@ -178,8 +178,8 @@ impl NakamotoTenureDownloader {
         tenure_start_block_id: StacksBlockId,
         tenure_end_block_id: StacksBlockId,
         naddr: NeighborAddress,
-        start_aggregate_public_key: Point,
-        end_aggregate_public_key: Point,
+        start_signer_keys: RewardSet,
+        end_signer_keys: RewardSet,
     ) -> Self {
         test_debug!(
             "Instantiate downloader to {} for tenure {}",
@@ -191,8 +191,8 @@ impl NakamotoTenureDownloader {
             tenure_start_block_id,
             tenure_end_block_id,
             naddr,
-            start_aggregate_public_key,
-            end_aggregate_public_key,
+            start_signer_keys,
+            end_signer_keys,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block_id.clone()),
             tenure_start_block: None,
@@ -243,16 +243,16 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_start_block
+        if let Err(e) = tenure_start_block
             .header
-            .verify_signer(&self.start_aggregate_public_key)
+            .verify_signer_signatures(&self.start_signer_keys)
         {
             // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
-                  "tenure_id" => %self.tenure_id_consensus_hash,
-                  "block.header.block_id" => %tenure_start_block.header.block_id(),
-                  "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                  "state" => %self.state);
+                   "tenure_id" => %self.tenure_id_consensus_hash,
+                   "block.header.block_id" => %tenure_start_block.header.block_id(),
+                   "state" => %self.state,
+                   "error" => %e);
             return Err(NetError::InvalidMessage);
         }
 
@@ -369,16 +369,16 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_end_block
+        if let Err(e) = tenure_end_block
             .header
-            .verify_signer(&self.end_aggregate_public_key)
+            .verify_signer_signatures(&self.end_signer_keys)
         {
             // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "block.header.block_id" => %tenure_end_block.header.block_id(),
-                  "end_aggregate_public_key" => %self.end_aggregate_public_key,
-                  "state" => %self.state);
+                  "state" => %self.state,
+                  "error" => %e);
             return Err(NetError::InvalidMessage);
         }
 
@@ -470,12 +470,15 @@ impl NakamotoTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            if !block.header.verify_signer(&self.start_aggregate_public_key) {
+            if let Err(e) = block
+                .header
+                .verify_signer_signatures(&self.start_signer_keys)
+            {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %self.tenure_id_consensus_hash,
                       "block.header.block_id" => %block.header.block_id(),
-                      "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                      "state" => %self.state);
+                      "state" => %self.state,
+                      "error" => %e);
                 return Err(NetError::InvalidMessage);
             }
 

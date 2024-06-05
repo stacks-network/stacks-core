@@ -2731,6 +2731,7 @@ impl RelayerThread {
                 .process_network_result(
                     &relayer_thread.local_peer,
                     &mut net_result,
+                    &relayer_thread.burnchain,
                     sortdb,
                     chainstate,
                     mempool,

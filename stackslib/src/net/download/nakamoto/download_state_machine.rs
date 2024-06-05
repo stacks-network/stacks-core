@@ -38,9 +38,11 @@ use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
@@ -61,7 +63,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -860,6 +862,7 @@ impl NakamotoDownloadStateMachine {
                     "Peer {} has no inventory for reward cycle {}",
                     naddr, reward_cycle
                 );
+                test_debug!("Peer {} has the following inventory data: {:?}", naddr, inv);
                 continue;
             };
             for (i, wt) in wanted_tenures.iter().enumerate() {
@@ -1151,14 +1154,14 @@ impl NakamotoDownloadStateMachine {
     fn update_tenure_downloaders(
         &mut self,
         count: usize,
-        agg_public_keys: &BTreeMap<u64, Option<Point>>,
+        current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) {
         self.tenure_downloads.make_tenure_downloaders(
             &mut self.tenure_download_schedule,
             &mut self.available_tenures,
             &mut self.tenure_block_ids,
             count,
-            agg_public_keys,
+            current_reward_sets,
         )
     }
 
@@ -1440,7 +1443,7 @@ impl NakamotoDownloadStateMachine {
                 sortdb,
                 sort_tip,
                 chainstate,
-                &network.aggregate_public_keys,
+                &network.current_reward_sets,
             ) else {
                 neighbor_rpc.add_dead(network, &naddr);
                 continue;
@@ -1505,7 +1508,7 @@ impl NakamotoDownloadStateMachine {
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
-        self.update_tenure_downloaders(max_count, &network.aggregate_public_keys);
+        self.update_tenure_downloaders(max_count, &network.current_reward_sets);
 
         // run all downloaders
         let new_blocks = self.tenure_downloads.run(network, &mut self.neighbor_rpc);
