@@ -154,6 +154,7 @@ pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 pub const MINER_SLOT_COUNT: u32 = 1;
 
 /// Final result of synchronizing state with a remote set of DB replicas
+#[derive(Clone)]
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
     pub contract_id: QualifiedContractIdentifier,
