@@ -18,6 +18,7 @@ pub mod download;
 pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
+pub mod relay;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::PrincipalData;
