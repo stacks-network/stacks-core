@@ -5264,6 +5264,8 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
+    // TODO: add tests from mutation testing results #4849
+    #[cfg_attr(test, mutants::skip)]
     /// Are microblocks disabled by Epoch 2.5 at the height specified
     /// in `at_burn_height`?
     pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {

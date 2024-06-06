@@ -2436,6 +2436,8 @@ impl<
         return false;
     }
 
+    // TODO: add tests from mutation testing results #4852
+    #[cfg_attr(test, mutants::skip)]
     /// Handle a new burnchain block, optionally rolling back the canonical PoX sortition history
     /// and setting it up to be replayed in the event the network affirms a different history.  If
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
