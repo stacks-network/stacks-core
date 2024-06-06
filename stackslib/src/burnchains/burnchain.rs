@@ -551,16 +551,18 @@ impl Burnchain {
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
     }
 
-    pub fn next_reward_cycle(&self, block_height: u64) -> Option<u64> {
+    /// Compute the reward cycle ID of the PoX reward set which is active as of this burn_height.
+    /// The reward set is calculated at reward cycle index 1, so if this block height is at or after
+    /// reward cycle index 1, then this behaves like `block_height_to_reward_cycle()`.  However,
+    /// if it's reward cycle index is 0, then it belongs to the previous reward cycle.
+    pub fn pox_reward_cycle(&self, block_height: u64) -> Option<u64> {
         let cycle = self.block_height_to_reward_cycle(block_height)?;
         let effective_height = block_height.checked_sub(self.first_block_height)?;
-        let next_bump = if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0
-        {
-            0
+        if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0 {
+            Some(cycle.saturating_sub(1))
         } else {
-            1
-        };
-        Some(cycle + next_bump)
+            Some(cycle)
+        }
     }
 
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
@@ -1078,7 +1080,7 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
+    fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,

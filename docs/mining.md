@@ -26,7 +26,7 @@ subsequent_attempt_time_ms = 60000
 # Time to spend mining a microblock, in milliseconds.
 microblock_attempt_time_ms = 30000
 # Time to spend mining a Nakamoto block, in milliseconds.
-nakamoto_attempt_time_ms = 10000
+nakamoto_attempt_time_ms = 20000
 ```
 
 You can verify that your node is operating as a miner by checking its log output

@@ -2320,7 +2320,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            nakamoto_attempt_time_ms: 10_000,
+            nakamoto_attempt_time_ms: 20_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,

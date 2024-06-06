@@ -53,7 +53,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -196,6 +196,9 @@ pub struct StacksHeaderInfo {
     pub burn_header_timestamp: u64,
     /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
+    /// The burnchain tip that is passed to Clarity while processing this block.
+    /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
+    pub burn_view: Option<ConsensusHash>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,16 +297,32 @@ impl DBConfig {
                     || self.version == "2"
                     || self.version == "3"
                     || self.version == "4"
+                    || self.version == "5"
             }
             StacksEpochId::Epoch2_05 => {
-                self.version == "2" || self.version == "3" || self.version == "4"
+                self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
             }
-            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch21 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch22 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch23 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch24 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch25 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
+            StacksEpochId::Epoch30 => {
+                self.version == "3" || self.version == "4" || self.version == "5"
+            }
         }
     }
 }
@@ -371,6 +390,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -390,6 +410,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -436,13 +457,19 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
+        let header_type: HeaderTypeNames = row
+            .get("header_type")
+            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
         let stacks_header: StacksBlockHeaderTypes = {
-            let header_type: HeaderTypeNames = row
-                .get("header_type")
-                .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
             match header_type {
                 HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
                 HeaderTypeNames::Nakamoto => NakamotoBlockHeader::from_row(row)?.into(),
+            }
+        };
+        let burn_view = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => None,
+                HeaderTypeNames::Nakamoto => Some(ConsensusHash::from_column(row, "burn_view")?),
             }
         };
 
@@ -460,6 +487,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height as u32,
             burn_header_timestamp,
             anchored_block_size,
+            burn_view,
         })
     }
 }
@@ -668,7 +696,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "4";
+pub const CHAINSTATE_VERSION: &'static str = "5";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1076,6 +1104,13 @@ impl StacksChainState {
                         // migrate to nakamoto 1
                         info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "4" => {
+                        // migrate to nakamoto 2
+                        info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }
@@ -2594,6 +2629,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
+            burn_view: None,
         };
 
         StacksChainState::insert_stacks_block_header(
@@ -2925,5 +2961,15 @@ pub mod test {
             format!("{}", genesis_root_hash),
             MAINNET_2_0_GENESIS_ROOT_HASH
         );
+    }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        let db = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: true,
+            chain_id: CHAIN_ID_MAINNET,
+        };
+        assert!(db.supports_epoch(StacksEpochId::latest()));
     }
 }

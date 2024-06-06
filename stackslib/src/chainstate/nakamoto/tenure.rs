@@ -89,7 +89,9 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::{
@@ -118,7 +120,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -145,6 +147,46 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         -- this is the ith tenure transaction in its respective Nakamoto chain history.
         tenure_index INTEGER NOT NULL,
 
+        PRIMARY KEY(burn_view_consensus_hash,tenure_index)
+    );
+    CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
+    CREATE INDEX nakamoto_tenures_by_tenure_id ON nakamoto_tenures(tenure_id_consensus_hash);
+    CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
+    CREATE INDEX nakamoto_tenures_by_burn_view_consensus_hash ON nakamoto_tenures(burn_view_consensus_hash);
+    CREATE INDEX nakamoto_tenures_by_tenure_index ON nakamoto_tenures(tenure_index);
+    CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
+"#;
+
+pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+    -- Drop the nakamoto_tenures table if it exists
+    DROP TABLE IF EXISTS nakamoto_tenures;
+
+    CREATE TABLE nakamoto_tenures (
+        -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
+        -- was mined)
+        tenure_id_consensus_hash TEXT NOT NULL,
+        -- consensus hash of the previous tenure's start-tenure block
+        prev_tenure_id_consensus_hash TEXT NOT NULL,
+        -- consensus hash of the last-processed sortition
+        burn_view_consensus_hash TEXT NOT NULL,
+        -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
+        -- this is equal to the `cause` field in a TenureChange
+        cause INTEGER NOT NULL,
+        -- block hash of start-tenure block
+        block_hash TEXT NOT NULL,
+        -- block ID of this start block (this is the StacksBlockId of the above tenure_id_consensus_hash and block_hash)
+        block_id TEXT NOT NULL,
+        -- this field is the total number of _sortition-induced_ tenures in the chain history (including this tenure),
+        -- as of the _end_ of this block.  A tenure can contain multiple TenureChanges; if so, then this
+        -- is the height of the _sortition-induced_ TenureChange that created it.
+        coinbase_height INTEGER NOT NULL,
+        -- number of blocks this tenure.
+        -- * for tenure-changes induced by sortitions, this is the number of blocks in the previous tenure
+        -- * for tenure-changes induced by extension, this is the number of blocks in the current tenure so far.
+        num_blocks_confirmed INTEGER NOT NULL,
+        -- this is the ith tenure transaction in its respective Nakamoto chain history.
+        tenure_index INTEGER NOT NULL,
+    
         PRIMARY KEY(burn_view_consensus_hash,tenure_index)
     );
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
@@ -539,6 +581,17 @@ impl NakamotoChainState {
         Ok(tenure_opt)
     }
 
+    /// Get the nakamoto tenure by burn view
+    pub fn get_nakamoto_tenure_change_by_burn_view(
+        headers_conn: &Connection,
+        burn_view: &ConsensusHash,
+    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
+        let sql = "SELECT * FROM nakamoto_tenures WHERE burn_view_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
+        let args = rusqlite::params![burn_view];
+        let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
+        Ok(tenure_opt)
+    }
+
     /// Get a nakamoto tenure-change by its tenure ID consensus hash.
     /// Get the highest such record.  It will be the last-processed BlockFound tenure
     /// for the given sortition consensus hash.
@@ -555,18 +608,58 @@ impl NakamotoChainState {
         Ok(tenure_opt)
     }
 
-    /// Get the highest non-empty processed tenure on the canonical sortition history.
-    pub fn get_highest_nakamoto_tenure(
+    /// Get the highest non-empty processed tenure-change on the canonical sortition history.
+    /// It will be a BlockFound tenure.
+    pub fn get_highest_nakamoto_tenure<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
-        // find the tenure for the Stacks chain tip
-        let (tip_ch, tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb_conn)?;
-        if tip_ch == FIRST_BURNCHAIN_CONSENSUS_HASH || tip_bhh == FIRST_STACKS_BLOCK_HASH {
-            // no chain tip, so no tenure
-            return Ok(None);
+        // NOTE: we do a *search* here in case the canonical Stacks pointer stored on the canonical
+        // sortition gets invalidated through a reorg.
+        let mut cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &sortdb_conn.tip())?
+            .ok_or(ChainstateError::NoSuchBlockError)?;
+
+        // if there's been no activity for more than 2*reward_cycle_length sortitions, then the
+        // chain is dead anyway
+        for _ in 0..(2 * sortdb_conn.pox_constants().reward_cycle_length) {
+            if let Some(tenure) = Self::get_highest_nakamoto_tenure_change_by_tenure_id(
+                headers_conn,
+                &cursor.consensus_hash,
+            )? {
+                return Ok(Some(tenure));
+            }
+            cursor =
+                SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &cursor.parent_sortition_id)?
+                    .ok_or(ChainstateError::NoSuchBlockError)?;
         }
-        Self::get_nakamoto_tenure_change_by_tenure_id(headers_conn, &tip_ch)
+        Ok(None)
+    }
+
+    /// Get the ongoing tenure (i.e. last tenure-change tx record) from the sortition pointed to by
+    /// sortdb_conn.
+    /// It will be a BlockFound or an Extension tenure.
+    pub fn get_ongoing_nakamoto_tenure<SH: SortitionHandle>(
+        headers_conn: &Connection,
+        sortdb_conn: &SH,
+    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
+        // NOTE: we do a *search* here in case the canonical Stacks pointer stored on the canonical
+        // sortition gets invalidated through a reorg.
+        let mut cursor = SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &sortdb_conn.tip())?
+            .ok_or(ChainstateError::NoSuchBlockError)?;
+
+        // if there's been no activity for more than 2*reward_cycle_length sortitions, then the
+        // chain is dead anyway
+        for _ in 0..(2 * sortdb_conn.pox_constants().reward_cycle_length) {
+            if let Some(tenure) =
+                Self::get_nakamoto_tenure_change_by_burn_view(headers_conn, &cursor.consensus_hash)?
+            {
+                return Ok(Some(tenure));
+            }
+            cursor =
+                SortitionDB::get_block_snapshot(sortdb_conn.sqlite(), &cursor.parent_sortition_id)?
+                    .ok_or(ChainstateError::NoSuchBlockError)?;
+        }
+        Ok(None)
     }
 
     /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
@@ -806,9 +899,9 @@ impl NakamotoChainState {
     /// tenure-change tx, or just parent_coinbase_height if there was a tenure-extend tx or no tenure
     /// txs at all).
     /// TODO: unit test
-    pub(crate) fn advance_nakamoto_tenure(
+    pub(crate) fn advance_nakamoto_tenure<SH: SortitionHandle>(
         headers_tx: &mut StacksDBTx,
-        sort_tx: &mut SortitionHandleTx,
+        handle: &mut SH,
         block: &NakamotoBlock,
         parent_coinbase_height: u64,
     ) -> Result<u64, ChainstateError> {
@@ -831,7 +924,7 @@ impl NakamotoChainState {
         };
 
         let Some(processed_tenure) =
-            Self::check_nakamoto_tenure(headers_tx, sort_tx, &block.header, tenure_payload)?
+            Self::check_nakamoto_tenure(headers_tx, handle, &block.header, tenure_payload)?
         else {
             return Err(ChainstateError::InvalidStacksTransaction(
                 "Invalid tenure tx".into(),
@@ -857,9 +950,9 @@ impl NakamotoChainState {
     ///
     /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
     /// Returns Err(..) on DB error
-    pub(crate) fn check_tenure_continuity(
+    pub(crate) fn check_tenure_continuity<SH: SortitionHandle>(
         headers_conn: &Connection,
-        sortdb_conn: &Connection,
+        sortdb_conn: &SH,
         parent_ch: &ConsensusHash,
         block_header: &NakamotoBlockHeader,
     ) -> Result<bool, ChainstateError> {
@@ -904,7 +997,7 @@ impl NakamotoChainState {
     /// TODO: unit test
     pub(crate) fn calculate_scheduled_tenure_reward(
         chainstate_tx: &mut ChainstateTx,
-        burn_dbconn: &mut SortitionHandleTx,
+        burn_dbconn: &SortitionHandleConn,
         block: &NakamotoBlock,
         evaluated_epoch: StacksEpochId,
         parent_coinbase_height: u64,
@@ -917,7 +1010,7 @@ impl NakamotoChainState {
         // figure out if there any accumulated rewards by
         //   getting the snapshot that elected this block.
         let accumulated_rewards = SortitionDB::get_block_snapshot_consensus(
-            burn_dbconn.tx(),
+            burn_dbconn.conn(),
             &block.header.consensus_hash,
         )?
         .expect("CORRUPTION: failed to load snapshot that elected processed block")
@@ -989,7 +1082,7 @@ impl NakamotoChainState {
     /// particular burnchain fork.
     /// Return the block snapshot if so.
     pub(crate) fn check_sortition_exists(
-        burn_dbconn: &mut SortitionHandleTx,
+        burn_dbconn: &SortitionHandleConn,
         block_consensus_hash: &ConsensusHash,
     ) -> Result<BlockSnapshot, ChainstateError> {
         // check that the burnchain block that this block is associated with has been processed.
@@ -1005,9 +1098,8 @@ impl NakamotoChainState {
                     ChainstateError::NoSuchBlockError
                 })?;
 
-        let sortition_tip = burn_dbconn.context.chain_tip.clone();
         let snapshot = burn_dbconn
-            .get_block_snapshot(&burn_header_hash, &sortition_tip)?
+            .get_block_snapshot(&burn_header_hash)?
             .ok_or_else(|| {
                 warn!(
                     "Tried to process Nakamoto block before its burn view was processed";

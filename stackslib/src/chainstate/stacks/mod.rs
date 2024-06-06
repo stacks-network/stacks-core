@@ -99,6 +99,8 @@ pub enum Error {
     StacksTransactionSkipped(String),
     PostConditionFailed(String),
     NoSuchBlockError,
+    /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not in the same fork.
+    NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
     TransactionTooBigError,
@@ -224,6 +226,9 @@ impl fmt::Display for Error {
             Error::NoRegisteredSigners(reward_cycle) => {
                 write!(f, "No registered signers for reward cycle {reward_cycle}")
             }
+            Error::NotInSameFork => {
+                write!(f, "The supplied block identifiers are not in the same fork")
+            }
         }
     }
 }
@@ -268,6 +273,7 @@ impl error::Error for Error {
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
+            Error::NotInSameFork => None,
         }
     }
 }
@@ -312,6 +318,7 @@ impl Error {
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
+            Error::NotInSameFork => "NotInSameFork",
         }
     }
 

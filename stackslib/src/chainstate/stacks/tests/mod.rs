@@ -1418,9 +1418,11 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
             let acct = chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_account(clarity_tx, addr)
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb.index_handle_at_tip(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                )
                 .unwrap();
             Ok(acct)
         })

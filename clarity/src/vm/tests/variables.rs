@@ -58,12 +58,6 @@ fn test_block_height(
         assert!(analysis.is_ok());
     }
 
-    // If we're testing epoch 3, we need to simulate the tenure height being
-    // set at the transition.
-    if epoch >= StacksEpochId::Epoch30 {
-        owned_env.set_tenure_height(1);
-    }
-
     // Initialize the contract
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In Clarity 3, if this case somehow gets past the
@@ -120,12 +114,6 @@ fn test_stacks_block_height(
         );
     } else {
         assert!(analysis.is_ok());
-    }
-
-    // If we're testing epoch 3, we need to simulate the tenure height being
-    // set at the transition.
-    if epoch >= StacksEpochId::Epoch30 {
-        owned_env.set_tenure_height(1);
     }
 
     // Initialize the contract
@@ -186,12 +174,6 @@ fn test_tenure_height(
         );
     } else {
         assert!(analysis.is_ok());
-    }
-
-    // If we're testing epoch 3, we need to simulate the tenure height being
-    // set at the transition.
-    if epoch >= StacksEpochId::Epoch30 {
-        owned_env.set_tenure_height(1);
     }
 
     // Initialize the contract
