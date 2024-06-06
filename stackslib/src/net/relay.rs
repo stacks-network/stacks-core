@@ -549,9 +549,15 @@ impl Relayer {
 
     /// Given Nakamoto blocks pushed to us, verify that they correspond to expected block data.
     pub fn validate_nakamoto_blocks_push(
+        burnchain: &Burnchain,
         conn: &SortitionDBConn,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         nakamoto_blocks_data: &NakamotoBlocksData,
     ) -> Result<(), net_error> {
+        let mut loaded_reward_sets = HashMap::new();
+        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+
         for nakamoto_block in nakamoto_blocks_data.blocks.iter() {
             // is this the right Stacks block for this sortition?
             let Some(sn) = SortitionDB::get_block_snapshot_consensus(
@@ -575,6 +581,71 @@ impl Relayer {
                 info!(
                     "No such sortition in block with consensus hash {}",
                     &nakamoto_block.header.consensus_hash
+                );
+                return Err(net_error::InvalidMessage);
+            }
+
+            // is the block signed by the active reward set?
+            let sn_rc = burnchain
+                .pox_reward_cycle(sn.block_height)
+                .expect("FATAL: sortition has no reward cycle");
+            let reward_cycle_info = if let Some(rc_info) = loaded_reward_sets.get(&sn_rc) {
+                rc_info
+            } else {
+                let Some((reward_set_info, _)) = load_nakamoto_reward_set(
+                    sn_rc,
+                    &tip_sn.sortition_id,
+                    burnchain,
+                    chainstate,
+                    sortdb,
+                    &OnChainRewardSetProvider::new(),
+                )
+                .map_err(|e| {
+                    error!(
+                        "Failed to load reward cycle info for cycle {}: {:?}",
+                        sn_rc, &e
+                    );
+                    match e {
+                        CoordinatorError::ChainstateError(e) => {
+                            error!(
+                                "No RewardCycleInfo loaded for tip {}: {:?}",
+                                &sn.consensus_hash, &e
+                            );
+                            net_error::ChainstateError(format!("{:?}", &e))
+                        }
+                        CoordinatorError::DBError(e) => {
+                            error!(
+                                "No RewardCycleInfo loaded for tip {}: {:?}",
+                                &sn.consensus_hash, &e
+                            );
+                            net_error::DBError(e)
+                        }
+                        _ => {
+                            error!(
+                                "Failed to load RewardCycleInfo for tip {}: {:?}",
+                                &sn.consensus_hash, &e
+                            );
+                            net_error::NoPoXRewardSet(sn_rc)
+                        }
+                    }
+                })?
+                else {
+                    error!("No reward set for reward cycle {}", &sn_rc);
+                    return Err(net_error::NoPoXRewardSet(sn_rc));
+                };
+
+                loaded_reward_sets.insert(sn_rc, reward_set_info);
+                loaded_reward_sets.get(&sn_rc).expect("FATAL: infallible")
+            };
+
+            let Some(reward_set) = reward_cycle_info.known_selected_anchor_block() else {
+                error!("No reward set for reward cycle {}", &sn_rc);
+                return Err(net_error::NoPoXRewardSet(sn_rc));
+            };
+
+            if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+                info!(
+                    "Signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
                 );
                 return Err(net_error::InvalidMessage);
             }
@@ -1467,21 +1538,25 @@ impl Relayer {
         for (neighbor_key, relayers_and_block_data) in network_result.pushed_nakamoto_blocks.iter()
         {
             for (relayers, nakamoto_blocks_data) in relayers_and_block_data.iter() {
-                let mut good = true;
                 let mut accepted_blocks = vec![];
-                if let Err(_e) = Relayer::validate_nakamoto_blocks_push(
+                if let Err(e) = Relayer::validate_nakamoto_blocks_push(
+                    burnchain,
                     &sortdb.index_conn(),
+                    sortdb,
+                    chainstate,
                     nakamoto_blocks_data,
                 ) {
+                    info!(
+                        "Failed to validate Nakamoto blocks pushed from {:?}: {:?}",
+                        neighbor_key, &e
+                    );
+
                     // punish this peer
                     bad_neighbors.push((*neighbor_key).clone());
-                    good = false;
+                    break;
                 }
 
                 for nakamoto_block in nakamoto_blocks_data.blocks.iter() {
-                    if !good {
-                        break;
-                    }
                     let block_id = nakamoto_block.block_id();
                     debug!(
                         "Received pushed Nakamoto block {} from {}",
@@ -1513,7 +1588,6 @@ impl Relayer {
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!("Invalid pushed Nakamoto block {}: {}", &block_id, msg);
                             bad_neighbors.push((*neighbor_key).clone());
-                            good = false;
                             break;
                         }
                         Err(e) => {
@@ -1521,12 +1595,12 @@ impl Relayer {
                                 "Could not process pushed Nakamoto block {}: {:?}",
                                 &block_id, &e
                             );
-                            good = false;
                             break;
                         }
                     }
                 }
-                if good && accepted_blocks.len() > 0 {
+
+                if accepted_blocks.len() > 0 {
                     new_blocks_and_relayers.push((relayers.clone(), accepted_blocks));
                 }
             }

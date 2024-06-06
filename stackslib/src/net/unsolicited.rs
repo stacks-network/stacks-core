@@ -711,7 +711,9 @@ impl PeerNetwork {
             Err(e) => {
                 info!(
                     "{:?}: Failed to query block snapshot for {}: {:?}",
-                    &self.local_peer, &nakamoto_block.header.consensus_hash, &e
+                    self.get_local_peer(),
+                    &nakamoto_block.header.consensus_hash,
+                    &e
                 );
                 return false;
             }
@@ -720,13 +722,41 @@ impl PeerNetwork {
         if !sn.pox_valid {
             info!(
                 "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
-                &self.local_peer, &nakamoto_block.header.consensus_hash
+                self.get_local_peer(),
+                &nakamoto_block.header.consensus_hash
             );
             return false;
         }
 
         // block must be signed by reward set signers
-        // TODO
+        let sn_rc = self
+            .burnchain
+            .pox_reward_cycle(sn.block_height)
+            .expect("FATAL: sortition has no reward cycle");
+        let Some(rc_data) = self.current_reward_sets.get(&sn_rc) else {
+            info!(
+                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set",
+                self.get_local_peer(),
+                &nakamoto_block.header.consensus_hash,
+                &nakamoto_block.header.block_hash()
+            );
+            return false;
+        };
+        let Some(reward_set) = rc_data.reward_set() else {
+            info!(
+                "{:?}: No reward set for reward cycle {}",
+                self.get_local_peer(),
+                sn_rc
+            );
+            return false;
+        };
+
+        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+            info!(
+                "{:?}: signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
+            );
+            return false;
+        }
 
         // the block is well-formed, but we'd buffer if we can't process it yet
         !can_process

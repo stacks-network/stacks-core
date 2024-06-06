@@ -285,6 +285,8 @@ pub enum Error {
     InvalidState,
     /// Waiting for DNS resolution
     WaitingForDNS,
+    /// No reward set for given reward cycle
+    NoPoXRewardSet(u64),
 }
 
 impl From<libstackerdb_error> for Error {
@@ -433,6 +435,7 @@ impl fmt::Display for Error {
             Error::Http(e) => fmt::Display::fmt(&e, f),
             Error::InvalidState => write!(f, "Invalid state-machine state reached"),
             Error::WaitingForDNS => write!(f, "Waiting for DNS resolution"),
+            Error::NoPoXRewardSet(rc) => write!(f, "No PoX reward set for cycle {}", rc),
         }
     }
 }
@@ -506,6 +509,7 @@ impl error::Error for Error {
             Error::Http(ref e) => Some(e),
             Error::InvalidState => None,
             Error::WaitingForDNS => None,
+            Error::NoPoXRewardSet(..) => None,
         }
     }
 }
