@@ -547,9 +547,6 @@ impl RelayerThread {
         parent_tenure_id: StacksBlockId,
         reason: MinerReason,
     ) -> Result<BlockMinerThread, NakamotoNodeError> {
-        debug!("Relayer: creating block miner thread";
-               "reason" => %reason
-        );
         if fault_injection_skip_mining(&self.config.node.rpc_bind, burn_tip.block_height) {
             debug!(
                 "Relayer: fault injection skip mining at block height {}",
@@ -573,7 +570,7 @@ impl RelayerThread {
             return Err(NakamotoNodeError::MissedMiningOpportunity);
         }
 
-        info!(
+        debug!(
             "Relayer: Spawn tenure thread";
             "height" => burn_tip.block_height,
             "burn_header_hash" => %burn_header_hash,
@@ -713,7 +710,6 @@ impl RelayerThread {
             burn_tip,
             MinerReason::Extended {
                 burn_view_consensus_hash: new_burn_view,
-                tenure_change_mined: false,
             },
         ) {
             Ok(()) => {

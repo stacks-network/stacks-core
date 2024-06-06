@@ -100,8 +100,6 @@ pub enum MinerReason {
         /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
         /// sortition.
         burn_view_consensus_hash: ConsensusHash,
-        /// Wether the tenure change transaction was mined
-        tenure_change_mined: bool,
     },
 }
 
@@ -109,9 +107,11 @@ impl std::fmt::Display for MinerReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MinerReason::BlockFound => write!(f, "BlockFound"),
-            MinerReason::Extended { burn_view_consensus_hash, tenure_change_mined } =>  write!(
+            MinerReason::Extended {
+                burn_view_consensus_hash,
+            } => write!(
                 f,
-                "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}, tenure_change_mined = {tenure_change_mined}",
+                "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
         }
     }
@@ -246,14 +246,6 @@ impl BlockMinerThread {
                         "consensus_hash" => %new_block.header.consensus_hash,
                     );
                     self.globals.coord().announce_new_stacks_block();
-                    if let MinerReason::Extended {
-                        tenure_change_mined,
-                        ..
-                    } = &mut self.reason
-                    {
-                        // We should not issue multiple tenure change transactions for the same tenure
-                        *tenure_change_mined = true;
-                    }
                 }
 
                 self.globals.counters.bump_naka_mined_blocks();
@@ -743,7 +735,6 @@ impl BlockMinerThread {
                 .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
-        debug!("HERE WE GO");
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let vrf_proof = self
             .make_vrf_proof()
@@ -753,12 +744,6 @@ impl BlockMinerThread {
             warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
             return Err(NakamotoNodeError::ParentNotFound);
         };
-
-        debug!(
-            "Parent block info parent tenure: {:?} and {:?} mined blocks",
-            parent_block_info.parent_tenure,
-            self.mined_blocks.len()
-        );
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(
@@ -783,7 +768,7 @@ impl BlockMinerThread {
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_election_block.consensus_hash,
-            self.burn_election_block.total_burn,
+            self.burn_block.total_burn,
             tenure_start_info,
             self.config
                 .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
@@ -846,16 +831,11 @@ impl BlockMinerThread {
         vrf_proof: VRFProof,
         target_epoch_id: StacksEpochId,
     ) -> Result<NakamotoTenureInfo, NakamotoNodeError> {
-        debug!("MAKING TENURE START INFO");
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let current_miner_nonce = parent_block_info.coinbase_nonce;
         let (tenure_change_tx, coinbase_tx) = if let Some(ref parent_tenure_info) =
             parent_block_info.parent_tenure
         {
-            debug!(
-                "Miner: Constructing tenure change and coinbase transactions: {}",
-                self.reason
-            );
             let mut payload = TenureChangePayload {
                 tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
                 prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
@@ -869,7 +849,6 @@ impl BlockMinerThread {
 
             match &self.reason {
                 MinerReason::BlockFound => {
-                    debug!("Miner: Constructing tenure change and coinbase transactions");
                     let tenure_change_tx =
                         self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                     let coinbase_tx = self.generate_coinbase_tx(
@@ -881,31 +860,24 @@ impl BlockMinerThread {
                 }
                 MinerReason::Extended {
                     burn_view_consensus_hash,
-                    tenure_change_mined,
                 } => {
-                    debug!("Tenure change mined {tenure_change_mined}");
-                    if !*tenure_change_mined {
-                        let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
-                            chainstate.db(),
-                            &self.burn_election_block.consensus_hash,
-                        )
-                        .map_err(NakamotoNodeError::MiningFailure)?;
-                        debug!("Miner: Extending tenure"; "burn_view_consensus_hash" => %burn_view_consensus_hash, "parent_block_id" => %parent_block_id, "num_blocks_so_far" => num_blocks_so_far);
-                        payload = payload.extend(
-                            *burn_view_consensus_hash,
-                            parent_block_id,
-                            num_blocks_so_far,
-                        );
-                        let tenure_change_tx =
-                            self.generate_tenure_change_tx(current_miner_nonce, payload)?;
-                        (Some(tenure_change_tx), None)
-                    } else {
-                        (None, None)
-                    }
+                    let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                        chainstate.db(),
+                        &self.burn_election_block.consensus_hash,
+                    )
+                    .map_err(NakamotoNodeError::MiningFailure)?;
+                    debug!("Miner: Extending tenure"; "burn_view_consensus_hash" => %burn_view_consensus_hash, "parent_block_id" => %parent_block_id, "num_blocks_so_far" => num_blocks_so_far);
+                    payload = payload.extend(
+                        *burn_view_consensus_hash,
+                        parent_block_id,
+                        num_blocks_so_far,
+                    );
+                    let tenure_change_tx =
+                        self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                    (Some(tenure_change_tx), None)
                 }
             }
         } else {
-            debug!("Miner: NOT Constructing tenure change and coinbase transactions");
             (None, None)
         };
 

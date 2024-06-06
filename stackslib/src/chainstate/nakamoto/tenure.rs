@@ -865,30 +865,17 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         // block must have the same consensus hash as its parent
         if block_header.is_first_mined() || parent_ch != &block_header.consensus_hash {
-            error!(
-                "BLOCK HEADER IS FIRST MINED: {}",
-                block_header.is_first_mined()
-            );
-            error!("Block is not in the same tenure as its parent";
-                   "parent_ch" => %parent_ch,
-                   "block_header.consensus_hash" => %block_header.consensus_hash,
-                   "block_header" => ?block_header);
             return Ok(false);
         }
 
         // block must be in the same tenure as the highest-processed tenure.
         let Some(highest_tenure) = Self::get_highest_nakamoto_tenure(headers_conn, sortdb_conn)?
         else {
-            error!("No tenure found");
             // no tenures yet, so definitely not continuous
             return Ok(false);
         };
 
         if &highest_tenure.tenure_id_consensus_hash != parent_ch {
-            error!("Block is not in the highest-known tenure";
-                   "highest_tenure" => %highest_tenure.tenure_id_consensus_hash,
-                   "block_header.consensus_hash" => %block_header.consensus_hash,
-                   "block_header" => ?block_header);
             // this block is not in the highest-known tenure, so it can't be continuous
             return Ok(false);
         }

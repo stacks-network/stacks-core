@@ -2784,10 +2784,6 @@ impl NakamotoChainState {
             )
         };
 
-        error!(
-            "Processing block: block.header.consensus_hash {:?}, parent_ch {:?}",
-            block.header.consensus_hash, parent_ch
-        );
         let parent_block_id = StacksBlockId::new(&parent_ch, &parent_block_hash);
         if parent_block_id != block.header.parent_block_id {
             warn!("Error processing nakamoto block: Parent consensus hash does not match db view";
@@ -2818,7 +2814,6 @@ impl NakamotoChainState {
                 &block.header,
             )?
         {
-            warn!("FAILED");
             // this block is not part of the ongoing tenure; it's invalid
             return Err(ChainstateError::ExpectedTenureChange);
         }

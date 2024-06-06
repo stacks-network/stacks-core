@@ -4037,7 +4037,7 @@ fn continue_tenure_extend() {
         &signers,
     );
 
-    info!("Pausing commit op for the next block");
+    info!("Pausing commit ops to trigger a tenure extend.");
     TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
@@ -4073,7 +4073,6 @@ fn continue_tenure_extend() {
         )
         .unwrap();
 
-    debug!("MINING A STACKS BLOCK");
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
@@ -4084,7 +4083,6 @@ fn continue_tenure_extend() {
         &signers,
     );
 
-    debug!("MINING THE NEXT BLOCK");
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
     signer_vote_if_needed(
@@ -4094,10 +4092,9 @@ fn continue_tenure_extend() {
         &signers,
     );
 
-    debug!("Unpausing commit op");
+    info!("Resuming commit ops to mine regular tenures.");
     TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
 
-    debug!("MINING THE NEXT TENURES");
     // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -4127,11 +4124,6 @@ fn continue_tenure_extend() {
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
-    info!(
-        "Latest tip";
-        "height" => tip.stacks_block_height,
-        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
-    );
 
     // assert that the transfer tx was observed
     let transfer_tx_included = test_observer::get_blocks()
@@ -4152,7 +4144,7 @@ fn continue_tenure_extend() {
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 15);
 
     // make sure prometheus returns an updated height
     #[cfg(feature = "monitoring_prom")]

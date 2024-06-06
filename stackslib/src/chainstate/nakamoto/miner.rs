@@ -411,13 +411,6 @@ impl NakamotoBlockBuilder {
         signer_transactions: Vec<StacksTransaction>,
         signer_bitvec_len: u16,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
-        let parent_block_id = parent_stacks_header.index_block_hash();
-        info!("Building a nakamoto block";
-            "parent_block_id" => %parent_block_id,
-            "tenure_id_consensus_hash" => %tenure_id_consensus_hash,
-            "parent_consensus_hash" => %parent_stacks_header.consensus_hash,
-            "tenure_info" => ?tenure_info
-        );
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
