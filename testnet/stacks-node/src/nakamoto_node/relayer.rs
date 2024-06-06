@@ -163,8 +163,6 @@ pub struct RelayerThread {
     /// This is the last snapshot in which the relayer committed, and the parent_tenure_id
     ///  which was committed to
     last_committed: Option<(BlockSnapshot, StacksBlockId)>,
-    /// The last commit that the relayer submitted which won the sortition
-    current_mining_commit_tx: Option<Txid>,
 }
 
 impl RelayerThread {
@@ -222,7 +220,6 @@ impl RelayerThread {
             is_miner,
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
-            current_mining_commit_tx: None,
         }
     }
 
@@ -315,7 +312,9 @@ impl RelayerThread {
             .expect("FATAL: unknown consensus hash");
 
         self.globals.set_last_sortition(sn.clone());
+
         let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
+
         info!(
             "Relayer: Process sortition";
             "sortition_ch" => %consensus_hash,
@@ -328,7 +327,6 @@ impl RelayerThread {
 
         if won_sortition {
             increment_stx_blocks_mined_counter();
-            self.current_mining_commit_tx = Some(sn.winning_block_txid);
         }
 
         if sn.sortition {
