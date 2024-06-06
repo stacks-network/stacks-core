@@ -321,8 +321,15 @@ impl MemPoolAdmitter {
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
+        let sortition_id = match SortitionDB::get_sortition_id_by_consensus(
+            &sortdb.conn(),
+            &self.cur_consensus_hash,
+        ) {
+            Ok(Some(x)) => x,
+            _ => return Err(MemPoolRejection::DBError(db_error::NotFoundError)),
+        };
         chainstate.will_admit_mempool_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle(&sortition_id),
             &self.cur_consensus_hash,
             &self.cur_block,
             tx,

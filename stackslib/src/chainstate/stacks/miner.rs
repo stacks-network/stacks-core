@@ -39,7 +39,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -341,7 +343,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -357,7 +359,7 @@ pub enum TransactionEvent {
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
@@ -1497,6 +1499,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            burn_view: None,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1809,7 +1812,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1918,7 +1921,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1980,7 +1983,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1999,7 +2002,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2398,7 +2401,7 @@ impl StacksBlockBuilder {
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)

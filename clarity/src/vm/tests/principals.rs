@@ -657,7 +657,7 @@ fn test_principal_destruct_bad_version_byte() {
 // Standard case where construction should work.  We compare the output of the
 // Clarity function to hand-built principals.
 fn test_principal_construct_good() {
-    // We always use the the same bytes buffer.
+    // We always use the same bytes buffer.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer
         .copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());

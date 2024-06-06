@@ -385,7 +385,7 @@ impl StackerDBConfig {
         }
 
         if max_neighbors > u128::from(local_max_neighbors) {
-            warn!(
+            debug!(
                 "Contract {} stipulates a maximum number of neighbors ({}) beyond locally-configured maximum {}; defaulting to locally-configured maximum",
                 contract_id,
                 max_neighbors,
@@ -515,7 +515,7 @@ impl StackerDBConfig {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortition_db.conn(), burn_tip.block_height)?
             .expect("FATAL: no epoch defined");
 
-        let dbconn = sortition_db.index_conn();
+        let dbconn = sortition_db.index_handle_at_block(chainstate, &chain_tip_hash)?;
 
         // check the target contract
         let res = chainstate.with_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {

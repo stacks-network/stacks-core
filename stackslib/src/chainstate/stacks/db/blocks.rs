@@ -10279,7 +10279,7 @@ pub mod test {
                     );
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -10531,7 +10531,7 @@ pub mod test {
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -11087,7 +11087,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11252,7 +11252,7 @@ pub mod test {
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();
@@ -11410,7 +11410,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11933,9 +11933,12 @@ pub mod test {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let iconn = sortdb
+            .index_handle_at_block(peer.chainstate(), &tip_hash)
+            .unwrap();
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&iconn, &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();

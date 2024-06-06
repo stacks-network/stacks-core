@@ -20,6 +20,9 @@ Usage documentation can be found in the [README](https://github.com/Trust-Machin
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/// This module stores chainstate information about Stacks, SortitionDB for
+/// tracking by the signer.
+pub mod chainstate;
 /// The cli module for the signer binary
 pub mod cli;
 /// The signer client for communicating with stackerdb/stacks nodes
@@ -36,6 +39,10 @@ pub mod signerdb;
 pub mod v0;
 /// The v1 implementation of the singer. This includes WSTS support
 pub mod v1;
+
+#[cfg(test)]
+mod tests;
+
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 

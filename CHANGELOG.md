@@ -15,6 +15,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Downgraded log messages about transactions from warning to info (#4697)
 
+### Fixed
+
+- Allow Nakamoto blocks to access the burn block associated with the current tenure (#4333)
+
 ## [2.5.0.0.3]
 
 This release fixes a regression in `2.5.0.0.0` from `2.4.0.1.0` caused by git merge

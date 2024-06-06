@@ -86,6 +86,12 @@ pub enum ClientError {
     /// Invalid response from the stacks node
     #[error("Invalid response from the stacks node: {0}")]
     InvalidResponse(String),
+    /// A successful sortition has not occurred yet
+    #[error("The Stacks chain has not processed any successful sortitions yet")]
+    NoSortitionOnChain,
+    /// A successful sortition's info response should be parseable into a SortitionState
+    #[error("A successful sortition's info response should be parseable into a SortitionState")]
+    UnexpectedSortitionInfo,
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure

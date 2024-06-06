@@ -493,7 +493,7 @@ fn fix_to_pox_contract() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -1213,7 +1213,7 @@ fn verify_auto_unlock_behavior() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

@@ -633,18 +633,18 @@ fn test_nakamoto_chainstate_getters() {
         // scope this to drop the chainstate ref and db tx
         let chainstate = &peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
-        let mut sort_tx = sort_db.tx_handle_begin(&sort_tip.sortition_id).unwrap();
+        let sort_handle = sort_db.index_handle(&sort_tip.sortition_id);
 
         // no tenures yet
         assert!(
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_tx)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &sort_handle,)
                 .unwrap()
                 .is_none()
         );
 
         // sortition-existence-check works
         assert_eq!(
-            NakamotoChainState::check_sortition_exists(&mut sort_tx, &sort_tip.consensus_hash)
+            NakamotoChainState::check_sortition_exists(&sort_handle, &sort_tip.consensus_hash)
                 .unwrap(),
             sort_tip
         );
