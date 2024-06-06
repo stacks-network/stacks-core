@@ -305,16 +305,13 @@ impl PeerNetwork {
             // time to do a walk yet?
             if (self.walk_count > self.connection_opts.num_initial_walks
                 || self.walk_retries > self.connection_opts.walk_retry_count)
-                && self.walk_deadline > get_epoch_time_secs()
+                && (!ibd && self.walk_deadline > get_epoch_time_secs())
             {
                 // we've done enough walks for an initial mixing, or we can't connect to anyone,
                 // so throttle ourselves down until the walk deadline passes.
-                test_debug!(
+                debug!(
                     "{:?}: Throttle walk until {} to walk again (walk count: {}, walk retries: {})",
-                    &self.local_peer,
-                    self.walk_deadline,
-                    self.walk_count,
-                    self.walk_retries
+                    &self.local_peer, self.walk_deadline, self.walk_count, self.walk_retries
                 );
                 return false;
             }

@@ -649,16 +649,12 @@ impl EventObserver {
                 format!("0x{}", header.signer_signature_hash()).into(),
             );
             as_object_mut.insert(
-                "signer_signature".into(),
-                format!("0x{}", header.signer_signature_hash()).into(),
-            );
-            as_object_mut.insert(
                 "miner_signature".into(),
                 format!("0x{}", &header.miner_signature).into(),
             );
             as_object_mut.insert(
                 "signer_signature".into(),
-                format!("0x{}", &header.signer_signature).into(),
+                serde_json::to_value(&header.signer_signature).unwrap_or_default(),
             );
         }
 
@@ -1435,8 +1431,12 @@ impl EventDispatcher {
 mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
-    use stacks::chainstate::stacks::db::StacksHeaderInfo;
+    use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
+    use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::StacksBlock;
+    use stacks::types::chainstate::BlockHeaderHash;
+    use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
@@ -1498,5 +1498,67 @@ mod test {
             payload.get("signer_bitvec").unwrap().as_str().unwrap(),
             expected_bitvec_str
         );
+    }
+
+    #[test]
+    fn test_block_processed_event_nakamoto() {
+        let observer = EventObserver {
+            endpoint: "nowhere".to_string(),
+        };
+
+        let filtered_events = vec![];
+        let mut block_header = NakamotoBlockHeader::empty();
+        let signer_signature = vec![
+            MessageSignature::from_bytes(&[0; 65]).unwrap(),
+            MessageSignature::from_bytes(&[1; 65]).unwrap(),
+        ];
+        block_header.signer_signature = signer_signature.clone();
+        let block = NakamotoBlock {
+            header: block_header.clone(),
+            txs: vec![],
+        };
+        let mut metadata = StacksHeaderInfo::regtest_genesis();
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        let receipts = vec![];
+        let parent_index_hash = StacksBlockId([0; 32]);
+        let winner_txid = Txid([0; 32]);
+        let mature_rewards = serde_json::Value::Array(vec![]);
+        let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
+        let parent_burn_block_height = 0;
+        let parent_burn_block_timestamp = 0;
+        let anchored_consumed = ExecutionCost::zero();
+        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let pox_constants = PoxConstants::testnet_default();
+        let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+
+        let payload = observer.make_new_block_processed_payload(
+            filtered_events,
+            &StacksBlockEventData::from((block, BlockHeaderHash([0; 32]))),
+            &metadata,
+            &receipts,
+            &parent_index_hash,
+            &winner_txid,
+            &mature_rewards,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
+            &anchored_consumed,
+            &mblock_confirmed_consumed,
+            &pox_constants,
+            &None,
+            &Some(signer_bitvec.clone()),
+        );
+
+        let event_signer_signature = payload
+            .get("signer_signature")
+            .unwrap()
+            .as_array()
+            .expect("Expected signer_signature to be an array")
+            .iter()
+            .cloned()
+            .map(serde_json::from_value::<MessageSignature>)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Unable to deserialize array of MessageSignature");
+        assert_eq!(event_signer_signature, signer_signature);
     }
 }

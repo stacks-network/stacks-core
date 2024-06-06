@@ -25,18 +25,23 @@ use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
+use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandle, SortitionHandleConn,
+};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::coordinator::{
+    BlockEventDispatcher, Error as CoordinatorError, OnChainRewardSetProvider,
+};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
@@ -653,6 +658,7 @@ impl Relayer {
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
@@ -721,17 +727,46 @@ impl Relayer {
         );
 
         let config = chainstate.config();
-        let Ok(aggregate_public_key) =
-            NakamotoChainState::get_aggregate_public_key(chainstate, &sortdb, sort_handle, &block)
-        else {
-            warn!("Failed to get aggregate public key. Will not store or relay";
-                "stacks_block_hash" => %block.header.block_hash(),
-                "consensus_hash" => %block.header.consensus_hash,
-                "burn_height" => block.header.chain_length,
-                "sortition_height" => block_sn.block_height,
-            );
-            return Ok(false);
+        let tip = block_sn.sortition_id;
+
+        let reward_info = match load_nakamoto_reward_set(
+            burnchain
+                .pox_reward_cycle(block_sn.block_height)
+                .expect("FATAL: block snapshot has no reward cycle"),
+            &tip,
+            burnchain,
+            chainstate,
+            sortdb,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, ..))) => reward_info,
+            Ok(None) => {
+                error!("No RewardCycleInfo found for tip {}", tip);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
+            Err(CoordinatorError::DBError(db_error::NotFoundError)) => {
+                error!("No RewardCycleInfo found for tip {}", tip);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
+            Err(CoordinatorError::ChainstateError(e)) => {
+                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
+                return Err(e);
+            }
+            Err(CoordinatorError::DBError(e)) => {
+                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
+                return Err(chainstate_error::DBError(e));
+            }
+            Err(e) => {
+                error!("Failed to load RewardCycleInfo for tip {}: {:?}", tip, &e);
+                return Err(chainstate_error::PoxNoRewardCycle);
+            }
         };
+        let reward_cycle = reward_info.reward_cycle;
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
+        };
+
         let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
@@ -739,7 +774,7 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            &aggregate_public_key,
+            reward_set,
         )?;
         staging_db_tx.commit()?;
 
@@ -760,6 +795,7 @@ impl Relayer {
     /// Process nakamoto blocks.
     /// Log errors but do not return them.
     pub fn process_nakamoto_blocks(
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         blocks: impl Iterator<Item = NakamotoBlock>,
@@ -770,6 +806,7 @@ impl Relayer {
         for block in blocks {
             let block_id = block.block_id();
             if let Err(e) = Self::process_new_nakamoto_block(
+                burnchain,
                 sortdb,
                 &mut sort_handle,
                 chainstate,
@@ -1464,7 +1501,7 @@ impl Relayer {
     /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
     /// problematic transactions. This is a static check -- we only look at the microblock
     /// contents.
-    ///  
+    ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
     pub fn static_check_problematic_relayed_microblock(
@@ -1839,8 +1876,10 @@ impl Relayer {
             "Reload unconfirmed state off of {}/{}",
             &canonical_consensus_hash, &canonical_block_hash
         );
-        let processed_unconfirmed_state =
-            chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
+        let processed_unconfirmed_state = chainstate.reload_unconfirmed_state(
+            &sortdb.index_handle_at_block(chainstate, &canonical_tip)?,
+            canonical_tip,
+        )?;
 
         Ok(processed_unconfirmed_state)
     }
@@ -2019,6 +2058,7 @@ impl Relayer {
         &mut self,
         _local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
+        burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
@@ -2112,6 +2152,7 @@ impl Relayer {
         let nakamoto_blocks =
             std::mem::replace(&mut network_result.nakamoto_blocks, HashMap::new());
         if let Err(e) = Relayer::process_nakamoto_blocks(
+            burnchain,
             sortdb,
             chainstate,
             nakamoto_blocks.into_values(),
@@ -2644,6 +2685,7 @@ pub mod test {
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::tests::{
         make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
+        make_stacks_transfer_order_independent_p2sh, make_stacks_transfer_order_independent_p2wsh,
         make_user_stacks_transfer,
     };
     use crate::chainstate::stacks::{Error as ChainstateError, *};
@@ -2671,6 +2713,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -2822,6 +2865,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::Any,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
         assert!(all_transactions.len() > MAX_RECENT_MESSAGES);
 
@@ -4041,9 +4085,12 @@ pub mod test {
 
                     let chain_tip =
                         StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
+                    let iconn = sortdb
+                        .index_handle_at_block(&stacks_node.chainstate, &chain_tip)
+                        .unwrap();
                     let cur_nonce = stacks_node
                         .chainstate
-                        .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
+                        .with_read_only_clarity_tx(&iconn, &chain_tip, |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                                 clarity_db
                                     .get_account_nonce(
@@ -5415,7 +5462,7 @@ pub mod test {
                 let block = StacksBlockBuilder::make_anchored_block_from_txs(
                     block_builder,
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx.clone()],
                 )
                 .unwrap()
@@ -5482,7 +5529,7 @@ pub mod test {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle(&tip.sortition_id),
                         vec![coinbase_tx.clone(), bad_tx.clone()],
                     )
                 {
@@ -5504,7 +5551,7 @@ pub mod test {
                 let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     block_builder,
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx.clone()],
                 )
                 .unwrap();
@@ -5521,7 +5568,9 @@ pub mod test {
                 let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
                 bad_block.header.tx_merkle_root = merkle_tree.root();
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb
+                    .index_handle_at_block(chainstate, &parent_index_hash)
+                    .unwrap();
                 chainstate
                     .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
                     .unwrap();
@@ -5806,7 +5855,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx],
                 )
                 .unwrap();
@@ -5866,7 +5915,6 @@ pub mod test {
         peer.sortdb = Some(sortdb);
         peer.stacks_node = Some(node);
     }
-
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
@@ -5985,7 +6033,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx, versioned_contract],
                 )
                 .unwrap();
@@ -6172,7 +6220,7 @@ pub mod test {
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle(&tip.sortition_id),
                     vec![coinbase_tx],
                 )
                 .unwrap();
@@ -6211,8 +6259,12 @@ pub mod test {
             // tenure 28
             let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
             let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+            let snapshot =
+                SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash)
+                    .unwrap()
+                    .unwrap();
             match node.chainstate.will_admit_mempool_tx(
-                &sortdb.index_conn(),
+                &sortdb.index_handle(&snapshot.sortition_id),
                 &consensus_hash,
                 &stacks_block.block_hash(),
                 &versioned_contract,
@@ -6261,8 +6313,11 @@ pub mod test {
         // tenure 28
         let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash)
+            .unwrap()
+            .unwrap();
         match node.chainstate.will_admit_mempool_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle(&snapshot.sortition_id),
             &consensus_hash,
             &stacks_block.block_hash(),
             &versioned_contract,

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,8 +39,11 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::HexError;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -51,11 +55,19 @@ use wsts::net::{
 use wsts::state_machine::signer;
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::{EventError, SignerMessage};
+use crate::EventError;
+
+/// Define the trait for the event processor
+pub trait SignerEventTrait<T: StacksMessageCodec + Clone + Debug + Send = Self>:
+    StacksMessageCodec + Clone + Debug + Send
+{
+}
+
+impl<T: StacksMessageCodec + Clone + Debug + Send> SignerEventTrait for T {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// BlockProposal sent to signers
-pub struct BlockProposalSigners {
+pub struct BlockProposal {
     /// The block itself
     pub block: NakamotoBlock,
     /// The burn height the block is mined during
@@ -64,25 +76,7 @@ pub struct BlockProposalSigners {
     pub reward_cycle: u64,
 }
 
-/// Event enum for newly-arrived signer subscribed events
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SignerEvent {
-    /// A miner sent a message over .miners
-    /// The `Vec<SignerMessage>` will contain any signer WSTS messages made by the miner while acting as a coordinator.
-    /// The `Option<StacksPublicKey>` will contain the message sender's public key if the vec is non-empty.
-    MinerMessages(Vec<SignerMessage>, Option<StacksPublicKey>),
-    /// The signer messages for other signers and miners to observe
-    /// The u32 is the signer set to which the message belongs (either 0 or 1)
-    SignerMessages(u32, Vec<SignerMessage>),
-    /// A new block proposal validation response from the node
-    BlockValidationResponse(BlockValidateResponse),
-    /// Status endpoint request
-    StatusCheck,
-    /// A new burn block event was received with the given burnchain block height
-    NewBurnBlock(u64),
-}
-
-impl StacksMessageCodec for BlockProposalSigners {
+impl StacksMessageCodec for BlockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.block.consensus_serialize(fd)?;
         self.burn_height.consensus_serialize(fd)?;
@@ -94,12 +88,30 @@ impl StacksMessageCodec for BlockProposalSigners {
         let block = NakamotoBlock::consensus_deserialize(fd)?;
         let burn_height = u64::consensus_deserialize(fd)?;
         let reward_cycle = u64::consensus_deserialize(fd)?;
-        Ok(BlockProposalSigners {
+        Ok(BlockProposal {
             block,
             burn_height,
             reward_cycle,
         })
     }
+}
+
+/// Event enum for newly-arrived signer subscribed events
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SignerEvent<T: SignerEventTrait> {
+    /// A miner sent a message over .miners
+    /// The `Vec<T>` will contain any signer messages made by the miner.
+    /// The `StacksPublicKey` is the message sender's public key.
+    MinerMessages(Vec<T>, StacksPublicKey),
+    /// The signer messages for other signers and miners to observe
+    /// The u32 is the signer set to which the message belongs (either 0 or 1)
+    SignerMessages(u32, Vec<T>),
+    /// A new block proposal validation response from the node
+    BlockValidationResponse(BlockValidateResponse),
+    /// Status endpoint request
+    StatusCheck,
+    /// A new burn block event was received with the given burnchain block height
+    NewBurnBlock(u64),
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -111,7 +123,7 @@ pub trait EventStopSignaler {
 }
 
 /// Trait to implement to handle signer specific events sent by the Stacks node
-pub trait EventReceiver {
+pub trait EventReceiver<T: SignerEventTrait> {
     /// The implementation of ST will ensure that a call to ST::send() will cause
     /// the call to `is_stopped()` below to return true.
     type ST: EventStopSignaler + Send + Sync;
@@ -119,11 +131,11 @@ pub trait EventReceiver {
     /// Open a server socket to the given socket address.
     fn bind(&mut self, listener: SocketAddr) -> Result<SocketAddr, EventError>;
     /// Return the next event
-    fn next_event(&mut self) -> Result<SignerEvent, EventError>;
+    fn next_event(&mut self) -> Result<SignerEvent<T>, EventError>;
     /// Add a downstream event consumer
-    fn add_consumer(&mut self, event_out: Sender<SignerEvent>);
+    fn add_consumer(&mut self, event_out: Sender<SignerEvent<T>>);
     /// Forward the event to downstream consumers
-    fn forward_event(&mut self, ev: SignerEvent) -> bool;
+    fn forward_event(&mut self, ev: SignerEvent<T>) -> bool;
     /// Determine if the receiver should hang up
     fn is_stopped(&self) -> bool;
     /// Get a stop signal instance that, when sent, will cause this receiver to stop accepting new
@@ -164,23 +176,23 @@ pub trait EventReceiver {
 }
 
 /// Event receiver for Signer events
-pub struct SignerEventReceiver {
+pub struct SignerEventReceiver<T: SignerEventTrait> {
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
     http_server: Option<HttpServer>,
     /// channel into which to write newly-discovered data
-    out_channels: Vec<Sender<SignerEvent>>,
+    out_channels: Vec<Sender<SignerEvent<T>>>,
     /// inter-thread stop variable -- if set to true, then the `main_loop` will exit
     stop_signal: Arc<AtomicBool>,
     /// Whether the receiver is running on mainnet
     is_mainnet: bool,
 }
 
-impl SignerEventReceiver {
+impl<T: SignerEventTrait> SignerEventReceiver<T> {
     /// Make a new Signer event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
-    pub fn new(is_mainnet: bool) -> SignerEventReceiver {
+    pub fn new(is_mainnet: bool) -> SignerEventReceiver<T> {
         SignerEventReceiver {
             http_server: None,
             local_addr: None,
@@ -193,7 +205,7 @@ impl SignerEventReceiver {
     /// Do something with the socket
     pub fn with_server<F, R>(&mut self, todo: F) -> Result<R, EventError>
     where
-        F: FnOnce(&SignerEventReceiver, &mut HttpServer, bool) -> R,
+        F: FnOnce(&SignerEventReceiver<T>, &mut HttpServer, bool) -> R,
     {
         let mut server = if let Some(s) = self.http_server.take() {
             s
@@ -225,6 +237,7 @@ impl SignerStopSignaler {
 }
 
 impl EventStopSignaler for SignerStopSignaler {
+    #[cfg_attr(test, mutants::skip)]
     fn send(&mut self) {
         self.stop_signal.store(true, Ordering::SeqCst);
         // wake up the thread so the atomicbool can be checked
@@ -238,15 +251,14 @@ impl EventStopSignaler for SignerStopSignaler {
                 body.len(),
                 body
             );
-            match stream.write_all(req.as_bytes()) {
-                Err(e) => error!("Failed to send shutdown request: {}", e),
-                _ => (),
-            };
+            if let Err(e) = stream.write_all(req.as_bytes()) {
+                error!("Failed to send shutdown request: {}", e);
+            }
         }
     }
 }
 
-impl EventReceiver for SignerEventReceiver {
+impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
     type ST = SignerStopSignaler;
 
     /// Start listening on the given socket address.
@@ -261,7 +273,7 @@ impl EventReceiver for SignerEventReceiver {
     /// Wait for the node to post something, and then return it.
     /// Errors are recoverable -- the caller should call this method again even if it returns an
     /// error.
-    fn next_event(&mut self) -> Result<SignerEvent, EventError> {
+    fn next_event(&mut self) -> Result<SignerEvent<T>, EventError> {
         self.with_server(|event_receiver, http_server, _is_mainnet| {
             // were we asked to terminate?
             if event_receiver.is_stopped() {
@@ -318,7 +330,7 @@ impl EventReceiver for SignerEventReceiver {
     /// Forward an event
     /// Return true on success; false on error.
     /// Returning false terminates the event receiver.
-    fn forward_event(&mut self, ev: SignerEvent) -> bool {
+    fn forward_event(&mut self, ev: SignerEvent<T>) -> bool {
         if self.out_channels.is_empty() {
             // nothing to do
             error!("No channels connected to event receiver");
@@ -342,7 +354,7 @@ impl EventReceiver for SignerEventReceiver {
     }
 
     /// Add an event consumer.  A received event will be forwarded to this Sender.
-    fn add_consumer(&mut self, out_channel: Sender<SignerEvent>) {
+    fn add_consumer(&mut self, out_channel: Sender<SignerEvent<T>>) {
         self.out_channels.push(out_channel);
     }
 
@@ -367,10 +379,10 @@ fn ack_dispatcher(request: HttpRequest) {
 }
 
 /// Process a stackerdb event from the node
-fn process_stackerdb_event(
+fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,
     mut request: HttpRequest,
-) -> Result<SignerEvent, EventError> {
+) -> Result<SignerEvent<T>, EventError> {
     debug!("Got stackerdb_chunks event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
@@ -395,7 +407,7 @@ fn process_stackerdb_event(
                 event_contract_id
             );
             ack_dispatcher(request);
-            return Err(e.into());
+            return Err(e);
         }
         Ok(x) => x,
     };
@@ -405,7 +417,7 @@ fn process_stackerdb_event(
     Ok(signer_event)
 }
 
-impl TryFrom<StackerDBChunksEvent> for SignerEvent {
+impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(event: StackerDBChunksEvent) -> Result<Self, Self::Error> {
@@ -415,18 +427,18 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
             let mut messages = vec![];
             let mut miner_pk = None;
             for chunk in event.modified_slots {
+                let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
+                    continue;
+                };
+
                 miner_pk = Some(chunk.recover_pk().map_err(|e| {
                     EventError::MalformedRequest(format!(
                         "Failed to recover PK from StackerDB chunk: {e}"
                     ))
                 })?);
-                let Ok(msg) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                else {
-                    continue;
-                };
                 messages.push(msg);
             }
-            SignerEvent::MinerMessages(messages, miner_pk)
+            SignerEvent::MinerMessages(messages, miner_pk.ok_or(EventError::EmptyChunksEvent)?)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
             let Some((signer_set, _)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
@@ -434,10 +446,10 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
                 return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
             };
             // signer-XXX-YYY boot contract
-            let signer_messages: Vec<SignerMessage> = event
+            let signer_messages: Vec<T> = event
                 .modified_slots
                 .iter()
-                .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
+                .filter_map(|chunk| read_next::<T, _>(&mut &chunk.data[..]).ok())
                 .collect();
             SignerEvent::SignerMessages(signer_set, signer_messages)
         } else {
@@ -448,7 +460,9 @@ impl TryFrom<StackerDBChunksEvent> for SignerEvent {
 }
 
 /// Process a proposal response from the node
-fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, EventError> {
+fn process_proposal_response<T: SignerEventTrait>(
+    mut request: HttpRequest,
+) -> Result<SignerEvent<T>, EventError> {
     debug!("Got proposal_response event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
@@ -474,7 +488,9 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
 }
 
 /// Process a new burn block event from the node
-fn process_new_burn_block_event(mut request: HttpRequest) -> Result<SignerEvent, EventError> {
+fn process_new_burn_block_event<T: SignerEventTrait>(
+    mut request: HttpRequest,
+) -> Result<SignerEvent<T>, EventError> {
     debug!("Got burn_block event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {

@@ -41,7 +41,9 @@ use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use crate::burnchains::{PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::nakamoto::{
@@ -221,7 +223,7 @@ impl NakamotoBlockBuilder {
     pub fn load_tenure_info<'a>(
         &self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
@@ -297,7 +299,7 @@ impl NakamotoBlockBuilder {
     /// yet known).
     pub fn tenure_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
         let SetupBlockResult {
@@ -396,7 +398,7 @@ impl NakamotoBlockBuilder {
     pub fn build_nakamoto_block(
         // not directly used; used as a handle to open other chainstates
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         // Stacks header we're building off of.
         parent_stacks_header: &StacksHeaderInfo,

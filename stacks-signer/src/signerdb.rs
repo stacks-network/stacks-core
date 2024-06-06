@@ -16,15 +16,65 @@
 
 use std::path::Path;
 
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
+use libsigner::BlockProposal;
 use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use wsts::net::NonceRequest;
 
-use crate::signer::BlockInfo;
+/// Additional Info about a proposed block
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct BlockInfo {
+    /// The block we are considering
+    pub block: NakamotoBlock,
+    /// The burn block height at which the block was proposed
+    pub burn_block_height: u64,
+    /// The reward cycle the block belongs to
+    pub reward_cycle: u64,
+    /// Our vote on the block if we have one yet
+    pub vote: Option<NakamotoBlockVote>,
+    /// Whether the block contents are valid
+    pub valid: Option<bool>,
+    /// The associated packet nonce request if we have one
+    pub nonce_request: Option<NonceRequest>,
+    /// Whether this block is already being signed over
+    pub signed_over: bool,
+}
+
+impl From<BlockProposal> for BlockInfo {
+    fn from(value: BlockProposal) -> Self {
+        Self {
+            block: value.block,
+            burn_block_height: value.burn_height,
+            reward_cycle: value.reward_cycle,
+            vote: None,
+            valid: None,
+            nonce_request: None,
+            signed_over: false,
+        }
+    }
+}
+impl BlockInfo {
+    /// Create a new BlockInfo with an associated nonce request packet
+    pub fn new_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
+        let mut block_info = BlockInfo::from(block_proposal);
+        block_info.nonce_request = Some(nonce_request);
+        block_info.signed_over = true;
+        block_info
+    }
+
+    /// Return the block's signer signature hash
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.block.header.signer_signature_hash()
+    }
+}
 
 /// This struct manages a SQLite database connection
 /// for the signer.
@@ -39,9 +89,17 @@ CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
     block_info TEXT NOT NULL,
+    consensus_hash TEXT NOT NULL,
+    signed_over INTEGER NOT NULL,
+    stacks_height INTEGER NOT NULL, 
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
+
+const CREATE_INDEXES: &str = "
+CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
+";
 
 const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
@@ -71,6 +129,8 @@ impl SignerDb {
         if !table_exists(&self.db, "signer_states")? {
             self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
         }
+
+        self.db.execute_batch(CREATE_INDEXES)?;
 
         Ok(())
     }
@@ -124,6 +184,17 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the last signed block in a tenure (identified by its consensus hash)
+    pub fn get_last_signed_block_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
+        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+
+        try_deserialize(result)
+    }
+
     /// Insert a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
@@ -147,8 +218,13 @@ impl SignerDb {
         );
         self.db
             .execute(
-                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info) VALUES (?1, ?2, ?3, ?4)",
-                params![u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json],
+                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json,
+                    signed_over,
+                    u64_to_sql(block_info.block.header.chain_length)?,
+                    block_info.block.header.consensus_hash.to_hex(),
+                ],
             )?;
 
         Ok(())
@@ -183,11 +259,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
-    use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use libsigner::BlockProposalSigners;
-    use stacks_common::bitvec::BitVec;
-    use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
-    use stacks_common::util::secp256k1::MessageSignature;
+    use libsigner::BlockProposal;
 
     use super::*;
 
@@ -198,25 +270,14 @@ mod tests {
     }
 
     fn create_block_override(
-        overrides: impl FnOnce(&mut BlockProposalSigners),
-    ) -> (BlockInfo, BlockProposalSigners) {
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 2,
-            burn_spent: 3,
-            consensus_hash: ConsensusHash([0x04; 20]),
-            parent_block_id: StacksBlockId([0x05; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-            state_index_root: TrieHash([0x07; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
+        overrides: impl FnOnce(&mut BlockProposal),
+    ) -> (BlockInfo, BlockProposal) {
+        let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock {
             header,
             txs: vec![],
         };
-        let mut block_proposal = BlockProposalSigners {
+        let mut block_proposal = BlockProposal {
             block,
             burn_height: 7,
             reward_cycle: 42,
@@ -225,7 +286,7 @@ mod tests {
         (BlockInfo::from(block_proposal.clone()), block_proposal)
     }
 
-    fn create_block() -> (BlockInfo, BlockProposalSigners) {
+    fn create_block() -> (BlockInfo, BlockProposal) {
         create_block_override(|_| {})
     }
 

@@ -1,4 +1,20 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use clarity::vm::ClarityVersion;
 use hashbrown::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
@@ -139,7 +155,11 @@ If your name is in a namespace where names do not expire, then you never need to
 
 pub fn make_json_boot_contracts_reference() -> String {
     let contract_supporting_docs = make_contract_support_docs();
-    let api_out = produce_docs_refs(&*STACKS_BOOT_CODE_MAINNET, &contract_supporting_docs);
+    let api_out = produce_docs_refs(
+        &*STACKS_BOOT_CODE_MAINNET,
+        &contract_supporting_docs,
+        ClarityVersion::Clarity1,
+    );
     format!(
         "{}",
         serde_json::to_string(&api_out).expect("Failed to serialize documentation")

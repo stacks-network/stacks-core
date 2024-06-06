@@ -7,6 +7,7 @@ import {
 } from "./pox_Commands";
 import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 import { assert, expect } from "vitest";
+import { tx } from "@hirosystems/clarinet-sdk";
 
 export class StackExtendAuthCommand implements PoxCommand {
   readonly wallet: Wallet;
@@ -77,51 +78,6 @@ export class StackExtendAuthCommand implements PoxCommand {
 
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-    const { result: setAuthorization } = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "set-signer-key-authorization",
-      [
-        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        poxAddressToTuple(this.wallet.btcAddress),
-        // (period uint)
-        Cl.uint(this.extendCount),
-        // (reward-cycle uint)
-        Cl.uint(currentRewCycle),
-        // (topic (string-ascii 14))
-        Cl.stringAscii("stack-extend"),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.wallet.signerPubKey),
-        // (allowed bool)
-        Cl.bool(true),
-        // (max-amount uint)
-        Cl.uint(stacker.amountLocked),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
-
-    expect(setAuthorization).toBeOk(Cl.bool(true));
-    const stackExtend = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "stack-extend",
-      [
-        // (extend-count uint)
-        Cl.uint(this.extendCount),
-        // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-        poxAddressToTuple(this.wallet.btcAddress),
-        // (signer-sig (optional (buff 65)))
-        Cl.none(),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.wallet.signerPubKey),
-        // (max-amount uint)
-        Cl.uint(stacker.amountLocked),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
-
     const { result: firstExtendCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
       "burn-height-to-reward-cycle",
@@ -143,7 +99,57 @@ export class StackExtendAuthCommand implements PoxCommand {
 
     const newUnlockHeight = extendedUnlockHeight.value;
 
-    expect(stackExtend.result).toBeOk(
+    // Include the authorization and the `stack-extend` transactions in a single
+    // block. This way we ensure both the authorization and the stack-extend
+    // transactions are called during the same reward cycle, so the authorization
+    // currentRewCycle param is relevant for the upcoming stack-extend call.
+    const block = real.network.mineBlock([
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "set-signer-key-authorization",
+        [
+          // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+          poxAddressToTuple(this.wallet.btcAddress),
+          // (period uint)
+          Cl.uint(this.extendCount),
+          // (reward-cycle uint)
+          Cl.uint(currentRewCycle),
+          // (topic (string-ascii 14))
+          Cl.stringAscii("stack-extend"),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.wallet.signerPubKey),
+          // (allowed bool)
+          Cl.bool(true),
+          // (max-amount uint)
+          Cl.uint(stacker.amountLocked),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.wallet.stxAddress,
+      ),
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "stack-extend",
+        [
+          // (extend-count uint)
+          Cl.uint(this.extendCount),
+          // (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+          poxAddressToTuple(this.wallet.btcAddress),
+          // (signer-sig (optional (buff 65)))
+          Cl.none(),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.wallet.signerPubKey),
+          // (max-amount uint)
+          Cl.uint(stacker.amountLocked),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.wallet.stxAddress,
+      ),
+    ]);
+
+    expect(block[0].result).toBeOk(Cl.bool(true));
+    expect(block[1].result).toBeOk(
       Cl.tuple({
         stacker: Cl.principal(this.wallet.stxAddress),
         "unlock-burn-height": Cl.uint(newUnlockHeight),

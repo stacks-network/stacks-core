@@ -88,30 +88,74 @@ macro_rules! define_named_enum {
 ///  and EnumType.get_name() for free.
 #[macro_export]
 macro_rules! define_versioned_named_enum {
-    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $Version:expr),)* }) =>
-    {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, None)),*
+        });
+    };
+}
+#[macro_export]
+macro_rules! define_versioned_named_enum_with_max {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, $MaxVersion)),*
+        });
+    };
+}
+
+// An internal macro that does the actual enum definition
+#[macro_export]
+macro_rules! define_versioned_named_enum_internal {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
         #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
             $($Variant),*,
         }
+
         impl $Name {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
             pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
 
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
-                    $(
-                        $VarName => Some($Name::$Variant),
-                    )*
-                    _ => None
+                    $($VarName => Some($Name::$Variant),)*
+                    _ => None,
                 }
             }
 
-            pub fn get_version(&self) -> $VerType {
+            pub fn lookup_by_name_at_version(name: &str, version: &ClarityVersion) -> Option<Self> {
+                Self::lookup_by_name(name).and_then(|variant| {
+                    let is_active = match (
+                        variant.get_min_version(),
+                        variant.get_max_version(),
+                    ) {
+                        (ref min_version, Some(ref max_version)) => {
+                            min_version <= version && version <= max_version
+                        }
+                        // No max version is set, so the function is active for all versions greater than min
+                        (ref min_version, None) => min_version <= version,
+                    };
+                    if is_active {
+                        Some(variant)
+                    } else {
+                        None
+                    }
+                })
+            }
+
+            /// Returns the first Clarity version in which `self` is defined.
+            pub fn get_min_version(&self) -> $VerType {
                 match self {
-                    $(
-                        $Name::$Variant => $Version,
-                    )*
+                    $(Self::$Variant => $MinVersion,)*
+                }
+            }
+
+            /// Returns `Some` for the last Clarity version in which `self` is
+            /// defined, or `None` if `self` is defined for all versions after
+            /// `get_min_version()`.
+            pub fn get_max_version(&self) -> Option<$VerType> {
+                match self {
+                    $(Self::$Variant => $MaxVersion,)*
                 }
             }
 
@@ -125,18 +169,17 @@ macro_rules! define_versioned_named_enum {
 
             pub fn get_name_str(&self) -> &'static str {
                 match self {
-                    $(
-                        $Name::$Variant => $VarName,
-                    )*
+                    $(Self::$Variant => $VarName,)*
                 }
             }
         }
+
         impl ::std::fmt::Display for $Name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.get_name_str())
             }
         }
-    }
+    };
 }
 
 #[allow(clippy::crate_in_macro_def)]
@@ -531,6 +574,11 @@ macro_rules! impl_byte_array_newtype {
                 to_hex(&self.0)
             }
         }
+        impl std::fmt::LowerHex for $thing {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self.to_hex())
+            }
+        }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", self.to_hex())
@@ -637,6 +685,7 @@ macro_rules! fmax {
     }}
 }
 
+#[cfg(feature = "canonical")]
 macro_rules! impl_byte_array_rusqlite_only {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {

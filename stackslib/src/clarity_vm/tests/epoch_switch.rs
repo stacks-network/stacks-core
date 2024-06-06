@@ -130,7 +130,7 @@ fn test_vm_epoch_switch() {
 
     // impl BurnStateDB for SortitionHandleConn
     {
-        let burndb = db.index_conn();
+        let burndb = db.index_handle_at_tip();
         test_burnstatedb_epoch(&burndb, start_height, end_height, 8, 12, 16);
     }
 

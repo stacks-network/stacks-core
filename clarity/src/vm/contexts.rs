@@ -74,7 +74,7 @@ pub struct Environment<'a, 'b, 'hooks> {
 }
 
 pub struct OwnedEnvironment<'a, 'hooks> {
-    context: GlobalContext<'a, 'hooks>,
+    pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
 }
 

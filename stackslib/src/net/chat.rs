@@ -1628,7 +1628,7 @@ impl ConversationP2P {
             .map_err(|e| net_error::from(e))?;
 
         if cfg!(test) {
-            // make *sure* the behavior stays the same
+            // make *sure* the behavior stays the same in epoch 2
             let original_blocks_inv_data: BlocksInvData =
                 chainstate.get_blocks_inventory(&block_hashes)?;
 

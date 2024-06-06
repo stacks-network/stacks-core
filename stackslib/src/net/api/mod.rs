@@ -16,7 +16,11 @@
 
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
+};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::HexError;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
@@ -32,6 +36,7 @@ use crate::net::Error as NetError;
 use crate::stacks_common::codec::StacksMessageCodec;
 
 pub mod callreadonly;
+pub mod get_tenures_fork_info;
 pub mod getaccount;
 pub mod getattachment;
 pub mod getattachmentsinv;
@@ -50,6 +55,7 @@ pub mod getmicroblocks_indexed;
 pub mod getmicroblocks_unconfirmed;
 pub mod getneighbors;
 pub mod getpoxinfo;
+pub mod getsortition;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
 pub mod getstackers;
@@ -109,8 +115,10 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
+        self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
@@ -126,7 +134,6 @@ impl StacksHttp {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
-        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
     }
 }
 
@@ -139,3 +146,84 @@ impl From<NetError> for Error {
         }
     }
 }
+
+/// This module serde encodes and decodes optional byte fields in RPC
+/// responses as Some(String) where the String is a `0x` prefixed
+/// hex string.
+pub mod prefix_opt_hex {
+    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
+        val: &Option<T>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        match val {
+            Some(ref some_val) => {
+                let val_str = format!("0x{some_val:x}");
+                s.serialize_some(&val_str)
+            }
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
+        d: D,
+    ) -> Result<Option<T>, D::Error> {
+        let opt_inst_str: Option<String> = serde::Deserialize::deserialize(d)?;
+        let Some(inst_str) = opt_inst_str else {
+            return Ok(None);
+        };
+        let Some(hex_str) = inst_str.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"at least length 2 string",
+            ));
+        };
+        let val = T::try_from(&hex_str).map_err(serde::de::Error::custom)?;
+        Ok(Some(val))
+    }
+}
+
+/// This module serde encodes and decodes byte fields in RPC
+/// responses as a String where the String is a `0x` prefixed
+/// hex string.
+pub mod prefix_hex {
+    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
+        val: &T,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("0x{val:x}"))
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
+        d: D,
+    ) -> Result<T, D::Error> {
+        let inst_str: String = serde::Deserialize::deserialize(d)?;
+        let Some(hex_str) = inst_str.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"at least length 2 string",
+            ));
+        };
+        T::try_from(&hex_str).map_err(serde::de::Error::custom)
+    }
+}
+
+pub trait HexDeser: Sized {
+    fn try_from(hex: &str) -> Result<Self, HexError>;
+}
+
+macro_rules! impl_hex_deser {
+    ($thing:ident) => {
+        impl HexDeser for $thing {
+            fn try_from(hex: &str) -> Result<Self, HexError> {
+                $thing::from_hex(hex)
+            }
+        }
+    };
+}
+
+impl_hex_deser!(BurnchainHeaderHash);
+impl_hex_deser!(StacksBlockId);
+impl_hex_deser!(SortitionId);
+impl_hex_deser!(ConsensusHash);
+impl_hex_deser!(BlockHeaderHash);
+impl_hex_deser!(Hash160);

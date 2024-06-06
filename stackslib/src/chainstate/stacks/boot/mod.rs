@@ -40,7 +40,9 @@ use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, StacksAddress, StacksBlockId, StacksPublicKey,
+};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
@@ -119,7 +121,7 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
+    pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -274,6 +276,23 @@ impl RewardSet {
     /// Deserializer corresponding to `RewardSet::metadata_serialize`
     pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
         serde_json::from_str(from).map_err(|e| e.to_string())
+    }
+
+    /// Return the total `weight` of all signers in the reward set.
+    /// If there are no reward set signers, a ChainstateError is returned.
+    pub fn total_signing_weight(&self) -> Result<u32, String> {
+        let Some(ref reward_set_signers) = self.signers else {
+            return Err(format!(
+                "Unable to calculate total weight - No signers in reward set"
+            ));
+        };
+        Ok(reward_set_signers
+            .iter()
+            .map(|s| s.weight)
+            .fold(0, |s, acc| {
+                acc.checked_add(s)
+                    .expect("FATAL: Total signer weight > u32::MAX")
+            }))
     }
 }
 
@@ -569,7 +588,7 @@ impl StacksChainState {
         boot_contract_name: &str,
         code: &str,
     ) -> Result<Value, Error> {
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(self, stacks_block_id)?;
         let dbconn = self.state_index.sqlite_conn();
         self.clarity_state
             .eval_read_only(
@@ -631,24 +650,28 @@ impl StacksChainState {
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(
-                    mainnet,
-                    chain_id,
-                    ClarityVersion::Clarity1,
-                    sender,
-                    None,
-                    cost_track,
-                    |env| {
-                        env.execute_contract(
-                            &contract_identifier,
-                            function,
-                            &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
-                            true,
-                        )
-                    },
-                )
-            })?
+            .maybe_read_only_clarity_tx(
+                &sortdb.index_handle_at_block(self, tip)?,
+                tip,
+                |clarity_tx| {
+                    clarity_tx.with_readonly_clarity_env(
+                        mainnet,
+                        chain_id,
+                        ClarityVersion::Clarity1,
+                        sender,
+                        None,
+                        cost_track,
+                        |env| {
+                            env.execute_contract(
+                                &contract_identifier,
+                                function,
+                                &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                                true,
+                            )
+                        },
+                    )
+                },
+            )?
             .ok_or_else(|| Error::NoSuchBlockError)??
             .expect_u128()
             .expect("FATAL: unexpected PoX structure");
@@ -1668,7 +1691,7 @@ pub mod test {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_tip();
         let value = peer.chainstate().clarity_eval_read_only(
             &iconn,
             &stacks_block_id,
@@ -1696,7 +1719,7 @@ pub mod test {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_tip();
         let value = peer.chainstate().clarity_eval_read_only(
             &iconn,
             &stacks_block_id,
@@ -1842,9 +1865,13 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_account(clarity_tx, addr)
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb
+                        .index_handle_at_block(&chainstate, &stacks_block_id)
+                        .unwrap(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                )
                 .unwrap()
         });
         account
@@ -1856,9 +1883,13 @@ pub mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
             let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_contract(clarity_tx, addr).unwrap()
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb
+                        .index_handle_at_block(chainstate, &stacks_block_id)
+                        .unwrap(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
+                )
                 .unwrap()
         });
         contract_opt
@@ -2799,7 +2830,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -2926,7 +2957,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3012,7 +3043,7 @@ pub mod test {
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
                     &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
 
@@ -3118,7 +3149,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3229,7 +3260,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3447,7 +3478,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3705,7 +3736,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -3980,7 +4011,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -4224,7 +4255,7 @@ pub mod test {
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
                     &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
 
@@ -4397,7 +4428,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -4696,7 +4727,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -5277,7 +5308,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             block_txs,
                         )
                         .unwrap();
@@ -5646,7 +5677,7 @@ pub mod test {
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
 
                 if tenure_id == 2 {
                     // block should be all the transactions

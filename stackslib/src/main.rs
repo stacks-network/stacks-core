@@ -402,7 +402,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
                 "Usage: {} can-download-microblock <working-dir>
 
 Given a <working-dir>, obtain a 2100 header hash inventory (with an empty header cache), and then
-check if the associated microblocks can be downloaded 
+check if the associated microblocks can be downloaded
 ",
                 argv[0]
             );
@@ -641,7 +641,7 @@ simulating a miner.
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &sort_db.index_conn(),
+            &sort_db.index_handle(&chain_tip.sortition_id),
             &mut mempool_db,
             &parent_header,
             chain_tip.total_burn,
@@ -1179,7 +1179,7 @@ simulating a miner.
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
                 p2p_chainstate
-                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_conn())
+                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_handle_at_tip())
                     .expect("Failed to open unconfirmed Clarity state");
 
                 sleep_ms(100);
@@ -1522,7 +1522,7 @@ simulating a miner.
 
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
-        &sort_db.index_conn(),
+        &sort_db.index_handle_at_tip(),
         &mut mempool_db,
         &parent_header,
         chain_tip.total_burn,
@@ -1656,7 +1656,8 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         return;
     };
 
-    let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
+    let block =
+        StacksChainState::extract_stacks_block(&next_staging_block).expect("Failed to get block");
     let block_size = next_staging_block.block_data.len() as u64;
 
     let parent_block_header = match &parent_header_info.anchored_header {

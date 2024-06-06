@@ -1,12 +1,17 @@
 use std::ops::{Deref, DerefMut};
 
+use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::sqlite::{
+    sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
+    sqlite_insert_metadata,
+};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
-use clarity::vm::types::{PrincipalData, TupleData};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use rusqlite::{Connection, OptionalExtension, Row, ToSql};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
@@ -19,6 +24,7 @@ use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
@@ -427,14 +433,18 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
     }
 }
 
-impl SortitionDBRef for SortitionDBConn<'_> {
+impl SortitionDBRef for SortitionHandleConn<'_> {
     fn get_pox_start_cycle_info(
         &self,
         sortition_id: &SortitionId,
         parent_stacks_block_burn_ht: u64,
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
-        let mut handle = self.as_handle(sortition_id);
+        let readonly_marf = self.index.reopen_readonly()?;
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let mut handle = SortitionHandleConn::new(&readonly_marf, context);
+
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
 
@@ -448,6 +458,14 @@ impl SortitionDBRef for SortitionDBConn<'_> {
 }
 
 impl BurnStateDB for SortitionHandleTx<'_> {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        self.get_burn_block_height(&self.context.chain_tip)
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        Some(self.context.chain_tip.clone())
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
@@ -569,7 +587,23 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 }
 
-impl BurnStateDB for SortitionDBConn<'_> {
+impl BurnStateDB for SortitionHandleConn<'_> {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        let tip = match SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip) {
+            Ok(Some(x)) => x,
+            _ => return None,
+        };
+        tip.block_height.try_into().ok()
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        let tip = match SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip) {
+            Ok(Some(x)) => x,
+            _ => return None,
+        };
+        Some(tip.sortition_id)
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
@@ -582,8 +616,6 @@ impl BurnStateDB for SortitionDBConn<'_> {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
-
         let current_height = match self.get_burn_block_height(sortition_id) {
             None => {
                 return None;
@@ -595,7 +627,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
             return None;
         }
 
-        match db_handle.get_block_snapshot_by_height(height as u64) {
+        match self.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
         }
@@ -769,5 +801,38 @@ impl ClarityBackingStore for MemoryBackingStore {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
         Ok(())
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+        value: &str,
+    ) -> InterpreterResult<()> {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }

@@ -193,6 +193,9 @@ pub const POX_V3_MAINNET_EARLY_UNLOCK_HEIGHT: u32 =
 pub const POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
     (BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT as u32) + 1;
 
+// The threshold % of weighted votes on a block to approve it in Nakamoto
+pub const NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD: u64 = 7;
+
 /// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
 pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022
 
@@ -1095,7 +1098,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,
@@ -1198,7 +1201,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,

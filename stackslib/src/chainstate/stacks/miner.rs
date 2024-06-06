@@ -39,7 +39,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -1279,14 +1281,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                 // Make the block from the transactions we did manage to get
                                                 debug!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
                                                 if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                    debug!("Block budget exceeded while mining microblock";
                                                         "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Switch to mining stx-transfers only");
                                                     block_limit_hit =
                                                         BlockLimitFunction::CONTRACT_LIMIT_HIT;
                                                 } else if block_limit_hit
                                                     == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                                 {
-                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                    debug!("Block budget exceeded while mining microblock";
                                                         "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Stop mining microblock");
                                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                                     return Ok(None);
@@ -1493,6 +1495,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            burn_view: None,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1803,7 +1806,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1912,7 +1915,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1974,7 +1977,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1993,7 +1996,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2385,7 +2388,7 @@ impl StacksBlockBuilder {
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)

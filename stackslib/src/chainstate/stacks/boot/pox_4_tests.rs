@@ -833,24 +833,28 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
     let burn_height = tip.block_height - 1;
     let addrs_and_payout = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         let addrs = chainstate
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip_index_block, |clarity_tx| {
-                clarity_tx
-                    .with_readonly_clarity_env(
-                        false,
-                        0x80000000,
-                        ClarityVersion::Clarity2,
-                        PrincipalData::Standard(StandardPrincipalData::transient()),
-                        None,
-                        LimitedCostTracker::new_free(),
-                        |env| {
-                            env.eval_read_only(
-                                &boot_code_id("pox-2", false),
-                                &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
-                            )
-                        },
-                    )
-                    .unwrap()
-            })
+            .maybe_read_only_clarity_tx(
+                &sortdb.index_handle_at_tip(),
+                &tip_index_block,
+                |clarity_tx| {
+                    clarity_tx
+                        .with_readonly_clarity_env(
+                            false,
+                            0x80000000,
+                            ClarityVersion::Clarity2,
+                            PrincipalData::Standard(StandardPrincipalData::transient()),
+                            None,
+                            LimitedCostTracker::new_free(),
+                            |env| {
+                                env.eval_read_only(
+                                    &boot_code_id("pox-2", false),
+                                    &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
+                                )
+                            },
+                        )
+                        .unwrap()
+                },
+            )
             .unwrap();
         addrs
     })
@@ -2945,7 +2949,7 @@ fn verify_signer_key_sig(
 ) -> Value {
     let result: Value = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &latest_block, |clarity_tx| {
+            .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &latest_block, |clarity_tx| {
                 clarity_tx
                     .with_readonly_clarity_env(
                         false,
@@ -4254,7 +4258,7 @@ fn stack_agg_increase() {
 
     let default_initial_balances = 1_000_000_000_000_000_000;
     let observer = TestEventObserver::new();
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
     let mut initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
@@ -6464,7 +6468,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     TestPeerConfig,
 ) {
     // Setup code extracted from your original test
-    let test_signers = TestSigners::default();
+    let test_signers = TestSigners::new(vec![]);
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let private_key = peer_config.private_key.clone();

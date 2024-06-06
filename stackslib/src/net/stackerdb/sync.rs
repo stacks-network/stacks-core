@@ -72,6 +72,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             last_run_ts: 0,
             need_resync: false,
             stale_neighbors: HashSet::new(),
+            num_connections: 0,
+            num_attempted_connections: 0,
         };
         dbsync.reset(None, config);
         dbsync
@@ -158,7 +160,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Reset this state machine, and get the StackerDBSyncResult with newly-obtained chunk data
-    /// and newly-learned information about broken and dead peers.
+    /// and newly-learned information about connection statistics
     pub fn reset(
         &mut self,
         network: Option<&PeerNetwork>,
@@ -176,9 +178,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             contract_id: self.smart_contract_id.clone(),
             chunk_invs,
             chunks_to_store: chunks,
-            dead: self.comms.take_dead_neighbors(),
-            broken: self.comms.take_broken_neighbors(),
             stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
+            num_connections: self.num_connections,
+            num_attempted_connections: self.num_attempted_connections,
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
@@ -211,6 +213,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.last_run_ts = get_epoch_time_secs();
 
         self.state = StackerDBSyncState::ConnectBegin;
+        self.num_connections = 0;
+        self.num_attempted_connections = 0;
         result
     }
 
@@ -612,7 +616,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns Err(..) on DB query error
     pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         if self.replicas.len() == 0 {
-            // find some from the peer Db
+            // find some from the peer DB
             let replicas = self.find_qualified_replicas(network)?;
             self.replicas = replicas;
         }
@@ -628,6 +632,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
         let naddrs = mem::replace(&mut self.replicas, HashSet::new());
         for naddr in naddrs.into_iter() {
+            if self.comms.is_neighbor_connecting(network, &naddr) {
+                debug!(
+                    "{:?}: connect_begin: already connecting to StackerDB peer {:?}",
+                    network.get_local_peer(),
+                    &naddr
+                );
+                self.replicas.insert(naddr);
+                continue;
+            }
             if self.comms.has_neighbor_session(network, &naddr) {
                 debug!(
                     "{:?}: connect_begin: already connected to StackerDB peer {:?}",
@@ -651,13 +664,16 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         network.get_local_peer(),
                         &naddr
                     );
+                    self.num_attempted_connections += 1;
+                    self.num_connections += 1;
                 }
                 Ok(false) => {
                     // need to retry
                     self.replicas.insert(naddr);
+                    self.num_attempted_connections += 1;
                 }
                 Err(_e) => {
-                    info!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
+                    debug!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
                 }
             }
         }
@@ -718,7 +734,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 );
 
                 // disconnect
-                self.comms.add_dead(network, &naddr);
+                self.connected_replicas.remove(&naddr);
                 continue;
             }
 

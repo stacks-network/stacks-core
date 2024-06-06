@@ -7,9 +7,17 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Added
+
+- Added support for Clarity 3, with new keywords, `tenure-height` and `stacks-block-height`, and removal of `block-height`
+
 ### Changed
 
 - Downgraded log messages about transactions from warning to info (#4697)
+
+### Fixed
+
+- Allow Nakamoto blocks to access the burn block associated with the current tenure (#4333)
 
 ## [2.5.0.0.3]
 
