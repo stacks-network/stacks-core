@@ -339,7 +339,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -355,7 +355,7 @@ pub enum TransactionEvent {
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
