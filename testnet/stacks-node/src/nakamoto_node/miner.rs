@@ -886,8 +886,6 @@ impl BlockMinerThread {
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
-        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
-
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(
             &chain_state,
@@ -1021,6 +1019,7 @@ impl BlockMinerThread {
             });
         };
 
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
             tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
             prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
