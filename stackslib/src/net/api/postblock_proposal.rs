@@ -449,6 +449,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_proposal = self
             .block_proposal

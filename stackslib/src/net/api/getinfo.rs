@@ -82,6 +82,7 @@ pub struct RPCPeerInfoData {
     pub unanchored_tip: Option<StacksBlockId>,
     pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
+    pub is_fully_synced: bool,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key: Option<StacksPublicKeyBuffer>,
@@ -105,6 +106,7 @@ impl RPCPeerInfoData {
         chainstate: &StacksChainState,
         exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
+        ibd: bool,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
@@ -145,7 +147,8 @@ impl RPCPeerInfoData {
             stacks_tip_consensus_hash: network.stacks_tip.0.clone(),
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
-            exit_at_block_height: exit_at_block_height,
+            exit_at_block_height,
+            is_fully_synced: !ibd,
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
@@ -211,6 +214,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let rpc_peer_info =
             node.with_node_state(|network, _sortdb, chainstate, _mempool, rpc_args| {
@@ -219,6 +223,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                     chainstate,
                     rpc_args.exit_at_block_height.clone(),
                     &rpc_args.genesis_chainstate_hash,
+                    ibd,
                 )
             });
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);

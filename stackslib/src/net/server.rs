@@ -424,6 +424,7 @@ impl HttpPeer {
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
+        ibd: bool,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -483,7 +484,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(node_state) {
+        let msgs = match convo.chat(node_state, ibd) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!(
@@ -555,6 +556,7 @@ impl HttpPeer {
         &mut self,
         poll_state: &mut NetworkPollState,
         node_state: &mut StacksNodeState,
+        ibd: bool,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -582,6 +584,7 @@ impl HttpPeer {
                         *event_id,
                         client_sock,
                         convo,
+                        ibd,
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
@@ -640,6 +643,7 @@ impl HttpPeer {
         network_state: &mut NetworkState,
         node_state: &mut StacksNodeState,
         mut poll_state: NetworkPollState,
+        ibd: bool,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
         self.process_new_sockets(network_state, node_state, &mut poll_state);
@@ -648,7 +652,8 @@ impl HttpPeer {
         self.process_connecting_sockets(network_state, node_state, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, node_state);
+        let (stacks_msgs, error_events) =
+            self.process_ready_sockets(&mut poll_state, node_state, ibd);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(network_state, error_event);

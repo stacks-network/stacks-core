@@ -149,6 +149,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // get out the request body
         let block = self

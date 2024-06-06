@@ -393,6 +393,7 @@ pub(crate) mod tests {
                     .map(|cid| format!("{}", cid))
                     .collect(),
             ),
+            is_fully_synced: false,
         };
         let peer_info_json =
             serde_json::to_string(&peer_info).expect("Failed to serialize peer info");

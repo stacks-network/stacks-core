@@ -97,6 +97,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // NOTE: The estimated length isn't needed per se because we're returning a fee rate, but
         // we do need an absolute length to use the estimator (so supply a common one).

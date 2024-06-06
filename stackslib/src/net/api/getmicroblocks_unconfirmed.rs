@@ -154,6 +154,7 @@ impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .parent_block_id

@@ -211,6 +211,7 @@ impl RPCRequestHandler for RPCNeighborsRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let neighbor_data =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {

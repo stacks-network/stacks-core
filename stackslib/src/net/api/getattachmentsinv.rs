@@ -142,6 +142,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let index_block_hash = self
             .index_block_hash

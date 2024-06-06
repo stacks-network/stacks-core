@@ -371,6 +371,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
         request_preamble: HttpRequestPreamble,
         request_body: HttpRequestContents,
         state: &mut StacksNodeState,
+        ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>;
 
     /// Helper to get the canonical sortition tip
@@ -1090,6 +1091,7 @@ impl StacksHttp {
         &mut self,
         request: StacksHttpRequest,
         node: &mut StacksNodeState,
+        ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
         let Some(response_handler_index) = request
@@ -1114,7 +1116,7 @@ impl StacksHttp {
             .expect("FATAL: request points to a nonexistent handler");
         let request_preamble = request.preamble.clone();
         let request_result =
-            request_handler.try_handle_request(request.preamble, request.contents, node);
+            request_handler.try_handle_request(request.preamble, request.contents, node, ibd);
         request_handler.restart();
 
         let (response_preamble, response_contents) = match request_result {

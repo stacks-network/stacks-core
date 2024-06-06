@@ -477,6 +477,7 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

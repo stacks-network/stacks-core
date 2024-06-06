@@ -6189,7 +6189,7 @@ impl PeerNetwork {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
                 let mut node_state =
                     StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args);
-                http.run(network_state, &mut node_state, http_poll_state)
+                http.run(network_state, &mut node_state, http_poll_state, ibd)
             });
             network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())

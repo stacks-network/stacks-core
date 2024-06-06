@@ -151,6 +151,7 @@ impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tail_microblock_id = self
             .tail_microblock_id

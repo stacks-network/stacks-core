@@ -149,6 +149,7 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let quantity = self
             .quantity

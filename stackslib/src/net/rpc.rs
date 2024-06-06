@@ -279,11 +279,14 @@ impl ConversationHttp {
         &mut self,
         req: StacksHttpRequest,
         node: &mut StacksNodeState,
+        ibd: bool,
     ) -> Result<Option<StacksMessageType>, net_error> {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
-        let (mut response_preamble, response_body) =
-            self.connection.protocol.try_handle_request(req, node)?;
+        let (mut response_preamble, response_body) = self
+            .connection
+            .protocol
+            .try_handle_request(req, node, ibd)?;
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let relay_msg_opt = node.take_relay_message();
@@ -521,6 +524,7 @@ impl ConversationHttp {
     pub fn chat(
         &mut self,
         node: &mut StacksNodeState,
+        ibd: bool,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response {
@@ -549,7 +553,7 @@ impl ConversationHttp {
                     let msg_opt = monitoring::instrument_http_request_handler(
                         self,
                         req,
-                        |conv_http, req| conv_http.handle_request(req, node),
+                        |conv_http, req| conv_http.handle_request(req, node, ibd),
                     )?;
 
                     info!("Handled StacksHTTPRequest";

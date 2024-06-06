@@ -105,6 +105,7 @@ impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let attachment_hash = self
             .attachment_hash

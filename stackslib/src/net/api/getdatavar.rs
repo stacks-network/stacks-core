@@ -130,6 +130,7 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
             "`contract_identifier` not set".to_string(),

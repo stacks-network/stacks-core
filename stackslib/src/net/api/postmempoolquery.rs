@@ -267,6 +267,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let mempool_query = self
             .mempool_query

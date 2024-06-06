@@ -114,6 +114,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let txid = self
             .txid

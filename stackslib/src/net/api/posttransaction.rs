@@ -188,6 +188,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tx = self
             .tx

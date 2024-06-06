@@ -153,6 +153,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _ibd: bool,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier
