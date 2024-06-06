@@ -2932,7 +2932,6 @@ fn process_new_blocks_rejects_problematic_asts() {
             )
             .unwrap();
 
-
             // this tx would be problematic without our checks
             if let Err(ChainstateError::ProblematicTransaction(txid)) =
                 StacksBlockBuilder::make_anchored_block_from_txs(
@@ -2978,7 +2977,10 @@ fn process_new_blocks_rejects_problematic_asts() {
             bad_block.header.tx_merkle_root = merkle_tree.root();
 
             chainstate
-                .reload_unconfirmed_state(&sortdb.index_handle(&tip.sortition_id), parent_index_hash.clone())
+                .reload_unconfirmed_state(
+                    &sortdb.index_handle(&tip.sortition_id),
+                    parent_index_hash.clone(),
+                )
                 .unwrap();
 
             // make a bad microblock

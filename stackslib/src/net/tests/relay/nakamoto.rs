@@ -37,13 +37,10 @@ use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::nakamoto::coordinator::tests::{
-    make_token_transfer,
-};
+use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
-    with_sortdb,
+    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
 };
 use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};

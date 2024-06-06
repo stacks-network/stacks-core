@@ -2500,7 +2500,13 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
     ) -> u64 {
         let mut num_new_nakamoto_blocks = 0;
-        match Self::process_new_nakamoto_blocks(network_result, burnchain, sortdb, chainstate, coord_comms) {
+        match Self::process_new_nakamoto_blocks(
+            network_result,
+            burnchain,
+            sortdb,
+            chainstate,
+            coord_comms,
+        ) {
             Ok((nakamoto_blocks_and_relayers, bad_neighbors)) => {
                 num_new_nakamoto_blocks = nakamoto_blocks_and_relayers
                     .iter()
@@ -3109,4 +3115,3 @@ impl PeerNetwork {
         }
     }
 }
-
