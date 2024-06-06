@@ -41,7 +41,9 @@ pub struct KeywordAPI {
     pub description: &'static str,
     pub example: &'static str,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 #[derive(Serialize, Clone)]
@@ -63,7 +65,9 @@ pub struct FunctionAPI {
     pub description: String,
     pub example: String,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 pub struct SimpleFunctionAPI {
@@ -96,17 +100,19 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "block-height",
     snippet: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an uint",
+    description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
+Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
+In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
     example:
-        "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
+        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "burn-block-height",
     snippet: "burn-block-height",
     output_type: "uint",
-    description: "Returns the current block height of the underlying burn blockchain as a uint",
-    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
+    description: "Returns the current block height of the underlying burn blockchain.",
+    example: "(> burn-block-height u832000) ;; returns true if the current height of the underlying burn blockchain has passed 832,000 blocks.",
 };
 
 const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -118,6 +124,25 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "stacks-block-height",
+    snippet: "stacks-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the Stacks blockchain.",
+    example:
+        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+};
+
+const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "tenure-height",
+    snippet: "tenure-height",
+    output_type: "uint",
+    description: "Returns the number of tenures that have passed.
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+    example:
+        "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -245,7 +270,7 @@ const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "buff-to-uint-le ${1:buff}",
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.
 The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
 this function uses a little-endian encoding, the input behaves as if it is
 zero-padded on the _right_.
@@ -857,7 +882,8 @@ fn make_for_simple_native(
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2538,13 +2564,15 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 }
 
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
-    let simple_api = match variable {
+    let keyword = match variable {
         NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
         NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
         NativeVariables::NativeNone => NONE_KEYWORD.clone(),
         NativeVariables::NativeTrue => TRUE_KEYWORD.clone(),
         NativeVariables::NativeFalse => FALSE_KEYWORD.clone(),
         NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::StacksBlockHeight => STACKS_BLOCK_HEIGHT_KEYWORD.clone(),
+        NativeVariables::TenureHeight => TENURE_HEIGHT_KEYWORD.clone(),
         NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
         NativeVariables::TotalLiquidMicroSTX => TOTAL_LIQUID_USTX_KEYWORD.clone(),
         NativeVariables::Regtest => REGTEST_KEYWORD.clone(),
@@ -2553,12 +2581,13 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
     };
     Some(KeywordAPI {
-        name: simple_api.name,
-        snippet: simple_api.snippet,
-        output_type: simple_api.output_type,
-        description: simple_api.description,
-        example: simple_api.example,
-        version: variable.get_version(),
+        name: keyword.name,
+        snippet: keyword.snippet,
+        output_type: keyword.output_type,
+        description: keyword.description,
+        example: keyword.example,
+        min_version: variable.get_min_version(),
+        max_version: variable.get_max_version(),
     })
 }
 
@@ -2571,7 +2600,8 @@ fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2584,7 +2614,8 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: ClarityVersion::Clarity1,
+        min_version: ClarityVersion::Clarity1,
+        max_version: None,
     }
 }
 
@@ -2735,6 +2766,14 @@ mod test {
     const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
     impl BurnStateDB for DocBurnStateDB {
+        fn get_tip_burn_block_height(&self) -> Option<u32> {
+            Some(0x9abc)
+        }
+
+        fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+            Some(SortitionId([0u8; 32]))
+        }
+
         fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
             Some(5678)
         }

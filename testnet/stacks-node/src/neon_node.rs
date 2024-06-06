@@ -298,7 +298,7 @@ pub struct StacksNode {
     /// True if we're a miner
     is_miner: bool,
     /// handle to the p2p thread
-    pub p2p_thread_handle: JoinHandle<()>,
+    pub p2p_thread_handle: JoinHandle<Option<PeerNetwork>>,
     /// handle to the relayer thread
     pub relayer_thread_handle: JoinHandle<()>,
 }
@@ -727,7 +727,7 @@ impl MicroblockMinerThread {
                 .unwrap_or(0)
         );
 
-        let burn_height =
+        let block_snapshot =
             SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &self.parent_consensus_hash)
                 .map_err(|e| {
                     error!("Failed to find block snapshot for mined block: {}", e);
@@ -736,8 +736,8 @@ impl MicroblockMinerThread {
                 .ok_or_else(|| {
                     error!("Failed to find block snapshot for mined block");
                     ChainstateError::NoSuchBlockError
-                })?
-                .block_height;
+                })?;
+        let burn_height = block_snapshot.block_height;
 
         let ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), burn_height).map_err(|e| {
             error!("Failed to get AST rules for microblock: {}", e);
@@ -753,7 +753,10 @@ impl MicroblockMinerThread {
             .epoch_id;
 
         let mint_result = {
-            let ic = sortdb.index_conn();
+            let ic = sortdb.index_handle_at_block(
+                &chainstate,
+                &block_snapshot.get_canonical_stacks_block_id(),
+            )?;
             let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
                 chainstate,
                 &ic,
@@ -1507,6 +1510,8 @@ impl BlockMinerThread {
         Some((*best_tip).clone())
     }
 
+    // TODO: add tests from mutation testing results #4870
+    #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
@@ -2222,6 +2227,8 @@ impl BlockMinerThread {
         return false;
     }
 
+    // TODO: add tests from mutation testing results #4871
+    #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
@@ -2352,7 +2359,7 @@ impl BlockMinerThread {
         }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &burn_db.index_conn(),
+            &burn_db.index_handle(&burn_tip.sortition_id),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
@@ -2382,7 +2389,7 @@ impl BlockMinerThread {
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
                     &chain_state,
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle(&burn_tip.sortition_id),
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
@@ -2727,6 +2734,7 @@ impl RelayerThread {
                 .process_network_result(
                     &relayer_thread.local_peer,
                     &mut net_result,
+                    &relayer_thread.burnchain,
                     sortdb,
                     chainstate,
                     mempool,
@@ -3096,6 +3104,8 @@ impl RelayerThread {
         (true, miner_tip)
     }
 
+    // TODO: add tests from mutation testing results #4872
+    #[cfg_attr(test, mutants::skip)]
     /// Process all new tenures that we're aware of.
     /// Clear out stale tenure artifacts as well.
     /// Update the miner tip if we won the highest tenure (or clear it if we didn't).
@@ -3317,10 +3327,16 @@ impl RelayerThread {
     fn inner_generate_leader_key_register_op(
         vrf_public_key: VRFPublicKey,
         consensus_hash: &ConsensusHash,
+        miner_pk: Option<&StacksPublicKey>,
     ) -> BlockstackOperationType {
+        let memo = if let Some(pk) = miner_pk {
+            Hash160::from_node_public_key(pk).as_bytes().to_vec()
+        } else {
+            vec![]
+        };
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
-            memo: vec![],
+            memo,
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -3350,7 +3366,20 @@ impl RelayerThread {
         );
 
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-        let op = Self::inner_generate_leader_key_register_op(vrf_pk, burnchain_tip_consensus_hash);
+        // if the miner has set a mining key in preparation for epoch-3.0, register it as part of their VRF key registration
+        // once implemented in the nakamoto_node, this will allow miners to transition from 2.5 to 3.0 without submitting a new
+        // VRF key registration.
+        let miner_pk = self
+            .config
+            .miner
+            .mining_key
+            .as_ref()
+            .map(StacksPublicKey::from_private);
+        let op = Self::inner_generate_leader_key_register_op(
+            vrf_pk,
+            burnchain_tip_consensus_hash,
+            miner_pk.as_ref(),
+        );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
         if let Some(txid) =
@@ -3550,6 +3579,8 @@ impl RelayerThread {
         true
     }
 
+    // TODO: add tests from mutation testing results #4872
+    #[cfg_attr(test, mutants::skip)]
     /// See if we should run a microblock tenure now.
     /// Return true if so; false if not
     fn can_run_microblock_tenure(&mut self) -> bool {
@@ -4047,7 +4078,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle(&burn_chain_tip.sortition_id),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
@@ -4171,7 +4202,7 @@ impl PeerThread {
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        let poll_timeout = config.get_poll_time();
 
         PeerThread {
             config,
@@ -4591,7 +4622,12 @@ impl StacksNode {
             stackerdb_configs.insert(contract.clone(), StackerDBConfig::noop());
         }
         let stackerdb_configs = stackerdbs
-            .create_or_reconfigure_stackerdbs(&mut chainstate, &sortdb, stackerdb_configs)
+            .create_or_reconfigure_stackerdbs(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_configs,
+                config.connection_options.num_neighbors,
+            )
             .unwrap();
 
         let stackerdb_contract_ids: Vec<QualifiedContractIdentifier> =
@@ -4655,7 +4691,10 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+    ) -> Option<PeerNetwork> {
         let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
@@ -4718,6 +4757,7 @@ impl StacksNode {
             thread::sleep(Duration::from_secs(5));
         }
         info!("P2P thread exit!");
+        p2p_thread.net
     }
 
     /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
@@ -4814,7 +4854,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher)
             })
             .expect("FATAL: failed to start p2p thread");
 
@@ -5017,8 +5057,8 @@ impl StacksNode {
     }
 
     /// Join all inner threads
-    pub fn join(self) {
+    pub fn join(self) -> Option<PeerNetwork> {
         self.relayer_thread_handle.join().unwrap();
-        self.p2p_thread_handle.join().unwrap();
+        self.p2p_thread_handle.join().unwrap()
     }
 }

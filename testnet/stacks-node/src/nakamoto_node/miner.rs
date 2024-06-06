@@ -21,13 +21,16 @@ use std::time::{Duration, Instant};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::{MessageSlotID, SignerMessage};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use stacks::chainstate::coordinator::OnChainRewardSetProvider;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::boot::RewardSet;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -35,6 +38,7 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -130,15 +134,29 @@ impl BlockMinerThread {
     }
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
-    pub fn stop_miner(globals: &Globals, prior_miner: JoinHandle<()>) {
+    pub fn stop_miner(
+        globals: &Globals,
+        prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
+    ) -> Result<(), NakamotoNodeError> {
         globals.block_miner();
-        prior_miner
+        let prior_miner_result = prior_miner
             .join()
-            .expect("FATAL: IO failure joining prior mining thread");
+            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))?;
+        if let Err(e) = prior_miner_result {
+            // it's okay if the prior miner thread exited with an error.
+            // in many cases this is expected (i.e., a burnchain block occurred)
+            // if some error condition should be handled though, this is the place
+            //  to do that handling.
+            debug!("Prior mining thread exited with: {e:?}");
+        }
         globals.unblock_miner();
+        Ok(())
     }
 
-    pub fn run_miner(mut self, prior_miner: Option<JoinHandle<()>>) {
+    pub fn run_miner(
+        mut self,
+        prior_miner: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
+    ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
         debug!(
@@ -146,12 +164,13 @@ impl BlockMinerThread {
             "had_prior_miner" => prior_miner.is_some(),
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
+            "burn_block_consensus_hash" => %self.burn_block.consensus_hash,
         );
         if let Some(prior_miner) = prior_miner {
-            Self::stop_miner(&self.globals, prior_miner);
+            Self::stop_miner(&self.globals, prior_miner)?;
         }
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
-            .expect("FATAL: failed to connect to stacker DB");
+            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
 
         let mut attempts = 0;
         // now, actually run this tenure
@@ -174,13 +193,15 @@ impl BlockMinerThread {
                     }
                     Err(e) => {
                         warn!("Failed to mine block: {e:?}");
-                        return;
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 }
             };
 
             if let Some(mut new_block) = new_block {
-                let (aggregate_public_key, signers_signature) = match self.coordinate_signature(
+                let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
                     &mut stackerdbs,
@@ -188,13 +209,17 @@ impl BlockMinerThread {
                 ) {
                     Ok(x) => x,
                     Err(e) => {
-                        error!("Unrecoverable error while proposing block to signer set: {e:?}. Ending tenure.");
-                        return;
+                        error!(
+                            "Unrecoverable error while gathering signatures: {e:?}. Ending tenure."
+                        );
+                        return Err(NakamotoNodeError::MiningFailure(
+                            ChainstateError::MinerAborted,
+                        ));
                     }
                 };
 
-                new_block.header.signer_signature = signers_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), &aggregate_public_key) {
+                new_block.header.signer_signature = signer_signature;
+                if let Err(e) = self.broadcast(new_block.clone(), reward_set) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -217,22 +242,26 @@ impl BlockMinerThread {
                 self.mined_blocks.push(new_block);
             }
 
-            let sort_db = SortitionDB::open(
+            let Ok(sort_db) = SortitionDB::open(
                 &self.config.get_burn_db_file_path(),
                 true,
                 self.burnchain.pox_constants.clone(),
-            )
-            .expect("FATAL: could not open sortition DB");
+            ) else {
+                error!("Failed to open sortition DB. Will try mining again.");
+                continue;
+            };
+
             let wait_start = Instant::now();
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 if self.check_burn_tip_changed(&sort_db).is_err() {
-                    return;
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
                 }
             }
         }
     }
 
+    #[allow(dead_code)]
     fn coordinate_signature(
         &mut self,
         new_block: &mut NakamotoBlock,
@@ -250,13 +279,35 @@ impl BlockMinerThread {
             true,
             self.burnchain.pox_constants.clone(),
         )
-        .expect("FATAL: could not open sortition DB");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
         let tip = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &new_block.header.consensus_hash,
         )
-        .expect("FATAL: could not retrieve chain tip")
-        .expect("FATAL: could not retrieve chain tip");
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
+
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+
         let reward_cycle = self
             .burnchain
             .pox_constants
@@ -264,13 +315,26 @@ impl BlockMinerThread {
                 self.burnchain.first_block_height,
                 self.burn_block.block_height,
             )
-            .expect("FATAL: building on a burn block that is before the first burn block");
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Building on a burn block that is before the first burn block".into(),
+                )
+            })?;
 
-        let reward_info = match sort_db.get_preprocessed_reward_set_of(&tip.sortition_id) {
-            Ok(Some(x)) => x,
+        let reward_info = match load_nakamoto_reward_set(
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle for sortition"),
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &sort_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
             Ok(None) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "No reward set found. Cannot initialize miner coordinator.".into(),
+                    "No reward set stored yet. Cannot mine!".into(),
                 ));
             }
             Err(e) => {
@@ -286,37 +350,20 @@ impl BlockMinerThread {
             ));
         };
 
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let sortition_handle = sort_db.index_handle_at_tip();
-        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
-            &mut chain_state,
-            &sort_db,
-            &sortition_handle,
-            &new_block,
-        ) else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Failed to obtain the active aggregate public key. Cannot mine!".into(),
-            ));
-        };
-
+        // NOTE: this is a placeholder until the API can be fixed
+        let aggregate_public_key = Point::new();
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            reward_cycle,
-            miner_privkey_as_scalar,
-            aggregate_public_key,
-            &stackerdbs,
-            &self.config,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
 
         *attempts += 1;
-        let signature = coordinator.begin_sign(
+        let signature = coordinator.begin_sign_v1(
             new_block,
             burn_block_height,
             *attempts,
@@ -328,6 +375,107 @@ impl BlockMinerThread {
         )?;
 
         Ok((aggregate_public_key, signature))
+    }
+
+    /// Gather a list of signatures from the signers for the block
+    fn gather_signatures(
+        &mut self,
+        new_block: &mut NakamotoBlock,
+        burn_block_height: u64,
+        stackerdbs: &mut StackerDBs,
+        attempts: &mut u64,
+    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        let tip = SortitionDB::get_block_snapshot_consensus(
+            sort_db.conn(),
+            &new_block.header.consensus_hash,
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to retrieve chain tip: {:?}",
+                e
+            ))
+        })
+        .and_then(|result| {
+            result.ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
+            })
+        })?;
+
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+
+        let reward_info = match load_nakamoto_reward_set(
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle for sortition"),
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &sort_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
+
+        let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
+        let mut coordinator =
+            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
+                |e| {
+                    NakamotoNodeError::SigningCoordinatorFailure(format!(
+                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+                    ))
+                },
+            )?;
+
+        *attempts += 1;
+        let signature = coordinator.begin_sign_v0(
+            new_block,
+            burn_block_height,
+            *attempts,
+            &tip,
+            &self.burnchain,
+            &sort_db,
+            &stackerdbs,
+            &self.globals.counters,
+        )?;
+
+        return Ok((reward_set, signature));
     }
 
     fn get_stackerdb_contract_and_slots(
@@ -410,21 +558,27 @@ impl BlockMinerThread {
 
         // Get all nonces for the signers from clarity DB to use to validate transactions
         let account_nonces = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    addresses
-                        .iter()
-                        .map(|address| {
-                            (
-                                address.clone(),
-                                clarity_db
-                                    .get_account_nonce(&address.clone().into())
-                                    .unwrap_or(0),
-                            )
-                        })
-                        .collect::<HashMap<StacksAddress, u64>>()
-                })
-            })
+            .with_read_only_clarity_tx(
+                &sortdb
+                    .index_handle_at_block(chainstate, &stacks_block_id)
+                    .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
+                &stacks_block_id,
+                |clarity_tx| {
+                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                        addresses
+                            .iter()
+                            .map(|address| {
+                                (
+                                    address.clone(),
+                                    clarity_db
+                                        .get_account_nonce(&address.clone().into())
+                                        .unwrap_or(0),
+                                )
+                            })
+                            .collect::<HashMap<StacksAddress, u64>>()
+                    })
+                },
+            )
             .unwrap_or_default();
         let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
@@ -446,7 +600,7 @@ impl BlockMinerThread {
     fn broadcast(
         &self,
         block: NakamotoBlock,
-        aggregate_public_key: &Point,
+        reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
         #[cfg(test)]
         {
@@ -475,7 +629,7 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
-        let mut sortition_handle = sort_db.index_handle_at_tip();
+        let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
@@ -483,7 +637,7 @@ impl BlockMinerThread {
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
-            &aggregate_public_key,
+            reward_set,
         )?;
         staging_tx.commit()?;
         Ok(())
@@ -576,6 +730,8 @@ impl BlockMinerThread {
         tx_signer.get_tx().unwrap()
     }
 
+    // TODO: add tests from mutation testing results #4869
+    #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
@@ -679,6 +835,8 @@ impl BlockMinerThread {
         Some(vrf_proof)
     }
 
+    // TODO: add tests from mutation testing results #4869
+    #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
     fn mine_block(&mut self, stackerdbs: &StackerDBs) -> Result<NakamotoBlock, NakamotoNodeError> {
@@ -722,9 +880,10 @@ impl BlockMinerThread {
             }
         }
 
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
+
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = if let Some(ref par_tenure_info) = parent_block_info.parent_tenure {
-            let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
             let current_miner_nonce = parent_block_info.coinbase_nonce;
             let tenure_change_tx = self.generate_tenure_change_tx(
                 current_miner_nonce,
@@ -751,13 +910,51 @@ impl BlockMinerThread {
         let signer_transactions =
             self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
-        let signer_bitvec_len =
-            &burn_db.get_preprocessed_reward_set_size(&self.burn_block.sortition_id);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::DBError(e)))?;
+
+        let reward_info = match load_nakamoto_reward_set(
+            self.burnchain
+                .pox_reward_cycle(tip.block_height.saturating_add(1))
+                .expect("FATAL: no reward cycle defined for sortition tip"),
+            &tip.sortition_id,
+            &self.burnchain,
+            &mut chain_state,
+            &burn_db,
+            &OnChainRewardSetProvider::new(),
+        ) {
+            Ok(Some((reward_info, _))) => reward_info,
+            Ok(None) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
+                )));
+            }
+        };
+
+        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Current reward cycle did not select a reward set. Cannot mine!".into(),
+            ));
+        };
+        let signer_bitvec_len = reward_set
+            .signers
+            .as_ref()
+            .map(|x| x.len())
+            .unwrap_or(0)
+            .try_into()
+            .ok();
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            &burn_db.index_conn(),
+            &burn_db
+                .index_handle_at_ch(&self.burn_block.consensus_hash)
+                .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_block.consensus_hash,
@@ -799,6 +996,7 @@ impl BlockMinerThread {
             block.header.block_hash(),
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
+            "consensus_hash" => %block.header.consensus_hash,
         );
 
         self.event_dispatcher.process_mined_nakamoto_block_event(
@@ -832,6 +1030,8 @@ impl BlockMinerThread {
 }
 
 impl ParentStacksBlockInfo {
+    // TODO: add tests from mutation testing results #4869
+    #[cfg_attr(test, mutants::skip)]
     /// Determine where in the set of forks to attempt to mine the next anchored block.
     /// `mine_tip_ch` and `mine_tip_bhh` identify the parent block on top of which to mine.
     /// `check_burn_block` identifies what we believe to be the burn chain's sortition history tip.
@@ -933,7 +1133,9 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
+                    &burn_db
+                        .index_handle_at_block(&chain_state, &stacks_tip_header.index_block_hash())
+                        .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

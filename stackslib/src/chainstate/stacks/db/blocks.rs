@@ -4132,6 +4132,9 @@ impl StacksChainState {
         Ok((applied, receipts))
     }
 
+    // TODO: add tests from mutation testing results #4856
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4237,6 +4240,8 @@ impl StacksChainState {
         all_receipts
     }
 
+    // TODO: add tests from mutation testing results #4857
+    #[cfg_attr(test, mutants::skip)]
     pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
         let signer_key = match op.signer_key {
             Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
@@ -4584,10 +4589,10 @@ impl StacksChainState {
                         // strictly speaking this check is defensive. It will never be the case
                         // that a `miner_reward` has a `recipient_contract` that is `Some(..)`
                         // unless the block was mined in Epoch 2.1.  But you can't be too
-                        // careful... 
+                        // careful...
                         if evaluated_epoch >= StacksEpochId::Epoch21 {
                             // in 2.1 or later, the coinbase may optionally specify a contract into
-                            // which the tokens get sent.  If this is not given, then they are sent 
+                            // which the tokens get sent.  If this is not given, then they are sent
                             // to the miner address.
                             miner_reward.recipient.clone()
                         }
@@ -6021,6 +6026,8 @@ impl StacksChainState {
         Ok(next_microblocks)
     }
 
+    // TODO: add tests from mutation testing results #4858
+    #[cfg_attr(test, mutants::skip)]
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a
@@ -6650,7 +6657,9 @@ impl StacksChainState {
         // 1: must parse (done)
 
         // 2: it must be validly signed.
-        StacksChainState::process_transaction_precheck(&chainstate_config, &tx)
+        let epoch = clarity_connection.get_epoch().clone();
+
+        StacksChainState::process_transaction_precheck(&chainstate_config, &tx, epoch)
             .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
 
         // 3: it must pay a tx fee
@@ -6663,7 +6672,14 @@ impl StacksChainState {
             ));
         }
 
-        // 4: the account nonces must be correct
+        // 4: check if transaction is valid in the current epoch
+        if !StacksBlock::validate_transaction_static_epoch(tx, epoch) {
+            return Err(MemPoolRejection::Other(
+                "Transaction is not supported in this epoch".to_string(),
+            ));
+        }
+
+        // 5: the account nonces must be correct
         let (origin, payer) =
             match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
                 Ok(x) => x,
@@ -6725,7 +6741,7 @@ impl StacksChainState {
                     },
                 )?;
 
-        // 5: the paying account must have enough funds
+        // 6: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(
             u128::from(fee),
             block_height,
@@ -6751,7 +6767,7 @@ impl StacksChainState {
             }
         }
 
-        // 6: payload-specific checks
+        // 7: payload-specific checks
         match &tx.payload {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
@@ -6854,7 +6870,7 @@ impl StacksChainState {
                 }
 
                 if let Some(_version) = version_opt.as_ref() {
-                    if clarity_connection.get_epoch() < StacksEpochId::Epoch21 {
+                    if epoch < StacksEpochId::Epoch21 {
                         return Err(MemPoolRejection::Other(
                             "Versioned smart contract transactions are not supported in this epoch"
                                 .to_string(),
@@ -10263,7 +10279,7 @@ pub mod test {
                     );
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -10515,7 +10531,7 @@ pub mod test {
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -11071,7 +11087,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11236,7 +11252,7 @@ pub mod test {
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();
@@ -11394,7 +11410,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11917,9 +11933,12 @@ pub mod test {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let iconn = sortdb
+            .index_handle_at_block(peer.chainstate(), &tip_hash)
+            .unwrap();
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&iconn, &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();

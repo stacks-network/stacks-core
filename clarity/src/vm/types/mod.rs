@@ -771,19 +771,6 @@ impl BlockInfoProperty {
             MinerAddress => TypeSignature::PrincipalType,
         }
     }
-
-    pub fn lookup_by_name_at_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<BlockInfoProperty> {
-        BlockInfoProperty::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() <= version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
 }
 
 impl BurnBlockInfoProperty {
@@ -1529,9 +1516,7 @@ impl TupleData {
         self.data_map.is_empty()
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))    
-    /// Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4833
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
@@ -1549,9 +1534,7 @@ impl TupleData {
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))
-    /// Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4834
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,

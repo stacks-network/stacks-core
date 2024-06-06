@@ -1227,6 +1227,108 @@ pub fn make_versioned_user_contract_publish(
     sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
+pub fn sign_tx_order_independent_p2sh(
+    payload: TransactionPayload,
+    privks: &[StacksPrivateKey],
+    num_sigs: usize,
+    sender_nonce: u64,
+    tx_fee: u64,
+) -> StacksTransaction {
+    let mut pubks = vec![];
+    for privk in privks.iter() {
+        pubks.push(StacksPublicKey::from_private(privk));
+    }
+    let mut sender_spending_condition =
+        TransactionSpendingCondition::new_multisig_order_independent_p2sh(
+            num_sigs as u16,
+            pubks.clone(),
+        )
+        .expect("Failed to create p2sh spending condition.");
+    sender_spending_condition.set_nonce(sender_nonce);
+    sender_spending_condition.set_tx_fee(tx_fee);
+    let auth = TransactionAuth::Standard(sender_spending_condition);
+    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    unsigned_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+    unsigned_tx.chain_id = 0x80000000;
+
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+
+    for signer in 0..num_sigs {
+        tx_signer.sign_origin(&privks[signer]).unwrap();
+    }
+
+    for signer in num_sigs..pubks.len() {
+        tx_signer.append_origin(&pubks[signer]).unwrap();
+    }
+
+    tx_signer.get_tx().unwrap()
+}
+
+pub fn sign_tx_order_independent_p2wsh(
+    payload: TransactionPayload,
+    privks: &[StacksPrivateKey],
+    num_sigs: usize,
+    sender_nonce: u64,
+    tx_fee: u64,
+) -> StacksTransaction {
+    let mut pubks = vec![];
+    for privk in privks.iter() {
+        pubks.push(StacksPublicKey::from_private(privk));
+    }
+    let mut sender_spending_condition =
+        TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
+            num_sigs as u16,
+            pubks.clone(),
+        )
+        .expect("Failed to create p2wsh spending condition.");
+    sender_spending_condition.set_nonce(sender_nonce);
+    sender_spending_condition.set_tx_fee(tx_fee);
+    let auth = TransactionAuth::Standard(sender_spending_condition);
+    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    unsigned_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+    unsigned_tx.chain_id = 0x80000000;
+
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+
+    for signer in 0..num_sigs {
+        tx_signer.sign_origin(&privks[signer]).unwrap();
+    }
+
+    for signer in num_sigs..pubks.len() {
+        tx_signer.append_origin(&pubks[signer]).unwrap();
+    }
+
+    tx_signer.get_tx().unwrap()
+}
+
+pub fn make_stacks_transfer_order_independent_p2sh(
+    privks: &[StacksPrivateKey],
+    num_sigs: usize,
+    nonce: u64,
+    tx_fee: u64,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> StacksTransaction {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    sign_tx_order_independent_p2sh(payload, privks, num_sigs, nonce, tx_fee)
+}
+
+pub fn make_stacks_transfer_order_independent_p2wsh(
+    privks: &[StacksPrivateKey],
+    num_sigs: usize,
+    nonce: u64,
+    tx_fee: u64,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> StacksTransaction {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    sign_tx_order_independent_p2wsh(payload, privks, num_sigs, nonce, tx_fee)
+}
+
 pub fn make_user_contract_call(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -1316,9 +1418,11 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
             let acct = chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_account(clarity_tx, addr)
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb.index_handle_at_tip(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                )
                 .unwrap();
             Ok(acct)
         })

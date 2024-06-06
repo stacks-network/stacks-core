@@ -662,7 +662,7 @@ impl LeaderBlockCommitOp {
                         check_recipients.sort();
                         let mut commit_outs = self.commit_outs.clone();
                         commit_outs.sort();
-                        for (expected_commit, found_commit) in
+                        for (found_commit, expected_commit) in
                             commit_outs.iter().zip(check_recipients)
                         {
                             if expected_commit.to_burnchain_repr()

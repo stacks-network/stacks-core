@@ -105,6 +105,8 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
     )
 }
 
+// TODO: add tests from mutation testing results #4836
+#[cfg_attr(test, mutants::skip)]
 /// Craft the code snippet to generate the method-specific `data` payload
 fn create_event_info_data_code(
     function_name: &str,

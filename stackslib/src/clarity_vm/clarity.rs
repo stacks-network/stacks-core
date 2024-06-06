@@ -638,8 +638,7 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db =
-            ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
+        let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -672,7 +671,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     {
         let mut db = self
             .datastore
-            .as_clarity_db(&self.header_db, &self.burn_state_db);
+            .as_clarity_db(self.header_db, self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -1528,8 +1527,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
-        let header_db = &self.header_db;
-        let burn_state_db = &self.burn_state_db;
+        let header_db = self.header_db;
+        let burn_state_db = self.burn_state_db;
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
         let mut log = RollbackWrapperPersistedLog::new();
@@ -1608,8 +1607,8 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
             let mut db = ClarityDatabase::new_with_rollback_wrapper(
                 rollback_wrapper,
-                &self.header_db,
-                &self.burn_state_db,
+                self.header_db,
+                self.burn_state_db,
             );
             db.begin();
             let (r, mut db) = to_do(db);
@@ -1673,8 +1672,8 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
                 let mut db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
-                    &self.header_db,
-                    &self.burn_state_db,
+                    self.header_db,
+                    self.burn_state_db,
                 );
 
                 // wrap the whole contract-call in a claritydb transaction,
@@ -1741,8 +1740,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
             let mut db = ClarityDatabase::new_with_rollback_wrapper(
                 rollback_wrapper,
-                &self.header_db,
-                &self.burn_state_db,
+                self.header_db,
+                self.burn_state_db,
             );
 
             db.begin();
@@ -2691,6 +2690,14 @@ mod tests {
 
         pub struct BlockLimitBurnStateDB {}
         impl BurnStateDB for BlockLimitBurnStateDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                None
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                None
+            }
+
             fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
                 None
             }

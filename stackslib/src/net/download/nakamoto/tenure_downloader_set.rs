@@ -31,16 +31,17 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::coordinator::{PoxAnchorBlockStatus, RewardCycleInfo};
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
@@ -61,7 +62,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -418,7 +419,7 @@ impl NakamotoTenureDownloaderSet {
         available: &mut HashMap<ConsensusHash, Vec<NeighborAddress>>,
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
         count: usize,
-        agg_public_keys: &BTreeMap<u64, Option<Point>>,
+        current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
     ) {
         test_debug!("schedule: {:?}", schedule);
         test_debug!("available: {:?}", &available);
@@ -431,8 +432,8 @@ impl NakamotoTenureDownloaderSet {
             self.num_scheduled_downloaders()
         );
 
-        self.clear_available_peers();
         self.clear_finished_downloaders();
+        self.clear_available_peers();
         self.try_transition_fetch_tenure_end_blocks(tenure_block_ids);
         while self.inflight() < count {
             let Some(ch) = schedule.front() else {
@@ -479,19 +480,25 @@ impl NakamotoTenureDownloaderSet {
                 test_debug!("Neighbor {} does not serve tenure {}", &naddr, ch);
                 continue;
             };
-            let Some(Some(start_agg_pubkey)) = agg_public_keys.get(&tenure_info.start_reward_cycle)
+            let Some(Some(start_reward_set)) = current_reward_cycles
+                .get(&tenure_info.start_reward_cycle)
+                .map(|cycle_info| cycle_info.reward_set())
             else {
                 test_debug!(
-                    "Cannot fetch tenure-start block due to no known aggregate public key: {:?}",
+                    "Cannot fetch tenure-start block due to no known start reward set for cycle {}: {:?}",
+                    tenure_info.start_reward_cycle,
                     &tenure_info
                 );
                 schedule.pop_front();
                 continue;
             };
-            let Some(Some(end_agg_pubkey)) = agg_public_keys.get(&tenure_info.end_reward_cycle)
+            let Some(Some(end_reward_set)) = current_reward_cycles
+                .get(&tenure_info.end_reward_cycle)
+                .map(|cycle_info| cycle_info.reward_set())
             else {
                 test_debug!(
-                    "Cannot fetch tenure-end block due to no known aggregate public key: {:?}",
+                    "Cannot fetch tenure-end block due to no known end reward set for cycle {}: {:?}",
+                    tenure_info.end_reward_cycle,
                     &tenure_info
                 );
                 schedule.pop_front();
@@ -499,12 +506,10 @@ impl NakamotoTenureDownloaderSet {
             };
 
             test_debug!(
-                "Download tenure {} (start={}, end={}) with aggregate keys {}, {} (rc {},{})",
+                "Download tenure {} (start={}, end={}) (rc {},{})",
                 &ch,
                 &tenure_info.start_block_id,
                 &tenure_info.end_block_id,
-                &start_agg_pubkey,
-                &end_agg_pubkey,
                 tenure_info.start_reward_cycle,
                 tenure_info.end_reward_cycle
             );
@@ -513,8 +518,8 @@ impl NakamotoTenureDownloaderSet {
                 tenure_info.start_block_id.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
-                start_agg_pubkey.clone(),
-                end_agg_pubkey.clone(),
+                start_reward_set.clone(),
+                end_reward_set.clone(),
             );
 
             test_debug!("Request tenure {} from neighbor {}", ch, &naddr);

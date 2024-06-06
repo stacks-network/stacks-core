@@ -58,7 +58,6 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
-use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
@@ -217,6 +216,8 @@ impl NakamotoSigners {
         Ok(slots)
     }
 
+    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
+    /// contract.  `reward_cycle` is the _current_ reward cycle.
     pub fn handle_signer_stackerdb_update(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
@@ -351,6 +352,11 @@ impl NakamotoSigners {
         Ok(SignerCalculation { events, reward_set })
     }
 
+    /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
+    /// so, and if we haven't done so yet, then compute the PoX reward set, store it, and update
+    /// the .signers contract.  The stored PoX reward set is the reward set for the next reward
+    /// cycle, and will be used by the Nakamoto chains coordinator to validate its block-commits
+    /// and block signatures.
     pub fn check_and_handle_prepare_phase_start(
         clarity_tx: &mut ClarityTx,
         first_block_height: u64,

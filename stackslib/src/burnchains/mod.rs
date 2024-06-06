@@ -468,6 +468,8 @@ impl PoxConstants {
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
+    // TODO: add tests from mutation testing results #4838
+    #[cfg_attr(test, mutants::skip)]
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,

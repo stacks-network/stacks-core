@@ -94,7 +94,8 @@ export class DelegateStackStxCommand implements PoxCommand {
       Number(this.amountUstx) <= stackerWallet.ustxBalance &&
       Number(this.amountUstx) >= model.stackingMinimum &&
       operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+      (stackerWallet.delegatedUntilBurnHt === undefined ||
+        this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
     );
   }
 

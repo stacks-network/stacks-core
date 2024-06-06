@@ -62,7 +62,7 @@ jobs:
       ## ex. debian will have this tag: `type=ref,event=tag,enable=${{ matrix.dist == 'debian' }}`
       - name: Docker Metadata ( ${{matrix.dist}} )
         id: docker_metadata
-        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 #v5.0.0
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 #v5.5.1
         with:
           ## tag images with current repo name `stacks-core` as well as legacy `stacks-blockchain`
           images: |
@@ -79,7 +79,7 @@ jobs:
       ## Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
         id: docker_build
-        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
         with:
           file: ./.github/actions/dockerfiles/Dockerfile.${{ matrix.dist }}-binary
           platforms: ${{ env.docker_platforms }}

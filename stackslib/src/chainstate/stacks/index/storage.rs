@@ -1656,7 +1656,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
-        // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
+        // Panics on a failure to rename the Trie file into place (i.e. if the actual commitment
         // fails).
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {

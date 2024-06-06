@@ -292,6 +292,7 @@ impl StackerDBConfig {
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
         signers: Vec<(StacksAddress, u32)>,
+        local_max_neighbors: u64,
     ) -> Result<StackerDBConfig, NetError> {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
@@ -365,11 +366,12 @@ impl StackerDBConfig {
             ));
         }
 
-        let max_neighbors = config_tuple
+        let mut max_neighbors = config_tuple
             .get("max-neighbors")
             .expect("FATAL: missing 'max-neighbors'")
             .clone()
             .expect_u128()?;
+
         if max_neighbors > usize::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
@@ -380,6 +382,16 @@ impl StackerDBConfig {
                 contract_id.clone(),
                 reason,
             ));
+        }
+
+        if max_neighbors > u128::from(local_max_neighbors) {
+            debug!(
+                "Contract {} stipulates a maximum number of neighbors ({}) beyond locally-configured maximum {}; defaulting to locally-configured maximum",
+                contract_id,
+                max_neighbors,
+                local_max_neighbors,
+            );
+            max_neighbors = u128::from(local_max_neighbors);
         }
 
         let hint_replicas_list = config_tuple
@@ -435,7 +447,7 @@ impl StackerDBConfig {
                 ));
             }
 
-            if port < 1024 || port > ((u16::MAX - 1) as u128) {
+            if port < 1024 || port > u128::from(u16::MAX - 1) {
                 let reason = format!(
                     "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
                     contract_id
@@ -446,11 +458,20 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
+            // NOTE: port is now known to be in range [1024, 65535]
 
             let mut pubkey_hash_slice = [0u8; 20];
             pubkey_hash_slice.copy_from_slice(&pubkey_hash_bytes[0..20]);
 
             let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
+            if peer_addr.is_in_private_range() {
+                debug!(
+                    "Ignoring private IP address '{}' in hint-replicas",
+                    &peer_addr.to_socketaddr(port as u16)
+                );
+                continue;
+            }
+
             let naddr = NeighborAddress {
                 addrbytes: peer_addr,
                 port: port as u16,
@@ -475,6 +496,7 @@ impl StackerDBConfig {
         chainstate: &mut StacksChainState,
         sortition_db: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
+        max_neighbors: u64,
     ) -> Result<StackerDBConfig, NetError> {
         let chain_tip =
             NakamotoChainState::get_canonical_block_header(chainstate.db(), sortition_db)?
@@ -493,7 +515,7 @@ impl StackerDBConfig {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortition_db.conn(), burn_tip.block_height)?
             .expect("FATAL: no epoch defined");
 
-        let dbconn = sortition_db.index_conn();
+        let dbconn = sortition_db.index_handle_at_block(chainstate, &chain_tip_hash)?;
 
         // check the target contract
         let res = chainstate.with_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {
@@ -542,7 +564,14 @@ impl StackerDBConfig {
 
         // evaluate the contract for these two functions
         let signers = Self::eval_signer_slots(chainstate, &dbconn, contract_id, &chain_tip_hash)?;
-        let config = Self::eval_config(chainstate, &dbconn, contract_id, &chain_tip_hash, signers)?;
+        let config = Self::eval_config(
+            chainstate,
+            &dbconn,
+            contract_id,
+            &chain_tip_hash,
+            signers,
+            max_neighbors,
+        )?;
         Ok(config)
     }
 }

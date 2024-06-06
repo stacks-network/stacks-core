@@ -91,13 +91,13 @@ pub struct NakamotoBootPlan {
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
-        let test_signers = TestSigners::default();
+        let (test_signers, test_stackers) = TestStacker::common_signing_set();
         Self {
             test_name: test_name.to_string(),
             pox_constants: TestPeerConfig::default().burnchain.pox_constants,
             private_key: StacksPrivateKey::from_seed(&[2]),
             initial_balances: vec![],
-            test_stackers: TestStacker::common_signing_set(&test_signers),
+            test_stackers,
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
@@ -231,6 +231,7 @@ impl NakamotoBootPlan {
             for block in blocks {
                 let block_id = block.block_id();
                 let accepted = Relayer::process_new_nakamoto_block(
+                    &peer.network.burnchain,
                     &sortdb,
                     &mut sort_handle,
                     &mut node.chainstate,
@@ -736,10 +737,12 @@ impl NakamotoBootPlan {
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-                    .unwrap()
-                    .unwrap();
+            let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+                chainstate.db(),
+                &sort_db.index_handle_at_tip(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 
@@ -812,7 +815,7 @@ impl NakamotoBootPlan {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
                 let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
                     chainstate.db(),
-                    sort_db.conn(),
+                    &sort_db.index_handle_at_tip(),
                 )
                 .unwrap()
                 .unwrap();

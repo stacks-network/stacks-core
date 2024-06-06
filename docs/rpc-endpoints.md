@@ -111,7 +111,7 @@ Returns a JSON list containing the following:
 ```
 
 The `consensus_hash` field identifies the sortition in which the given block was
-chosen.  The `header` is the raw block header, a a hex string.  The
+chosen.  The `header` is the raw block header, a hex string.  The
 `parent_block_id` is the block ID hash of this block's parent, and can be used
 as a `?tip=` query parameter to page through deeper and deeper block headers.
 
@@ -143,8 +143,8 @@ Returns JSON data in the form:
 }
 ```
 
-Where balance is the hex encoding of a unsigned 128-bit integer
-(big-endian), nonce is a unsigned 64-bit integer, and the proofs are
+Where balance is the hex encoding of an unsigned 128-bit integer
+(big-endian), nonce is an unsigned 64-bit integer, and the proofs are
 provided as hex strings.
 
 For non-existent accounts, this _does not_ 404, rather it returns an
@@ -212,7 +212,7 @@ JSON object _without_ the `proof` field.
 
 ### GET /v2/fees/transfer
 
-Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer.
+Get an estimated fee rate for STX transfer transactions. This is a fee rate / byte, and is returned as a JSON integer.
 
 ### GET /v2/contracts/interface/[Stacks Address]/[Contract Name]
 
@@ -530,6 +530,6 @@ Return metadata about the highest-known tenure, as the following JSON structure:
 
 Here, `consensus_hash` identifies the highest-known tenure (which may not be the
 highest sortition), `reward_cycle` identifies the reward cycle number of this
-tenure, `tip_block_id` idenitifies the highest-known block in this tenure, and
+tenure, `tip_block_id` identifies the highest-known block in this tenure, and
 `tip_height` identifies that block's height.
 

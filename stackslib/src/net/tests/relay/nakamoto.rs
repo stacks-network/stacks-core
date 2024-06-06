@@ -38,12 +38,11 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::{
-    make_all_signers_vote_for_aggregate_key, make_token_transfer,
+    make_token_transfer,
 };
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
-    make_signers_vote_for_aggregate_public_key, make_signers_vote_for_aggregate_public_key_value,
     with_sortdb,
 };
 use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
@@ -127,6 +126,7 @@ impl ExitedPeer {
         let receipts_res = self.relayer.process_network_result(
             self.network.get_local_peer(),
             &mut net_result.clone(),
+            &self.network.burnchain,
             &mut sortdb,
             &mut stacks_node.chainstate,
             &mut mempool,
@@ -251,35 +251,6 @@ impl SeedNode {
 
             let block_height = peer.get_burn_block_height();
 
-            // If we are in the prepare phase, check if we need to generate
-            // aggregate key votes
-            let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
-                let cycle_id = peer
-                    .config
-                    .burnchain
-                    .block_height_to_reward_cycle(block_height)
-                    .unwrap();
-                let next_cycle_id = cycle_id as u128 + 1;
-
-                with_sortdb(&mut peer, |chainstate, sortdb| {
-                    if let Some(tip) = all_blocks.last() {
-                        // TODO: remove once #4796 closes
-                        make_all_signers_vote_for_aggregate_key(
-                            chainstate,
-                            sortdb,
-                            &tip.block_id(),
-                            &mut test_signers,
-                            &test_stackers,
-                            next_cycle_id,
-                        )
-                    } else {
-                        vec![]
-                    }
-                })
-            } else {
-                vec![]
-            };
-
             // do a stx transfer in each block to a given recipient
             let recipient_addr =
                 StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
@@ -288,13 +259,7 @@ impl SeedNode {
                 coinbase_tx,
                 &mut test_signers,
                 |miner, chainstate, sortdb, blocks_so_far| {
-                    // Include the aggregate key voting transactions in the first block.
-                    let mut txs = if blocks_so_far.is_empty() {
-                        txs.clone()
-                    } else {
-                        vec![]
-                    };
-
+                    let mut txs = vec![];
                     if blocks_so_far.len() < num_blocks {
                         debug!("\n\nProduce block {}\n\n", all_blocks.len());
 
@@ -511,6 +476,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                         let num_processed = follower_relayer.process_new_epoch3_blocks(
                             follower.network.get_local_peer(),
                             &mut network_result,
+                            &follower.network.burnchain,
                             &mut sortdb,
                             &mut node.chainstate,
                             true,
@@ -712,6 +678,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         follower_relayer.process_new_epoch3_blocks(
                             follower.network.get_local_peer(),
                             &mut network_result,
+                            &follower.network.burnchain,
                             &mut sortdb,
                             &mut node.chainstate,
                             true,
@@ -778,6 +745,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         follower_relayer.process_new_epoch3_blocks(
                             follower.network.get_local_peer(),
                             &mut network_result,
+                            &follower.network.burnchain,
                             &mut sortdb,
                             &mut node.chainstate,
                             true,
