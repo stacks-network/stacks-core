@@ -514,7 +514,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(PoxAddress, u16)>,
@@ -598,11 +598,11 @@ impl LeaderBlockCommitOp {
     /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
-    fn check_pox(
+    fn check_pox<SH: SortitionHandle>(
         &self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
-        tx: &mut SortitionHandleTx,
+        tx: &mut SH,
         reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<Vec<Treatment>, op_error> {
         let parent_block_height = u64::from(self.parent_block_ptr);
@@ -1154,7 +1154,9 @@ mod tests {
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
+    use crate::chainstate::burn::db::sortdb::tests::{
+        test_append_snapshot, test_append_snapshot_with_winner,
+    };
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::db::*;
     use crate::chainstate::burn::operations::*;
@@ -3137,6 +3139,293 @@ mod tests {
                 format!("{:?}", &fixture.res),
                 format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None))
             );
+        }
+    }
+
+    pub enum DescendencyStubbedSortitionHandle {
+        Descended,
+        NotDescended,
+    }
+
+    impl SortitionHandle for DescendencyStubbedSortitionHandle {
+        fn sqlite(&self) -> &Connection {
+            panic!("Cannot evaluate");
+        }
+
+        fn get_block_snapshot_by_height(
+            &mut self,
+            _block_height: u64,
+        ) -> Result<Option<BlockSnapshot>, db_error> {
+            panic!("Cannot evaluate");
+        }
+
+        fn first_burn_block_height(&self) -> u64 {
+            panic!("Cannot evaluate");
+        }
+
+        fn pox_constants(&self) -> &PoxConstants {
+            panic!("Cannot evaluate");
+        }
+
+        fn tip(&self) -> SortitionId {
+            panic!("Cannot evaluate");
+        }
+
+        fn get_nakamoto_tip(
+            &self,
+        ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+            panic!("Cannot evaluate");
+        }
+
+        fn descended_from(
+            &mut self,
+            _block_at_burn_height: u64,
+            _potential_ancestor: &BlockHeaderHash,
+        ) -> Result<bool, db_error> {
+            match self {
+                DescendencyStubbedSortitionHandle::Descended => Ok(true),
+                DescendencyStubbedSortitionHandle::NotDescended => Ok(false),
+            }
+        }
+    }
+
+    #[test]
+    fn pox_reward_punish() {
+        let burnchain = Burnchain {
+            pox_constants: pox_constants(),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            initial_reward_start_block: 0,
+            first_block_height: 0,
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash([0x05; 32]),
+        };
+
+        let default_block_commit = LeaderBlockCommitOp {
+            punished: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x22; 32]),
+            new_seed: VRFSeed([0x33; 32]),
+            parent_block_ptr: 125,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+            ),
+
+            txid: Txid([0xab; 32]),
+            vtxindex: 444,
+            block_height: 128,
+            burn_parent_modulus: (128 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x11; 32]),
+        };
+
+        let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
+
+        fn reward_addrs(i: usize) -> PoxAddress {
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes()));
+            PoxAddress::Standard(addr, None)
+        }
+        let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);
+        let burn_addr_1 = PoxAddress::Standard(StacksAddress::burn_address(true), None);
+        let rs_pox_addrs = RewardSetInfo {
+            anchor_block: anchor_block_hash.clone(),
+            recipients: vec![(reward_addrs(0), 0), (reward_addrs(1), 1)],
+            allow_nakamoto_punishment: true,
+        };
+        let rs_pox_addrs_0b = RewardSetInfo {
+            anchor_block: anchor_block_hash.clone(),
+            recipients: vec![(reward_addrs(0), 0), (burn_addr_0.clone(), 5)],
+            allow_nakamoto_punishment: true,
+        };
+        let rs_pox_addrs_1b = RewardSetInfo {
+            anchor_block: anchor_block_hash.clone(),
+            recipients: vec![(reward_addrs(1), 1), (burn_addr_1.clone(), 5)],
+            allow_nakamoto_punishment: true,
+        };
+
+        fn rev(rs: &RewardSetInfo) -> RewardSetInfo {
+            let mut out = rs.clone();
+            out.recipients.reverse();
+            out
+        }
+
+        fn no_punish(rs: &RewardSetInfo) -> RewardSetInfo {
+            let mut out = rs.clone();
+            out.allow_nakamoto_punishment = false;
+            out
+        }
+
+        let mut test_vectors = vec![
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                None,
+                Ok(vec![]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(1)),
+                    Treatment::Punish(reward_addrs(0)),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(0), reward_addrs(1)],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Ok(vec![
+                    Treatment::Reward(reward_addrs(1)),
+                    Treatment::Reward(reward_addrs(0)),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(1)),
+                    Treatment::Punish(reward_addrs(0)),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs_1b.clone()),
+                // it doesn't matter if we call burn_addr_1 punished or rewarded!
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(1)),
+                    Treatment::Punish(burn_addr_1.clone()),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs_0b.clone()),
+                // it doesn't matter if we call burn_addr_1 punished or rewarded!
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(0)),
+                    Treatment::Punish(burn_addr_0.clone()),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(no_punish(&rs_pox_addrs)),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(no_punish(&rs_pox_addrs_1b)),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(no_punish(&rs_pox_addrs_0b)),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(0)],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(0), reward_addrs(3)],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(1), reward_addrs(3)],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![burn_addr_0.clone(), reward_addrs(3)],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Err(op_error::BlockCommitBadOutputs),
+            ),
+        ];
+
+        for (ix, (op, reward_set_info, expected)) in test_vectors.iter_mut().enumerate() {
+            for should_reverse in [false, true] {
+                let reward_set_info = if should_reverse {
+                    reward_set_info.as_ref().map(rev)
+                } else {
+                    reward_set_info.clone()
+                };
+                eprintln!("Processing {}", ix);
+                let mut ic = DescendencyStubbedSortitionHandle::Descended;
+                let output = op.check_pox(
+                    StacksEpochId::Epoch30,
+                    &burnchain,
+                    &mut ic,
+                    reward_set_info.as_ref(),
+                );
+                eprintln!("{:?} <=?=> {:?}", expected, output);
+                match expected {
+                    Err(e) => {
+                        assert_eq!(format!("{e:?}"), format!("{:?}", &output.unwrap_err()));
+                    }
+                    Ok(expected_treatment) => {
+                        assert!(output.is_ok());
+                        let actual_treatment = output.unwrap();
+                        assert_eq!(actual_treatment.len(), expected_treatment.len());
+                        for i in actual_treatment.iter() {
+                            assert!(expected_treatment.contains(i));
+                        }
+                    }
+                }
+            }
         }
     }
 
