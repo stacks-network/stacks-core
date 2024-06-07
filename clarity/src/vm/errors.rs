@@ -125,6 +125,7 @@ pub enum WasmError {
     DefinesNotFound,
     TopLevelNotFound,
     MemoryNotFound,
+    GlobalNotFound(String),
     #[cfg(feature = "canonical")]
     WasmCompileFailed(wasmtime::Error),
     #[cfg(feature = "canonical")]
@@ -159,6 +160,7 @@ impl fmt::Display for WasmError {
             WasmError::DefinesNotFound => write!(f, "Defines function not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            WasmError::GlobalNotFound(e) => write!(f, "Global variable not found: {e}"),
             #[cfg(feature = "canonical")]
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
             #[cfg(feature = "canonical")]
