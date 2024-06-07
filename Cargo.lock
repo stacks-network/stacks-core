@@ -2965,6 +2965,7 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "mutants",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
 ]

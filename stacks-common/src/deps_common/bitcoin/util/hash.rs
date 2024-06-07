@@ -29,6 +29,7 @@ use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, Consen
 use crate::deps_common::bitcoin::network::serialize::{
     self, BitcoinHash, RawEncoder, SimpleEncoder,
 };
+use crate::util::hash::bytes_to_hex;
 use crate::util::uint::Uint256;
 use crate::util::HexError;
 
@@ -49,6 +50,24 @@ impl_array_newtype!(Ripemd160Hash, u8, 20);
 /// A Bitcoin hash160, 20-bytes, computed from x as RIPEMD160(SHA256(x))
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
+impl_byte_array_rusqlite_only!(Hash160);
+
+impl Hash160 {
+    /// Convert the Hash160 inner bytes to a non-prefixed hex string
+    pub fn to_hex(&self) -> String {
+        bytes_to_hex(&self.0)
+    }
+
+    /// Try to instantiate a Hash160 using the exact inner bytes of the hash.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut return_bytes = [0; 20];
+        if bytes.len() != return_bytes.len() {
+            return None;
+        }
+        return_bytes.copy_from_slice(bytes);
+        Some(Self(return_bytes))
+    }
+}
 
 impl Default for Sha256dEncoder {
     fn default() -> Self {

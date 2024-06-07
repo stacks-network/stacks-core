@@ -39,7 +39,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -170,6 +172,8 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -179,6 +183,8 @@ impl BlockBuilderSettings {
         }
     }
 
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -337,7 +343,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -353,7 +359,7 @@ pub enum TransactionEvent {
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
@@ -1493,6 +1499,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            burn_view: None,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1793,6 +1800,8 @@ impl StacksBlockBuilder {
         }
     }
 
+    // TODO: add tests from mutation testing results #4859
+    #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
@@ -1803,7 +1812,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1912,7 +1921,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1974,7 +1983,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1993,7 +2002,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2047,6 +2056,8 @@ impl StacksBlockBuilder {
         Ok((block, size, cost, mblock_opt))
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for mining
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2101,6 +2112,8 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2381,11 +2394,14 @@ impl StacksBlockBuilder {
         Ok((blocked, tx_events))
     }
 
+    // TODO: add tests from mutation testing results #4861
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)

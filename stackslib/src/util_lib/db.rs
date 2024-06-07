@@ -34,8 +34,10 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
+use crate::core::{StacksEpoch, StacksEpochId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -629,6 +631,16 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
 
     pub fn conn(&self) -> &DBConn {
         self.index.sqlite_conn()
+    }
+
+    pub fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
+            .expect("BUG: failed to get epoch for epoch id")
+    }
+
+    pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
     }
 }
 

@@ -39,8 +39,11 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::HexError;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -375,6 +378,8 @@ fn ack_dispatcher(request: HttpRequest) {
     };
 }
 
+// TODO: add tests from mutation testing results #4835
+#[cfg_attr(test, mutants::skip)]
 /// Process a stackerdb event from the node
 fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,

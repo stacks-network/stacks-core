@@ -196,6 +196,9 @@ pub struct StacksHeaderInfo {
     pub burn_header_timestamp: u64,
     /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
+    /// The burnchain tip that is passed to Clarity while processing this block.
+    /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
+    pub burn_view: Option<ConsensusHash>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -387,6 +390,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -406,6 +410,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -452,13 +457,19 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
+        let header_type: HeaderTypeNames = row
+            .get("header_type")
+            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
         let stacks_header: StacksBlockHeaderTypes = {
-            let header_type: HeaderTypeNames = row
-                .get("header_type")
-                .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
             match header_type {
                 HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
                 HeaderTypeNames::Nakamoto => NakamotoBlockHeader::from_row(row)?.into(),
+            }
+        };
+        let burn_view = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => None,
+                HeaderTypeNames::Nakamoto => Some(ConsensusHash::from_column(row, "burn_view")?),
             }
         };
 
@@ -476,6 +487,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height as u32,
             burn_header_timestamp,
             anchored_block_size,
+            burn_view,
         })
     }
 }
@@ -2618,6 +2630,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
+            burn_view: None,
         };
 
         StacksChainState::insert_stacks_block_header(

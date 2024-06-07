@@ -1741,7 +1741,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -1971,7 +1971,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2085,7 +2085,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2176,7 +2176,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2239,7 +2239,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2347,7 +2347,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2438,7 +2438,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2557,7 +2557,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2671,7 +2671,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // process both
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2810,7 +2810,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // process both
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2920,7 +2920,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3045,7 +3045,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3155,7 +3155,7 @@ pub mod test {
 
         for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3368,7 +3368,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3911,7 +3911,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is instantiated, so as-contract works in 2.1
             let mut conn = chainstate.test_genesis_block_begin_2_1(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -4634,7 +4634,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is installed so as-contract will work in epoch 2.1
             let mut conn = chainstate.test_genesis_block_begin_2_1(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -5009,7 +5009,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8141,7 +8141,7 @@ pub mod test {
         // which leads to an InvalidFee error
         for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8298,7 +8298,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8419,7 +8419,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8513,7 +8513,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8645,6 +8645,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }
@@ -8867,6 +8875,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }

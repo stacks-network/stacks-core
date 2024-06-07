@@ -35,7 +35,6 @@ rstest_reuse = { version = "0.5.0", optional = true }
 wasmtime = { version = "15.0.0", optional = true }
 hashbrown = { workspace = true, features = ["serde"] }
 getrandom = { version = "0.2", features = ["js"], optional = true}
-mutants = "0.0.3"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -50,6 +49,7 @@ optional = true
 assert-json-diff = "1.0.0"
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
+mutants = "0.0.3"
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"

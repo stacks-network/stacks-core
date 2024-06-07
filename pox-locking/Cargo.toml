@@ -23,6 +23,9 @@ clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = 
 stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop", default-features = false, optional = true  }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
+[dev-dependencies]
+mutants = "0.0.3"
+
 [features]
 default = ["stacks_common/default", "clarity/default"]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]
