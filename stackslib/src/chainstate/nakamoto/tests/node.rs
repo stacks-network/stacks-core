@@ -28,7 +28,9 @@ use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
@@ -75,6 +77,7 @@ pub struct TestStacker {
     pub stacker_private_key: StacksPrivateKey,
     pub signer_private_key: StacksPrivateKey,
     pub amount: u128,
+    pub pox_address: Option<PoxAddress>,
 }
 
 impl TestStacker {
@@ -88,6 +91,7 @@ impl TestStacker {
             stacker_private_key,
             signer_private_key,
             amount: 1_000_000_000_000_000_000,
+            pox_address: None,
         }
     }
 
@@ -107,6 +111,31 @@ impl TestStacker {
                 signer_private_key: signing_key.clone(),
                 stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                 amount: Self::DEFAULT_STACKER_AMOUNT,
+                pox_address: None,
+            })
+            .collect::<Vec<_>>();
+
+        let test_signers = TestSigners::new(vec![signing_key]);
+        (test_signers, stackers)
+    }
+
+    pub fn big_signing_set() -> (TestSigners, Vec<TestStacker>) {
+        let num_keys: u32 = 4;
+        let mut signing_key_seed = num_keys.to_be_bytes().to_vec();
+        signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+        let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+        let stackers = (0..num_keys)
+            .map(|index| TestStacker {
+                signer_private_key: signing_key.clone(),
+                stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+                amount: u64::MAX as u128 - 10000,
+                pox_address: Some(PoxAddress::Standard(
+                    StacksAddress::new(
+                        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                        Hash160::from_data(&index.to_be_bytes()),
+                    ),
+                    Some(AddressHashMode::SerializeP2PKH),
+                )),
             })
             .collect::<Vec<_>>();
 

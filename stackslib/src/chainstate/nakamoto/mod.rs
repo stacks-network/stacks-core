@@ -1435,7 +1435,7 @@ impl NakamotoChainState {
             stacks_chain_state,
             sort_db,
             &next_ready_block.header.parent_block_id,
-            false,
+            true,
         ).map_err(|e| {
             warn!(
                 "Cannot process Nakamoto block: could not load reward set that elected the block";
@@ -2913,6 +2913,84 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
+    fn check_pox_bitvector(
+        block: &NakamotoBlock,
+        tenure_block_commit: &LeaderBlockCommitOp,
+        active_reward_set: &RewardSet,
+    ) -> Result<(), ChainstateError> {
+        if !tenure_block_commit.punished.is_empty() {
+            // our block commit issued a punishment, check the reward set and bitvector
+            //  to ensure that this was valid.
+            for treated_addr in tenure_block_commit.punished.iter() {
+                if treated_addr.is_burn() {
+                    // Don't need to assert anything about burn addresses.
+                    // If they were in the reward set, "punishing" them is meaningless.
+                    continue;
+                }
+                // otherwise, we need to find the indices in the rewarded_addresses
+                //  corresponding to this address.
+                let address_indices = active_reward_set
+                    .rewarded_addresses
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(ix, addr)| {
+                        if addr == treated_addr.deref() {
+                            Some(ix)
+                        } else {
+                            None
+                        }
+                    });
+                // if any of them are 0, punishment is okay.
+                // if all of them are 1, punishment is not okay.
+                // if all of them are 0, *must* have punished
+                let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
+                    .map(
+                        |ix| {
+                            let ix = u16::try_from(ix)
+                                .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
+                            let bitvec_value = block.header.signer_bitvec.get(ix)
+                                .unwrap_or_else(|| {
+                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    true
+                                });
+                            Ok(bitvec_value)
+                        }
+                    )
+                    .collect();
+                let bitvec_values = bitvec_values?;
+                let all_1 = bitvec_values.iter().all(|x| *x);
+                let all_0 = bitvec_values.iter().all(|x| !x);
+                if all_1 {
+                    if treated_addr.is_punish() {
+                        warn!(
+                            "Invalid Nakamoto block: punished PoX address when bitvec contained 1s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                            "block_id" => %block.header.block_id(),
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                } else if all_0 {
+                    if treated_addr.is_reward() {
+                        warn!(
+                            "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                            "block_id" => %block.header.block_id(),
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
     fn append_block<'a>(
@@ -3079,75 +3157,9 @@ impl NakamotoChainState {
             ChainstateError::NoSuchBlockError
         })?;
 
-        if !tenure_block_commit.punished.is_empty() {
-            // our block commit issued a punishment, check the reward set and bitvector
-            //  to ensure that this was valid.
-            for treated_addr in tenure_block_commit.punished.iter() {
-                if treated_addr.is_burn() {
-                    // Don't need to assert anything about burn addresses.
-                    // If they were in the reward set, "punishing" them is meaningless.
-                    continue;
-                }
-                // otherwise, we need to find the indices in the rewarded_addresses
-                //  corresponding to this address.
-                let address_indices = active_reward_set
-                    .rewarded_addresses
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(ix, addr)| {
-                        if addr == treated_addr.deref() {
-                            Some(ix)
-                        } else {
-                            None
-                        }
-                    });
-                // if any of them are 0, punishment is okay.
-                // if all of them are 1, punishment is not okay.
-                // if all of them are 0, *must* have punished
-                let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
-                    .map(
-                        |ix| {
-                            let ix = u16::try_from(ix)
-                                .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
-                            let bitvec_value = block.header.signer_bitvec.get(ix)
-                                .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
-                                    true
-                                });
-                            Ok(bitvec_value)
-                        }
-                    )
-                    .collect();
-                let bitvec_values = bitvec_values?;
-                let all_1 = bitvec_values.iter().all(|x| *x);
-                let all_0 = bitvec_values.iter().all(|x| !x);
-                if all_1 {
-                    if treated_addr.is_punish() {
-                        warn!(
-                            "Invalid Nakamoto block: punished PoX address when bitvec contained 1s for the address";
-                            "reward_address" => %treated_addr.deref(),
-                            "bitvec_values" => ?bitvec_values,
-                            "block_id" => %block.header.block_id(),
-                        );
-                        return Err(ChainstateError::InvalidStacksBlock(
-                            "Bitvec does not match the block commit's PoX handling".into(),
-                        ));
-                    }
-                } else if all_0 {
-                    if treated_addr.is_reward() {
-                        warn!(
-                            "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
-                            "reward_address" => %treated_addr.deref(),
-                            "bitvec_values" => ?bitvec_values,
-                            "block_id" => %block.header.block_id(),
-                        );
-                        return Err(ChainstateError::InvalidStacksBlock(
-                            "Bitvec does not match the block commit's PoX handling".into(),
-                        ));
-                    }
-                }
-            }
-        }
+        // TODO: this should be checked in the miner path as well...
+        //   the easiest way to ensure this is via the setup_block function.
+        Self::check_pox_bitvector(&block, &tenure_block_commit, active_reward_set)?;
 
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.
