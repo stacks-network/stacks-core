@@ -518,7 +518,7 @@ pub fn call_function<'a, 'b, 'c, 'hooks>(
     // Access the global stack pointer from the instance
     let stack_pointer = instance
         .get_global(&mut store, "stack-pointer")
-        .ok_or(Error::Wasm(WasmError::StackPointerNotFound))?;
+        .ok_or(Error::Wasm(WasmError::GlobalNotFound("stack-pointer".to_string())))?;
     let mut offset = stack_pointer
         .get(&mut store)
         .i32()
