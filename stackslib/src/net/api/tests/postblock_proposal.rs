@@ -14,25 +14,45 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::rc::Rc;
+use std::sync::{Arc, Condvar, Mutex};
 
+use clarity::types::chainstate::{StacksPrivateKey, TrieHash};
+use clarity::util::secp256k1::MessageSignature;
+use clarity::util::vrf::VRFProof;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName, Value};
-use mempool::{MemPoolEventDispatcher, ProposalCallbackReceiver};
-use postblock_proposal::NakamotoBlockProposal;
+use mempool::{MemPoolDB, MemPoolEventDispatcher, ProposalCallbackReceiver};
+use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 
 use super::TestRPC;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_nakamoto_block};
-use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::{
+    CoinbasePayload, StacksBlockHeader, StacksTransactionSigner, TenureChangeCause,
+    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
+use crate::net::relay::Relayer;
 use crate::net::test::TestEventObserver;
 use crate::net::{ProtocolFamily, TipRequest};
 
@@ -41,7 +61,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let block = make_codec_test_nakamoto_block(3, StacksEpochId::Epoch30);
+    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::new());
     let proposal = NakamotoBlockProposal {
         block: block.clone(),
         chain_id: 0x80000000,
@@ -106,10 +126,64 @@ fn test_try_parse_request() {
     assert!(handler.block_proposal.is_none());
 }
 
-struct NullObserver;
-impl MemPoolEventDispatcher for NullObserver {
+struct ProposalObserver {
+    results: Mutex<
+        Vec<Result<postblock_proposal::BlockValidateOk, postblock_proposal::BlockValidateReject>>,
+    >,
+    condvar: Condvar,
+}
+
+impl ProposalObserver {
+    fn new() -> Self {
+        Self {
+            results: Mutex::new(vec![]),
+            condvar: Condvar::new(),
+        }
+    }
+}
+
+impl ProposalCallbackReceiver for ProposalObserver {
+    fn notify_proposal_result(
+        &self,
+        result: Result<
+            postblock_proposal::BlockValidateOk,
+            postblock_proposal::BlockValidateReject,
+        >,
+    ) {
+        let mut results = self.results.lock().unwrap();
+        results.push(result);
+        self.condvar.notify_one();
+    }
+}
+
+struct ProposalTestObserver {
+    pub proposal_observer: Arc<Mutex<ProposalObserver>>,
+}
+
+impl ProposalTestObserver {
+    fn new() -> Self {
+        Self {
+            proposal_observer: Arc::new(Mutex::new(ProposalObserver::new())),
+        }
+    }
+}
+
+impl ProposalCallbackReceiver for Arc<Mutex<ProposalObserver>> {
+    fn notify_proposal_result(
+        &self,
+        result: Result<
+            postblock_proposal::BlockValidateOk,
+            postblock_proposal::BlockValidateReject,
+        >,
+    ) {
+        let observer = self.lock().unwrap();
+        observer.notify_proposal_result(result);
+    }
+}
+
+impl MemPoolEventDispatcher for ProposalTestObserver {
     fn get_proposal_callback_receiver(&self) -> Option<Box<dyn mempool::ProposalCallbackReceiver>> {
-        Some(Box::new(NullObserver {}))
+        Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: mempool::MemPoolDropReason) {}
@@ -145,41 +219,105 @@ impl MemPoolEventDispatcher for NullObserver {
     }
 }
 
-impl ProposalCallbackReceiver for NullObserver {
-    fn notify_proposal_result(
-        &self,
-        result: Result<
-            postblock_proposal::BlockValidateOk,
-            postblock_proposal::BlockValidateReject,
-        >,
-    ) {
-    }
-}
-
 #[test]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
-    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     let mut requests = vec![];
 
-    let block = make_codec_test_nakamoto_block(3, StacksEpochId::Epoch30);
+    let tip =
+        SortitionDB::get_canonical_burn_chain_tip(&rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+    let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
 
-    // post the block proposal
+    let mut block = {
+        let chainstate = rpc_test.peer_1.chainstate();
+        let parent_stacks_header = NakamotoChainState::get_block_header(
+            chainstate.db(),
+            &tip.get_canonical_stacks_block_id(),
+        )
+        .unwrap()
+        .unwrap();
+
+        // let mut block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &tip, miner_privk, parent_stacks_header);
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+
+        let auth = TransactionAuth::from_p2pkh(miner_privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        tx.chain_id = 0x80000000;
+        tx.auth.set_origin_nonce(34);
+        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        tx.set_tx_fee(300);
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.sign_origin(miner_privk).unwrap();
+        let tx = tx_signer.get_tx().unwrap();
+
+        let mut builder = NakamotoBlockBuilder::new(
+            &parent_stacks_header,
+            &tip.consensus_hash,
+            25000,
+            None,
+            None,
+            8,
+        )
+        .unwrap();
+
+        rpc_test
+            .peer_1
+            .with_db_state(
+                |sort_db: &mut SortitionDB,
+                 chainstate: &mut StacksChainState,
+                 _: &mut Relayer,
+                 _: &mut MemPoolDB| {
+                    let burn_dbconn = sort_db.index_conn();
+                    let mut miner_tenure_info = builder
+                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .unwrap();
+                    let mut tenure_tx = builder
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+                        .unwrap();
+                    builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        &tx,
+                        tx.tx_len(),
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        ASTRules::PrecheckSize,
+                    );
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx);
+                    Ok(block)
+                },
+            )
+            .unwrap()
+    };
+
+    // Increment the timestamp by 1 to ensure it is different from the previous block
+    block.header.timestamp += 1;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+
+    // post the valid block proposal
     let proposal = NakamotoBlockProposal {
         block: block.clone(),
         chain_id: 0x80000000,
     };
-    println!(
-        "Peer1 host: {:?} {}",
-        rpc_test.peer_1.to_peer_host(),
-        rpc_test.peer_1.config.http_port
-    );
-    println!(
-        "Peer2 host: {:?} {}",
-        rpc_test.peer_2.to_peer_host(),
-        rpc_test.peer_2.config.http_port
-    );
+
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
@@ -190,48 +328,100 @@ fn test_try_make_response() {
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
-    // // idempotent
-    // let request =
-    //     StacksHttpRequest::new_post_block(addr.into(), next_block.0.clone(), next_block.1.clone());
-    // requests.push(request);
+    // Set the timestamp to a value in the past
+    block.header.timestamp -= 10000;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
 
-    // // fails if the consensus hash is not recognized
-    // let request = StacksHttpRequest::new_post_block(
-    //     addr.into(),
-    //     ConsensusHash([0x11; 20]),
-    //     next_block.1.clone(),
-    // );
-    // requests.push(request);
+    // post the invalid block proposal
+    let proposal = NakamotoBlockProposal {
+        block: block.clone(),
+        chain_id: 0x80000000,
+    };
 
-    let observer = NullObserver {};
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v2/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // Set the timestamp to a value in the future
+    block.header.timestamp += 20000;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+
+    // post the invalid block proposal
+    let proposal = NakamotoBlockProposal {
+        block: block.clone(),
+        chain_id: 0x80000000,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v2/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // execute the requests
+    let observer = ProposalTestObserver::new();
+    let proposal_observer = Arc::clone(&observer.proposal_observer);
+
     let mut responses = rpc_test.run_with_observer(requests, Some(&observer));
 
     let response = responses.remove(0);
-    println!(
-        "Response:\n{}\n",
-        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    );
 
-    // let resp = response.decode_stacks_block_accepted().unwrap();
-    // assert_eq!(resp.accepted, true);
-    // assert_eq!(resp.stacks_block_id, stacks_block_id);
+    // Wait for the results to be non-empty
+    loop {
+        if proposal_observer
+            .lock()
+            .unwrap()
+            .results
+            .lock()
+            .unwrap()
+            .len()
+            < 3
+        {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        } else {
+            break;
+        }
+    }
 
-    // let response = responses.remove(0);
-    // debug!(
-    //     "Response:\n{}\n",
-    //     std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    // );
+    let observer = proposal_observer.lock().unwrap();
+    let mut results = observer.results.lock().unwrap();
 
-    // let resp = response.decode_stacks_block_accepted().unwrap();
-    // assert_eq!(resp.accepted, false);
-    // assert_eq!(resp.stacks_block_id, stacks_block_id);
+    let result = results.remove(0);
+    assert!(result.is_ok());
 
-    // let response = responses.remove(0);
-    // debug!(
-    //     "Response:\n{}\n",
-    //     std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    // );
+    let result = results.remove(0);
+    match result {
+        Ok(_) => panic!("expected error"),
+        Err(postblock_proposal::BlockValidateReject {
+            reason_code,
+            reason,
+            ..
+        }) => {
+            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
+            assert_eq!(reason, "Block timestamp is not greater than parent block");
+        }
+    }
 
-    // let (preamble, body) = response.destruct();
-    // assert_eq!(preamble.status_code, 404);
+    let result = results.remove(0);
+    match result {
+        Ok(_) => panic!("expected error"),
+        Err(postblock_proposal::BlockValidateReject {
+            reason_code,
+            reason,
+            ..
+        }) => {
+            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
+            assert_eq!(reason, "Block timestamp is too far into the future");
+        }
+    }
 }

@@ -108,6 +108,18 @@ pub struct BlockValidateRejectReason {
     pub reason_code: ValidateRejectCode,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BlockProposalResult {
+    Accepted,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockProposalResponse {
+    pub result: BlockProposalResult,
+    pub message: String,
+}
+
 impl<T> From<T> for BlockValidateRejectReason
 where
     T: Into<ChainError>,
@@ -321,12 +333,18 @@ impl NakamotoBlockProposal {
         let size = builder.get_bytes_so_far();
         let cost = builder.tenure_finish(tenure_tx)?;
 
+        println!("block header: {:?}", block.header);
+        println!("expected: {:?}", self.block.header);
+
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
         block.header.miner_signature = self.block.header.miner_signature.clone();
         block.header.signer_signature = self.block.header.signer_signature.clone();
 
-        // Assuming `tx_nerkle_root` has been checked we don't need to hash the whole block
+        // Clone the timestamp from the block proposal, which has already been validated
+        block.header.timestamp = self.block.header.timestamp;
+
+        // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
 
@@ -540,7 +558,9 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let response: BlockValidateResponse = parse_json(preamble, body)?;
+        let body_str = std::str::from_utf8(body)
+            .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))?;
+        let response: BlockProposalResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
     }
 }
