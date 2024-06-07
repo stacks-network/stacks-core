@@ -513,7 +513,7 @@ lazy_static! {
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_neighbors: 32,              // number of neighbors whose inventories we track
         num_clients: 750,               // number of inbound p2p connections
         soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
