@@ -14,10 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::{type_check, AnalysisDatabase, ContractAnalysis};
+use crate::vm::analysis::{
+    mem_type_check as mem_run_analysis, type_check, AnalysisDatabase, ContractAnalysis,
+};
 use crate::vm::ast::parse;
+use crate::vm::ClarityVersion;
 
 #[test]
 fn test_list_types_must_match() {
@@ -202,16 +207,85 @@ fn test_contract_call_expect_name() {
 #[test]
 fn test_no_such_block_info_property() {
     let snippet = "(get-block-info? unicorn 1)";
-    let err = mem_type_check(snippet).unwrap_err();
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity2, StacksEpochId::latest()).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of block unknown property 'unicorn'"));
+}
+
+#[test]
+fn test_no_such_stacks_block_info_property() {
+    let snippet = "(get-stacks-block-info? unicorn 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(
+        format!("{}", err.diagnostic).contains("use of unknown stacks block property 'unicorn'")
+    );
+}
+
+#[test]
+fn test_no_such_tenure_info_property() {
+    let snippet = "(get-tenure-info? unicorn 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(format!("{}", err.diagnostic).contains("use of unknown tenure property 'unicorn'"));
 }
 
 #[test]
 fn test_get_block_info_expect_property_name() {
     let snippet = "(get-block-info? 0 1)";
-    let err = mem_type_check(snippet).unwrap_err();
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity2, StacksEpochId::latest()).unwrap_err();
     assert!(format!("{}", err.diagnostic)
         .contains("missing property name for block info introspection"));
+}
+
+#[test]
+fn test_get_stacks_block_info_expect_property_name() {
+    let snippet = "(get-stacks-block-info? 0 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(format!("{}", err.diagnostic)
+        .contains("missing property name for stacks block info introspection"));
+}
+
+#[test]
+fn test_get_tenure_info_expect_property_name() {
+    let snippet = "(get-tenure-info? 0 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(format!("{}", err.diagnostic)
+        .contains("missing property name for tenure info introspection"));
+}
+
+#[test]
+fn test_no_such_block_info_height() {
+    let snippet = "(get-block-info? time 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity2, StacksEpochId::latest()).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(
+        format!("{}", err.diagnostic).contains("expecting expression of type 'uint', found 'int'")
+    );
+}
+
+#[test]
+fn test_no_such_stacks_block_info_height() {
+    let snippet = "(get-stacks-block-info? time 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(
+        format!("{}", err.diagnostic).contains("expecting expression of type 'uint', found 'int'")
+    );
+}
+
+#[test]
+fn test_no_such_tenure_info_height() {
+    let snippet = "(get-tenure-info? time 1)";
+    let err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
+    assert!(
+        format!("{}", err.diagnostic).contains("expecting expression of type 'uint', found 'int'")
+    );
 }
 
 #[test]

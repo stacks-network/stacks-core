@@ -42,10 +42,6 @@ impl ClarityVersion {
             StacksEpochId::Epoch30 => ClarityVersion::Clarity3,
         }
     }
-
-    pub fn uses_nakamoto_block_timestamp(&self) -> bool {
-        self >= &ClarityVersion::Clarity3
-    }
 }
 
 impl FromStr for ClarityVersion {

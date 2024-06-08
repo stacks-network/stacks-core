@@ -732,6 +732,22 @@ define_named_enum!(BurnBlockInfoProperty {
     PoxAddrs("pox-addrs"),
 });
 
+define_named_enum!(StacksBlockInfoProperty {
+    IdentityHeaderHash("id-header-hash"),
+    HeaderHash("header-hash"),
+    Time("time"),
+});
+
+define_named_enum!(TenureInfoProperty {
+    Time("time"),
+    VrfSeed("vrf-seed"),
+    BurnchainHeaderHash("burnchain-header-hash"),
+    MinerAddress("miner-address"),
+    MinerSpendWinner("miner-spend-winner"),
+    MinerSpendTotal("miner-spend-total"),
+    BlockReward("block-reward"),
+});
+
 impl OptionalData {
     pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let type_result = match self.data {
@@ -803,6 +819,27 @@ impl BurnBlockInfoProperty {
             .into(),
         };
         Ok(result)
+    }
+}
+
+impl StacksBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::StacksBlockInfoProperty::*;
+        match self {
+            Time => TypeSignature::UIntType,
+            IdentityHeaderHash | HeaderHash => BUFF_32.clone(),
+        }
+    }
+}
+
+impl TenureInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::TenureInfoProperty::*;
+        match self {
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
+            VrfSeed | BurnchainHeaderHash => BUFF_32.clone(),
+            MinerAddress => TypeSignature::PrincipalType,
+        }
     }
 }
 

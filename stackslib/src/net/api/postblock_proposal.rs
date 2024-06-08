@@ -558,8 +558,6 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let body_str = std::str::from_utf8(body)
-            .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))?;
         let response: BlockProposalResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
     }
