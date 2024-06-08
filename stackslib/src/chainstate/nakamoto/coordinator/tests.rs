@@ -22,6 +22,7 @@ use clarity::vm::Value;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::bitvec::BitVec;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
 };
@@ -29,12 +30,13 @@ use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::{Address, StacksEpoch, StacksEpochId};
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
@@ -52,9 +54,9 @@ use crate::chainstate::stacks::boot::test::{
 use crate::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
@@ -764,7 +766,10 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 }
 
 #[test]
-fn pox_treatment_1_tenure_10_blocks() {
+// TODO: DRY this up.
+//       Cover the "find addr" by checking the invalid block cases
+//        with the specific addresses set incorrectly.
+fn pox_treatment() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -774,7 +779,25 @@ fn pox_treatment_1_tenure_10_blocks() {
     )
     .unwrap();
 
-    let (mut test_signers, test_stackers) = TestStacker::big_signing_set();
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_address: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+        })
+        .collect::<Vec<_>>();
+    let mut test_signers = TestSigners::new(vec![signing_key]);
     let mut peer = boot_nakamoto_long_reward_sets(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -785,6 +808,8 @@ fn pox_treatment_1_tenure_10_blocks() {
     let mut blocks = vec![];
     let pox_constants = peer.sortdb().pox_constants.clone();
     let first_burn_height = peer.sortdb().first_block_height;
+    let recipient_addr =
+        StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
 
     // mine until we're at the start of the next reward phase (so we *know*
     //  that the reward set contains entries)
@@ -808,14 +833,11 @@ fn pox_treatment_1_tenure_10_blocks() {
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         // do a stx transfer in each block to a given recipient
-        let recipient_addr =
-            StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
-
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             tenure_change_tx,
             coinbase_tx,
             &mut test_signers,
-            |miner, chainstate, sortdb, blocks_so_far| {
+            |_miner, chainstate, sortdb, blocks_so_far| {
                 if blocks_so_far.len() < 1 {
                     info!("Produce nakamoto block {}", blocks_so_far.len());
 
@@ -846,9 +868,224 @@ fn pox_treatment_1_tenure_10_blocks() {
     // The next block should be the start of a reward phase, so the PoX recipient should
     //  be chosen.
     //
-    // First: perform a normal block commit, and then try to mine a block with a zero in the
+    // First: perform a normal block commit, and then try to mine a block with all zeros in the
     //        bitvector.
-    //
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (burn_height, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+    info!(
+        "Burnchain block produced: {burn_height}, in_prepare_phase?: {}, first_reward_block?: {}",
+        pox_constants.is_in_prepare_phase(first_burn_height, burn_height),
+        pox_constants.is_reward_cycle_start(first_burn_height, burn_height)
+    );
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+    let tenure_change_tx = peer
+        .miner
+        .make_nakamoto_tenure_change(tenure_change.clone());
+    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+    // do a stx transfer in each block to a given recipient
+    let mut blocks_and_sizes = peer.make_nakamoto_tenure_and(
+        tenure_change_tx.clone(),
+        coinbase_tx.clone(),
+        &mut test_signers,
+        |_miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() < 1 {
+                info!("Produce nakamoto block {}", blocks_so_far.len());
+
+                let account = get_account(chainstate, sortdb, &addr);
+                let stx_transfer = make_token_transfer(
+                    chainstate,
+                    sortdb,
+                    &private_key,
+                    account.nonce,
+                    100,
+                    1,
+                    &recipient_addr,
+                );
+
+                vec![stx_transfer]
+            } else {
+                vec![]
+            }
+        },
+        |block| {
+            block.header.signer_bitvec = BitVec::zeros(12).unwrap();
+            // don't try to process this block yet, just return it so that
+            //  we can assert the block error.
+            false
+        },
+    );
+    assert_eq!(blocks_and_sizes.len(), 1);
+    let invalid_block = blocks_and_sizes.pop().unwrap().0;
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
+    assert_eq!(
+        processing_result.to_string(),
+        "Bitvec does not match the block commit's PoX handling".to_string(),
+    );
+    assert!(matches!(
+        processing_result,
+        ChainstateError::InvalidStacksBlock(_),
+    ));
+
+    // set the bitvec to a heterogenous one: either punish or
+    //  reward is acceptable, so this block should just process.
+    let blocks_and_sizes = peer.make_nakamoto_tenure_and(
+        tenure_change_tx,
+        coinbase_tx,
+        &mut test_signers,
+        |_miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() < 1 {
+                info!("Produce nakamoto block {}", blocks_so_far.len());
+
+                let account = get_account(chainstate, sortdb, &addr);
+                let stx_transfer = make_token_transfer(
+                    chainstate,
+                    sortdb,
+                    &private_key,
+                    account.nonce,
+                    100,
+                    1,
+                    &recipient_addr,
+                );
+
+                vec![stx_transfer]
+            } else {
+                vec![]
+            }
+        },
+        |block| {
+            // each stacker has 3 entries in the bitvec.
+            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+            block.header.signer_bitvec = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+            true
+        },
+    );
+    blocks.extend(blocks_and_sizes.into_iter().map(|(block, _, _)| {
+        info!("Processed block: {}", block.block_id());
+        block
+    }));
+
+    // now we need to test punishment!
+    let (mut burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    burn_ops.iter_mut().for_each(|op| {
+        if let BlockstackOperationType::LeaderBlockCommit(ref mut commit) = op {
+            commit.commit_outs[0] = PoxAddress::standard_burn_address(false);
+        }
+    });
+    let (burn_height, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+    info!(
+        "Burnchain block produced: {burn_height}, in_prepare_phase?: {}, first_reward_block?: {}",
+        pox_constants.is_in_prepare_phase(first_burn_height, burn_height),
+        pox_constants.is_reward_cycle_start(first_burn_height, burn_height)
+    );
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+    let tenure_change_tx = peer
+        .miner
+        .make_nakamoto_tenure_change(tenure_change.clone());
+    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+    // do a stx transfer in each block to a given recipient
+    let mut blocks_and_sizes = peer.make_nakamoto_tenure_and(
+        tenure_change_tx.clone(),
+        coinbase_tx.clone(),
+        &mut test_signers,
+        |_miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() < 1 {
+                info!("Produce nakamoto block {}", blocks_so_far.len());
+
+                let account = get_account(chainstate, sortdb, &addr);
+                let stx_transfer = make_token_transfer(
+                    chainstate,
+                    sortdb,
+                    &private_key,
+                    account.nonce,
+                    100,
+                    1,
+                    &recipient_addr,
+                );
+
+                vec![stx_transfer]
+            } else {
+                vec![]
+            }
+        },
+        |block| {
+            block.header.signer_bitvec = BitVec::ones(12).unwrap();
+            // don't try to process this block yet, just return it so that
+            //  we can assert the block error.
+            false
+        },
+    );
+    assert_eq!(blocks_and_sizes.len(), 1);
+    let invalid_block = blocks_and_sizes.pop().unwrap().0;
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
+    assert_eq!(
+        processing_result.to_string(),
+        "Bitvec does not match the block commit's PoX handling".to_string(),
+    );
+    assert!(matches!(
+        processing_result,
+        ChainstateError::InvalidStacksBlock(_),
+    ));
+
+    // set the bitvec to a heterogenous one: either punish or
+    //  reward is acceptable, so this block should just process.
+    let blocks_and_sizes = peer.make_nakamoto_tenure_and(
+        tenure_change_tx,
+        coinbase_tx,
+        &mut test_signers,
+        |_miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() < 1 {
+                info!("Produce nakamoto block {}", blocks_so_far.len());
+
+                let account = get_account(chainstate, sortdb, &addr);
+                let stx_transfer = make_token_transfer(
+                    chainstate,
+                    sortdb,
+                    &private_key,
+                    account.nonce,
+                    100,
+                    1,
+                    &recipient_addr,
+                );
+
+                vec![stx_transfer]
+            } else {
+                vec![]
+            }
+        },
+        |block| {
+            // each stacker has 3 entries in the bitvec.
+            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+            block.header.signer_bitvec = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+            true
+        },
+    );
+    blocks.extend(blocks_and_sizes.into_iter().map(|(block, _, _)| block));
 
     let tip = {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
@@ -858,13 +1095,6 @@ fn pox_treatment_1_tenure_10_blocks() {
             .unwrap()
     };
 
-    assert_eq!(
-        tip.anchored_header
-            .as_stacks_nakamoto()
-            .unwrap()
-            .chain_length,
-        16
-    );
     assert_eq!(
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &blocks.last().unwrap().header
