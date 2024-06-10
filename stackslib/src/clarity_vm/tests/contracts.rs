@@ -1609,8 +1609,8 @@ fn test_block_heights_at_block() {
         assert_eq!(epoch, StacksEpochId::Epoch30);
 
         let contract =r#"
-            (define-private (test-tenure) (at-block (unwrap-panic (get-block-info? id-header-hash u0)) tenure-height))
-            (define-private (test-stacks) (at-block (unwrap-panic (get-block-info? id-header-hash u1)) stacks-block-height))
+            (define-private (test-tenure) (at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) tenure-height))
+            (define-private (test-stacks) (at-block (unwrap-panic (get-stacks-block-info? id-header-hash u1)) stacks-block-height))
             "#;
 
         conn.as_transaction(|clarity_db| {
