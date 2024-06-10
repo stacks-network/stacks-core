@@ -4368,9 +4368,13 @@ fn clarity_burn_state() {
         // Don't submit this tx on the first iteration, because the contract is not published yet.
         if tenure_ix > 0 {
             // Call the read-only function and see if we see the correct burn block height
-            let expected_height = Value::UInt(burn_block_height);
-            let arg = expected_height.serialize_to_hex().unwrap();
-            let result = call_read_only(&naka_conf, &sender_addr, contract_name, "foo", vec![&arg]);
+            let result = call_read_only(
+                &naka_conf,
+                &sender_addr,
+                contract_name,
+                "foo",
+                vec![&Value::UInt(burn_block_height)],
+            );
             result.expect_result_ok().expect("Read-only call failed");
 
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
@@ -4427,8 +4431,13 @@ fn clarity_burn_state() {
 
             // Call the read-only function and see if we see the correct burn block height
             let expected_height = Value::UInt(burn_block_height);
-            let arg = expected_height.serialize_to_hex().unwrap();
-            let result = call_read_only(&naka_conf, &sender_addr, contract_name, "foo", vec![&arg]);
+            let result = call_read_only(
+                &naka_conf,
+                &sender_addr,
+                contract_name,
+                "foo",
+                vec![&expected_height],
+            );
             info!("Read-only result: {:?}", result);
             result.expect_result_ok().expect("Read-only call failed");
 
@@ -4787,6 +4796,7 @@ fn signer_chainstate() {
         parent_block_id: last_tenure_header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
+        timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         signer_bitvec: BitVec::ones(1).unwrap(),
@@ -4817,6 +4827,7 @@ fn signer_chainstate() {
         parent_block_id: last_tenure_header.parent_block_id.clone(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
+        timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         signer_bitvec: BitVec::ones(1).unwrap(),
@@ -4867,6 +4878,7 @@ fn signer_chainstate() {
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
+        timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         signer_bitvec: BitVec::ones(1).unwrap(),
@@ -4925,6 +4937,7 @@ fn signer_chainstate() {
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
+        timestamp: reorg_to_block.header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         signer_bitvec: BitVec::ones(1).unwrap(),
@@ -5085,6 +5098,7 @@ fn check_block_times() {
         contract_clarity1,
     );
     sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx0);
 
     boot_to_epoch_3(
         &naka_conf,
@@ -5163,9 +5177,8 @@ fn check_block_times() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     println!("Chain info: {:?}", info);
-    let mut last_burn_block_height = info.burn_block_height as u128;
-    let mut last_stacks_block_height = info.stacks_tip_height as u128;
-    let mut last_tenure_height = last_stacks_block_height as u128;
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_tenure_height = last_stacks_block_height as u128;
 
     let time0_value = call_read_only(
         &naka_conf,
@@ -5260,9 +5273,8 @@ fn check_block_times() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     println!("Chain info: {:?}", info);
-    let mut last_burn_block_height = info.burn_block_height as u128;
-    let mut last_stacks_block_height = info.stacks_tip_height as u128;
-    let mut last_tenure_height = last_stacks_block_height as u128;
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_tenure_height = last_stacks_block_height as u128;
 
     let time0a_value = call_read_only(
         &naka_conf,
