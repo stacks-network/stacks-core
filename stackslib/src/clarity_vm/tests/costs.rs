@@ -168,8 +168,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff? u1)",
         FromConsensusBuff => "(from-consensus-buff? bool 0x03)",
         ReplaceAt => "(replace-at? list-bar u0 5)",
-        GetStacksBlockInfo => "(get-stacks-block-info? time u1)",
-        GetTenureInfo => "(get-tenure-info? time u1)",
+        GetStacksBlockInfo => "(get-block-info? time u1)",
+        GetTenureInfo => "(get-block-info? time u1)",
     }
 }
 
