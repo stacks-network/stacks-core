@@ -4132,6 +4132,9 @@ impl StacksChainState {
         Ok((applied, receipts))
     }
 
+    // TODO: add tests from mutation testing results #4856
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4237,6 +4240,8 @@ impl StacksChainState {
         all_receipts
     }
 
+    // TODO: add tests from mutation testing results #4857
+    #[cfg_attr(test, mutants::skip)]
     pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
         let signer_key = match op.signer_key {
             Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
@@ -6021,6 +6026,8 @@ impl StacksChainState {
         Ok(next_microblocks)
     }
 
+    // TODO: add tests from mutation testing results #4858
+    #[cfg_attr(test, mutants::skip)]
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a
@@ -10272,7 +10279,7 @@ pub mod test {
                     );
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -10524,7 +10531,7 @@ pub mod test {
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         &mut mempool,
                         &parent_tip,
                         tip.total_burn,
@@ -11080,7 +11087,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11245,7 +11252,7 @@ pub mod test {
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();
@@ -11403,7 +11410,7 @@ pub mod test {
 
                         let anchored_block = StacksBlockBuilder::build_anchored_block(
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             &mut mempool,
                             &parent_tip,
                             tip.total_burn,
@@ -11926,9 +11933,12 @@ pub mod test {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let iconn = sortdb
+            .index_handle_at_block(peer.chainstate(), &tip_hash)
+            .unwrap();
         let account = peer
             .chainstate()
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+            .with_read_only_clarity_tx(&iconn, &tip_hash, |conn| {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();

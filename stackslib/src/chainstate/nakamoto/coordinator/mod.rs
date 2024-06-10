@@ -28,7 +28,7 @@ use stacks_common::types::{StacksEpoch, StacksEpochId};
 
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainBlockHeader};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, SortitionDB};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::comm::{
@@ -42,7 +42,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
@@ -200,9 +200,13 @@ fn find_prepare_phase_sortitions(
     Ok(sns)
 }
 
-/// Try to get the reward cycle information for a Nakamoto reward cycle.
+/// Try to get the reward cycle information for a Nakamoto reward cycle, identified by the
+/// burn_height.  The reward cycle info returned will be from the reward cycle that is active as of
+/// `burn_height`.  `sortition_tip` can be any sortition ID that's at a higher height than
+/// `burn_height`.
+///
 /// In Nakamoto, the PoX anchor block for reward cycle _R_ is the _first_ Stacks block mined in the
-/// _last_ tenure of _R - 1_'s reward phase phase (i.e. which takes place toward the end of reward cycle).
+/// _last_ tenure of _R - 1_'s reward phase (i.e. which takes place toward the end of reward cycle).
 /// The reason it must be this way is because its hash will be in the block-commit for the first
 /// prepare-phase tenure of cycle _R_ (which is required for the PoX ancestry query in the
 /// block-commit validation logic).
@@ -210,14 +214,9 @@ fn find_prepare_phase_sortitions(
 /// If this method returns None, the caller should try again when there are more Stacks blocks.  In
 /// Nakamoto, every reward cycle _must_ have a PoX anchor block; otherwise, the chain halts.
 ///
-/// N.B. this method assumes that the prepare phase is comprised _solely_ of Nakamoto tenures.  It
-/// will not work if any of the prepare-phase tenures are from epoch 2.x.
-///
 /// Returns Ok(Some(reward-cycle-info)) if we found the first sortition in the prepare phase.
 /// Returns Ok(None) if we're still waiting for the PoX anchor block sortition
 /// Returns Err(Error::NotInPreparePhase) if `burn_height` is not in the prepare phase
-/// Returns Err(Error::RewardCycleAlreadyProcessed) if the reward set for this reward cycle has
-/// already been processed.
 pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     burn_height: u64,
     sortition_tip: &SortitionId,
@@ -235,15 +234,10 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         "FATAL: called a nakamoto function outside of epoch 3"
     );
 
-    if !burnchain.is_in_prepare_phase(burn_height) {
-        return Err(Error::NotInPreparePhase);
-    }
-
-    // calculating the reward set for the _next_ reward cycle
+    // calculating the reward set for the current reward cycle
     let reward_cycle = burnchain
-        .next_reward_cycle(burn_height)
+        .pox_reward_cycle(burn_height)
         .expect("FATAL: no reward cycle for burn height");
-    let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
     debug!("Processing reward set for Nakamoto reward cycle";
           "burn_height" => burn_height,
@@ -251,26 +245,155 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
           "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
           "prepare_phase_length" => burnchain.pox_constants.prepare_length);
 
+    let Some((rc_info, anchor_block_header)) = load_nakamoto_reward_set(
+        reward_cycle,
+        sortition_tip,
+        burnchain,
+        chain_state,
+        sort_db,
+        provider,
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let block_id = match anchor_block_header.anchored_header {
+        StacksBlockHeaderTypes::Epoch2(..) => anchor_block_header.index_block_hash(),
+        StacksBlockHeaderTypes::Nakamoto(ref header) => header.block_id(),
+    };
+
+    info!(
+        "Anchor block selected";
+        "cycle" => reward_cycle,
+        "block_id" => %block_id,
+        "consensus_hash" => %anchor_block_header.consensus_hash,
+        "burn_height" => anchor_block_header.burn_header_height,
+        "anchor_chain_tip" => %anchor_block_header.index_block_hash(),
+        "anchor_chain_tip_height" => %anchor_block_header.burn_header_height,
+    );
+
+    return Ok(Some(rc_info));
+}
+
+/// Helper to get the Nakamoto reward set for a given reward cycle, identified by `reward_cycle`.
+///
+/// In all but the first Nakamoto reward cycle, this will load up the stored reward set from the
+/// Nakamoto chain state.  In the first Nakamoto reward cycle, where the reward set is computed
+/// from epoch2 state, the reward set will be loaded from the sortition DB (which is the only place
+/// it will be stored).
+///
+/// Returns Ok(Some((reward set info, PoX anchor block header))) on success
+/// Returns Ok(None) if the reward set is not yet known, but could be known by the time a
+/// subsequent call is made.
+pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
+    reward_cycle: u64,
+    sortition_tip: &SortitionId,
+    burnchain: &Burnchain,
+    chain_state: &mut StacksChainState,
+    sort_db: &SortitionDB,
+    provider: &U,
+) -> Result<Option<(RewardCycleInfo, StacksHeaderInfo)>, Error> {
+    let prepare_end_height = burnchain
+        .reward_cycle_to_block_height(reward_cycle)
+        .saturating_sub(1);
+
+    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_end_height)?
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no epoch defined for burn height {}",
+                prepare_end_height
+            )
+        });
+
+    let Some(prepare_end_sortition_id) =
+        get_ancestor_sort_id(&sort_db.index_conn(), prepare_end_height, sortition_tip)?
+    else {
+        // reward cycle is too far in the future
+        warn!("Requested reward cycle start ancestor sortition ID for cycle {} prepare-end height {}, but tip is {}", reward_cycle, prepare_end_height, sortition_tip);
+        return Ok(None);
+    };
+
     // Find the first Stacks block in this reward cycle's preceding prepare phase.
     // This block will have invoked `.signers.stackerdb-set-signer-slots()` with the reward set.
     // Note that we may not have processed it yet. But, if we do find it, then it's
     // unique (and since Nakamoto Stacks blocks are processed in order, the anchor block
     // cannot change later).
-    let prepare_phase_sortitions =
-        find_prepare_phase_sortitions(sort_db, burnchain, sortition_tip)?;
+    let first_epoch30_reward_cycle = burnchain
+        .pox_reward_cycle(epoch_at_height.start_height)
+        .expect("FATAL: no reward cycle for epoch 3.0 start height");
 
-    // did we already calculate the reward cycle info?  If so, then return it.
-    let first_sortition_id = if let Some(first_sn) = prepare_phase_sortitions.first() {
-        if let Some(persisted_reward_cycle_info) =
-            SortitionDB::get_preprocessed_reward_set(sort_db.conn(), &first_sn.sortition_id)?
+    if !epoch_at_height
+        .epoch_id
+        .uses_nakamoto_reward_set(reward_cycle, first_epoch30_reward_cycle)
+    {
+        // in epoch 2.5, and in the first reward cycle of epoch 3.0, the reward set can *only* be found in the sortition DB.
+        // The nakamoto chain-processing rules aren't active yet, so we can't look for the reward
+        // cycle info in the nakamoto chain state.
+        if let Ok(persisted_reward_cycle_info) =
+            sort_db.get_preprocessed_reward_set_of(&prepare_end_sortition_id)
         {
-            return Ok(Some(persisted_reward_cycle_info));
+            if persisted_reward_cycle_info
+                .known_selected_anchor_block()
+                .is_none()
+            {
+                debug!("No reward set known yet for prepare phase";
+                       "sortition_tip" => %sortition_tip,
+                       "prepare_end_sortition_id" => %prepare_end_sortition_id);
+                return Ok(None);
+            }
+
+            // find the corresponding Stacks anchor block header
+            let Some((anchor_block_hash, _)) = persisted_reward_cycle_info.selected_anchor_block()
+            else {
+                // should be unreachable
+                error!("No anchor block known for persisted reward set";
+                       "sortition_tip" => %sortition_tip,
+                       "prepare_end_sortition_id" => %prepare_end_sortition_id);
+                return Ok(None);
+            };
+
+            let ic = sort_db.index_conn();
+            let Some(anchor_block_snapshot) =
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &prepare_end_sortition_id,
+                    anchor_block_hash,
+                )?
+            else {
+                // should be unreachable
+                error!("No ancestor block snapshot for anchor block";
+                       "anchor_block_hash" => %anchor_block_hash,
+                       "sortition_tip" => %sortition_tip,
+                       "prepare_end_sortition_id" => %prepare_end_sortition_id);
+
+                return Ok(None);
+            };
+
+            let Some(anchor_block_header) =
+                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                    chain_state.db(),
+                    &anchor_block_snapshot.consensus_hash,
+                )?
+            else {
+                // should be unreachable
+                error!("No block header for anchor block";
+                       "consensus_hash" => %anchor_block_snapshot.consensus_hash,
+                       "anchor_block_hash" => %anchor_block_hash);
+                return Ok(None);
+            };
+
+            debug!("Loaded reward set calculated in epoch 2.5 for reward cycle {} (which is in epoch {})", reward_cycle, epoch_at_height.epoch_id);
+            return Ok(Some((persisted_reward_cycle_info, anchor_block_header)));
         }
-        first_sn.sortition_id.clone()
-    } else {
-        // can't do anything
+
+        // no reward set known yet.  It's possible that it simply hasn't been processed yet.
+        debug!("No pre-processed PoX reward set known for pre-Nakamoto cycle {reward_cycle}");
         return Ok(None);
-    };
+    }
+
+    // find the reward cycle's prepare-phase sortitions (in the preceding reward cycle)
+    let prepare_phase_sortitions =
+        find_prepare_phase_sortitions(sort_db, burnchain, &prepare_end_sortition_id)?;
 
     // iterate over the prepare_phase_sortitions, finding the first such sortition
     //  with a processed stacks block
@@ -317,7 +440,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     .expect("FATAL: no snapshot for winning PoX anchor block");
 
     // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
-    // or PoX ancestry queries won't work
+    // or PoX ancestry queries won't work.
     let (block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(ref header) => (
             StacksBlockId::new(&anchor_block_header.consensus_hash, &header.block_hash()),
@@ -330,19 +453,16 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
     let txid = anchor_block_sn.winning_block_txid;
 
-    info!(
-        "Anchor block selected";
-        "cycle" => reward_cycle,
-        "block_id" => %block_id,
-        "consensus_hash" => %anchor_block_header.consensus_hash,
-        "burn_height" => anchor_block_header.burn_header_height,
-        "anchor_chain_tip" => %anchor_block_header.index_block_hash(),
-        "anchor_chain_tip_height" => %anchor_block_header.burn_header_height,
-        "first_prepare_sortition_id" => %first_sortition_id
-    );
+    test_debug!("Stacks anchor block found";
+           "block_id" => %block_id,
+           "block_hash" => %stacks_block_hash,
+           "consensus_hash" => %anchor_block_sn.consensus_hash,
+           "txid" => %txid,
+           "prepare_end_height" => %prepare_end_height,
+           "burnchain_height" => %anchor_block_sn.block_height);
 
     let reward_set = provider.get_reward_set_nakamoto(
-        reward_start_height,
+        prepare_end_height.saturating_sub(1),
         chain_state,
         burnchain,
         sort_db,
@@ -358,13 +478,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         reward_cycle,
         anchor_status,
     };
-
-    // persist this
-    let mut tx = sort_db.tx_begin()?;
-    SortitionDB::store_preprocessed_reward_set(&mut tx, &first_sortition_id, &rc_info)?;
-    tx.commit()?;
-
-    return Ok(Some(rc_info));
+    Ok(Some((rc_info, anchor_block_header)))
 }
 
 /// Get the next PoX recipients in the Nakamoto epoch.
@@ -375,39 +489,28 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 pub fn get_nakamoto_next_recipients(
     sortition_tip: &BlockSnapshot,
     sort_db: &mut SortitionDB,
+    chain_state: &mut StacksChainState,
     burnchain: &Burnchain,
 ) -> Result<Option<RewardSetInfo>, Error> {
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(sortition_tip.block_height + 1) {
-        // load up new reward cycle info so we can start using *that*
-        let prepare_phase_sortitions =
-            find_prepare_phase_sortitions(sort_db, burnchain, &sortition_tip.parent_sortition_id)?;
-
-        // NOTE: this must panic because Nakamoto's first reward cycle has stackers
-        let first_sn = prepare_phase_sortitions
-            .first()
-            .expect("FATAL: unreachable: no prepare-phase sortitions at start of reward cycle");
-
-        debug!("Get pre-processed reward set";
-               "sortition_id" => %first_sn.sortition_id);
-
-        // NOTE: don't panic here. The only caller of this method is a stacks-node miner,
-        //  and they *may* have invoked this before they've processed the prepare phase.
-        //  That's recoverable by simply waiting to mine until they've processed those
-        //   blocks.
-        let reward_set =
-            SortitionDB::get_preprocessed_reward_set(sort_db.conn(), &first_sn.sortition_id)?
-                .ok_or_else(|| {
-                    warn!(
-                        "No preprocessed reward set found";
-                        "reward_cycle_start" => sortition_tip.block_height + 1,
-                        "first_prepare_sortition_id" => %first_sn.sortition_id
-                    );
-                    Error::PoXNotProcessedYet
-                })?;
-        Some(reward_set)
-    } else {
-        None
-    };
+    let reward_cycle_info =
+        if burnchain.is_reward_cycle_start(sortition_tip.block_height.saturating_add(1)) {
+            let Some((reward_set, _)) = load_nakamoto_reward_set(
+                burnchain
+                    .pox_reward_cycle(sortition_tip.block_height.saturating_add(1))
+                    .expect("Sortition block height has no reward cycle"),
+                &sortition_tip.sortition_id,
+                burnchain,
+                chain_state,
+                sort_db,
+                &OnChainRewardSetProvider::new(),
+            )?
+            else {
+                return Ok(None);
+            };
+            Some(reward_set)
+        } else {
+            None
+        };
     sort_db
         .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
         .map_err(Error::from)
@@ -465,9 +568,20 @@ impl<
             .expect("FATAL: epoch3 block height has no reward cycle");
 
         // only proceed if we have processed the _anchor block_ for this reward cycle
-        let handle_conn = self.sortition_db.index_handle(&canonical_sortition_tip);
-        let last_processed_rc = handle_conn.get_last_processed_reward_cycle()?;
-        Ok(last_processed_rc >= first_epoch3_reward_cycle)
+        let Some((rc_info, _)) = load_nakamoto_reward_set(
+            self.burnchain
+                .pox_reward_cycle(canonical_sn.block_height)
+                .expect("FATAL: snapshot has no reward cycle"),
+            &canonical_sn.sortition_id,
+            &self.burnchain,
+            &mut self.chain_state_db,
+            &self.sortition_db,
+            &OnChainRewardSetProvider::new(),
+        )?
+        else {
+            return Ok(false);
+        };
+        Ok(rc_info.reward_cycle >= first_epoch3_reward_cycle)
     }
 
     /// This is the main loop body for the coordinator in epoch 3.
@@ -573,13 +687,10 @@ impl<
 
         loop {
             // process at most one block per loop pass
-            let mut sortdb_handle = self
-                .sortition_db
-                .tx_handle_begin(&canonical_sortition_tip)?;
-
             let mut processed_block_receipt = match NakamotoChainState::process_next_nakamoto_block(
                 &mut self.chain_state_db,
-                &mut sortdb_handle,
+                &mut self.sortition_db,
+                &canonical_sortition_tip,
                 self.dispatcher,
             ) {
                 Ok(receipt_opt) => receipt_opt,
@@ -605,8 +716,6 @@ impl<
                     return Err(e.into());
                 }
             };
-
-            sortdb_handle.commit()?;
 
             let Some(block_receipt) = processed_block_receipt.take() else {
                 // out of blocks
@@ -707,8 +816,26 @@ impl<
                 });
 
             let last_processed_reward_cycle = {
-                let ic = self.sortition_db.index_handle(&canonical_sortition_tip);
-                ic.get_last_processed_reward_cycle()?
+                let canonical_sn = SortitionDB::get_block_snapshot(
+                    &self.sortition_db.conn(),
+                    &canonical_sortition_tip,
+                )?
+                .ok_or(DBError::NotFoundError)?;
+                let Some((rc_info, _)) = load_nakamoto_reward_set(
+                    self.burnchain
+                        .pox_reward_cycle(canonical_sn.block_height)
+                        .expect("FATAL: snapshot has no reward cycle"),
+                    &canonical_sn.sortition_id,
+                    &self.burnchain,
+                    &mut self.chain_state_db,
+                    &self.sortition_db,
+                    &OnChainRewardSetProvider::new(),
+                )?
+                else {
+                    // no anchor block yet, so try processing another block
+                    continue;
+                };
+                rc_info.reward_cycle
             };
 
             if last_processed_reward_cycle > current_reward_cycle {
@@ -856,42 +983,22 @@ impl<
                 }
             };
 
-            if self.burnchain.is_in_prepare_phase(header.block_height) {
-                // try to eagerly load up the reward cycle information, so we can persist it and
-                // make it available to signers.  If we're at the _end_ of the prepare phase, then
-                // we have no choice but to block.
-                let reward_cycle_info = self.get_nakamoto_reward_cycle_info(header.block_height)?;
-                if let Some(rc_info) = reward_cycle_info {
-                    // in nakamoto, if we have any reward cycle info at all, it will be known.
-                    assert!(
-                        rc_info.known_selected_anchor_block().is_some(),
-                        "FATAL: unknown PoX anchor block in Nakamoto"
-                    );
-                }
-            }
-
             let reward_cycle_info = if self.burnchain.is_reward_cycle_start(header.block_height) {
                 // we're at the end of the prepare phase, so we'd better have obtained the reward
                 // cycle info of we must block.
-                // N.B. it's `- 2` because `is_reward_cycle_start` implies that `block_height % reward_cycle_length == 1`,
-                // but this call needs `block_height % reward_cycle_length == reward_cycle_length - 1` -- i.e. `block_height`
-                // must be the last block height in the last reward cycle.
-                let end_cycle_block_height = header.block_height.saturating_sub(2);
-                let reward_cycle_info =
-                    self.get_nakamoto_reward_cycle_info(end_cycle_block_height)?;
+                let reward_cycle_info = self.get_nakamoto_reward_cycle_info(header.block_height)?;
                 if let Some(rc_info) = reward_cycle_info.as_ref() {
                     // in nakamoto, if we have any reward cycle info at all, it will be known.
                     // otherwise, we may have to process some more Stacks blocks
                     if rc_info.known_selected_anchor_block().is_none() {
-                        warn!("Unknown PoX anchor block in Nakamoto (at height {}). Refusing to process more burnchain blocks until that changes.", end_cycle_block_height);
+                        warn!("Unknown PoX anchor block in Nakamoto (at height {}). Refusing to process more burnchain blocks until that changes.", header.block_height);
                         return Ok(false);
                     }
                 } else {
                     // have to block -- we don't have the reward cycle information
                     debug!("Do not yet have PoX anchor block for next reward cycle -- no anchor block found";
                            "next_reward_cycle" => self.burnchain.block_height_to_reward_cycle(header.block_height),
-                           "reward_cycle_end" => end_cycle_block_height
-                    );
+                           "block_height" => header.block_height);
                     return Ok(false);
                 }
                 reward_cycle_info

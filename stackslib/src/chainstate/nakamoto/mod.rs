@@ -41,7 +41,7 @@ use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -228,6 +228,13 @@ lazy_static! {
     "#.into(),
     r#"
     UPDATE db_config SET version = "5";
+    "#.into(),
+        // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
+        // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
+        // nakamoto blocks have not been produced yet.
+    r#"
+    ALTER TABLE nakamoto_block_headers
+    ADD COLUMN burn_view TEXT;
     "#.into(),
     ];
 }
@@ -1387,16 +1394,21 @@ impl NakamotoChainState {
     /// If there exists a ready Nakamoto block, then this method returns Ok(Some(..)) with the
     /// receipt.  Otherwise, it returns Ok(None).
     ///
+    /// Canonical sortition tip is a pointer to the current canonical sortition tip.
+    ///  this is used to store block processed information in the sortition db.
+    ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
     pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
         stacks_chain_state: &mut StacksChainState,
-        sort_tx: &mut SortitionHandleTx,
+        sort_db: &mut SortitionDB,
+        canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
-        let Some((next_ready_block, block_size)) =
-            nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db(), sort_tx)?
+        let sortition_handle = sort_db.index_handle(canonical_sortition_tip);
+        let Some((next_ready_block, block_size)) = nakamoto_blocks_db
+            .next_ready_nakamoto_block(stacks_chain_state.db(), &sortition_handle)?
         else {
             // no more blocks
             test_debug!("No more Nakamoto blocks to process");
@@ -1407,7 +1419,7 @@ impl NakamotoChainState {
 
         // find corresponding snapshot
         let next_ready_block_snapshot = SortitionDB::get_block_snapshot_consensus(
-            sort_tx,
+            sort_db.conn(),
             &next_ready_block.header.consensus_hash,
         )?
         .unwrap_or_else(|| {
@@ -1458,6 +1470,84 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
 
+        // set the sortition handle's pointer to the block's burnchain view.
+        //   this is either:
+        //    (1)  set by the tenure change tx if one exists
+        //    (2)  the same as parent block id
+
+        let burnchain_view = if let Some(tenure_change) = next_ready_block.get_tenure_tx_payload() {
+            if let Some(ref parent_burn_view) = parent_header_info.burn_view {
+                // check that the tenure_change's burn view descends from the parent
+                let parent_burn_view_sn = SortitionDB::get_block_snapshot_consensus(
+                    sort_db.conn(),
+                    parent_burn_view,
+                )?
+                .ok_or_else(|| {
+                    warn!(
+                        "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                        "consensus_hash" => %next_ready_block.header.consensus_hash,
+                        "block_hash" => %next_ready_block.header.block_hash(),
+                        "block_id" => %next_ready_block.block_id(),
+                        "parent_block_id" => %next_ready_block.header.parent_block_id
+                    );
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                })?;
+                let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
+                let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
+                    .ok_or_else(|| {
+                        warn!(
+                            "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                            "consensus_hash" => %next_ready_block.header.consensus_hash,
+                            "block_hash" => %next_ready_block.header.block_hash(),
+                            "block_id" => %next_ready_block.block_id(),
+                            "parent_block_id" => %next_ready_block.header.parent_block_id
+                        );
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                    })?;
+                if connected_sort_id != parent_burn_view_sn.sortition_id {
+                    warn!(
+                            "Cannot process Nakamoto block: parent block's burnchain view does not connect to own burn view";
+                            "consensus_hash" => %next_ready_block.header.consensus_hash,
+                            "block_hash" => %next_ready_block.header.block_hash(),
+                            "block_id" => %next_ready_block.block_id(),
+                            "parent_block_id" => %next_ready_block.header.parent_block_id
+                    );
+                    return Err(ChainstateError::InvalidStacksBlock(
+                        "Does not connect to burn view of parent block ID".into(),
+                    ));
+                }
+            }
+            tenure_change.burn_view_consensus_hash
+        } else {
+            parent_header_info.burn_view.clone().ok_or_else(|| {
+                warn!(
+                    "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
+                    "consensus_hash" => %next_ready_block.header.consensus_hash,
+                    "block_hash" => %next_ready_block.header.block_hash(),
+                    "block_id" => %next_ready_block.block_id(),
+                    "parent_block_id" => %next_ready_block.header.parent_block_id
+                );
+                ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
+            })?
+        };
+        let Some(burnchain_view_sn) =
+            SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
+        else {
+            // This should be checked already during block acceptance and parent block processing
+            //   - The check for expected burns returns `NoSuchBlockError` if the burnchain view
+            //      could not be found for a block with a tenure tx.
+            // We error here anyways, but the check during block acceptance makes sure that the staging
+            //  db doesn't get into a situation where it continuously tries to retry such a block (because
+            //  such a block shouldn't land in the staging db).
+            warn!(
+                "Cannot process Nakamoto block: failed to find Sortition ID associated with burnchain view";
+                "consensus_hash" => %next_ready_block.header.consensus_hash,
+                "block_hash" => %next_ready_block.header.block_hash(),
+                "burn_view_consensus_hash" => %burnchain_view,
+            );
+            return Ok(None);
+        };
+
         // find commit and sortition burns if this is a tenure-start block
         let Ok(new_tenure) = next_ready_block.is_wellformed_tenure_start_block() else {
             return Err(ChainstateError::InvalidStacksBlock(
@@ -1467,24 +1557,22 @@ impl NakamotoChainState {
 
         let (commit_burn, sortition_burn) = if new_tenure {
             // find block-commit to get commit-burn
-            let block_commit = sort_tx
-                .get_block_commit(
-                    &next_ready_block_snapshot.winning_block_txid,
-                    &next_ready_block_snapshot.sortition_id,
-                )?
-                .expect("FATAL: no block-commit for tenure-start block");
+            let block_commit = SortitionDB::get_block_commit(
+                sort_db.conn(),
+                &next_ready_block_snapshot.winning_block_txid,
+                &next_ready_block_snapshot.sortition_id,
+            )?
+            .expect("FATAL: no block-commit for tenure-start block");
 
-            let sort_burn = SortitionDB::get_block_burn_amount(
-                sort_tx.deref().deref(),
-                &next_ready_block_snapshot,
-            )?;
+            let sort_burn =
+                SortitionDB::get_block_burn_amount(sort_db.conn(), &next_ready_block_snapshot)?;
             (block_commit.burn_fee, sort_burn)
         } else {
             (0, 0)
         };
 
         // attach the block to the chain state and calculate the next chain tip.
-        let pox_constants = sort_tx.context.pox_constants.clone();
+        let pox_constants = sort_db.pox_constants.clone();
 
         // NOTE: because block status is updated in a separate transaction, we need `chainstate_tx`
         // and `clarity_instance` to go out of scope before we can issue the it (since we need a
@@ -1495,10 +1583,13 @@ impl NakamotoChainState {
         // though it will always be None), which gets the borrow-checker to believe that it's safe
         // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
         // simply commit the block before beginning the second transaction to mark it processed.
+
+        let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
         let (ok_opt, err_opt) = match NakamotoChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
-            sort_tx,
+            &mut burn_view_handle,
+            &burnchain_view,
             &pox_constants,
             &parent_header_info,
             &next_ready_block_snapshot.burn_header_hash,
@@ -1550,6 +1641,7 @@ impl NakamotoChainState {
         );
 
         // set stacks block accepted
+        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
             &next_ready_block.header.consensus_hash,
             &next_ready_block.header.block_hash(),
@@ -1601,6 +1693,14 @@ impl NakamotoChainState {
             );
         }
 
+        sort_tx
+            .commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
+
         Ok(Some(receipt))
     }
 
@@ -1617,7 +1717,7 @@ impl NakamotoChainState {
     /// however, will flag a block as invalid in this case, because the parent must be available in
     /// order to process a block.
     pub(crate) fn get_expected_burns<SH: SortitionHandle>(
-        sort_handle: &mut SH,
+        sort_handle: &SH,
         chainstate_conn: &Connection,
         block: &NakamotoBlock,
     ) -> Result<Option<u64>, ChainstateError> {
@@ -2308,6 +2408,15 @@ impl NakamotoChainState {
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
             &header.signer_bitvec,
+            tip_info.burn_view.as_ref().ok_or_else(|| {
+                error!(
+                    "Attempted to store nakamoto block header information without burnchain view";
+                    "block_id" => %index_block_hash,
+                );
+                ChainstateError::DBError(DBError::Other(
+                    "Nakamoto block StacksHeaderInfo did not set burnchain view".into(),
+                ))
+            })?,
         ];
 
         chainstate_tx.execute(
@@ -2329,7 +2438,8 @@ impl NakamotoChainState {
                      parent_block_id,
                      tenure_changed,
                      vrf_proof,
-                     signer_bitvec
+                     signer_bitvec,
+                     burn_view
                     )
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             args
@@ -2361,6 +2471,7 @@ impl NakamotoChainState {
         burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
         new_tenure: bool,
         block_fees: u128,
+        burn_view: &ConsensusHash,
     ) -> Result<StacksHeaderInfo, ChainstateError> {
         if new_tip.parent_block_id
             != StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
@@ -2408,6 +2519,7 @@ impl NakamotoChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: block_size,
+            burn_view: Some(burn_view.clone()),
         };
 
         let tenure_fees = block_fees
@@ -2731,6 +2843,12 @@ impl NakamotoChainState {
                 &mut clarity_tx,
                 vote_for_agg_key_ops.clone(),
             ));
+
+            if signer_set_calc.is_some() {
+                debug!("Setup block: computed reward set for the next reward cycle";
+                       "anchor_block_height" => coinbase_height,
+                       "burn_header_height" => burn_header_height);
+            }
         } else {
             signer_set_calc = None;
         }
@@ -2791,7 +2909,8 @@ impl NakamotoChainState {
     fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &mut SortitionHandleTx,
+        burn_dbconn: &mut SortitionHandleConn,
+        burnchain_view: &ConsensusHash,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -2941,18 +3060,18 @@ impl NakamotoChainState {
         // (note that we can't check this earlier, since we need the parent tenure to have been
         // processed)
         if new_tenure && parent_chain_tip.is_nakamoto_block() && !block.is_first_mined() {
-            let tenure_block_commit = burn_dbconn
-                .get_block_commit(
-                    &tenure_block_snapshot.winning_block_txid,
-                    &tenure_block_snapshot.sortition_id,
-                )?
-                .ok_or_else(|| {
-                    warn!("Invalid Nakamoto block: has no block-commit in its sortition";
+            let tenure_block_commit = SortitionDB::get_block_commit(
+                burn_dbconn.conn(),
+                &tenure_block_snapshot.winning_block_txid,
+                &tenure_block_snapshot.sortition_id,
+            )?
+            .ok_or_else(|| {
+                warn!("Invalid Nakamoto block: has no block-commit in its sortition";
                           "block_id" => %block.header.block_id(),
                           "sortition_id" => %tenure_block_snapshot.sortition_id,
                           "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
-                    ChainstateError::NoSuchBlockError
-                })?;
+                ChainstateError::NoSuchBlockError
+            })?;
 
             let parent_tenure_start_header =
                 Self::get_nakamoto_tenure_start_block_header(chainstate_tx.tx(), &parent_ch)?
@@ -3197,6 +3316,7 @@ impl NakamotoChainState {
             burn_vote_for_aggregate_key_ops,
             new_tenure,
             block_fees,
+            burnchain_view,
         )
         .expect("FATAL: failed to advance chain tip");
 

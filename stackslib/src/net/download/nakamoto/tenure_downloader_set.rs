@@ -62,7 +62,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -419,7 +419,7 @@ impl NakamotoTenureDownloaderSet {
         available: &mut HashMap<ConsensusHash, Vec<NeighborAddress>>,
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
         count: usize,
-        current_reward_cycles: &BTreeMap<u64, RewardCycleInfo>,
+        current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
     ) {
         test_debug!("schedule: {:?}", schedule);
         test_debug!("available: {:?}", &available);
@@ -482,7 +482,7 @@ impl NakamotoTenureDownloaderSet {
             };
             let Some(Some(start_reward_set)) = current_reward_cycles
                 .get(&tenure_info.start_reward_cycle)
-                .map(|cycle_info| cycle_info.known_selected_anchor_block())
+                .map(|cycle_info| cycle_info.reward_set())
             else {
                 test_debug!(
                     "Cannot fetch tenure-start block due to no known start reward set for cycle {}: {:?}",
@@ -494,7 +494,7 @@ impl NakamotoTenureDownloaderSet {
             };
             let Some(Some(end_reward_set)) = current_reward_cycles
                 .get(&tenure_info.end_reward_cycle)
-                .map(|cycle_info| cycle_info.known_selected_anchor_block())
+                .map(|cycle_info| cycle_info.reward_set())
             else {
                 test_debug!(
                     "Cannot fetch tenure-end block due to no known end reward set for cycle {}: {:?}",

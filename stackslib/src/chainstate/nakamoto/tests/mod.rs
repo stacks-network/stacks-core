@@ -208,9 +208,12 @@ pub fn get_account(
         &tip
     );
 
+    let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)
+        .unwrap()
+        .unwrap();
     chainstate
         .with_read_only_clarity_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle(&snapshot.sortition_id),
             &tip.index_block_hash(),
             |clarity_conn| {
                 StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
@@ -761,6 +764,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 100,
         burn_header_timestamp: 1000,
         anchored_block_size: 12345,
+        burn_view: None,
     };
 
     let epoch2_execution_cost = ExecutionCost {
@@ -867,6 +871,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header.consensus_hash),
     };
 
     let epoch2_block = StacksBlock {
@@ -912,6 +917,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_2.consensus_hash),
     };
 
     let nakamoto_block_2 = NakamotoBlock {
@@ -952,6 +958,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_3.consensus_hash),
     };
 
     let nakamoto_block_3 = NakamotoBlock {

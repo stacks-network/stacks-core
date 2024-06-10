@@ -36,7 +36,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
@@ -218,8 +218,8 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let burn_dbconn = sortdb.index_conn();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;

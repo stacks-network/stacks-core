@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::thread::JoinHandle;
 use std::{env, thread, time};
 
-use clarity::vm::database::BurnStateDB;
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;

@@ -91,6 +91,7 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
 
+#[cfg_attr(test, mutants::skip)]
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -641,7 +642,7 @@ simulating a miner.
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &sort_db.index_conn(),
+            &sort_db.index_handle(&chain_tip.sortition_id),
             &mut mempool_db,
             &parent_header,
             chain_tip.total_burn,
@@ -1179,7 +1180,7 @@ simulating a miner.
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
                 p2p_chainstate
-                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_conn())
+                    .refresh_unconfirmed_state(&p2p_new_sortition_db.index_handle_at_tip())
                     .expect("Failed to open unconfirmed Clarity state");
 
                 sleep_ms(100);
@@ -1332,6 +1333,7 @@ simulating a miner.
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 fn tip_mine() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {
@@ -1522,7 +1524,7 @@ simulating a miner.
 
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
-        &sort_db.index_conn(),
+        &sort_db.index_handle_at_tip(),
         &mut mempool_db,
         &parent_header,
         chain_tip.total_burn,

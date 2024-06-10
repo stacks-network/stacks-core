@@ -157,6 +157,35 @@ impl StacksEpochId {
     pub fn has_block_timestamps(&self) -> bool {
         self >= &StacksEpochId::Epoch30
     }
+
+    /// Returns whether or not this epoch uses the tip for reading burn block
+    /// info in Clarity (3.0+ behavior) or should use the parent block's burn
+    /// block (behavior before 3.0).
+    pub fn clarity_uses_tip_burn_block(&self) -> bool {
+        self >= &StacksEpochId::Epoch30
+    }
+
+    /// Does this epoch use the nakamoto reward set, or the epoch2 reward set?
+    /// We use the epoch2 reward set in all pre-3.0 epochs.
+    /// We also use the epoch2 reward set in the first 3.0 reward cycle.
+    /// After that, we use the nakamoto reward set.
+    pub fn uses_nakamoto_reward_set(
+        &self,
+        cur_reward_cycle: u64,
+        first_epoch30_reward_cycle: u64,
+    ) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => false,
+            StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

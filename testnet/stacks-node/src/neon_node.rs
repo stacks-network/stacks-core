@@ -727,7 +727,7 @@ impl MicroblockMinerThread {
                 .unwrap_or(0)
         );
 
-        let burn_height =
+        let block_snapshot =
             SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &self.parent_consensus_hash)
                 .map_err(|e| {
                     error!("Failed to find block snapshot for mined block: {}", e);
@@ -736,8 +736,8 @@ impl MicroblockMinerThread {
                 .ok_or_else(|| {
                     error!("Failed to find block snapshot for mined block");
                     ChainstateError::NoSuchBlockError
-                })?
-                .block_height;
+                })?;
+        let burn_height = block_snapshot.block_height;
 
         let ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), burn_height).map_err(|e| {
             error!("Failed to get AST rules for microblock: {}", e);
@@ -753,7 +753,10 @@ impl MicroblockMinerThread {
             .epoch_id;
 
         let mint_result = {
-            let ic = sortdb.index_conn();
+            let ic = sortdb.index_handle_at_block(
+                &chainstate,
+                &block_snapshot.get_canonical_stacks_block_id(),
+            )?;
             let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
                 chainstate,
                 &ic,
@@ -1507,6 +1510,8 @@ impl BlockMinerThread {
         Some((*best_tip).clone())
     }
 
+    // TODO: add tests from mutation testing results #4870
+    #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
@@ -2222,6 +2227,8 @@ impl BlockMinerThread {
         return false;
     }
 
+    // TODO: add tests from mutation testing results #4871
+    #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
@@ -2352,7 +2359,7 @@ impl BlockMinerThread {
         }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &burn_db.index_conn(),
+            &burn_db.index_handle(&burn_tip.sortition_id),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
@@ -2382,7 +2389,7 @@ impl BlockMinerThread {
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
                     &chain_state,
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle(&burn_tip.sortition_id),
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
@@ -2727,6 +2734,7 @@ impl RelayerThread {
                 .process_network_result(
                     &relayer_thread.local_peer,
                     &mut net_result,
+                    &relayer_thread.burnchain,
                     sortdb,
                     chainstate,
                     mempool,
@@ -3096,6 +3104,8 @@ impl RelayerThread {
         (true, miner_tip)
     }
 
+    // TODO: add tests from mutation testing results #4872
+    #[cfg_attr(test, mutants::skip)]
     /// Process all new tenures that we're aware of.
     /// Clear out stale tenure artifacts as well.
     /// Update the miner tip if we won the highest tenure (or clear it if we didn't).
@@ -3569,6 +3579,8 @@ impl RelayerThread {
         true
     }
 
+    // TODO: add tests from mutation testing results #4872
+    #[cfg_attr(test, mutants::skip)]
     /// See if we should run a microblock tenure now.
     /// Return true if so; false if not
     fn can_run_microblock_tenure(&mut self) -> bool {
@@ -4066,7 +4078,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_conn(),
+                    &burn_db.index_handle(&burn_chain_tip.sortition_id),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

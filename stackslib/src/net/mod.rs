@@ -2757,6 +2757,7 @@ pub mod test {
             let receipts_res = self.relayer.process_network_result(
                 self.network.get_local_peer(),
                 &mut net_result,
+                &self.network.burnchain,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
@@ -3533,7 +3534,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle(&tip.sortition_id),
                             block_txs,
                         )
                         .unwrap();
@@ -3744,7 +3745,7 @@ pub mod test {
                 |mut builder, ref mut miner, ref sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
-                    let sort_iconn = sortdb.index_conn();
+                    let sort_iconn = sortdb.index_handle_at_tip();
 
                     let mut miner_epoch_info = builder
                         .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
@@ -3885,29 +3886,12 @@ pub mod test {
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.
-        /// For now, it's sufficient to check that the `get_last_processed_reward_cycle()` calculation
-        /// works the same across both the original and migration-compatible implementations.
         pub fn check_nakamoto_migration(&mut self) {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let chainstate = &mut node.chainstate;
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            for height in 0..=tip.block_height {
-                let sns =
-                    SortitionDB::get_all_snapshots_by_burn_height(sortdb.conn(), height).unwrap();
-                for sn in sns {
-                    let ih = sortdb.index_handle(&sn.sortition_id);
-                    let highest_processed_rc = ih.get_last_processed_reward_cycle().unwrap();
-                    let expected_highest_processed_rc =
-                        ih.legacy_get_last_processed_reward_cycle().unwrap();
-                    assert_eq!(
-                        highest_processed_rc, expected_highest_processed_rc,
-                        "BUG: at burn height {} the highest-processed reward cycles diverge",
-                        height
-                    );
-                }
-            }
             let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
             let epoch_3_idx =
                 StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();

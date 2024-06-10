@@ -2843,6 +2843,14 @@ mod test {
     const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
     impl BurnStateDB for DocBurnStateDB {
+        fn get_tip_burn_block_height(&self) -> Option<u32> {
+            Some(0x9abc)
+        }
+
+        fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+            Some(SortitionId([0u8; 32]))
+        }
+
         fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
             Some(5678)
         }

@@ -43,8 +43,6 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
 use stacks_common::util::{get_epoch_time_secs, log};
-use wsts::common::Signature as WSTSSignature;
-use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -67,10 +65,10 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
-use crate::chainstate::nakamoto::NakamotoBlockHeader;
+use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::{
@@ -1860,80 +1858,6 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
-    /// Does the sortition db expect to receive blocks
-    /// signed by this signer set?
-    ///
-    /// This only works if `consensus_hash` is within two reward cycles (4200 blocks) of the
-    /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
-    /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
-    /// Signer keys can be used to blast out lots of Nakamoto blocks that will be accepted
-    /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
-    /// `self.context.chain_tip`, or the previous, but no earlier.
-    pub fn expects_signer_signature(
-        &self,
-        consensus_hash: &ConsensusHash,
-        signer_signature: &WSTSSignature,
-        message: &[u8],
-        aggregate_public_key: &Point,
-    ) -> Result<bool, db_error> {
-        let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
-            .ok_or(db_error::NotFoundError)
-            .map_err(|e| {
-                warn!("No sortition for tip: {:?}", &self.context.chain_tip);
-                e
-            })?;
-
-        let ch_sn = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
-            .ok_or(db_error::NotFoundError)
-            .map_err(|e| {
-                warn!("No sortition for consensus hash: {:?}", consensus_hash);
-                e
-            })?;
-
-        if ch_sn.block_height
-            + u64::from(self.context.pox_constants.reward_cycle_length)
-            + u64::from(self.context.pox_constants.prepare_length)
-            < sn.block_height
-        {
-            // too far in the past
-            debug!("Block with consensus hash {} is too far in the past", consensus_hash;
-                   "consensus_hash" => %consensus_hash,
-                   "block_height" => ch_sn.block_height,
-                   "tip_block_height" => sn.block_height
-            );
-            return Ok(false);
-        }
-
-        // this given consensus hash must be an ancestor of our chain tip
-        let ch_at = self
-            .get_consensus_at(ch_sn.block_height)?
-            .ok_or(db_error::NotFoundError)
-            .map_err(|e| {
-                warn!("No ancestor consensus hash";
-                      "tip" => %self.context.chain_tip,
-                      "consensus_hash" => %consensus_hash,
-                      "consensus_hash height" => %ch_sn.block_height
-                );
-                e
-            })?;
-
-        if ch_at != ch_sn.consensus_hash {
-            // not an ancestor
-            warn!("Consensus hash is not an ancestor of the sortition tip";
-                  "tip" => %self.context.chain_tip,
-                  "consensus_hash" => %consensus_hash
-            );
-            return Err(db_error::NotFoundError);
-        }
-
-        // is this consensus hash in this fork?
-        if SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_none() {
-            return Ok(false);
-        }
-
-        Ok(signer_signature.verify(aggregate_public_key, message))
-    }
-
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -1982,32 +1906,6 @@ impl<'a> SortitionHandleConn<'a> {
             &db_keys::pox_last_selected_anchor_txid(),
         )?);
         Ok(anchor_block_txid)
-    }
-
-    /// Get the last processed reward cycle.
-    /// Since we always process a RewardSetInfo at the start of a reward cycle (anchor block or
-    /// no), this is simply the same as asking which reward cycle this SortitionHandleConn's
-    /// sortition tip is in.
-    pub fn get_last_processed_reward_cycle(&self) -> Result<u64, db_error> {
-        let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
-            .ok_or(db_error::NotFoundError)?;
-        let rc = self
-            .context
-            .pox_constants
-            .block_height_to_reward_cycle(self.context.first_block_height, sn.block_height)
-            .expect("FATAL: sortition from before system start");
-        let rc_start_block = self
-            .context
-            .pox_constants
-            .reward_cycle_to_block_height(self.context.first_block_height, rc);
-        let last_rc = if sn.block_height >= rc_start_block {
-            rc
-        } else {
-            // NOTE: the reward cycle is "processed" at reward cycle index 1, not index 0
-            rc.saturating_sub(1)
-        };
-
-        Ok(last_rc)
     }
 
     pub fn get_reward_cycle_unlocks(
@@ -2218,6 +2116,28 @@ impl<'a> SortitionHandleConn<'a> {
                 return self.get_first_block_snapshot();
             }
         };
+
+        self.get_block_snapshot(&ancestor_hash).map(|snapshot_opt| {
+            snapshot_opt
+                .unwrap_or_else(|| panic!("FATAL: corrupt index: no snapshot {}", ancestor_hash))
+        })
+    }
+
+    /// Get the latest block snapshot on this fork where a sortition occured.
+    pub fn get_last_snapshot_with_sortition_from_tip(&self) -> Result<BlockSnapshot, db_error> {
+        let ancestor_hash =
+            match self.get_indexed(&self.context.chain_tip, &db_keys::last_sortition())? {
+                Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: corrupt database: failed to parse {} into a hex string",
+                        &hex_str
+                    )
+                }),
+                None => {
+                    // no prior sortitions, so get the first
+                    return self.get_first_block_snapshot();
+                }
+            };
 
         self.get_block_snapshot(&ancestor_hash).map(|snapshot_opt| {
             snapshot_opt
@@ -2594,6 +2514,19 @@ impl<'a> SortitionHandleConn<'a> {
             }
         }
     }
+
+    pub fn get_reward_set_payouts_at(
+        &self,
+        sortition_id: &SortitionId,
+    ) -> Result<(Vec<PoxAddress>, u128), db_error> {
+        let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
+
+        let pox_addrs: (Vec<PoxAddress>, u128) =
+            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        Ok(pox_addrs)
+    }
 }
 
 // Connection methods
@@ -2615,7 +2548,7 @@ impl SortitionDB {
         Ok(index_tx)
     }
 
-    /// Make an indexed connectino
+    /// Make an indexed connection
     pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
         SortitionDBConn::new(
             &self.marf,
@@ -2637,6 +2570,41 @@ impl SortitionDB {
                 dryrun: self.dryrun,
             },
         )
+    }
+
+    pub fn index_handle_at_block<'a>(
+        &'a self,
+        chainstate: &StacksChainState,
+        stacks_block_id: &StacksBlockId,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let lookup_block_id = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state {
+            if &unconfirmed_state.unconfirmed_chain_tip == stacks_block_id {
+                &unconfirmed_state.confirmed_chain_tip
+            } else {
+                stacks_block_id
+            }
+        } else {
+            stacks_block_id
+        };
+        let header = match NakamotoChainState::get_block_header(chainstate.db(), lookup_block_id) {
+            Ok(Some(x)) => x,
+            x => {
+                debug!("Failed to get block header: {:?}", x);
+                return Err(db_error::NotFoundError);
+            }
+        };
+        // if its a nakamoto block, we want to use the burnchain view of the block
+        let burn_view = match &header.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => header.consensus_hash,
+            StacksBlockHeaderTypes::Nakamoto(_) => header.burn_view.ok_or_else(|| {
+                error!("Loaded nakamoto block header without a burn view"; "block_id" => %stacks_block_id);
+                db_error::Other("Nakamoto block header without burn view".into())
+            })?,
+        };
+
+        let snapshot = SortitionDB::get_block_snapshot_consensus(&self.conn(), &burn_view)?
+            .ok_or(db_error::NotFoundError)?;
+        Ok(self.index_handle(&snapshot.sortition_id))
     }
 
     pub fn tx_handle_begin<'a>(
@@ -3314,11 +3282,18 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         let pox_constants = self.pox_constants.clone();
         for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
-            if pox_constants.reward_cycle_to_block_height(self.first_block_height, rc)
-                > canonical_tip.block_height
-            {
+            let rc_start = pox_constants.reward_cycle_to_block_height(self.first_block_height, rc);
+            if rc_start > canonical_tip.block_height {
                 break;
             }
+            let epoch_at_height = SortitionDB::get_stacks_epoch(self.conn(), rc_start)?
+                .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", rc_start))
+                .epoch_id;
+
+            if epoch_at_height >= StacksEpochId::Epoch30 {
+                break;
+            }
+
             info!("Regenerating reward set for cycle {}", &rc);
             migrator.regenerate_reward_cycle_info(self, rc)?;
         }
@@ -3535,21 +3510,45 @@ impl SortitionDB {
     }
 
     /// Store a pre-processed reward set.
-    /// `sortition_id` is the first sortition ID of the prepare phase
+    /// `sortition_id` is the first sortition ID of the prepare phase.
+    /// No-op if the reward set has a selected-and-unknown anchor block.
     pub fn store_preprocessed_reward_set(
         sort_tx: &mut DBTx,
         sortition_id: &SortitionId,
         rc_info: &RewardCycleInfo,
     ) -> Result<(), db_error> {
+        if !rc_info.is_reward_info_known() {
+            return Ok(());
+        }
         let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
-        let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
+        let args = rusqlite::params![sortition_id, &rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
     }
 
+    /// Get the prepare phase end sortition ID of a reward cycle.  This is the last prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
+    /// Wrapper around SortitionDBConn::get_prepare_phase_end_sortition_id_for_reward_ccyle()
+    pub fn get_prepare_phase_end_sortition_id_for_reward_cycle(
+        &self,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        self.index_conn()
+            .get_prepare_phase_end_sortition_id_for_reward_cycle(
+                &self.pox_constants,
+                self.first_block_height,
+                tip,
+                reward_cycle_id,
+            )
+    }
+
+    /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
     /// Wrapper around SortitionDBConn::get_prepare_phase_start_sortition_id_for_reward_cycle().
-    /// See that method for details.
     pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3564,8 +3563,11 @@ impl SortitionDB {
             )
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    /// reward set (if it exists) for the active reward cycle during `tip`.
+    /// Returns the reward cycle info on success.
+    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
     /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_for_reward_cycle().
-    /// See that method for details.
     pub fn get_preprocessed_reward_set_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3580,8 +3582,11 @@ impl SortitionDB {
             )
     }
 
+    /// Figure out the reward cycle for `tip` and lookup the preprocessed
+    /// reward set (if it exists) for the active reward cycle during `tip`.
+    /// Returns the reward cycle info on success.
+    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
     /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_of().
-    /// See that method for details.
     pub fn get_preprocessed_reward_set_of(
         &self,
         tip: &SortitionId,
@@ -3859,12 +3864,8 @@ impl<'a> SortitionDBConn<'a> {
             db_error::NotFoundError
         })?;
 
-        // NOTE: the .saturating_sub(1) is necessary because the reward set is calculated in epoch
-        // 2.5 and lower at reward cycle index 1, not 0.  This correction ensures that the last
-        // block is checked against the signers who were active just before the new reward set is
-        // calculated.
         let reward_cycle_id = pox_constants
-            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height.saturating_sub(1))
+            .block_height_to_reward_cycle(first_block_height, tip_sn.block_height)
             .expect("FATAL: stored snapshot with block height < first_block_height");
 
         self.get_preprocessed_reward_set_for_reward_cycle(
@@ -3874,6 +3875,33 @@ impl<'a> SortitionDBConn<'a> {
             reward_cycle_id,
         )
         .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+    }
+
+    /// Get the prepare phase end sortition ID of a reward cycle.  This is the last prepare
+    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
+    /// sortition will be in the preceding reward cycle)
+    pub fn get_prepare_phase_end_sortition_id_for_reward_cycle(
+        &self,
+        pox_constants: &PoxConstants,
+        first_block_height: u64,
+        tip: &SortitionId,
+        reward_cycle_id: u64,
+    ) -> Result<SortitionId, db_error> {
+        let prepare_phase_end = pox_constants
+            .reward_cycle_to_block_height(first_block_height, reward_cycle_id)
+            .saturating_sub(1);
+
+        let last_sortition =
+            get_ancestor_sort_id(self, prepare_phase_end, tip)?.ok_or_else(|| {
+                error!(
+                    "Could not find prepare phase end ancestor while fetching reward set";
+                    "tip_sortition_id" => %tip,
+                    "reward_cycle_id" => reward_cycle_id,
+                    "prepare_phase_end_height" => prepare_phase_end
+                );
+                db_error::NotFoundError
+            })?;
+        Ok(last_sortition)
     }
 
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
@@ -4657,6 +4685,17 @@ impl SortitionDB {
         self.index_handle(&sortition_id)
     }
 
+    /// Open an index handle at the given consensus hash
+    /// Returns a db_error::NotFoundError if `ch` cannot be found
+    pub fn index_handle_at_ch<'a>(
+        &'a self,
+        ch: &ConsensusHash,
+    ) -> Result<SortitionHandleConn<'a>, db_error> {
+        let sortition_id = Self::get_sortition_id_by_consensus(self.conn(), ch)?
+            .ok_or_else(|| db_error::NotFoundError)?;
+        Ok(self.index_handle(&sortition_id))
+    }
+
     /// Open a tx handle at the burn chain tip
     /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn tx_begin_at_tip<'a>(&'a mut self) -> SortitionHandleTx<'a> {
@@ -5225,6 +5264,8 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
+    // TODO: add tests from mutation testing results #4849
+    #[cfg_attr(test, mutants::skip)]
     /// Are microblocks disabled by Epoch 2.5 at the height specified
     /// in `at_burn_height`?
     pub fn are_microblocks_disabled(conn: &DBConn, at_burn_height: u64) -> Result<bool, db_error> {
@@ -6101,16 +6142,6 @@ impl<'a> SortitionHandleTx<'a> {
                 keys.push(db_keys::pox_affirmation_map().to_string());
                 values.push(cur_affirmation_map.encode());
 
-                if cfg!(test) {
-                    // last reward cycle.
-                    // NOTE: We keep this only for testing, since this is what the original (but
-                    // unmigratable code) did, and we need to verify that the compatibility fix to
-                    // SortitionDB::get_last_processed_reward_cycle() is semantically compatible
-                    // with querying this key.
-                    keys.push(db_keys::last_reward_cycle_key().to_string());
-                    values.push(db_keys::last_reward_cycle_to_string(_reward_cycle));
-                }
-
                 pox_payout_addrs
             } else {
                 // if this snapshot consumed some reward set entries AND
@@ -6192,15 +6223,6 @@ impl<'a> SortitionHandleTx<'a> {
             values.push("".to_string());
             keys.push(db_keys::pox_last_selected_anchor_txid().to_string());
             values.push("".to_string());
-
-            if cfg!(test) {
-                // NOTE: We keep this only for testing, since this is what the original (but
-                // unmigratable code) did, and we need to verify that the compatibility fix to
-                // SortitionDB::get_last_processed_reward_cycle() is semantically compatible
-                // with querying this key.
-                keys.push(db_keys::last_reward_cycle_key().to_string());
-                values.push(db_keys::last_reward_cycle_to_string(0));
-            }
 
             // no payouts
             vec![]
@@ -6542,30 +6564,6 @@ pub mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
-
-    impl<'a> SortitionHandleConn<'a> {
-        /// At one point in the development lifecycle, this code depended on a MARF key/value
-        /// pair to map the sortition tip to the last-processed reward cycle number.  This data would
-        /// not have been present in epoch 2.4 chainstate and earlier, but would have been present in
-        /// epoch 2.5 and later, since at the time it was expected that all nodes would perform a
-        /// genesis sync when booting into epoch 2.5.  However, that requirement changed at the last
-        /// minute, so this code was reworked to avoid the need for the MARF key.  But to ensure that
-        /// this method is semantically consistent with the old code (which the Nakamoto chains
-        /// coordinator depends on), this code will test that the new reward cycle calculation matches
-        /// the old reward cycle calculation.
-        #[cfg(test)]
-        pub fn legacy_get_last_processed_reward_cycle(&self) -> Result<u64, db_error> {
-            // verify that this is semantically compatible with the older behavior, which shipped
-            // for epoch 2.5 but needed to be removed at the last minute in order to support a
-            // migration path from 2.4 chainstate to 2.5/3.0 chainstate.
-            let encoded_rc = self
-                .get_indexed(&self.context.chain_tip, &db_keys::last_reward_cycle_key())?
-                .expect("FATAL: no last-processed reward cycle");
-
-            let expected_rc = db_keys::last_reward_cycle_from_string(&encoded_rc);
-            Ok(expected_rc)
-        }
-    }
 
     impl<'a> SortitionHandleTx<'a> {
         /// Update the canonical Stacks tip (testing only)

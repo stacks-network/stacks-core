@@ -40,13 +40,14 @@ use {mio, url};
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{
     static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
-    static_get_stacks_tip_affirmation_map, RewardCycleInfo,
+    static_get_stacks_tip_affirmation_map, OnChainRewardSetProvider, RewardCycleInfo,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::core::StacksEpoch;
@@ -232,6 +233,24 @@ impl ConnectingPeer {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CurrentRewardSet {
+    pub reward_cycle: u64,
+    pub reward_cycle_info: RewardCycleInfo,
+    pub anchor_block_consensus_hash: ConsensusHash,
+    pub anchor_block_hash: BlockHeaderHash,
+}
+
+impl CurrentRewardSet {
+    pub fn reward_set(&self) -> Option<&RewardSet> {
+        self.reward_cycle_info.known_selected_anchor_block()
+    }
+
+    pub fn anchor_block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.anchor_block_consensus_hash, &self.anchor_block_hash)
+    }
+}
+
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -258,16 +277,9 @@ pub struct PeerNetwork {
     /// In epoch 2.x, this is the same as the tip block ID
     /// In nakamoto, this is the block ID of the first block in the current tenure
     pub tenure_start_block_id: StacksBlockId,
-    /// The reward sets of the current and past reward cycle.
+    /// The reward sets of the past three reward cycles.
     /// Needed to validate blocks, which are signed by a threshold of stackers
-    pub current_reward_sets: BTreeMap<u64, RewardCycleInfo>,
-    /// The sortition IDs that began the prepare-phases for given reward cycles.  This is used to
-    /// determine whether or not the reward cycle info in `current_reward_sets` is still valid -- a
-    /// burnchain fork may invalidate them, so the code must check that the sortition ID for the
-    /// start of the prepare-phase is still canonical.
-    /// This needs to be in 1-to-1 correspondence with `current_reward_sets` -- the sortition IDs
-    /// that make up the values need to correspond to the reward sets computed as of the sortition.
-    pub current_reward_set_ids: BTreeMap<u64, SortitionId>,
+    pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
 
     // information about the state of the network's anchor blocks
     pub heaviest_affirmation_map: AffirmationMap,
@@ -479,7 +491,6 @@ impl PeerNetwork {
             parent_stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
-            current_reward_set_ids: BTreeMap::new(),
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -5435,38 +5446,10 @@ impl PeerNetwork {
     }
 
     /// Clear out old reward cycles
-    fn free_old_reward_cycles(
-        &mut self,
-        sortdb: &SortitionDB,
-        tip_sortition_id: &SortitionId,
-        prev_rc: u64,
-    ) {
+    fn free_old_reward_cycles(&mut self, rc: u64) {
         if self.current_reward_sets.len() > 3 {
             self.current_reward_sets.retain(|old_rc, _| {
-                if (*old_rc).saturating_add(1) < prev_rc {
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                }
-                let Some(old_sortition_id) = self.current_reward_set_ids.get(old_rc) else {
-                    // shouldn't happen
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                };
-                let Ok(prepare_phase_sort_id) = sortdb
-                    .get_prepare_phase_start_sortition_id_for_reward_cycle(
-                        &tip_sortition_id,
-                        *old_rc,
-                    )
-                else {
-                    self.current_reward_set_ids.remove(old_rc);
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
-                    return false;
-                };
-                if prepare_phase_sort_id != *old_sortition_id {
-                    // non-canonical reward cycle info
-                    self.current_reward_set_ids.remove(old_rc);
+                if (*old_rc).saturating_add(2) < rc {
                     test_debug!("Drop reward cycle info for cycle {}", old_rc);
                     return false;
                 }
@@ -5475,10 +5458,11 @@ impl PeerNetwork {
         }
     }
 
-    /// Refresh our view of the last two reward cycles
+    /// Refresh our view of the last three reward cycles
     fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         tip_sn: &BlockSnapshot,
     ) -> Result<(), net_error> {
         let cur_rc = self
@@ -5487,57 +5471,68 @@ impl PeerNetwork {
             .expect("FATAL: sortition from before system start");
 
         let prev_rc = cur_rc.saturating_sub(1);
+        let prev_prev_rc = prev_rc.saturating_sub(1);
+        let ih = sortdb.index_handle(&tip_sn.sortition_id);
 
-        // keyed by both rc and sortition ID in case there's a bitcoin fork -- we'd want the
-        // canonical reward set to be loaded
-        let cur_rc_sortition_id = sortdb
-            .get_prepare_phase_start_sortition_id_for_reward_cycle(&tip_sn.sortition_id, cur_rc)?;
-        let prev_rc_sortition_id = sortdb
-            .get_prepare_phase_start_sortition_id_for_reward_cycle(&tip_sn.sortition_id, prev_rc)?;
-
-        for (rc, sortition_id) in [
-            (prev_rc, prev_rc_sortition_id),
-            (cur_rc, cur_rc_sortition_id),
-        ]
-        .into_iter()
-        {
-            if let Some(sort_id) = self.current_reward_set_ids.get(&rc) {
-                if sort_id == &sortition_id {
-                    continue;
-                }
-            }
-            let Ok((reward_cycle_info, reward_cycle_sort_id)) = sortdb
-                .get_preprocessed_reward_set_for_reward_cycle(&tip_sn.sortition_id, rc)
-                .map_err(|e| {
-                    warn!(
-                        "Failed to load reward set for cycle {} ({}): {:?}",
-                        rc, &sortition_id, &e
-                    );
-                    e
-                })
+        for rc in [cur_rc, prev_rc, prev_prev_rc] {
+            let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc);
+            let Some(ancestor_sort_id) =
+                get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
             else {
-                // NOTE: this should never be reached
-                error!("Unreachable code (but not panicking): no reward cycle info for reward cycle {}", rc);
+                // reward cycle is too far back for there to be an ancestor
                 continue;
             };
-            if !reward_cycle_info.is_reward_info_known() {
-                // haven't yet processed the anchor block, so don't store
-                debug!("Reward cycle info for cycle {} at sortition {} expects the PoX anchor block, so will not cache", rc, &reward_cycle_sort_id);
-                continue;
+            let ancestor_ih = sortdb.index_handle(&ancestor_sort_id);
+            let anchor_hash_opt = ancestor_ih.get_last_anchor_block_hash()?;
+
+            if let Some(cached_rc_info) = self.current_reward_sets.get(&rc) {
+                if let Some(anchor_hash) = anchor_hash_opt.as_ref() {
+                    // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
+                    // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
+                    // deal with in the pre-Nakamoto days
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                        || cached_rc_info.anchor_block_hash == *anchor_hash
+                    {
+                        // cached reward set data is still valid
+                        continue;
+                    }
+                }
             }
 
-            test_debug!(
-                "Reward cycle info for cycle {} at sortition {} is {:?}",
+            let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
-                &reward_cycle_sort_id,
-                &reward_cycle_info
-            );
-            self.current_reward_sets.insert(rc, reward_cycle_info);
-            self.current_reward_set_ids.insert(rc, reward_cycle_sort_id);
-        }
+                &tip_sn.sortition_id,
+                &self.burnchain,
+                chainstate,
+                sortdb,
+                &OnChainRewardSetProvider::new(),
+            )
+            .map_err(|e| {
+                warn!(
+                    "Failed to load reward cycle info for cycle {}: {:?}",
+                    rc, &e
+                );
+                e
+            })
+            .unwrap_or(None) else {
+                continue;
+            };
 
-        // free memory
-        self.free_old_reward_cycles(sortdb, &tip_sn.sortition_id, prev_rc);
+            let rc_info = CurrentRewardSet {
+                reward_cycle: rc,
+                reward_cycle_info: reward_set_info,
+                anchor_block_consensus_hash: anchor_block_header.consensus_hash,
+                anchor_block_hash: anchor_block_header.anchored_header.block_hash(),
+            };
+
+            test_debug!(
+                "Store cached reward set for reward cycle {} anchor block {}",
+                rc,
+                &rc_info.anchor_block_hash
+            );
+            self.current_reward_sets.insert(rc, rc_info);
+        }
+        self.free_old_reward_cycles(cur_rc);
         Ok(())
     }
 
@@ -5561,7 +5556,9 @@ impl PeerNetwork {
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
         let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
-            || self.num_state_machine_passes == 0;
+            || self.num_state_machine_passes == 0
+            || canonical_sn.sortition_id != self.burnchain_tip.sortition_id;
+
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
@@ -5569,8 +5566,8 @@ impl PeerNetwork {
             || burnchain_tip_changed
             || stacks_tip_changed;
 
-        if stacks_tip_changed || burnchain_tip_changed {
-            self.refresh_reward_cycles(sortdb, &canonical_sn)?;
+        if burnchain_tip_changed || stacks_tip_changed {
+            self.refresh_reward_cycles(sortdb, chainstate, &canonical_sn)?;
         }
 
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
@@ -6790,11 +6787,13 @@ mod test {
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
+                let burnchain = peer_1.network.burnchain.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -6808,11 +6807,13 @@ mod test {
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
+                let burnchain = peer_2.network.burnchain.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -6977,11 +6978,13 @@ mod test {
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
+                let burnchain = peer_1.network.burnchain.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -6995,11 +6998,13 @@ mod test {
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
+                let burnchain = peer_2.network.burnchain.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -7181,11 +7186,13 @@ mod test {
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
+                let burnchain = peer_1.network.burnchain.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -7199,11 +7206,13 @@ mod test {
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
+                let burnchain = peer_2.network.burnchain.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -7365,11 +7374,13 @@ mod test {
         while peer_1_mempool_txs < num_txs || peer_2.network.mempool_sync_txs < (num_txs as u64) {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
+                let burnchain = peer_1.network.burnchain.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,
@@ -7383,11 +7394,13 @@ mod test {
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
+                let burnchain = peer_2.network.burnchain.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
                             &mut result,
+                            &burnchain,
                             sortdb,
                             chainstate,
                             mempool,

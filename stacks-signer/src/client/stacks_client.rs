@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -26,9 +27,13 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::get_tenures_fork_info::{
+    TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
+};
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
+use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
@@ -38,12 +43,14 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use reqwest::header::AUTHORIZATION;
 use serde_json::json;
-use slog::slog_debug;
+use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use stacks_common::types::StacksEpochId;
+use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -358,6 +365,101 @@ impl StacksClient {
         self.get_account_entry(address).map(|entry| entry.nonce)
     }
 
+    /// Get information about the tenures between `chosen_parent` and `last_sortition`
+    pub fn get_tenure_forking_info(
+        &self,
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<Vec<TenureForkingInfo>, ClientError> {
+        let mut tenures: VecDeque<TenureForkingInfo> =
+            self.get_tenure_forking_info_step(chosen_parent, last_sortition)?;
+        if tenures.is_empty() {
+            return Ok(vec![]);
+        }
+        while tenures.back().map(|x| &x.consensus_hash) != Some(chosen_parent) {
+            let new_start = tenures.back().ok_or_else(|| {
+                ClientError::InvalidResponse(
+                    "Should have tenure data in forking info response".into(),
+                )
+            })?;
+            let mut next_results =
+                self.get_tenure_forking_info_step(chosen_parent, &new_start.consensus_hash)?;
+            if next_results.pop_front().is_none() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            if next_results.is_empty() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            tenures.extend(next_results.into_iter());
+        }
+
+        Ok(tenures.into_iter().collect())
+    }
+
+    fn get_tenure_forking_info_step(
+        &self,
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let tenures = response.json()?;
+
+        Ok(tenures)
+    }
+
+    /// Get the sortition information for the latest sortition
+    pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.sortition_info_path())
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
+    /// Get the sortition information for a given sortition
+    pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
@@ -647,6 +749,19 @@ impl StacksClient {
 
     fn block_proposal_path(&self) -> String {
         format!("{}/v2/block_proposal", self.http_origin)
+    }
+
+    fn sortition_info_path(&self) -> String {
+        format!("{}{RPC_SORTITION_INFO_PATH}", self.http_origin)
+    }
+
+    fn tenure_forking_info_path(&self, start: &ConsensusHash, stop: &ConsensusHash) -> String {
+        format!(
+            "{}{RPC_TENURE_FORKING_INFO_PATH}/{}/{}",
+            self.http_origin,
+            start.to_hex(),
+            stop.to_hex()
+        )
     }
 
     fn core_info_path(&self) -> String {

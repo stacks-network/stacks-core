@@ -150,7 +150,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -336,7 +336,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -483,7 +483,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -531,7 +531,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -820,7 +820,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -868,7 +868,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1085,7 +1085,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1134,7 +1134,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1433,7 +1433,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1478,7 +1478,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1680,7 +1680,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1728,7 +1728,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -1988,7 +1988,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -2033,7 +2033,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -2235,7 +2235,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
@@ -2283,7 +2283,7 @@ where
                     builder.chain_tip.stacks_block_height,
                 );
 
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut miner_epoch_info = builder
                     .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
                     .unwrap();
