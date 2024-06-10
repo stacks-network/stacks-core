@@ -595,6 +595,11 @@ impl RewardSetInfo {
 impl LeaderBlockCommitOp {
     /// Perform PoX checks on this block-commit, given the reward set info (which may be None if
     /// PoX is not active).
+    ///
+    /// If PoX was active (i.e., `reward_set_info` is `Some`), this method will return how the
+    ///  PoX addresses were treated by the block commit. Prior to Epoch 3.0, these will be all
+    ///  treated with rewards (attempting to punish pre-nakamoto will result in a op_error).
+    ///
     /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
@@ -778,12 +783,12 @@ impl LeaderBlockCommitOp {
                 return Err(op_error::BlockCommitBadOutputs);
             }
 
-            let mut punished_outputs: Vec<_> = check_recipients
+            let mut treated_outputs: Vec<_> = check_recipients
                 .into_iter()
                 .map(|x| Treatment::Punish(x.0))
                 .collect();
-            punished_outputs.extend(rewarded);
-            return Ok(punished_outputs);
+            treated_outputs.extend(rewarded);
+            return Ok(treated_outputs);
         }
     }
 

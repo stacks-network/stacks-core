@@ -273,7 +273,7 @@ impl NakamotoBlockBuilder {
             );
             Error::NoSuchBlockError
         })?;
-        let active_reward_set = rs_provider.reward_reward_set_at_calculated_block(
+        let active_reward_set = rs_provider.read_reward_set_at_calculated_block(
             coinbase_height_of_calc,
             chainstate,
             &self.header.parent_block_id,

@@ -156,7 +156,6 @@ fn advance_to_nakamoto_long(
     )
     .unwrap();
 
-    //let pox_4_stacking_height = peer.config.epochs.as_ref().unwrap().iter().find(|e| e.epoch_id == StacksEpochId::Epoch25).unwrap().start_height;
     let mut stacked_pox_4 = false;
     let mut signer_voted = false;
     let nakamoto_height = peer
@@ -394,8 +393,7 @@ pub fn boot_nakamoto<'a>(
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
-/// The node needs to be stacking and it needs to vote for an aggregate key;
-/// otherwise, Nakamoto can't activate.
+/// The node needs to be stacking otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto_long_reward_sets<'a>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,

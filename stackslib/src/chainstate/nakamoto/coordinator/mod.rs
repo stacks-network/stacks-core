@@ -134,7 +134,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             return Err(Error::PoXAnchorBlockRequired);
         };
 
-        self.reward_reward_set_at_calculated_block(
+        self.read_reward_set_at_calculated_block(
             coinbase_height_of_calculation,
             chainstate,
             block_id,
@@ -178,7 +178,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         Ok(coinbase_height_of_calculation)
     }
 
-    pub fn reward_reward_set_at_calculated_block(
+    pub fn read_reward_set_at_calculated_block(
         &self,
         coinbase_height_of_calculation: u64,
         chainstate: &mut StacksChainState,
