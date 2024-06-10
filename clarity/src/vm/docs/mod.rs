@@ -1833,7 +1833,7 @@ the mining of this block started, but is not guaranteed to be accurate. This tim
   - Greater than the timestamp of the previous block
   - Less than 15 seconds into the future (according to their own local clocks)
 ",
-    example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860302)
+    example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
 (get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
 "
 };
