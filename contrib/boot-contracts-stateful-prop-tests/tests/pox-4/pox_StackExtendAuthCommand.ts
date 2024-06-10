@@ -16,7 +16,7 @@ export class StackExtendAuthCommand implements PoxCommand {
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackExtendAuthCommand` to lock uSTX for stacking.
+   * Constructs a `StackExtendAuthCommand` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using an `authorization`.
    *

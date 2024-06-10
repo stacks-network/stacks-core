@@ -28,7 +28,7 @@ export class DelegateStackStxCommand_Err implements PoxCommand {
    * on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
+   * @param stacker - Represents the Stacker's wallet.
    * @param period - Number of reward cycles to lock uSTX.
    * @param amountUstx - The uSTX amount stacked by the Operator on behalf
    *                     of the Stacker.

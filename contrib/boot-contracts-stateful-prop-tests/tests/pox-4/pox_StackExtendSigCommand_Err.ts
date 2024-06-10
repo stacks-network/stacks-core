@@ -18,7 +18,7 @@ export class StackExtendSigCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `StackExtendSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackExtendSigCommand_Err` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using a `signature`.
    *

@@ -37,8 +37,9 @@ export class DelegateStackExtendCommand implements PoxCommand {
    * height as a Pool Operator on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
-   * @param extendCount - Represents the cycles to be expended.
+   * @param stacker - Represents the Stacker's wallet.
+   * @param extendCount - Represents the number of cycles to extend
+   *                      the stack for.
    * @param currentCycle - Represents the current PoX reward cycle.
    */
   constructor(

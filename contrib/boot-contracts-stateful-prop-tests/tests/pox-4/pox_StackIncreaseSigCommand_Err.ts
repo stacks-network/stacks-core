@@ -23,7 +23,7 @@ export class StackIncreaseSigCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `StackIncreaseSigCommand_Err` to lock uSTX for stacking.
+   * Constructs a `StackIncreaseSigCommand_Err` to increase the locked uSTX amount.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param increaseBy - Represents the locked amount to be increased by.

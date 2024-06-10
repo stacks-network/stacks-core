@@ -21,7 +21,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
 
   /**
-   * Constructs a RevokeDelegateStxCommand to revoke delegate uSTX for stacking.
+   * Constructs a `RevokeDelegateStxCommand` to revoke a stacking delegation.
    *
    * @param wallet - Represents the Stacker's wallet.
    */

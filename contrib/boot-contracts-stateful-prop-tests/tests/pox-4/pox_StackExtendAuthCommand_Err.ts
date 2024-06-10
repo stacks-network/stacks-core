@@ -19,7 +19,7 @@ export class StackExtendAuthCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `StackExtendAuthCommand` to lock uSTX for stacking.
+   * Constructs a `StackExtendAuthCommand_Err` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using an `authorization`.
    *
@@ -52,6 +52,10 @@ export class StackExtendAuthCommand_Err implements PoxCommand {
     const currentRewCycle = currentCycle(real.network);
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
+    // Include the authorization and the `stack-extend` transactions in a single
+    // block. This way we ensure both the authorization and the stack-extend
+    // transactions are called during the same reward cycle, so the authorization
+    // currentRewCycle param is relevant for the upcoming stack-extend call.
     const block = real.network.mineBlock([
       tx.callPublicFn(
         "ST000000000000000000002AMW42H.pox-4",

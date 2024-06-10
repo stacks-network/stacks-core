@@ -19,7 +19,7 @@ export class RevokeDelegateStxCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `RevokeDelegateStxCommand_Err` to revoke delegate uSTX for stacking.
+   * Constructs a `RevokeDelegateStxCommand_Err` to revoke a stacking delegation.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param checkFunc - A function to check constraints for running this command.

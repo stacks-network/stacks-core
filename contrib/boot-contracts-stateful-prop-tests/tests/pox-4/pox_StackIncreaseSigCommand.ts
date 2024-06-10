@@ -30,7 +30,7 @@ export class StackIncreaseSigCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackIncreaseSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackIncreaseSigCommand` to increase the locked uSTX amount.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param increaseBy - Represents the locked amount to be increased by.

@@ -23,7 +23,8 @@ export class StackAggregationCommitAuthCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `StackAggregationCommitAuthCommand_Err` to lock uSTX for stacking.
+   * Constructs a `StackAggregationCommitAuthCommand_Err` to commit partially 
+   * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.

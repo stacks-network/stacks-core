@@ -24,8 +24,6 @@ import {
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be a delegator in another delegation.
- * - The PoX address provided should have a valid version (between 0 and 6
- *   inclusive).
  */
 export class DelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;

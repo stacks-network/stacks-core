@@ -10,7 +10,7 @@ import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
 /**
- * The DelegateStackIncreaseCommand allows a pool operator to
+ * The `DelegateStackIncreaseCommand` allows a pool operator to
  * increase an active stacking lock, issuing a "partial commitment"
  * for the increased cycles.
  *
@@ -33,7 +33,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
   readonly increaseBy: number;
 
   /**
-   * Constructs a DelegateStackIncreaseCommand to increase the uSTX amount
+   * Constructs a `DelegateStackIncreaseCommand` to increase the uSTX amount
    * previously locked on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.

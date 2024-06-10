@@ -33,8 +33,8 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackAggregationCommitIndexedAuthCommand` to lock uSTX
-   * for stacking.
+   * Constructs a `StackAggregationCommitIndexedAuthCommand` to commit partially 
+   * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.

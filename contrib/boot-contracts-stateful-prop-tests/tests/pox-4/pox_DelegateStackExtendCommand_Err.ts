@@ -27,8 +27,8 @@ export class DelegateStackExtendCommand_Err implements PoxCommand {
    * height as a Pool Operator on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
-   * @param extendCount - Represents the cycles to be expended.
+   * @param stacker - Represents the Stacker's wallet.
+   * @param extendCount - Represents the number of cycles to extend the stack for.
    * @param currentCycle - Represents the current PoX reward cycle.
    * @param checkFunc - A function to check constraints for running this command.
    * @param errorCode - The expected error code when running this command.

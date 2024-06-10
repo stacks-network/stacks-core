@@ -15,7 +15,7 @@ export class StackExtendSigCommand implements PoxCommand {
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackExtendSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackExtendSigCommand` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using a `signature`.
    *

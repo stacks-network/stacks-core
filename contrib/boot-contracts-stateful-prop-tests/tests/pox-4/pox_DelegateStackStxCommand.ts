@@ -26,7 +26,7 @@ import { currentCycle } from "./pox_Commands.ts";
  *   `get-stacking-minimum` function at the time of this call.
  * - The Stacker cannot currently be engaged in another stacking operation.
  * - The Stacker has to currently be delegating to the Operator.
- * - The stacked STX amount should be less than or equal to the delegated
+ * - The stacked uSTX amount should be less than or equal to the delegated
  *   amount.
  * - The stacked uSTX amount should be less than or equal to the Stacker's
  *   balance.
@@ -47,7 +47,7 @@ export class DelegateStackStxCommand implements PoxCommand {
    * on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
+   * @param stacker - Represents the Stacker's wallet.
    * @param period - Number of reward cycles to lock uSTX.
    * @param amountUstx - The uSTX amount stacked by the Operator on behalf
    *                     of the Stacker.

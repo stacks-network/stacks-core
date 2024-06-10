@@ -22,7 +22,7 @@ export class DelegateStackIncreaseCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a DelegateStackIncreaseCommand_Err to increase the uSTX amount
+   * Constructs a `DelegateStackIncreaseCommand_Err` to increase the uSTX amount
    * previously locked on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.

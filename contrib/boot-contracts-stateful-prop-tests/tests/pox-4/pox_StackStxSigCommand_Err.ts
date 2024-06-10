@@ -30,7 +30,7 @@ export class StackStxSigCommand_Err implements PoxCommand {
   readonly errorCode: number;
 
   /**
-   * Constructs a `StackStxSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackStxSigCommand_Err` to lock uSTX for stacking.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param authId - Unique auth-id for the authorization.
