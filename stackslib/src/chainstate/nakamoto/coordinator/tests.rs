@@ -39,6 +39,7 @@ use wsts::curve::point::Point;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -766,15 +767,17 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     peer.check_nakamoto_migration();
 }
 
-impl <'a> TestPeer <'a> {
-    pub fn mine_single_block_tenure<G>(
+impl<'a> TestPeer<'a> {
+    pub fn mine_single_block_tenure<F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
         tenure_change_tx: &StacksTransaction,
         coinbase_tx: &StacksTransaction,
+        miner_setup: F,
         after_block: G,
     ) -> NakamotoBlock
     where
+        F: FnMut(&mut NakamotoBlockBuilder),
         G: FnMut(&mut NakamotoBlock) -> bool,
     {
         let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_key));
@@ -787,6 +790,7 @@ impl <'a> TestPeer <'a> {
             tenure_change_tx.clone(),
             coinbase_tx.clone(),
             &mut test_signers,
+            miner_setup,
             |_miner, chainstate, sortdb, blocks_so_far| {
                 if blocks_so_far.len() < 1 {
                     let account = get_account(chainstate, sortdb, &sender_addr);
@@ -812,13 +816,15 @@ impl <'a> TestPeer <'a> {
         block
     }
 
-    pub fn single_block_tenure<F, G>(
+    pub fn single_block_tenure<S, F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
+        miner_setup: S,
         mut after_burn_ops: F,
         after_block: G,
     ) -> (NakamotoBlock, u64, StacksTransaction, StacksTransaction)
     where
+        S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(&mut Vec<BlockstackOperationType>),
         G: FnMut(&mut NakamotoBlock) -> bool,
     {
@@ -844,12 +850,17 @@ impl <'a> TestPeer <'a> {
             .make_nakamoto_tenure_change(tenure_change.clone());
         let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-        let block = self.mine_single_block_tenure(sender_key, &tenure_change_tx, &coinbase_tx, after_block);
+        let block = self.mine_single_block_tenure(
+            sender_key,
+            &tenure_change_tx,
+            &coinbase_tx,
+            miner_setup,
+            after_block,
+        );
 
         (block, burn_height, tenure_change_tx, coinbase_tx)
     }
 }
-
 
 #[test]
 // Test PoX Reward and Punish treatment in nakamoto
@@ -893,7 +904,8 @@ fn pox_treatment() {
     // mine until we're at the start of the next reward phase (so we *know*
     //  that the reward set contains entries)
     loop {
-        let (block, burn_height, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| true);
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
         blocks.push(block);
 
         if pox_constants.is_reward_cycle_start(first_burn_height, burn_height + 1) {
@@ -909,12 +921,15 @@ fn pox_treatment() {
     expected_reward_set.sort_by_key(|addr| addr.to_burnchain_repr());
     expected_reward_set.reverse();
     let pox_recipients = Mutex::new(vec![]);
+    info!("Starting the test... beginning with an reward commit");
     // The next block should be the start of a reward phase, so the PoX recipient should
     //  be chosen.
     //
     // First: perform a normal block commit, and then try to mine a block with all zeros in the
     //        bitvector.
-    let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(&private_key,
+    let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(
+        &private_key,
+        |_| {},
         |burn_ops| {
             burn_ops.iter().for_each(|op| {
                 if let BlockstackOperationType::LeaderBlockCommit(ref commit) = op {
@@ -925,11 +940,20 @@ fn pox_treatment() {
         |block| {
             let pox_recipients = pox_recipients.lock().unwrap();
             assert_eq!(pox_recipients.len(), 2);
-            info!("Expected reward set: {:?}", expected_reward_set.iter().map(|x| x.to_burnchain_repr()).collect::<Vec<_>>());
-            let target_indexes = pox_recipients.iter().map(
-                |pox_addr| expected_reward_set.iter().enumerate().find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
-                    .unwrap()
+            info!(
+                "Expected reward set: {:?}",
+                expected_reward_set
+                    .iter()
+                    .map(|x| x.to_burnchain_repr())
+                    .collect::<Vec<_>>()
             );
+            let target_indexes = pox_recipients.iter().map(|pox_addr| {
+                expected_reward_set
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
+                    .unwrap()
+            });
             let mut bitvec = BitVec::ones(12).unwrap();
             target_indexes.for_each(|ix| {
                 let ix: u16 = ix.try_into().unwrap();
@@ -959,6 +983,7 @@ fn pox_treatment() {
         &private_key,
         &tenure_change_tx,
         &coinbase_tx,
+        |_| {},
         |block| {
             // each stacker has 3 entries in the bitvec.
             // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
@@ -975,25 +1000,47 @@ fn pox_treatment() {
     blocks.push(block);
 
     // now we need to test punishment!
+    info!("Testing a punish commit");
     let pox_recipients = Mutex::new(vec![]);
     let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(
         &private_key,
+        |miner| {
+            // we want the miner to finish assembling the block, and then we'll
+            //  alter the bitvec before it signs the block (in a subsequent closure).
+            // this way, we can test the block processing behavior.
+            miner.header.signer_bitvec = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+        },
         |burn_ops| {
-        burn_ops.iter_mut().for_each(|op| {
-            if let BlockstackOperationType::LeaderBlockCommit(ref mut commit) = op {
-                *pox_recipients.lock().unwrap() = vec![commit.commit_outs[0].clone()];
-                commit.commit_outs[0] = PoxAddress::standard_burn_address(false);
-            }
-        });
+            burn_ops.iter_mut().for_each(|op| {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut commit) = op {
+                    *pox_recipients.lock().unwrap() = vec![commit.commit_outs[0].clone()];
+                    commit.commit_outs[0] = PoxAddress::standard_burn_address(false);
+                }
+            });
         },
         |block| {
             let pox_recipients = pox_recipients.lock().unwrap();
             assert_eq!(pox_recipients.len(), 1);
-            info!("Expected reward set: {:?}", expected_reward_set.iter().map(|x| x.to_burnchain_repr()).collect::<Vec<_>>());
-            let target_indexes = pox_recipients.iter().map(
-                |pox_addr| expected_reward_set.iter().enumerate().find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
-                    .unwrap()
+            info!(
+                "Expected reward set: {:?}",
+                expected_reward_set
+                    .iter()
+                    .map(|x| x.to_burnchain_repr())
+                    .collect::<Vec<_>>()
             );
+            let target_indexes = pox_recipients.iter().map(|pox_addr| {
+                expected_reward_set
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
+                    .unwrap()
+            });
             let mut bitvec = BitVec::zeros(12).unwrap();
             target_indexes.for_each(|ix| {
                 let ix: u16 = ix.try_into().unwrap();
@@ -1024,18 +1071,18 @@ fn pox_treatment() {
         &private_key,
         &tenure_change_tx,
         &coinbase_tx,
-        |block| {
+        |miner| {
             // each stacker has 3 entries in the bitvec.
             // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
-            block.header.signer_bitvec = BitVec::try_from(
+            miner.header.signer_bitvec = BitVec::try_from(
                 [
                     false, false, true, false, false, true, false, false, true, false, false, true,
                 ]
                 .as_slice(),
             )
             .unwrap();
-            true
         },
+        |_block| true,
     );
     blocks.push(block);
 

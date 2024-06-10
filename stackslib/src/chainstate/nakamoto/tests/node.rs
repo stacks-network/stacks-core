@@ -505,7 +505,7 @@ impl TestStacksNode {
     ///
     /// The first block will contain a coinbase, if coinbase is Some(..)
     /// Process the blocks via the chains coordinator as we produce them.
-    pub fn make_nakamoto_tenure_blocks<'a, F, G>(
+    pub fn make_nakamoto_tenure_blocks<'a, S, F, G>(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         miner: &mut TestMiner,
@@ -522,10 +522,12 @@ impl TestStacksNode {
             (),
             BitcoinIndexer,
         >,
+        mut miner_setup: S,
         mut block_builder: F,
         mut after_block: G,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
     where
+        S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
             &mut TestMiner,
             &mut StacksChainState,
@@ -561,7 +563,7 @@ impl TestStacksNode {
             );
 
             // make a block
-            let builder = if let Some(parent_tip) = parent_tip_opt {
+            let mut builder = if let Some(parent_tip) = parent_tip_opt {
                 NakamotoBlockBuilder::new(
                     &parent_tip,
                     tenure_id_consensus_hash,
@@ -585,6 +587,7 @@ impl TestStacksNode {
                     &coinbase.clone().unwrap(),
                 )
             };
+            miner_setup(&mut builder);
 
             tenure_change = None;
             coinbase = None;
@@ -1092,7 +1095,14 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
-        self.make_nakamoto_tenure_and(tenure_change, coinbase, signers, block_builder, |_| true)
+        self.make_nakamoto_tenure_and(
+            tenure_change,
+            coinbase,
+            signers,
+            |_| {},
+            block_builder,
+            |_| true,
+        )
     }
 
     /// Produce and process a Nakamoto tenure, after processing the block-commit from
@@ -1100,15 +1110,17 @@ impl<'a> TestPeer<'a> {
     /// take the consensus hash, and feed it in here.
     ///
     /// Returns the blocks, their sizes, and runtime costs
-    pub fn make_nakamoto_tenure_and<F, G>(
+    pub fn make_nakamoto_tenure_and<S, F, G>(
         &mut self,
         tenure_change: StacksTransaction,
         coinbase: StacksTransaction,
         signers: &mut TestSigners,
+        miner_setup: S,
         block_builder: F,
         after_block: G,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
     where
+        S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
             &mut TestMiner,
             &mut StacksChainState,
@@ -1137,6 +1149,7 @@ impl<'a> TestPeer<'a> {
             Some(tenure_change),
             Some(coinbase),
             &mut self.coord,
+            miner_setup,
             block_builder,
             after_block,
         );
@@ -1210,6 +1223,7 @@ impl<'a> TestPeer<'a> {
             Some(tenure_extend_tx),
             None,
             &mut self.coord,
+            |_| {},
             block_builder,
             |_| true,
         );

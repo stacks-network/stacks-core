@@ -2660,6 +2660,9 @@ impl NakamotoChainState {
     /// * coinbase_height: the number of tenures that this block confirms (including epoch2 blocks)
     ///   (this is equivalent to the number of coinbases)
     /// * tenure_extend: whether or not to reset the tenure's ongoing execution cost
+    /// * block_bitvec: the bitvec that will control PoX reward handling for this block
+    /// * tenure_block_commit: the block commit that elected this miner
+    /// * active_reward_set: the reward and signer set active during `tenure_block_commit`
     ///
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
@@ -2680,7 +2683,12 @@ impl NakamotoChainState {
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
+        block_bitvec: &BitVec<4000>,
+        tenure_block_commit: &LeaderBlockCommitOp,
+        active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+        Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
+
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = sortition_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
@@ -2914,7 +2922,7 @@ impl NakamotoChainState {
     }
 
     fn check_pox_bitvector(
-        block: &NakamotoBlock,
+        block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
@@ -2948,7 +2956,7 @@ impl NakamotoChainState {
                         |ix| {
                             let ix = u16::try_from(ix)
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
-                            let bitvec_value = block.header.signer_bitvec.get(ix)
+                            let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
                                     info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
@@ -2966,7 +2974,6 @@ impl NakamotoChainState {
                             "Invalid Nakamoto block: punished PoX address when bitvec contained 1s for the address";
                             "reward_address" => %treated_addr.deref(),
                             "bitvec_values" => ?bitvec_values,
-                            "block_id" => %block.header.block_id(),
                         );
                         return Err(ChainstateError::InvalidStacksBlock(
                             "Bitvec does not match the block commit's PoX handling".into(),
@@ -2978,7 +2985,6 @@ impl NakamotoChainState {
                             "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
                             "reward_address" => %treated_addr.deref(),
                             "bitvec_values" => ?bitvec_values,
-                            "block_id" => %block.header.block_id(),
                         );
                         return Err(ChainstateError::InvalidStacksBlock(
                             "Bitvec does not match the block commit's PoX handling".into(),
@@ -3157,10 +3163,6 @@ impl NakamotoChainState {
             ChainstateError::NoSuchBlockError
         })?;
 
-        // TODO: this should be checked in the miner path as well...
-        //   the easiest way to ensure this is via the setup_block function.
-        Self::check_pox_bitvector(&block, &tenure_block_commit, active_reward_set)?;
-
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.
         // (note that we can't check this earlier, since we need the parent tenure to have been
@@ -3263,6 +3265,9 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            &block.header.signer_bitvec,
+            &tenure_block_commit,
+            active_reward_set,
         )?;
 
         let starting_cost = clarity_tx.cost_so_far();
