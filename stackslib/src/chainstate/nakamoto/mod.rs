@@ -328,9 +328,11 @@ pub struct NakamotoBlockHeader {
     /// the block header from the signer set active during the tenure.
     /// (ordered by reward set order)
     pub signer_signature: Vec<MessageSignature>,
-    /// A bitvec which represents the signers that participated in this block signature.
+    /// A bitvec which conveys whether reward addresses should be punished (by burning their PoX rewards)
+    ///  or not in this block.
+    ///
     /// The maximum number of entries in the bitvec is 4000.
-    pub signer_bitvec: BitVec<4000>,
+    pub pox_treatment: BitVec<4000>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -362,7 +364,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             state_index_root,
             signer_signature,
             miner_signature,
-            signer_bitvec,
+            pox_treatment: signer_bitvec,
         })
     }
 }
@@ -413,7 +415,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
-        write_next(fd, &self.signer_bitvec)?;
+        write_next(fd, &self.pox_treatment)?;
 
         Ok(())
     }
@@ -429,7 +431,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
-            signer_bitvec: read_next(fd)?,
+            pox_treatment: read_next(fd)?,
         })
     }
 }
@@ -477,7 +479,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
-        write_next(fd, &self.signer_bitvec)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -626,7 +628,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::ones(bitvec_len)
+            pox_treatment: BitVec::ones(bitvec_len)
                 .expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
@@ -643,7 +645,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -659,7 +661,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 }
@@ -1676,7 +1678,7 @@ impl NakamotoChainState {
         // succeeds, since *we have already processed* the block.
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
-        let signer_bitvec = (&next_ready_block).header.signer_bitvec.clone();
+        let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2417,7 +2419,7 @@ impl NakamotoChainState {
             &header.parent_block_id,
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
-            &header.signer_bitvec,
+            &header.pox_treatment,
             tip_info.burn_view.as_ref().ok_or_else(|| {
                 error!(
                     "Attempted to store nakamoto block header information without burnchain view";
@@ -2926,10 +2928,10 @@ impl NakamotoChainState {
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
-        if !tenure_block_commit.punished.is_empty() {
+        if !tenure_block_commit.treatment.is_empty() {
             // our block commit issued a punishment, check the reward set and bitvector
             //  to ensure that this was valid.
-            for treated_addr in tenure_block_commit.punished.iter() {
+            for treated_addr in tenure_block_commit.treatment.iter() {
                 if treated_addr.is_burn() {
                     // Don't need to assert anything about burn addresses.
                     // If they were in the reward set, "punishing" them is meaningless.
@@ -3265,7 +3267,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
-            &block.header.signer_bitvec,
+            &block.header.pox_treatment,
             &tenure_block_commit,
             active_reward_set,
         )?;

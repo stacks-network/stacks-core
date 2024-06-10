@@ -404,7 +404,7 @@ mod tests {
             block_height: 102,
             burn_parent_modulus: (101 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);

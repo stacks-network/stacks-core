@@ -507,7 +507,7 @@ impl RelayerThread {
             .get_active()
             .ok_or_else(|| NakamotoNodeError::NoVRFKeyActive)?;
         let op = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn,
             block_header_hash: BlockHeaderHash(parent_block_id.0),
             burn_fee: rest_commit,

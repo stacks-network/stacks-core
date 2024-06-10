@@ -240,7 +240,7 @@ fn codec_nakamoto_header() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
-        signer_bitvec: BitVec::zeros(8).unwrap(),
+        pox_treatment: BitVec::zeros(8).unwrap(),
     };
 
     let mut bytes = vec![
@@ -291,7 +291,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     // sortition-inducing tenure change
@@ -854,7 +854,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: header_signatures.clone(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -899,7 +899,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -939,7 +939,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_3 = StacksHeaderInfo {
@@ -1618,7 +1618,7 @@ fn test_nakamoto_block_static_verification() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1637,7 +1637,7 @@ fn test_nakamoto_block_static_verification() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1656,7 +1656,7 @@ fn test_nakamoto_block_static_verification() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)
@@ -1809,7 +1809,7 @@ pub fn test_get_highest_nakamoto_tenure() {
             state_index_root: TrieHash([0x00; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
         let tenure_change = TenureChangePayload {
             tenure_consensus_hash: sn.consensus_hash.clone(),
@@ -2046,7 +2046,7 @@ fn test_make_miners_stackerdb_config() {
             block_height: snapshot.block_height,
             burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: snapshot.burn_header_hash.clone(),
-            punished: vec![],
+            treatment: vec![],
         };
 
         let winning_ops = if i == 0 {
@@ -2114,7 +2114,7 @@ fn test_make_miners_stackerdb_config() {
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
         let block = NakamotoBlock {
             header,

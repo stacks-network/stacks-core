@@ -4789,7 +4789,7 @@ fn signer_chainstate() {
         state_index_root: TrieHash([0; 32]),
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4819,7 +4819,7 @@ fn signer_chainstate() {
         state_index_root: TrieHash([0; 32]),
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4869,7 +4869,7 @@ fn signer_chainstate() {
         state_index_root: TrieHash([0; 32]),
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4927,7 +4927,7 @@ fn signer_chainstate() {
         state_index_root: TrieHash([0; 32]),
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 

@@ -244,11 +244,12 @@ pub struct LeaderBlockCommitOp {
     /// PoX/Burn outputs
     pub commit_outs: Vec<PoxAddress>,
 
-    /// If this block commit punished one or both of its PoX recipients,
-    /// they will be in this vector.
+    /// If the active epoch supports PoX reward/punishment
+    /// via burns, this vector will contain the treatment (rewarded or punished)
+    /// of the PoX addresses active during the block commit.
     ///
-    /// This value is set by the check() call.
-    pub punished: Vec<Treatment>,
+    /// This value is set by the check() call, not during parsing.
+    pub treatment: Vec<Treatment>,
 
     // PoX sunset burn
     pub sunset_burn: u64,

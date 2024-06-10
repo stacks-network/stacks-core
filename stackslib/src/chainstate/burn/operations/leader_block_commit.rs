@@ -127,7 +127,7 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
-            punished: vec![],
+            treatment: vec![],
         }
     }
 
@@ -166,7 +166,7 @@ impl LeaderBlockCommitOp {
                 - 1,
 
             burn_header_hash: BurnchainHeaderHash::zero(),
-            punished: vec![],
+            treatment: vec![],
         }
     }
 
@@ -454,7 +454,7 @@ impl LeaderBlockCommitOp {
             input,
             apparent_sender,
 
-            punished: Vec::new(),
+            treatment: Vec::new(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height: block_height,
@@ -1128,7 +1128,7 @@ impl LeaderBlockCommitOp {
         self.check_common(epoch.epoch_id, tx)?;
 
         if reward_set_info.is_some_and(|r| r.allow_nakamoto_punishment) {
-            self.punished = punished;
+            self.treatment = punished;
         }
 
         // good to go!
@@ -1756,7 +1756,7 @@ mod tests {
                     block_height: block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: burn_header_hash,
-                    punished: vec![],                })
+                    treatment: vec![],                })
             },
             OpFixture {
                 // invalid -- wrong opcode
@@ -1990,7 +1990,7 @@ mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
-            punished: vec![],
+            treatment: vec![],
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner::mock_parts(
                 AddressHashMode::SerializeP2PKH,
@@ -2125,7 +2125,7 @@ mod tests {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
-                    punished: vec![],
+                    treatment: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2175,7 +2175,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2226,7 +2226,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2277,7 +2277,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2340,7 +2340,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2512,7 +2512,7 @@ mod tests {
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
             sunset_burn: 0,
-            punished: vec![],
+            treatment: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -2661,7 +2661,7 @@ mod tests {
             CheckFixture {
                 // reject -- predates start block
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2713,7 +2713,7 @@ mod tests {
                 // reject -- no such leader key
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
-                    punished: vec![],
+                    treatment: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2763,7 +2763,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2814,7 +2814,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist in a different block
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2868,7 +2868,7 @@ mod tests {
                 // here)
                 op: LeaderBlockCommitOp {
                     sunset_burn: 0,
-                    punished: vec![],
+                    treatment: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2918,7 +2918,7 @@ mod tests {
             CheckFixture {
                 // reject -- fee is 0
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -2969,7 +2969,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -3020,7 +3020,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -3071,7 +3071,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
-                    punished: vec![],
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
@@ -3207,7 +3207,7 @@ mod tests {
         };
 
         let default_block_commit = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed([0x33; 32]),
@@ -3519,7 +3519,7 @@ mod tests {
         };
 
         let block_commit_pre_2_05 = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x02; 32]),
             new_seed: VRFSeed([0x03; 32]),
@@ -3549,7 +3549,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3579,7 +3579,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3609,7 +3609,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x04; 32]),
             new_seed: VRFSeed([0x05; 32]),
@@ -3639,7 +3639,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x05; 32]),
             new_seed: VRFSeed([0x06; 32]),
@@ -3669,7 +3669,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_valid = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3699,7 +3699,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
@@ -3729,7 +3729,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x04; 32]),
             new_seed: VRFSeed([0x05; 32]),
@@ -3759,7 +3759,7 @@ mod tests {
         };
 
         let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x05; 32]),
             new_seed: VRFSeed([0x06; 32]),

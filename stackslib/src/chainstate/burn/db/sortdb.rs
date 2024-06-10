@@ -306,7 +306,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             vtxindex,
             block_height,
             burn_header_hash,
-            punished,
+            treatment: punished,
         };
         Ok(block_commit)
     }
@@ -5741,7 +5741,7 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.sunset_burn.to_string(),
             &apparent_sender_str,
             &block_commit.burn_parent_modulus,
-            &serde_json::to_string(&block_commit.punished).unwrap(),
+            &serde_json::to_string(&block_commit.treatment).unwrap(),
         ];
 
         self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
@@ -7137,7 +7137,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -7856,7 +7856,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -10073,7 +10073,7 @@ pub mod tests {
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         // descends from genesis
@@ -10116,7 +10116,7 @@ pub mod tests {
             block_height: block_height + 3,
             burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x04; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         // descends from block_commit_1
@@ -10159,7 +10159,7 @@ pub mod tests {
             block_height: block_height + 4,
             burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x05; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         // descends from genesis_block_commit
@@ -10202,7 +10202,7 @@ pub mod tests {
             block_height: block_height + 5,
             burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x06; 32]),
-            punished: vec![],
+            treatment: vec![],
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();

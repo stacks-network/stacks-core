@@ -381,7 +381,7 @@ impl NakamotoBlockBuilder {
             info.cause == Some(TenureChangeCause::BlockFound),
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
-            &self.header.signer_bitvec,
+            &self.header.pox_treatment,
             &info.tenure_block_commit,
             &info.active_reward_set,
         )?;

@@ -961,7 +961,7 @@ fn pox_treatment() {
                 bitvec.set(1 + ix, false).unwrap();
                 bitvec.set(2 + ix, false).unwrap();
             });
-            block.header.signer_bitvec = bitvec;
+            block.header.pox_treatment = bitvec;
             // don't try to process this block yet, just return it so that
             //  we can assert the block error.
             false
@@ -987,7 +987,7 @@ fn pox_treatment() {
         |block| {
             // each stacker has 3 entries in the bitvec.
             // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
-            block.header.signer_bitvec = BitVec::try_from(
+            block.header.pox_treatment = BitVec::try_from(
                 [
                     false, false, true, false, false, true, false, false, true, false, false, true,
                 ]
@@ -1008,7 +1008,7 @@ fn pox_treatment() {
             // we want the miner to finish assembling the block, and then we'll
             //  alter the bitvec before it signs the block (in a subsequent closure).
             // this way, we can test the block processing behavior.
-            miner.header.signer_bitvec = BitVec::try_from(
+            miner.header.pox_treatment = BitVec::try_from(
                 [
                     false, false, true, false, false, true, false, false, true, false, false, true,
                 ]
@@ -1049,7 +1049,7 @@ fn pox_treatment() {
                 bitvec.set(2 + ix, true).unwrap();
             });
 
-            block.header.signer_bitvec = bitvec;
+            block.header.pox_treatment = bitvec;
             // don't try to process this block yet, just return it so that
             //  we can assert the block error.
             false
@@ -1074,7 +1074,7 @@ fn pox_treatment() {
         |miner| {
             // each stacker has 3 entries in the bitvec.
             // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
-            miner.header.signer_bitvec = BitVec::try_from(
+            miner.header.pox_treatment = BitVec::try_from(
                 [
                     false, false, true, false, false, true, false, false, true, false, false, true,
                 ]

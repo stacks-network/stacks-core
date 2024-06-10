@@ -1035,7 +1035,7 @@ impl Node {
         let txid = Txid(txid_bytes);
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-            punished: vec![],
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash,
             burn_fee,

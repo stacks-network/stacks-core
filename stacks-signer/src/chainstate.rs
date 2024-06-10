@@ -113,7 +113,7 @@ impl SortitionsView {
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, ClientError> {
-        let bitvec_all_1s = block.header.signer_bitvec.iter().all(|entry| entry);
+        let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
             warn!(
                 "Miner block proposal has bitvec field which punishes in disagreement with signer. Considering invalid.";

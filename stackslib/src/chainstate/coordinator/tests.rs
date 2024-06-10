@@ -698,7 +698,7 @@ fn make_genesis_block_with_recipients(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn: 0,
-        punished: vec![],
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: (Txid([0; 32]), 0),
@@ -971,7 +971,7 @@ fn make_stacks_block_with_input(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn,
-        punished: vec![],
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input,
