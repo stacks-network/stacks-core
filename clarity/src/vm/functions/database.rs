@@ -1070,8 +1070,8 @@ pub fn special_get_tenure_info(
         _ => return Ok(Value::none()),
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
-    if height_value >= current_block_height {
+    let current_tenure = env.global_context.database.get_tenure_height()?;
+    if height_value > current_tenure {
         return Ok(Value::none());
     }
 

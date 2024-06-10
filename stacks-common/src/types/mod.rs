@@ -151,6 +151,12 @@ impl StacksEpochId {
             StacksEpochId::Epoch30 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
         }
     }
+
+    /// Is a timestamp saved for each Stacks block in this epoch?
+    /// If not, the timestamp is retrieved from the burn block.
+    pub fn has_block_timestamps(&self) -> bool {
+        self >= &StacksEpochId::Epoch30
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

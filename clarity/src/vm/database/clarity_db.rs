@@ -1008,6 +1008,15 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
+        let epoch = self.get_stacks_epoch(block_height).ok_or_else(|| {
+            InterpreterError::Expect(
+                format!("Failed to get epoch for block height {block_height}.)").into(),
+            )
+        })?;
+        if !epoch.epoch_id.has_block_timestamps() {
+            return self.get_burn_block_time(block_height);
+        }
+
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
             .get_block_time_for_block(&id_bhh)
