@@ -287,7 +287,7 @@ fn test_try_make_response() {
                  chainstate: &mut StacksChainState,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
-                    let burn_dbconn = sort_db.index_conn();
+                    let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
                         .load_tenure_info(chainstate, &burn_dbconn, None)
                         .unwrap();
