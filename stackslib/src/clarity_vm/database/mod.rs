@@ -73,7 +73,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     }
 
     fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.0, id_bhh, "timestamp", |r| {
+        get_stacks_header_column_nakamoto(self.0, id_bhh, "timestamp", |r| {
             u64::from_row(r).expect("FATAL: malformed timestamp")
         })
     }
@@ -153,7 +153,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     }
 
     fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.deref().deref(), id_bhh, "timestamp", |r| {
+        get_stacks_header_column_nakamoto(self.deref().deref(), id_bhh, "timestamp", |r| {
             u64::from_row(r).expect("FATAL: malformed timestamp")
         })
     }
@@ -236,7 +236,7 @@ impl HeadersDB for MARF<StacksBlockId> {
     }
 
     fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.sqlite_conn(), id_bhh, "timestamp", |r| {
+        get_stacks_header_column_nakamoto(self.sqlite_conn(), id_bhh, "timestamp", |r| {
             u64::from_row(r).expect("FATAL: malformed timestamp")
         })
     }
@@ -287,36 +287,39 @@ impl HeadersDB for MARF<StacksBlockId> {
     }
 }
 
-fn get_stacks_header_column<F, R>(
+fn get_stacks_header_column_internal<F, R>(
     conn: &DBConn,
     id_bhh: &StacksBlockId,
     column_name: &str,
     loader: F,
+    nakamoto_only: bool,
 ) -> Option<R>
 where
     F: Fn(&Row) -> R,
 {
     let args: &[&dyn ToSql] = &[id_bhh];
-    if let Some(result) = conn
-        .query_row(
-            &format!(
-                "SELECT {} FROM block_headers WHERE index_block_hash = ?",
-                column_name
-            ),
-            args,
-            |x| Ok(loader(x)),
-        )
-        .optional()
-        .unwrap_or_else(|_| {
-            panic!(
-                "Unexpected SQL failure querying block header table for '{}'",
-                column_name
+    if !nakamoto_only {
+        if let Some(result) = conn
+            .query_row(
+                &format!(
+                    "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+                    column_name
+                ),
+                args,
+                |x| Ok(loader(x)),
             )
-        })
-    {
-        return Some(result);
+            .optional()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Unexpected SQL failure querying block header table for '{}'",
+                    column_name
+                )
+            })
+        {
+            return Some(result);
+        }
     }
-    // if nothing was found in `block_headers`, try `nakamoto_block_headers`
+    // if `nakamoto_only` or nothing was found in `block_headers`, try `nakamoto_block_headers`
     conn.query_row(
         &format!(
             "SELECT {} FROM nakamoto_block_headers WHERE index_block_hash = ?",
@@ -332,6 +335,30 @@ where
             column_name
         )
     })
+}
+
+fn get_stacks_header_column<F, R>(
+    conn: &DBConn,
+    id_bhh: &StacksBlockId,
+    column_name: &str,
+    loader: F,
+) -> Option<R>
+where
+    F: Fn(&Row) -> R,
+{
+    get_stacks_header_column_internal(conn, id_bhh, column_name, loader, false)
+}
+
+fn get_stacks_header_column_nakamoto<F, R>(
+    conn: &DBConn,
+    id_bhh: &StacksBlockId,
+    column_name: &str,
+    loader: F,
+) -> Option<R>
+where
+    F: Fn(&Row) -> R,
+{
+    get_stacks_header_column_internal(conn, id_bhh, column_name, loader, true)
 }
 
 fn get_miner_column<F, R>(
