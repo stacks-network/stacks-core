@@ -113,6 +113,18 @@ impl SortitionsView {
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, ClientError> {
+        let bitvec_all_1s = block.header.signer_bitvec.iter().all(|entry| entry);
+        if !bitvec_all_1s {
+            warn!(
+                "Miner block proposal has bitvec field which punishes in disagreement with signer. Considering invalid.";
+                "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
+                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
+            );
+            return Ok(false);
+        }
+
         let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
         let Some(proposed_by) =
             (if block.header.consensus_hash == self.cur_sortition.consensus_hash {

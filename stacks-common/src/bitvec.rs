@@ -125,6 +125,33 @@ impl<const MAX_SIZE: u16> ToSql for BitVec<MAX_SIZE> {
     }
 }
 
+pub struct BitVecIter<'a, const MAX_SIZE: u16> {
+    index: u16,
+    byte: Option<&'a u8>,
+    bitvec: &'a BitVec<MAX_SIZE>,
+}
+
+impl<'a, const MAX_SIZE: u16> Iterator for BitVecIter<'a, MAX_SIZE> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.bitvec.len {
+            return None;
+        }
+        let byte = self.byte?;
+        let next = (*byte & BitVec::<MAX_SIZE>::bit_index(self.index)) != 0;
+        self.index = self.index.saturating_add(1);
+        if self.index < self.bitvec.len {
+            // check if byte needs to be incremented
+            if self.index % 8 == 0 {
+                let vec_index = usize::from(self.index / 8);
+                self.byte = self.bitvec.data.get(vec_index);
+            }
+        }
+        Some(next)
+    }
+}
+
 impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
     /// Construct a new BitVec with all entries set to `false` and total length `len`
     pub fn zeros(len: u16) -> Result<BitVec<MAX_SIZE>, String> {
@@ -144,6 +171,15 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
             bitvec.set(i, true)?;
         }
         Ok(bitvec)
+    }
+
+    pub fn iter(&self) -> BitVecIter<MAX_SIZE> {
+        let byte = self.data.get(0);
+        BitVecIter {
+            index: 0,
+            bitvec: self,
+            byte,
+        }
     }
 
     pub fn len(&self) -> u16 {
@@ -252,6 +288,15 @@ mod test {
         assert!(input.set(input.len(), false).is_err());
     }
 
+    fn check_iter(input: &BitVec<{ u16::MAX }>) {
+        let mut checked = 0;
+        for (ix, entry) in input.iter().enumerate() {
+            checked += 1;
+            assert_eq!(input.get(u16::try_from(ix).unwrap()).unwrap(), entry);
+        }
+        assert_eq!(checked, input.len());
+    }
+
     fn check_serialization(input: &BitVec<{ u16::MAX }>) {
         let byte_ser = input.serialize_to_vec();
         let deserialized = BitVec::consensus_deserialize(&mut byte_ser.as_slice()).unwrap();
@@ -288,6 +333,7 @@ mod test {
         }
 
         check_serialization(&bitvec);
+        check_iter(&bitvec);
         check_set_get(bitvec);
     }
 
