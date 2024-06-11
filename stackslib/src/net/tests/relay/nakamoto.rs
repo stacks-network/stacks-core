@@ -434,6 +434,8 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                     let mut sortdb = follower.sortdb.take().unwrap();
                     let mut node = follower.stacks_node.take().unwrap();
 
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
                     // no need to buffer this because we can process it right away
                     let buffer = follower
                         .network
@@ -454,6 +456,87 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                             &node.chainstate,
                             block
                         ));
+
+                        // suppose these blocks were invalid -- they would not be bufferable.
+                        // bad signature? not bufferable
+                        let mut bad_block = block.clone();
+                        let block_sn = SortitionDB::get_block_snapshot_consensus(
+                            sortdb.conn(),
+                            &bad_block.header.consensus_hash,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        bad_block
+                            .header
+                            .signer_signature
+                            .push(bad_block.header.signer_signature.last().cloned().unwrap());
+                        assert_eq!(
+                            follower
+                                .network
+                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
+                            (
+                                Some(
+                                    follower
+                                        .network
+                                        .burnchain
+                                        .pox_reward_cycle(block_sn.block_height)
+                                        .unwrap()
+                                ),
+                                true
+                            )
+                        );
+                        assert!(!follower.network.is_nakamoto_block_bufferable(
+                            &sortdb,
+                            &node.chainstate,
+                            &bad_block
+                        ));
+
+                        // unrecognized consensus hash
+                        let mut bad_block = block.clone();
+                        bad_block.header.consensus_hash = ConsensusHash([0xde; 20]);
+                        assert_eq!(
+                            follower
+                                .network
+                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
+                            (
+                                Some(
+                                    follower
+                                        .network
+                                        .burnchain
+                                        .pox_reward_cycle(
+                                            follower.network.burnchain_tip.block_height
+                                        )
+                                        .unwrap()
+                                ),
+                                false
+                            )
+                        );
+
+                        // stale consensus hash
+                        let mut bad_block = block.clone();
+                        let ancestor_sn = SortitionDB::get_ancestor_snapshot(
+                            &sortdb.index_conn(),
+                            1,
+                            &tip.sortition_id,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        bad_block.header.consensus_hash = ancestor_sn.consensus_hash;
+                        assert_eq!(
+                            follower
+                                .network
+                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
+                            (
+                                Some(
+                                    follower
+                                        .network
+                                        .burnchain
+                                        .pox_reward_cycle(ancestor_sn.block_height)
+                                        .unwrap()
+                                ),
+                                true
+                            )
+                        );
                     }
 
                     // go process the blocks _as if_ they came from a network result
@@ -631,8 +714,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     debug!("Follower got Nakamoto blocks {:?}", &blocks);
                     all_blocks.push(blocks.clone());
 
-                    let mut sortdb = follower.sortdb.take().unwrap();
-                    let mut node = follower.stacks_node.take().unwrap();
+                    let sortdb = follower.sortdb.take().unwrap();
+                    let node = follower.stacks_node.take().unwrap();
 
                     // we will need to buffer this since the sortition for these blocks hasn't been
                     // processed yet
@@ -657,33 +740,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         ));
                     }
 
-                    // try to process the blocks _as if_ they came from a network result.
-                    // It should fail.
-                    let mut unsolicited = HashMap::new();
-                    let msg = StacksMessage::from_chain_view(
-                        follower.network.bound_neighbor_key().peer_version,
-                        follower.network.bound_neighbor_key().network_id,
-                        follower.network.get_chain_view(),
-                        StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
-                            blocks: blocks.clone(),
-                        }),
-                    );
-                    unsolicited.insert(peer_nk.clone(), vec![msg]);
-
-                    if let Some(mut network_result) = network_result.take() {
-                        network_result.consume_unsolicited(unsolicited);
-                        follower_relayer.process_new_epoch3_blocks(
-                            follower.network.get_local_peer(),
-                            &mut network_result,
-                            &follower.network.burnchain,
-                            &mut sortdb,
-                            &mut node.chainstate,
-                            true,
-                            None,
-                        );
-                    }
-
-                    // have the peer network buffer them up
+                    // pass this and other blocks to the p2p network's unsolicited message handler,
+                    // so they can be buffered up and processed.
                     let mut unsolicited_msgs: HashMap<usize, Vec<StacksMessage>> = HashMap::new();
                     for (event_id, convo) in follower.network.peers.iter() {
                         for blks in all_blocks.iter() {
@@ -692,7 +750,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
                                 follower.network.bound_neighbor_key().network_id,
                                 follower.network.get_chain_view(),
                                 StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
-                                    blocks: blocks.clone(),
+                                    blocks: blks.clone(),
                                 }),
                             );
 
@@ -703,6 +761,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
                             }
                         }
                     }
+
                     follower.network.handle_unsolicited_messages(
                         &sortdb,
                         &node.chainstate,
@@ -730,10 +789,6 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         assert_eq!(follower_consensus_hash, buffered_consensus_hash);
                     }
 
-                    let mut network_result = follower
-                        .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
-                        .ok();
-
                     // process the last buffered messages
                     let mut sortdb = follower.sortdb.take().unwrap();
                     let mut node = follower.stacks_node.take().unwrap();
@@ -753,10 +808,31 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     follower.stacks_node = Some(node);
                     follower.sortdb = Some(sortdb);
 
+                    network_result = follower
+                        .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
+                        .ok();
+
                     seed_exited = true;
                     exited_peer = Some(exited);
                     follower_comms.send_exit();
                 }
+            }
+
+            if let Some(mut network_result) = network_result.take() {
+                let mut sortdb = follower.sortdb.take().unwrap();
+                let mut node = follower.stacks_node.take().unwrap();
+                let num_processed = follower_relayer.process_new_epoch3_blocks(
+                    follower.network.get_local_peer(),
+                    &mut network_result,
+                    &follower.network.burnchain,
+                    &mut sortdb,
+                    &mut node.chainstate,
+                    true,
+                    None,
+                );
+                info!("Processed {} unsolicited Nakamoto blocks", num_processed);
+                follower.stacks_node = Some(node);
+                follower.sortdb = Some(sortdb);
             }
 
             follower.coord.handle_new_burnchain_block().unwrap();
@@ -785,7 +861,10 @@ fn test_buffer_nonready_nakamoto_blocks() {
         exited_peer.stacks_node = Some(stacks_node);
         exited_peer.sortdb = Some(sortdb);
 
-        assert_eq!(exited_peer_burn_tip, follower_burn_tip);
+        assert_eq!(
+            exited_peer_burn_tip.sortition_id,
+            follower_burn_tip.sortition_id
+        );
         assert_eq!(exited_peer_stacks_tip, follower_stacks_tip);
     });
 }

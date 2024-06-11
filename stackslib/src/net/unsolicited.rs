@@ -179,8 +179,8 @@ impl PeerNetwork {
         let mut blocks_data = 0;
         let mut microblocks_data = 0;
         let mut nakamoto_blocks_data = 0;
-        for msg in msgs.iter() {
-            match &msg.payload {
+        for stored_msg in msgs.iter() {
+            match &stored_msg.payload {
                 StacksMessageType::BlocksAvailable(_) => {
                     blocks_available += 1;
                     if blocks_available >= self.connection_opts.max_buffered_blocks_available {
@@ -669,27 +669,49 @@ impl PeerNetwork {
         }
     }
 
-    /// Determine if an unsolicited NakamotoBlockData message contains data we can potentially
-    /// buffer
-    pub(crate) fn is_nakamoto_block_bufferable(
+    /// Check the signature of a NakamotoBlock against its sortition's reward cycle.
+    /// The reward cycle must be recent.
+    pub(crate) fn check_nakamoto_block_signer_signature(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        reward_cycle: u64,
         nakamoto_block: &NakamotoBlock,
     ) -> bool {
-        if chainstate
-            .nakamoto_blocks_db()
-            .has_nakamoto_block(&nakamoto_block.block_id())
-            .unwrap_or(false)
-        {
-            debug!(
-                "{:?}: Aleady have Nakamoto block {}",
-                &self.local_peer,
-                &nakamoto_block.block_id()
+        let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
+            info!(
+                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set",
+                self.get_local_peer(),
+                &nakamoto_block.header.consensus_hash,
+                &nakamoto_block.header.block_hash()
+            );
+            return false;
+        };
+        let Some(reward_set) = rc_data.reward_set() else {
+            info!(
+                "{:?}: No reward set for reward cycle {}",
+                self.get_local_peer(),
+                reward_cycle
+            );
+            return false;
+        };
+
+        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+            info!(
+                "{:?}: signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );
             return false;
         }
+        true
+    }
 
+    /// Find the reward cycle in which to validate the signature for this block.
+    /// This may not actually correspond to the sortition for this block's tenure -- for example,
+    /// it may be for a block whose sortition is about to be processed.  As such, return both the
+    /// reward cycle, and whether or not it corresponds to the sortition.
+    pub(crate) fn find_nakamoto_block_reward_cycle(
+        &self,
+        sortdb: &SortitionDB,
+        nakamoto_block: &NakamotoBlock,
+    ) -> (Option<u64>, bool) {
         let mut can_process = true;
         let sn = match SortitionDB::get_block_snapshot_consensus(
             &sortdb.conn(),
@@ -715,7 +737,7 @@ impl PeerNetwork {
                     &nakamoto_block.header.consensus_hash,
                     &e
                 );
-                return false;
+                return (None, false);
             }
         };
 
@@ -725,36 +747,45 @@ impl PeerNetwork {
                 self.get_local_peer(),
                 &nakamoto_block.header.consensus_hash
             );
-            return false;
+            return (None, false);
         }
 
-        // block must be signed by reward set signers
         let sn_rc = self
             .burnchain
             .pox_reward_cycle(sn.block_height)
             .expect("FATAL: sortition has no reward cycle");
-        let Some(rc_data) = self.current_reward_sets.get(&sn_rc) else {
-            info!(
-                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set",
-                self.get_local_peer(),
-                &nakamoto_block.header.consensus_hash,
-                &nakamoto_block.header.block_hash()
+
+        return (Some(sn_rc), can_process);
+    }
+
+    /// Determine if an unsolicited NakamotoBlockData message contains data we can potentially
+    /// buffer.  Returns whether or not the block can be buffered.
+    pub(crate) fn is_nakamoto_block_bufferable(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        nakamoto_block: &NakamotoBlock,
+    ) -> bool {
+        if chainstate
+            .nakamoto_blocks_db()
+            .has_nakamoto_block(&nakamoto_block.block_id())
+            .unwrap_or(false)
+        {
+            debug!(
+                "{:?}: Aleady have Nakamoto block {}",
+                &self.local_peer,
+                &nakamoto_block.block_id()
             );
             return false;
-        };
-        let Some(reward_set) = rc_data.reward_set() else {
-            info!(
-                "{:?}: No reward set for reward cycle {}",
-                self.get_local_peer(),
-                sn_rc
-            );
+        }
+
+        let (sn_rc_opt, can_process) =
+            self.find_nakamoto_block_reward_cycle(sortdb, nakamoto_block);
+        let Some(sn_rc) = sn_rc_opt else {
             return false;
         };
 
-        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
-            info!(
-                "{:?}: signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
-            );
+        if !self.check_nakamoto_block_signer_signature(sn_rc, nakamoto_block) {
             return false;
         }
 
@@ -942,6 +973,8 @@ impl PeerNetwork {
     ///
     /// If `buffer` is false, then if the message handler deems the message valid, it will be
     /// forwraded to the relayer.
+    ///
+    /// Returns the messages to be forward to the relayer, keyed by sender.
     pub fn handle_unsolicited_messages(
         &mut self,
         sortdb: &SortitionDB,

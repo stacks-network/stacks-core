@@ -409,8 +409,9 @@ pub struct PeerNetwork {
     antientropy_start_reward_cycle: u64,
     pub antientropy_last_push_ts: u64,
 
-    // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
-    // can't process yet, but might be able to process on the next chain view update
+    /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
+    /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
+    /// chain view update.
     pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
 
     // fault injection -- force disconnects

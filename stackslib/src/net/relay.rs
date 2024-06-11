@@ -645,7 +645,7 @@ impl Relayer {
 
             if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
                 info!(
-                    "Signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
+                    "Signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
                 );
                 return Err(net_error::InvalidMessage);
             }
@@ -1574,14 +1574,14 @@ impl Relayer {
                         Ok(accepted) => {
                             if accepted {
                                 debug!(
-                                    "Accepted Nakamoto block {} from {}",
-                                    &block_id, neighbor_key
+                                    "Accepted Nakamoto block {} ({}) from {}",
+                                    &block_id, &nakamoto_block.header.consensus_hash, neighbor_key
                                 );
                                 accepted_blocks.push(nakamoto_block.clone());
                             } else {
                                 debug!(
-                                    "Rejected Nakamoto block {} from {}",
-                                    &block_id, &neighbor_key,
+                                    "Rejected Nakamoto block {} ({}) from {}",
+                                    &block_id, &nakamoto_block.header.consensus_hash, &neighbor_key,
                                 );
                             }
                         }
@@ -1595,7 +1595,6 @@ impl Relayer {
                                 "Could not process pushed Nakamoto block {}: {:?}",
                                 &block_id, &e
                             );
-                            break;
                         }
                     }
                 }
@@ -1943,7 +1942,7 @@ impl Relayer {
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Failed to process pushed Nakamoot blocks: {:?}", &e);
+                    warn!("Failed to process pushed Nakamoto blocks: {:?}", &e);
                     (vec![], vec![])
                 }
             };
