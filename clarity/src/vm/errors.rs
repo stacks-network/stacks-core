@@ -125,6 +125,7 @@ pub enum WasmError {
     DefinesNotFound,
     TopLevelNotFound,
     MemoryNotFound,
+    GlobalNotFound(String),
     #[cfg(feature = "canonical")]
     WasmCompileFailed(wasmtime::Error),
     #[cfg(feature = "canonical")]
@@ -134,7 +135,6 @@ pub enum WasmError {
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
     InvalidClarityName(String),
-    StackPointerNotFound,
     #[cfg(feature = "canonical")]
     UnableToWriteStackPointer(wasmtime::Error),
     #[cfg(feature = "canonical")]
@@ -159,6 +159,7 @@ impl fmt::Display for WasmError {
             WasmError::DefinesNotFound => write!(f, "Defines function not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            WasmError::GlobalNotFound(e) => write!(f, "Global variable not found: {e}"),
             #[cfg(feature = "canonical")]
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
             #[cfg(feature = "canonical")]
@@ -172,7 +173,6 @@ impl fmt::Display for WasmError {
                 write!(f, "Unable to retrieve identifier: {id}")
             }
             WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
-            WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
             #[cfg(feature = "canonical")]
             WasmError::UnableToWriteStackPointer(e) => {
                 write!(f, "Unable to write stack pointer: {e}")
