@@ -209,6 +209,7 @@ pub enum MempoolSyncState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
+pub type PendingMessages = HashMap<usize, Vec<StacksMessage>>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -412,7 +413,7 @@ pub struct PeerNetwork {
     /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
     /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
     /// chain view update.
-    pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
+    pub pending_messages: PendingMessages,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
@@ -574,7 +575,7 @@ impl PeerNetwork {
             antientropy_last_push_ts: 0,
             antientropy_start_reward_cycle: 0,
 
-            pending_messages: HashMap::new(),
+            pending_messages: PendingMessages::new(),
 
             fault_last_disconnect: 0,
 
@@ -1408,11 +1409,10 @@ impl PeerNetwork {
                         // send to each neighbor that needs one
                         let mut all_neighbors = HashSet::new();
                         for nakamoto_block in data.blocks.iter() {
-                            let mut neighbors =
+                            let neighbors =
                                 self.sample_broadcast_peers(&relay_hints, nakamoto_block)?;
-                            for nk in neighbors.drain(..) {
-                                all_neighbors.insert(nk);
-                            }
+
+                            all_neighbors.extend(neighbors);
                         }
                         Ok(all_neighbors.into_iter().collect())
                     }

@@ -479,7 +479,7 @@ impl RelayerStats {
                     sampled += 1;
 
                     // sample without replacement
-                    norm -= rankings_vec[i].1;
+                    norm = norm.saturating_sub(rankings_vec[i].1);
                     rankings_vec[i].1 = 0;
                     break;
                 }
@@ -490,6 +490,12 @@ impl RelayerStats {
 
         ret.into_iter().collect()
     }
+}
+
+/// Processed result of pushed Nakamoto blocks
+pub struct AcceptedNakamotoBlocks {
+    pub relayers: Vec<RelayData>,
+    pub blocks: Vec<NakamotoBlock>,
 }
 
 impl Relayer {
@@ -644,8 +650,12 @@ impl Relayer {
             };
 
             if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
-                info!(
-                    "Signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), sn_rc, &e
+                warn!(
+                    "Signature verification failure for Nakamoto block";
+                    "consensus_hash" => %nakamoto_block.header.consensus_hash,
+                    "block_hash" => %nakamoto_block.header.block_hash(),
+                    "reward_cycle" => sn_rc,
+                    "error" => %e.to_string()
                 );
                 return Err(net_error::InvalidMessage);
             }
@@ -782,7 +792,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
-        block: NakamotoBlock,
+        block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<bool, chainstate_error> {
         debug!(
@@ -796,7 +806,7 @@ impl Relayer {
             .nakamoto_blocks_db()
             .has_nakamoto_block(&block.header.block_id())
             .map_err(|e| {
-                debug!(
+                warn!(
                     "Failed to determine if we have Nakamoto block {}/{}: {:?}",
                     &block.header.consensus_hash,
                     &block.header.block_hash(),
@@ -947,7 +957,7 @@ impl Relayer {
                 sortdb,
                 &mut sort_handle,
                 chainstate,
-                block.clone(),
+                &block,
                 coord_comms,
             ) {
                 warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
@@ -1528,16 +1538,17 @@ impl Relayer {
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         coord_comms: Option<&CoordinatorChannels>,
-    ) -> Result<(Vec<(Vec<RelayData>, Vec<NakamotoBlock>)>, Vec<NeighborKey>), net_error> {
-        let mut new_blocks_and_relayers = vec![];
+    ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
+        let mut pushed_blocks = vec![];
         let mut bad_neighbors = vec![];
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
         // process Nakamoto blocks pushed to us.
         // If a neighbor sends us an invalid Nakamoto block, then ban them.
-        for (neighbor_key, relayers_and_block_data) in network_result.pushed_nakamoto_blocks.iter()
+        for (neighbor_key, relayers_and_block_data) in
+            network_result.pushed_nakamoto_blocks.iter_mut()
         {
-            for (relayers, nakamoto_blocks_data) in relayers_and_block_data.iter() {
+            for (relayers, nakamoto_blocks_data) in relayers_and_block_data.iter_mut() {
                 let mut accepted_blocks = vec![];
                 if let Err(e) = Relayer::validate_nakamoto_blocks_push(
                     burnchain,
@@ -1556,7 +1567,7 @@ impl Relayer {
                     break;
                 }
 
-                for nakamoto_block in nakamoto_blocks_data.blocks.iter() {
+                for nakamoto_block in nakamoto_blocks_data.blocks.drain(..) {
                     let block_id = nakamoto_block.block_id();
                     debug!(
                         "Received pushed Nakamoto block {} from {}",
@@ -1568,7 +1579,7 @@ impl Relayer {
                         sortdb,
                         &mut sort_handle,
                         chainstate,
-                        nakamoto_block.clone(),
+                        &nakamoto_block,
                         coord_comms,
                     ) {
                         Ok(accepted) => {
@@ -1577,9 +1588,9 @@ impl Relayer {
                                     "Accepted Nakamoto block {} ({}) from {}",
                                     &block_id, &nakamoto_block.header.consensus_hash, neighbor_key
                                 );
-                                accepted_blocks.push(nakamoto_block.clone());
+                                accepted_blocks.push(nakamoto_block);
                             } else {
-                                debug!(
+                                warn!(
                                     "Rejected Nakamoto block {} ({}) from {}",
                                     &block_id, &nakamoto_block.header.consensus_hash, &neighbor_key,
                                 );
@@ -1600,12 +1611,15 @@ impl Relayer {
                 }
 
                 if accepted_blocks.len() > 0 {
-                    new_blocks_and_relayers.push((relayers.clone(), accepted_blocks));
+                    pushed_blocks.push(AcceptedNakamotoBlocks {
+                        relayers: relayers.clone(),
+                        blocks: accepted_blocks,
+                    });
                 }
             }
         }
 
-        Ok((new_blocks_and_relayers, bad_neighbors))
+        Ok((pushed_blocks, bad_neighbors))
     }
 
     /// Verify that a relayed transaction is not problematic.  This is a static check -- we only
@@ -1908,7 +1922,7 @@ impl Relayer {
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         coord_comms: Option<&CoordinatorChannels>,
-    ) -> Result<(Vec<(Vec<RelayData>, Vec<NakamotoBlock>)>, Vec<NeighborKey>), net_error> {
+    ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
         // process downloaded Nakamoto blocks.
         // We treat them as singleton blocks fetched via zero relayers
         let nakamoto_blocks =
@@ -1921,10 +1935,10 @@ impl Relayer {
                 nakamoto_blocks.into_values(),
                 coord_comms,
             ) {
-                Ok(accepted) => accepted
-                    .into_iter()
-                    .map(|block| (vec![], vec![block]))
-                    .collect(),
+                Ok(accepted) => vec![AcceptedNakamotoBlocks {
+                    relayers: vec![],
+                    blocks: accepted,
+                }],
                 Err(e) => {
                     warn!("Failed to process downloaded Nakamoto blocks: {:?}", &e);
                     vec![]
@@ -2475,13 +2489,13 @@ impl Relayer {
         _local_peer: &LocalPeer,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-        nakamoto_blocks_and_relayers: Vec<(Vec<RelayData>, Vec<NakamotoBlock>)>,
+        accepted_blocks: Vec<AcceptedNakamotoBlocks>,
         force_send: bool,
     ) {
         debug!(
             "{:?}: relay {} sets of Nakamoto blocks",
             _local_peer,
-            nakamoto_blocks_and_relayers.len()
+            accepted_blocks.len()
         );
 
         // the relay strategy is to only send blocks that are within
@@ -2502,7 +2516,9 @@ impl Relayer {
             .map(|sn| sn.consensus_hash)
             .collect();
 
-        for (relayers, blocks) in nakamoto_blocks_and_relayers.into_iter() {
+        for blocks_and_relayers in accepted_blocks.into_iter() {
+            let AcceptedNakamotoBlocks { relayers, blocks } = blocks_and_relayers;
+
             let relay_blocks: Vec<_> = blocks
                 .into_iter()
                 .filter(|blk| {
@@ -2561,10 +2577,10 @@ impl Relayer {
 
     /// Process epoch3 data
     /// Relay new nakamoto blocks if not in ibd
-    /// Returns number of new nakamoto blocks
+    /// Returns number of new nakamoto blocks, up to u64::MAX
     pub fn process_new_epoch3_blocks(
         &mut self,
-        _local_peer: &LocalPeer,
+        local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
@@ -2572,42 +2588,37 @@ impl Relayer {
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> u64 {
-        let mut num_new_nakamoto_blocks = 0;
-        match Self::process_new_nakamoto_blocks(
+        let (accepted_blocks, bad_neighbors) = match Self::process_new_nakamoto_blocks(
             network_result,
             burnchain,
             sortdb,
             chainstate,
             coord_comms,
         ) {
-            Ok((nakamoto_blocks_and_relayers, bad_neighbors)) => {
-                num_new_nakamoto_blocks = nakamoto_blocks_and_relayers
-                    .iter()
-                    .fold(0, |acc, (_relayers, blocks)| acc + blocks.len())
-                    as u64;
-
-                // punish bad peers
-                if bad_neighbors.len() > 0 {
-                    debug!("{:?}: Ban {} peers", &_local_peer, bad_neighbors.len());
-                    if let Err(e) = self.p2p.ban_peers(bad_neighbors) {
-                        warn!("Failed to ban bad-block peers: {:?}", &e);
-                    }
-                }
-
-                // relay if not IBD
-                if !ibd && nakamoto_blocks_and_relayers.len() > 0 {
-                    self.relay_epoch3_blocks(
-                        _local_peer,
-                        sortdb,
-                        chainstate,
-                        nakamoto_blocks_and_relayers,
-                        false,
-                    );
-                }
-            }
+            Ok(x) => x,
             Err(e) => {
                 warn!("Failed to process new Nakamoto blocks: {:?}", &e);
+                return 0;
             }
+        };
+
+        let num_new_nakamoto_blocks = accepted_blocks
+            .iter()
+            .fold(0, |acc, accepted| acc + accepted.blocks.len())
+            .try_into()
+            .unwrap_or(u64::MAX); // don't panic if we somehow receive more than u64::MAX blocks
+
+        // punish bad peers
+        if bad_neighbors.len() > 0 {
+            debug!("{:?}: Ban {} peers", &local_peer, bad_neighbors.len());
+            if let Err(e) = self.p2p.ban_peers(bad_neighbors) {
+                warn!("Failed to ban bad-block peers: {:?}", &e);
+            }
+        }
+
+        // relay if not IBD
+        if !ibd && accepted_blocks.len() > 0 {
+            self.relay_epoch3_blocks(local_peer, sortdb, chainstate, accepted_blocks, false);
         }
         num_new_nakamoto_blocks
     }
@@ -2624,40 +2635,42 @@ impl Relayer {
         ibd: bool,
         event_observer: Option<&dyn RelayEventDispatcher>,
     ) -> Vec<StacksTransaction> {
-        // process new transactions
+        if ibd {
+            // don't do anything
+            return vec![];
+        }
+
+        // only care about transaction forwarding if not IBD.
+        // store all transactions, and forward the novel ones to neighbors
         let mut mempool_txs_added = vec![];
-        if !ibd {
-            // only care about transaction forwarding if not IBD.
-            // store all transactions, and forward the novel ones to neighbors
-            test_debug!(
-                "{:?}: Process {} transaction(s)",
+        test_debug!(
+            "{:?}: Process {} transaction(s)",
+            &_local_peer,
+            network_result.pushed_transactions.len()
+        );
+        let new_txs = Relayer::process_transactions(
+            network_result,
+            sortdb,
+            chainstate,
+            mempool,
+            event_observer.map(|obs| obs.as_mempool_event_dispatcher()),
+        )
+        .unwrap_or(vec![]);
+
+        if new_txs.len() > 0 {
+            debug!(
+                "{:?}: Send {} transactions to neighbors",
                 &_local_peer,
-                network_result.pushed_transactions.len()
+                new_txs.len()
             );
-            let new_txs = Relayer::process_transactions(
-                network_result,
-                sortdb,
-                chainstate,
-                mempool,
-                event_observer.map(|obs| obs.as_mempool_event_dispatcher()),
-            )
-            .unwrap_or(vec![]);
+        }
 
-            if new_txs.len() > 0 {
-                debug!(
-                    "{:?}: Send {} transactions to neighbors",
-                    &_local_peer,
-                    new_txs.len()
-                );
-            }
-
-            for (relayers, tx) in new_txs.into_iter() {
-                debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
-                mempool_txs_added.push(tx.clone());
-                let msg = StacksMessageType::Transaction(tx);
-                if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                    warn!("Failed to broadcast transaction: {:?}", &e);
-                }
+        for (relayers, tx) in new_txs.into_iter() {
+            debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
+            mempool_txs_added.push(tx.clone());
+            let msg = StacksMessageType::Transaction(tx);
+            if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                warn!("Failed to broadcast transaction: {:?}", &e);
             }
         }
         mempool_txs_added
@@ -2675,7 +2688,7 @@ impl Relayer {
     /// turned into peer bans.
     pub fn process_network_result(
         &mut self,
-        _local_peer: &LocalPeer,
+        local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
@@ -2688,7 +2701,7 @@ impl Relayer {
         // process epoch2 data
         let (num_new_blocks, num_new_confirmed_microblocks, num_new_unconfirmed_microblocks) = self
             .process_new_epoch2_blocks(
-                _local_peer,
+                local_peer,
                 network_result,
                 sortdb,
                 chainstate,
@@ -2698,7 +2711,7 @@ impl Relayer {
 
         // process epoch3 data
         let num_new_nakamoto_blocks = self.process_new_epoch3_blocks(
-            _local_peer,
+            local_peer,
             network_result,
             burnchain,
             sortdb,
@@ -2709,7 +2722,7 @@ impl Relayer {
 
         // process transactions
         let mempool_txs_added = self.process_new_transactions(
-            _local_peer,
+            local_peer,
             network_result,
             sortdb,
             chainstate,

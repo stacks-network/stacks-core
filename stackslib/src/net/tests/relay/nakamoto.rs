@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,7 +28,7 @@ use rand::Rng;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash};
 use stacks_common::types::Address;
-use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::VRFProof;
 
@@ -39,12 +38,15 @@ use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
+use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
 };
 use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
-use crate::chainstate::stacks::test::codec_all_transactions;
+use crate::chainstate::stacks::test::{
+    codec_all_transactions, make_codec_test_block, make_codec_test_microblock,
+};
 use crate::chainstate::stacks::tests::{
     make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
     make_user_stacks_transfer, TestStacksNode,
@@ -60,7 +62,7 @@ use crate::net::download::*;
 use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::StacksHttpMessage;
 use crate::net::inv::inv2x::*;
-use crate::net::relay::{ProcessedNetReceipts, Relayer};
+use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
 use crate::net::test::*;
 use crate::net::tests::download::epoch2x::run_get_blocks_and_microblocks;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
@@ -301,7 +303,10 @@ impl SeedNode {
                 &local_peer,
                 &sortdb,
                 &stacks_node.chainstate,
-                vec![(vec![], blocks.clone())],
+                vec![AcceptedNakamotoBlocks {
+                    relayers: vec![],
+                    blocks: blocks.clone(),
+                }],
                 true,
             );
 
@@ -372,6 +377,139 @@ impl SeedNode {
 
         (seed_comms, follower_comms)
     }
+}
+
+/// Test buffering limits
+#[test]
+fn test_buffer_data_message() {
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![vec![
+        true, true, true, true, true, true, true, true, true, true,
+    ]];
+
+    let (mut peer, _followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs.clone(), 1);
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader {
+            version: 1,
+            chain_length: 457,
+            burn_spent: 126,
+            consensus_hash: ConsensusHash([0x55; 20]),
+            parent_block_id: StacksBlockId([0x03; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x05; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            signer_bitvec: BitVec::zeros(1).unwrap(),
+        },
+        txs: vec![],
+    };
+
+    let blocks_available = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::BlocksAvailable(BlocksAvailableData {
+            available: vec![
+                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
+                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
+            ],
+        }),
+    );
+
+    let microblocks_available = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::MicroblocksAvailable(BlocksAvailableData {
+            available: vec![
+                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
+                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
+            ],
+        }),
+    );
+
+    let block = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::Blocks(BlocksData {
+            blocks: vec![BlocksDatum(
+                ConsensusHash([0x11; 20]),
+                make_codec_test_block(10, StacksEpochId::Epoch25),
+            )],
+        }),
+    );
+    let microblocks = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::Microblocks(MicroblocksData {
+            index_anchor_block: StacksBlockId([0x55; 32]),
+            microblocks: vec![make_codec_test_microblock(10)],
+        }),
+    );
+    let nakamoto_block = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
+            blocks: vec![nakamoto_block],
+        }),
+    );
+
+    for _ in 0..peer.network.connection_opts.max_buffered_blocks_available {
+        assert!(peer
+            .network
+            .buffer_data_message(0, blocks_available.clone()));
+    }
+    assert!(!peer
+        .network
+        .buffer_data_message(0, blocks_available.clone()));
+
+    for _ in 0..peer
+        .network
+        .connection_opts
+        .max_buffered_microblocks_available
+    {
+        assert!(peer
+            .network
+            .buffer_data_message(0, microblocks_available.clone()));
+    }
+    assert!(!peer
+        .network
+        .buffer_data_message(0, microblocks_available.clone()));
+
+    for _ in 0..peer.network.connection_opts.max_buffered_blocks {
+        assert!(peer.network.buffer_data_message(0, block.clone()));
+    }
+    assert!(!peer.network.buffer_data_message(0, block.clone()));
+
+    for _ in 0..peer.network.connection_opts.max_buffered_microblocks {
+        assert!(peer.network.buffer_data_message(0, microblocks.clone()));
+    }
+    assert!(!peer.network.buffer_data_message(0, microblocks.clone()));
+
+    for _ in 0..peer.network.connection_opts.max_buffered_nakamoto_blocks {
+        assert!(peer.network.buffer_data_message(0, nakamoto_block.clone()));
+    }
+    assert!(!peer.network.buffer_data_message(0, nakamoto_block.clone()));
 }
 
 /// Verify that Nakmaoto blocks whose sortitions are known will *not* be buffered, but instead

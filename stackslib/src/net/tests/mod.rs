@@ -235,7 +235,7 @@ impl NakamotoBootPlan {
                     &sortdb,
                     &mut sort_handle,
                     &mut node.chainstate,
-                    block.clone(),
+                    &block,
                     None,
                 )
                 .unwrap();

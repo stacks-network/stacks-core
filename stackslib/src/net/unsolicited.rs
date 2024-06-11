@@ -160,18 +160,15 @@ impl PeerNetwork {
         Ok(Some(block_sortition_height))
     }
 
-    /// Buffer a message for re-processing once the burnchain view updates.
-    /// If there is no space for the message, then silently drop it.
-    fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) {
-        let Some(msgs) = self.pending_messages.get_mut(&event_id) else {
-            self.pending_messages.insert(event_id, vec![msg]);
-            debug!(
-                "{:?}: Event {} has 1 messages buffered",
-                &self.local_peer, event_id
-            );
-            return;
-        };
-
+    /// Determine whether or not the system can buffer up this message, based on site-local
+    /// configuration options.
+    /// Return true if so, false if not
+    pub(crate) fn can_buffer_data_message(
+        &self,
+        event_id: usize,
+        msgs: &[StacksMessage],
+        msg: &StacksMessage,
+    ) -> bool {
         // check limits against connection opts, and if the limit is not met, then buffer up the
         // message.
         let mut blocks_available = 0;
@@ -183,67 +180,103 @@ impl PeerNetwork {
             match &stored_msg.payload {
                 StacksMessageType::BlocksAvailable(_) => {
                     blocks_available += 1;
-                    if blocks_available >= self.connection_opts.max_buffered_blocks_available {
+                    if matches!(&msg.payload, StacksMessageType::BlocksAvailable(..))
+                        && blocks_available >= self.connection_opts.max_buffered_blocks_available
+                    {
                         debug!(
-                            "{:?}: Drop BlocksAvailable from event {} -- already have {} buffered",
+                            "{:?}: Cannot buffer BlocksAvailable from event {} -- already have {} buffered",
                             &self.local_peer, event_id, blocks_available
                         );
-                        return;
+                        return false;
                     }
                 }
                 StacksMessageType::MicroblocksAvailable(_) => {
                     microblocks_available += 1;
-                    if microblocks_available
-                        >= self.connection_opts.max_buffered_microblocks_available
+                    if matches!(&msg.payload, StacksMessageType::MicroblocksAvailable(..))
+                        && microblocks_available
+                            >= self.connection_opts.max_buffered_microblocks_available
                     {
                         debug!(
-                            "{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered",
+                            "{:?}: Cannot buffer MicroblocksAvailable from event {} -- already have {} buffered",
                             &self.local_peer, event_id, microblocks_available
                         );
-                        return;
+                        return false;
                     }
                 }
                 StacksMessageType::Blocks(_) => {
                     blocks_data += 1;
-                    if blocks_data >= self.connection_opts.max_buffered_blocks {
+                    if matches!(&msg.payload, StacksMessageType::Blocks(..))
+                        && blocks_data >= self.connection_opts.max_buffered_blocks
+                    {
                         debug!(
-                            "{:?}: Drop BlocksData from event {} -- already have {} buffered",
+                            "{:?}: Cannot buffer BlocksData from event {} -- already have {} buffered",
                             &self.local_peer, event_id, blocks_data
                         );
-                        return;
+                        return false;
                     }
                 }
                 StacksMessageType::Microblocks(_) => {
                     microblocks_data += 1;
-                    if microblocks_data >= self.connection_opts.max_buffered_microblocks {
+                    if matches!(&msg.payload, StacksMessageType::Microblocks(..))
+                        && microblocks_data >= self.connection_opts.max_buffered_microblocks
+                    {
                         debug!(
-                            "{:?}: Drop MicroblocksData from event {} -- already have {} buffered",
+                            "{:?}: Cannot buffer MicroblocksData from event {} -- already have {} buffered",
                             &self.local_peer, event_id, microblocks_data
                         );
-                        return;
+                        return false;
                     }
                 }
                 StacksMessageType::NakamotoBlocks(_) => {
                     nakamoto_blocks_data += 1;
-                    if nakamoto_blocks_data >= self.connection_opts.max_buffered_nakamoto_blocks {
+                    if matches!(&msg.payload, StacksMessageType::NakamotoBlocks(..))
+                        && nakamoto_blocks_data >= self.connection_opts.max_buffered_nakamoto_blocks
+                    {
                         debug!(
-                            "{:?}: Drop NakamotoBlocksData from event {} -- already have {} buffered",
+                            "{:?}: Cannot buffer NakamotoBlocksData from event {} -- already have {} buffered",
                             &self.local_peer, event_id, nakamoto_blocks_data
                         );
-                        return;
+                        return false;
                     }
                 }
                 _ => {}
             }
         }
 
-        msgs.push(msg);
-        debug!(
-            "{:?}: Event {} has {} messages buffered",
-            &self.local_peer,
-            event_id,
-            msgs.len()
-        );
+        true
+    }
+
+    /// Buffer a message for re-processing once the burnchain view updates.
+    /// If there is no space for the message, then silently drop it.
+    /// Returns true if buffered.
+    /// Returns false if not.
+    pub(crate) fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) -> bool {
+        let Some(msgs) = self.pending_messages.get(&event_id) else {
+            self.pending_messages.insert(event_id, vec![msg]);
+            debug!(
+                "{:?}: Event {} has 1 messages buffered",
+                &self.local_peer, event_id
+            );
+            return true;
+        };
+
+        // check limits against connection opts, and if the limit is not met, then buffer up the
+        // message.
+        if !self.can_buffer_data_message(event_id, msgs, &msg) {
+            return false;
+        }
+
+        if let Some(msgs) = self.pending_messages.get_mut(&event_id) {
+            // should always be reachable
+            msgs.push(msg);
+            debug!(
+                "{:?}: Event {} has {} messages buffered",
+                &self.local_peer,
+                event_id,
+                msgs.len()
+            );
+        }
+        true
     }
 
     /// Do we need a block or microblock stream, given its sortition's consensus hash?
@@ -712,12 +745,11 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         nakamoto_block: &NakamotoBlock,
     ) -> (Option<u64>, bool) {
-        let mut can_process = true;
-        let sn = match SortitionDB::get_block_snapshot_consensus(
+        let (reward_set_sn, can_process) = match SortitionDB::get_block_snapshot_consensus(
             &sortdb.conn(),
             &nakamoto_block.header.consensus_hash,
         ) {
-            Ok(Some(sn)) => sn,
+            Ok(Some(sn)) => (sn, true),
             Ok(None) => {
                 debug!(
                     "No sortition {} for block {}",
@@ -726,9 +758,8 @@ impl PeerNetwork {
                 );
                 // we don't have the sortition for this, so we can't process it yet (i.e. we need
                 // to buffer)
-                can_process = false;
                 // load the tip so we can load the current reward set data
-                self.burnchain_tip.clone()
+                (self.burnchain_tip.clone(), false)
             }
             Err(e) => {
                 info!(
@@ -741,7 +772,7 @@ impl PeerNetwork {
             }
         };
 
-        if !sn.pox_valid {
+        if !reward_set_sn.pox_valid {
             info!(
                 "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
                 self.get_local_peer(),
@@ -750,12 +781,12 @@ impl PeerNetwork {
             return (None, false);
         }
 
-        let sn_rc = self
+        let reward_set_sn_rc = self
             .burnchain
-            .pox_reward_cycle(sn.block_height)
+            .pox_reward_cycle(reward_set_sn.block_height)
             .expect("FATAL: sortition has no reward cycle");
 
-        return (Some(sn_rc), can_process);
+        return (Some(reward_set_sn_rc), can_process);
     }
 
     /// Determine if an unsolicited NakamotoBlockData message contains data we can potentially
@@ -1007,7 +1038,6 @@ impl PeerNetwork {
                     continue;
                 }
             };
-
             let neighbor_key = if let Some(convo) = self.peers.get(&event_id) {
                 convo.to_neighbor_key()
             } else {
@@ -1023,6 +1053,17 @@ impl PeerNetwork {
             debug!("{:?}: Process {} unsolicited messages from {:?}", &self.local_peer, messages.len(), &neighbor_key; "buffer" => %buffer);
 
             for message in messages.into_iter() {
+                if buffer
+                    && !self.can_buffer_data_message(
+                        event_id,
+                        self.pending_messages.get(&event_id).unwrap_or(&vec![]),
+                        &message,
+                    )
+                {
+                    // asked to buffer, but we don't have space
+                    continue;
+                }
+
                 if !buffer {
                     debug!(
                         "{:?}: Re-try handling buffered message {} from {:?}",
