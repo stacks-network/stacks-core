@@ -1071,7 +1071,7 @@ pub fn special_get_tenure_info(
     };
 
     let current_tenure = env.global_context.database.get_tenure_height()?;
-    if height_value > current_tenure {
+    if height_value >= current_tenure {
         return Ok(Value::none());
     }
 
