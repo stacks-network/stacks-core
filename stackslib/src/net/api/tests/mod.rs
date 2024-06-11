@@ -954,6 +954,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_1_stacks_node.chainstate,
                     &mut peer_1_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }
@@ -996,6 +997,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_2_stacks_node.chainstate,
                     &mut peer_2_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_2.chat(&mut node_state).unwrap();
             }
@@ -1042,6 +1044,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_1_stacks_node.chainstate,
                     &mut peer_1_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }

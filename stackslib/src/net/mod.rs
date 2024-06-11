@@ -647,6 +647,7 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    ibd: bool,
 }
 
 impl<'a> StacksNodeState<'a> {
@@ -656,6 +657,7 @@ impl<'a> StacksNodeState<'a> {
         inner_chainstate: &'a mut StacksChainState,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
+        ibd: bool,
     ) -> StacksNodeState<'a> {
         StacksNodeState {
             inner_network: Some(inner_network),
@@ -664,6 +666,7 @@ impl<'a> StacksNodeState<'a> {
             inner_mempool: Some(inner_mempool),
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
+            ibd,
         }
     }
 
