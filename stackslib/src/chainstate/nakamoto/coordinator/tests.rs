@@ -404,7 +404,7 @@ fn replay_reward_cycle(
             &sortdb,
             &mut sort_handle,
             &mut node.chainstate,
-            block.clone(),
+            &block,
             None,
         )
         .unwrap_or(false);
