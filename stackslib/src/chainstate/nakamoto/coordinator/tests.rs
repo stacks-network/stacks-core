@@ -36,6 +36,7 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
+use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
@@ -65,6 +66,7 @@ use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
@@ -138,102 +140,6 @@ fn advance_to_nakamoto(
         tip = Some(peer.tenure_with_txs(&txs, &mut peer_nonce));
     }
     // peer is at the start of cycle 8
-}
-
-/// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto_long(
-    peer: &mut TestPeer,
-    test_signers: &mut TestSigners,
-    test_stackers: &[TestStacker],
-) {
-    let mut peer_nonce = 0;
-    let private_key = peer.config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
-
-    let mut stacked_pox_4 = false;
-    let mut signer_voted = false;
-    let nakamoto_height = peer
-        .config
-        .epochs
-        .as_ref()
-        .unwrap()
-        .iter()
-        .find(|e| e.epoch_id == StacksEpochId::Epoch30)
-        .unwrap()
-        .start_height;
-    let mut tip = None;
-    loop {
-        let current_burn_height = peer.get_burn_block_height();
-        if current_burn_height >= nakamoto_height - 1 {
-            info!("Booted to nakamoto");
-            break;
-        }
-        let txs = if tip.is_none() {
-            // don't mine stack-stx txs in first block, because they cannot pass the burn block height
-            //  validation
-            vec![]
-        } else if !stacked_pox_4 {
-            // Make all the test Stackers stack
-            stacked_pox_4 = true;
-            test_stackers
-                .iter()
-                .map(|test_stacker| {
-                    let pox_addr = test_stacker.pox_address.clone().unwrap_or_else(|| {
-                        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone())
-                    });
-                    let reward_cycle = peer
-                        .config
-                        .burnchain
-                        .block_height_to_reward_cycle(current_burn_height)
-                        .unwrap();
-                    let signature = make_signer_key_signature(
-                        &pox_addr,
-                        &test_stacker.signer_private_key,
-                        reward_cycle.into(),
-                        &Pox4SignatureTopic::StackStx,
-                        12_u128,
-                        u128::MAX,
-                        1,
-                    );
-                    let signing_key =
-                        StacksPublicKey::from_private(&test_stacker.signer_private_key);
-                    make_pox_4_lockup(
-                        &test_stacker.stacker_private_key,
-                        0,
-                        test_stacker.amount,
-                        &pox_addr,
-                        12,
-                        &signing_key,
-                        current_burn_height + 2,
-                        Some(signature),
-                        u128::MAX,
-                        1,
-                    )
-                })
-                .collect()
-        } else if !signer_voted {
-            signer_voted = true;
-            with_sortdb(peer, |chainstate, sortdb| {
-                make_all_signers_vote_for_aggregate_key(
-                    chainstate,
-                    sortdb,
-                    &tip.unwrap(),
-                    test_signers,
-                    test_stackers,
-                    7,
-                )
-            })
-        } else {
-            vec![]
-        };
-        tip = Some(peer.tenure_with_txs(&txs, &mut peer_nonce));
-    }
 }
 
 pub fn make_all_signers_vote_for_aggregate_key(
@@ -388,76 +294,6 @@ pub fn boot_nakamoto<'a>(
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
     advance_to_nakamoto(&mut peer, test_signers, test_stackers);
-
-    peer
-}
-
-/// Make a peer and transition it into the Nakamoto epoch.
-/// The node needs to be stacking otherwise, Nakamoto can't activate.
-pub fn boot_nakamoto_long_reward_sets<'a>(
-    test_name: &str,
-    mut initial_balances: Vec<(PrincipalData, u64)>,
-    test_signers: &mut TestSigners,
-    test_stackers: &[TestStacker],
-    observer: Option<&'a TestEventObserver>,
-) -> TestPeer<'a> {
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-    let private_key = peer_config.private_key.clone();
-    let addr = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&private_key)],
-    )
-    .unwrap();
-
-    // reward cycles are 5 blocks long
-    // first 25 blocks are boot-up
-    // reward cycle 6 instantiates pox-3
-    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-
-    // Create some balances for test Stackers
-    let mut stacker_balances = test_stackers
-        .iter()
-        .map(|test_stacker| {
-            (
-                PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
-                u64::try_from(test_stacker.amount + 10000).expect("Stacking amount too large"),
-            )
-        })
-        .collect();
-
-    // Create some balances for test Signers
-    let mut signer_balances = test_stackers
-        .iter()
-        .map(|stacker| {
-            (
-                PrincipalData::from(p2pkh_from(&stacker.signer_private_key)),
-                1000,
-            )
-        })
-        .collect();
-
-    peer_config.initial_balances.append(&mut stacker_balances);
-    peer_config.initial_balances.append(&mut signer_balances);
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.reward_cycle_length = 10;
-    peer_config.burnchain.pox_constants.v2_unlock_height = 21;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 27;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 28;
-    peer_config.test_stackers = Some(test_stackers.to_vec());
-    peer_config.test_signers = Some(test_signers.clone());
-    let mut peer = TestPeer::new_with_observer(peer_config, observer);
-
-    advance_to_nakamoto_long(&mut peer, test_signers, test_stackers);
 
     peer
 }
@@ -887,14 +723,21 @@ fn pox_treatment() {
             )),
         })
         .collect::<Vec<_>>();
-    let mut test_signers = TestSigners::new(vec![signing_key]);
-    let mut peer = boot_nakamoto_long_reward_sets(
-        function_name!(),
-        vec![(addr.into(), 100_000_000)],
-        &mut test_signers,
-        &test_stackers,
-        None,
-    );
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
     let mut blocks = vec![];
     let pox_constants = peer.sortdb().pox_constants.clone();
     let first_burn_height = peer.sortdb().first_block_height;
