@@ -113,6 +113,7 @@ impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let info = node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             RPCGetTenureInfo {

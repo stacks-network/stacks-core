@@ -956,7 +956,7 @@ impl<'a> TestRPC<'a> {
                     &rpc_args,
                     false,
                 );
-                convo_1.chat(&mut node_state).unwrap();
+                convo_1.chat(&mut node_state, None).unwrap();
             }
 
             peer_1.sortdb = Some(peer_1_sortdb);
@@ -999,7 +999,7 @@ impl<'a> TestRPC<'a> {
                     &rpc_args,
                     false,
                 );
-                convo_2.chat(&mut node_state).unwrap();
+                convo_2.chat(&mut node_state, None).unwrap();
             }
 
             peer_2.sortdb = Some(peer_2_sortdb);
@@ -1046,7 +1046,7 @@ impl<'a> TestRPC<'a> {
                     &rpc_args,
                     false,
                 );
-                convo_1.chat(&mut node_state).unwrap();
+                convo_1.chat(&mut node_state, None).unwrap();
             }
 
             convo_1.try_flush().unwrap();

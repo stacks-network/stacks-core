@@ -119,6 +119,7 @@ impl RPCRequestHandler for RPCGetContractAbiRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
             "`contract_identifier` not set".to_string(),

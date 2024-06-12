@@ -191,6 +191,7 @@ impl RPCRequestHandler for GetSortitionHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let result =
             node.with_node_state(|network, sortdb, _chainstate, _mempool, _rpc_args| {

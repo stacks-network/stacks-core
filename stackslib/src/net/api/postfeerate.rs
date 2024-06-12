@@ -221,6 +221,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let estimated_len = self
             .estimated_len

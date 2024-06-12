@@ -424,6 +424,7 @@ impl HttpPeer {
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
+        max_peer_height: Option<u32>,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -483,7 +484,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(node_state) {
+        let msgs = match convo.chat(node_state, max_peer_height) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!(
@@ -558,6 +559,21 @@ impl HttpPeer {
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
+
+        let mut max_peer_height = None;
+
+        self.peers.iter().for_each(|(_, v)| {
+            if max_peer_height.is_none() {
+                max_peer_height = v.get_canonical_stacks_tip_height();
+            } else if v.get_canonical_stacks_tip_height().is_some_and(|value| value > max_peer_height.unwrap()) {
+                max_peer_height = Some(v.get_canonical_stacks_tip_height().unwrap());
+            };
+        });
+
+        // let max_peer_height = self.peers.values()
+        //     .filter_map(|conversation| conversation.get_canonical_stacks_tip_height())
+        //     .max();
+
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
@@ -582,6 +598,7 @@ impl HttpPeer {
                         *event_id,
                         client_sock,
                         convo,
+                        max_peer_height,
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {

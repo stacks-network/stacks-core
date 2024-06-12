@@ -83,6 +83,7 @@ pub struct RPCPeerInfoData {
     pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
     pub is_fully_synced: bool,
+    pub max_peer_height: Option<u32>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key: Option<StacksPublicKeyBuffer>,
@@ -107,6 +108,7 @@ impl RPCPeerInfoData {
         exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
         ibd: bool,
+        max_peer_height: Option<u32>,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
@@ -132,7 +134,7 @@ impl RPCPeerInfoData {
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
         let stackerdb_contract_ids = network.get_local_peer().stacker_dbs.clone();
-        let is_fully_synced = !ibd;
+        let is_fully_synced = !ibd && max_peer_height.is_some_and(|height| height as u64 <= network.stacks_tip.2);
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
@@ -149,6 +151,7 @@ impl RPCPeerInfoData {
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height,
+            max_peer_height,
             is_fully_synced,
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
@@ -215,6 +218,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let ibd = node.ibd;
         let rpc_peer_info =
@@ -225,6 +229,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                     rpc_args.exit_at_block_height.clone(),
                     &rpc_args.genesis_chainstate_hash,
                     ibd,
+                    max_peer_height,
                 )
             });
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);

@@ -137,6 +137,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let microblock = self
             .microblock

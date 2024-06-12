@@ -205,6 +205,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
+        _max_peer_height: Option<u32>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let result = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             let start_from = self
