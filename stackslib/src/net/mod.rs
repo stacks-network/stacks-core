@@ -647,6 +647,7 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    /// Are we in Initial Block Download (IBD) phase?
     ibd: bool,
 }
 
