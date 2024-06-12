@@ -95,7 +95,7 @@ fn setup_test_environment(
             state_index_root: TrieHash([0; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            pox_treatment: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::ones(1).unwrap(),
         },
         txs: vec![],
     };
