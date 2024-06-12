@@ -308,19 +308,6 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure(
-                    "Building on a burn block that is before the first burn block".into(),
-                )
-            })?;
-
         let reward_info = match load_nakamoto_reward_set(
             self.burnchain
                 .pox_reward_cycle(tip.block_height.saturating_add(1))

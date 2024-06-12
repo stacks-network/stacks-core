@@ -333,9 +333,6 @@ impl NakamotoBlockProposal {
         let size = builder.get_bytes_so_far();
         let cost = builder.tenure_finish(tenure_tx)?;
 
-        println!("block header: {:?}", block.header);
-        println!("expected: {:?}", self.block.header);
-
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
         block.header.miner_signature = self.block.header.miner_signature.clone();

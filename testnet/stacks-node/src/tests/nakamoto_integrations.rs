@@ -5032,8 +5032,7 @@ fn check_block_times() {
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
+
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -5042,7 +5041,7 @@ fn check_block_times() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        3 * deploy_fee + (send_amt + send_fee) * 2,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -5311,25 +5310,6 @@ fn check_block_times() {
         "Time from pre- and post-epoch 3.0 contracts should match"
     );
 
-    // TODO: enable access to current tenure.
-    // let time3a_tenure_value = call_read_only(
-    //     &naka_conf,
-    //     &sender_addr,
-    //     contract3_name,
-    //     "get-tenure-time",
-    //     vec![&clarity::vm::Value::UInt(last_tenure_height)],
-    // );
-    // let time3a_tenure = time3a_tenure_value
-    //     .expect_optional()
-    //     .unwrap()
-    //     .unwrap()
-    //     .expect_u128()
-    //     .unwrap();
-    // assert_eq!(
-    //     time0a, time3a_tenure,
-    //     "Tenure time should match Clarity 2 block time"
-    // );
-
     let time3a_block_value = call_read_only(
         &naka_conf,
         &sender_addr,
@@ -5343,6 +5323,10 @@ fn check_block_times() {
         .unwrap()
         .expect_u128()
         .unwrap();
+    assert!(
+        time3a_block - time3_block >= 1,
+        "get-stacks-block-info? time should have changed"
+    );
 
     // Sleep to ensure the seconds have changed
     thread::sleep(Duration::from_secs(1));
@@ -5357,7 +5341,6 @@ fn check_block_times() {
     // submit a tx so that the miner will mine an extra block
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -5406,25 +5389,6 @@ fn check_block_times() {
         time0b, time1b,
         "Time from pre- and post-epoch 3.0 contracts should match"
     );
-
-    // TODO: Enable access to current tenure.
-    // let time3b_tenure_value = call_read_only(
-    //     &naka_conf,
-    //     &sender_addr,
-    //     contract3_name,
-    //     "get-tenure-time",
-    //     vec![&clarity::vm::Value::UInt(last_tenure_height)],
-    // );
-    // let time3b_tenure = time3b_tenure_value
-    //     .expect_optional()
-    //     .unwrap()
-    //     .unwrap()
-    //     .expect_u128()
-    //     .unwrap();
-    // assert_eq!(
-    //     time0b, time3b_tenure,
-    //     "Tenure time should match Clarity 2 block time"
-    // );
 
     let time3b_block_value = call_read_only(
         &naka_conf,

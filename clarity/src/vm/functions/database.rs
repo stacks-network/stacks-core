@@ -986,9 +986,8 @@ pub fn special_get_stacks_block_info(
         x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
     }?;
 
-    let height_value = match u32::try_from(height_value) {
-        Ok(result) => result,
-        _ => return Ok(Value::none()),
+    let Ok(height_value) = u32::try_from(height_value) else {
+        return Ok(Value::none());
     };
 
     let current_block_height = env.global_context.database.get_current_block_height();
@@ -1065,9 +1064,8 @@ pub fn special_get_tenure_info(
         x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
     }?;
 
-    let height_value = match u32::try_from(height_value) {
-        Ok(result) => result,
-        _ => return Ok(Value::none()),
+    let Ok(height_value) = u32::try_from(height_value) else {
+        return Ok(Value::none());
     };
 
     let current_height = env.global_context.database.get_current_block_height();

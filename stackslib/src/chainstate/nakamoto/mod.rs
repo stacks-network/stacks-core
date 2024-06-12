@@ -622,7 +622,8 @@ impl NakamotoBlockHeader {
     }
 
     /// Make an "empty" header whose block data needs to be filled in.
-    /// This is used by the miner code.
+    /// This is used by the miner code. The block's timestamp is set here, at
+    /// the time of creation.
     pub fn from_parent_empty(
         chain_length: u64,
         burn_spent: u64,

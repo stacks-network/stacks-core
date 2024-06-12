@@ -705,7 +705,7 @@ fn check_get_stacks_block_info(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
         CheckErrors::GetStacksBlockInfoExpectPropertyName,
@@ -726,7 +726,7 @@ fn check_get_tenure_info(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
         CheckErrors::GetTenureInfoExpectPropertyName,
