@@ -70,7 +70,7 @@ use crate::net::tests::relay::epoch2x::broadcast_message;
 use crate::net::{Error as NetError, *};
 use crate::util_lib::test::*;
 
-/// Everything in a TestPeer, except the coordinator (which is encombered by the lifetime of its
+/// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
 /// chains coordinator's event observer)
 struct ExitedPeer {
     pub config: TestPeerConfig,
