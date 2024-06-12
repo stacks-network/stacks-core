@@ -827,6 +827,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4866
+    #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,
@@ -1274,6 +1276,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4867
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,

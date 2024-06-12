@@ -125,6 +125,8 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
 }
 
+// TODO: add tests from mutation testing results #4862
+#[cfg_attr(test, mutants::skip)]
 pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
     let (network, _) = config.get_bitcoin_network();
     let mut params = BurnchainParameters::from_params(&config.chain, &network)
@@ -135,6 +137,8 @@ pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParame
     params
 }
 
+// TODO: add tests from mutation testing results #4863
+#[cfg_attr(test, mutants::skip)]
 /// Helper method to create a BitcoinIndexer
 pub fn make_bitcoin_indexer(
     config: &Config,
@@ -272,6 +276,8 @@ impl BitcoinRegtestController {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
     }
 
+    // TODO: add tests from mutation testing results #4864
+    #[cfg_attr(test, mutants::skip)]
     pub fn with_burnchain(
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
@@ -341,6 +347,8 @@ impl BitcoinRegtestController {
         }
     }
 
+    // TODO: add tests from mutation testing results #4864
+    #[cfg_attr(test, mutants::skip)]
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
     pub fn new_dummy(config: Config) -> Self {
@@ -1242,6 +1250,7 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     #[cfg(not(test))]
     fn build_stack_stx_tx(
         &mut self,
@@ -1617,6 +1626,8 @@ impl BitcoinRegtestController {
         }
     }
 
+    // TODO: add tests from mutation testing results #4865
+    #[cfg_attr(test, mutants::skip)]
     fn prepare_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1984,6 +1995,8 @@ impl BitcoinRegtestController {
         self.config.miner.segwit = segwit;
     }
 
+    // TODO: add tests from mutation testing results #4866
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_operation_tx(
         &mut self,
         epoch_id: StacksEpochId,

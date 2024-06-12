@@ -23,5 +23,8 @@ clarity = { package = "clarity", path = "../clarity" }
 stacks_common = { package = "stacks-common", path = "../stacks-common" }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
+[dev-dependencies]
+mutants = "0.0.3"
+
 [features]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]

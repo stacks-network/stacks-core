@@ -2449,6 +2449,7 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity",
+ "mutants",
  "slog",
  "stacks-common",
 ]

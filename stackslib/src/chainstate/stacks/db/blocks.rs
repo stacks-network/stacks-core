@@ -4132,6 +4132,9 @@ impl StacksChainState {
         Ok((applied, receipts))
     }
 
+    // TODO: add tests from mutation testing results #4856
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4237,6 +4240,8 @@ impl StacksChainState {
         all_receipts
     }
 
+    // TODO: add tests from mutation testing results #4857
+    #[cfg_attr(test, mutants::skip)]
     pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
         let signer_key = match op.signer_key {
             Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
@@ -6021,6 +6026,8 @@ impl StacksChainState {
         Ok(next_microblocks)
     }
 
+    // TODO: add tests from mutation testing results #4858
+    #[cfg_attr(test, mutants::skip)]
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a

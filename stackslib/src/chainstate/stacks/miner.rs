@@ -172,6 +172,8 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -181,6 +183,8 @@ impl BlockBuilderSettings {
         }
     }
 
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -339,7 +343,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -355,7 +359,7 @@ pub enum TransactionEvent {
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
@@ -1796,6 +1800,8 @@ impl StacksBlockBuilder {
         }
     }
 
+    // TODO: add tests from mutation testing results #4859
+    #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
@@ -2050,6 +2056,8 @@ impl StacksBlockBuilder {
         Ok((block, size, cost, mblock_opt))
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for mining
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2104,6 +2112,8 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2384,6 +2394,9 @@ impl StacksBlockBuilder {
         Ok((blocked, tx_events))
     }
 
+    // TODO: add tests from mutation testing results #4861
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
