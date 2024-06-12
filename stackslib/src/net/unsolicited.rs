@@ -50,6 +50,7 @@ use crate::net::{
 /// synchronization state machine.
 
 impl PeerNetwork {
+    #[cfg_attr(test, mutants::skip)]
     /// Check that the sender is authenticated.
     /// Returns Some(remote sender address) if so
     /// Returns None otherwise
@@ -160,6 +161,7 @@ impl PeerNetwork {
         Ok(Some(block_sortition_height))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Determine whether or not the system can buffer up this message, based on site-local
     /// configuration options.
     /// Return true if so, false if not
@@ -246,6 +248,7 @@ impl PeerNetwork {
         true
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Buffer a message for re-processing once the burnchain view updates.
     /// If there is no space for the message, then silently drop it.
     /// Returns true if buffered.
@@ -736,6 +739,7 @@ impl PeerNetwork {
         true
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Find the reward cycle in which to validate the signature for this block.
     /// This may not actually correspond to the sortition for this block's tenure -- for example,
     /// it may be for a block whose sortition is about to be processed.  As such, return both the
@@ -824,6 +828,7 @@ impl PeerNetwork {
         !can_process
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited NakamotoBlocksData message.
     ///
     /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory will take place.

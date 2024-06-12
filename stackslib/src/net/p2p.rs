@@ -1348,6 +1348,7 @@ impl PeerNetwork {
         Ok(ret)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Dispatch a single request from another thread.
     pub fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
         match request {

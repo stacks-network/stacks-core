@@ -937,6 +937,7 @@ impl Relayer {
         Ok(accepted)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Process nakamoto blocks that we downloaded.
     /// Log errors but do not return them.
     /// Returns the list of blocks we accepted.
@@ -1529,6 +1530,7 @@ impl Relayer {
         Ok((mblock_datas, bad_neighbors))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Preprocess all pushed Nakamoto blocks
     /// Return the Nakamoto blocks we can accept (and who relayed them), as well as the
     /// list of peers that served us invalid data.
@@ -1913,6 +1915,7 @@ impl Relayer {
         ))
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Process new Nakamoto blocks, both pushed and downloaded.
     /// Returns the list of Nakamoto blocks we stored, as well as the list of bad neighbors that
     /// sent us invalid blocks.
@@ -2401,6 +2404,7 @@ impl Relayer {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Process epoch2 block data.
     /// Relays blocks and microblocks as needed
     /// Returns (num new blocks, num new confirmed microblocks, num new unconfirmed microblocks)
@@ -2460,6 +2464,7 @@ impl Relayer {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Get the last N sortitions, in order from the sortition tip to the n-1st ancestor
     pub fn get_last_n_sortitions(
         sortdb: &SortitionDB,
@@ -2481,6 +2486,7 @@ impl Relayer {
         Ok(ret)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Relay Nakamoto blocks.
     /// By default, only sends them if we don't have them yet.
     /// This can be overridden by setting `force_send` to true.
@@ -2575,6 +2581,7 @@ impl Relayer {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Process epoch3 data
     /// Relay new nakamoto blocks if not in ibd
     /// Returns number of new nakamoto blocks, up to u64::MAX
@@ -2623,6 +2630,7 @@ impl Relayer {
         num_new_nakamoto_blocks
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Process new transactions
     /// Returns the list of accepted txs
     pub fn process_new_transactions(

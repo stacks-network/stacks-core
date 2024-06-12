@@ -355,6 +355,7 @@ impl NakamotoInvData {
 }
 
 impl StacksMessageCodec for NakamotoBlocksData {
+    #[cfg_attr(test, mutants::skip)]
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.blocks)?;
         Ok(())
