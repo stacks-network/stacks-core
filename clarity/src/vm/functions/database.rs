@@ -742,7 +742,7 @@ pub fn special_get_block_info(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    // (get-block-info? property-name block-height-int)
+    // (get-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
@@ -1025,15 +1025,15 @@ pub fn special_get_stacks_block_info(
 }
 
 /// Handles the function `get-tenure-info?` special function.
-/// Interprets `args` as variables `[property-name, tenure-height]`, and returns
+/// Interprets `args` as variables `[property-name, block-height]`, and returns
 /// a property value determined by `property-name`:
-/// - `time` returns the burn block time of the tenure at `tenure-height`
-/// - `vrf-seed` returns the VRF seed of the tenure at `tenure-height`
-/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to the tenure at `tenure-height`
-/// - `miner-address` returns the address of the principal that mined the tenure at `tenure-height`
-/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the tenure at `tenure-height`
-/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the tenure at `tenure-height`
-/// - `block-reward` returns the block reward for the tenure at `tenure-height`
+/// - `time` returns the burn block time for the tenure of which `block-height` is a part
+/// - `vrf-seed` returns the VRF seed for the tenure of which `block-height` is a part
+/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to the tenure of which `block-height` is a part
+/// - `miner-address` returns the address of the principal that mined the tenure of which `block-height` is a part
+/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the tenure of which `block-height` is a part
+/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the tenure of which `block-height` is a part
+/// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
@@ -1045,7 +1045,7 @@ pub fn special_get_tenure_info(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    // (get-block-info? property-name block-height-int)
+    // (get-tenure-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
@@ -1058,7 +1058,7 @@ pub fn special_get_tenure_info(
     let block_info_prop = TenureInfoProperty::lookup_by_name(property_name)
         .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
 
-    // Handle the tenure-height input arg.
+    // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
@@ -1070,8 +1070,8 @@ pub fn special_get_tenure_info(
         _ => return Ok(Value::none()),
     };
 
-    let current_tenure = env.global_context.database.get_tenure_height()?;
-    if height_value >= current_tenure {
+    let current_height = env.global_context.database.get_current_block_height();
+    if height_value >= current_height {
         return Ok(Value::none());
     }
 

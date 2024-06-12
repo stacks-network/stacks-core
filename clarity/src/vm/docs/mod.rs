@@ -1840,12 +1840,12 @@ the mining of this block started, but is not guaranteed to be accurate. This tim
 
 const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "TenureInfoPropertyName, uint",
-    snippet: "get-tenure-info? ${1:prop} ${2:tenure-height}",
+    snippet: "get-tenure-info? ${1:prop} ${2:block-height}",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-tenure-info? prop-name tenure-height)",
-    description: "The `get-tenure-info?` function fetches data for a tenure at the given height. The
-value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `tenure-height` does
-not correspond to an existing tenure prior to the current block, the function returns `none`. The currently available property names
+    signature: "(get-tenure-info? prop-name block-height)",
+    description: "The `get-tenure-info?` function fetches data for the tenure at the given block height. The
+value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `block-height` does
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
 - `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the
