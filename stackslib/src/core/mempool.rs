@@ -21,7 +21,7 @@ use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 use std::{fs, io};
 
 use clarity::vm::types::PrincipalData;
@@ -37,6 +37,7 @@ use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
@@ -71,8 +72,10 @@ use crate::util_lib::db::{
 use crate::{cost_estimates, monitoring};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
-pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
-pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
+pub static MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
+pub static MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
+pub static MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
+    Duration::from_secs(MEMPOOL_MAX_TRANSACTION_AGE * 10 * 60);
 
 // name of table for storing the counting bloom filter
 pub const BLOOM_COUNTER_TABLE: &'static str = "txid_bloom_counter";
@@ -2206,10 +2209,58 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Garbage-collect the mempool.  Remove transactions that have a given number of
-    /// confirmations.
+    /// Garbage-collect the mempool according to the behavior specified in `behavior`.
     pub fn garbage_collect(
-        tx: &mut MemPoolTx,
+        &mut self,
+        chain_height: u64,
+        behavior: &MempoolCollectionBehavior,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        match behavior {
+            MempoolCollectionBehavior::ByStacksHeight => {
+                let Some(min_height) = chain_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE) else {
+                    return Ok(());
+                };
+                Self::garbage_collect_by_height(&tx, min_height, event_observer)?;
+            }
+            MempoolCollectionBehavior::ByReceiveTime => {
+                Self::garbage_collect_by_time(
+                    &tx,
+                    &MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE,
+                    event_observer,
+                )?;
+            }
+        };
+        tx.commit()
+    }
+
+    /// Garbage-collect the mempool. Remove transactions that were accepted more than `age` ago.
+    /// The granularity of this check is in seconds.
+    pub fn garbage_collect_by_time(
+        tx: &MemPoolTx,
+        age: &Duration,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<(), db_error> {
+        let threshold_time = get_epoch_time_secs().saturating_sub(age.as_secs());
+        let args: &[&dyn ToSql] = &[&u64_to_sql(threshold_time)?];
+        if let Some(event_observer) = event_observer {
+            let sql = "SELECT txid FROM mempool WHERE accept_time < ?1";
+            let txids = query_rows(tx, sql, args)?;
+            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+        }
+
+        let sql = "DELETE FROM mempool WHERE accept_time < ?1";
+
+        tx.execute(sql, args)?;
+        increment_stx_mempool_gc();
+        Ok(())
+    }
+
+    /// Garbage-collect the mempool.  Remove transactions that were received `min_height`
+    ///  blocks ago.
+    pub fn garbage_collect_by_height(
+        tx: &MemPoolTx,
         min_height: u64,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), db_error> {
@@ -2230,10 +2281,9 @@ impl MemPoolDB {
 
     #[cfg(test)]
     pub fn clear_before_height(&mut self, min_height: u64) -> Result<(), db_error> {
-        let mut tx = self.tx_begin()?;
-        MemPoolDB::garbage_collect(&mut tx, min_height, None)?;
-        tx.commit()?;
-        Ok(())
+        let tx = self.tx_begin()?;
+        MemPoolDB::garbage_collect_by_height(&tx, min_height, None)?;
+        tx.commit()
     }
 
     /// Scan the chain tip for all available transactions (but do not remove them!)

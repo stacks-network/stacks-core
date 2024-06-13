@@ -26,6 +26,7 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use stacks_common::types::MempoolCollectionBehavior;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -1373,13 +1374,11 @@ simulating a miner.
     let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
         .expect("Failed to open mempool db");
 
-    {
-        info!("Clearing mempool");
-        let mut tx = mempool_db.tx_begin().unwrap();
-        let min_height = u32::MAX as u64;
-        MemPoolDB::garbage_collect(&mut tx, min_height, None).unwrap();
-        tx.commit().unwrap();
-    }
+    info!("Clearing mempool");
+    let min_height = u32::MAX as u64;
+    mempool_db
+        .garbage_collect(min_height, &MempoolCollectionBehavior::ByStacksHeight, None)
+        .unwrap();
 
     let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
         .unwrap()
