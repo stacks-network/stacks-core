@@ -28,7 +28,9 @@ use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
@@ -43,6 +45,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::tests::NullEventDispatcher;
 use crate::chainstate::coordinator::{
     ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
 };
@@ -75,6 +78,7 @@ pub struct TestStacker {
     pub stacker_private_key: StacksPrivateKey,
     pub signer_private_key: StacksPrivateKey,
     pub amount: u128,
+    pub pox_address: Option<PoxAddress>,
 }
 
 impl TestStacker {
@@ -88,6 +92,7 @@ impl TestStacker {
             stacker_private_key,
             signer_private_key,
             amount: 1_000_000_000_000_000_000,
+            pox_address: None,
         }
     }
 
@@ -107,6 +112,7 @@ impl TestStacker {
                 signer_private_key: signing_key.clone(),
                 stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                 amount: Self::DEFAULT_STACKER_AMOUNT,
+                pox_address: None,
             })
             .collect::<Vec<_>>();
 
@@ -278,10 +284,9 @@ impl TestStacksNode {
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
         expect_success: bool,
     ) -> LeaderBlockCommitOp {
-        test_debug!(
+        info!(
             "Miner {}: Commit to Nakamoto tenure starting at {}",
-            miner.id,
-            &last_tenure_id,
+            miner.id, &last_tenure_id,
         );
 
         let parent_block =
@@ -339,6 +344,15 @@ impl TestStacksNode {
 
     /// Record the nakamoto blocks as a new tenure
     pub fn add_nakamoto_tenure_blocks(&mut self, tenure_blocks: Vec<NakamotoBlock>) {
+        if let Some(last_tenure) = self.nakamoto_blocks.last_mut() {
+            // this tenure is overwriting the last tenure
+            if last_tenure.first().unwrap().header.consensus_hash
+                == tenure_blocks.first().unwrap().header.consensus_hash
+            {
+                *last_tenure = tenure_blocks;
+                return;
+            }
+        }
         self.nakamoto_blocks.push(tenure_blocks);
     }
 
@@ -484,9 +498,14 @@ impl TestStacksNode {
     }
 
     /// Construct or extend a full Nakamoto tenure with the given block builder.
+    /// After block assembly, invoke `after_block` before signing and then processing.
+    /// If `after_block` returns false, do not attempt to process the block, instead just
+    /// add it to the result Vec and exit the block building loop (the block builder cannot
+    /// build any subsequent blocks without processing the prior block)
+    ///
     /// The first block will contain a coinbase, if coinbase is Some(..)
     /// Process the blocks via the chains coordinator as we produce them.
-    pub fn make_nakamoto_tenure_blocks<'a, F>(
+    pub fn make_nakamoto_tenure_blocks<'a, S, F, G>(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         miner: &mut TestMiner,
@@ -503,15 +522,19 @@ impl TestStacksNode {
             (),
             BitcoinIndexer,
         >,
+        mut miner_setup: S,
         mut block_builder: F,
+        mut after_block: G,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
     where
+        S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
             &mut TestMiner,
             &mut StacksChainState,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
+        G: FnMut(&mut NakamotoBlock) -> bool,
     {
         let mut blocks = vec![];
         let mut block_count = 0;
@@ -540,7 +563,7 @@ impl TestStacksNode {
             );
 
             // make a block
-            let builder = if let Some(parent_tip) = parent_tip_opt {
+            let mut builder = if let Some(parent_tip) = parent_tip_opt {
                 NakamotoBlockBuilder::new(
                     &parent_tip,
                     tenure_id_consensus_hash,
@@ -564,6 +587,7 @@ impl TestStacksNode {
                     &coinbase.clone().unwrap(),
                 )
             };
+            miner_setup(&mut builder);
 
             tenure_change = None;
             coinbase = None;
@@ -575,6 +599,7 @@ impl TestStacksNode {
                 txs,
             )
             .unwrap();
+            let try_to_process = after_block(&mut nakamoto_block);
             miner.sign_nakamoto_block(&mut nakamoto_block);
 
             let tenure_sn =
@@ -615,6 +640,13 @@ impl TestStacksNode {
             signers.sign_block_with_reward_set(&mut nakamoto_block, &reward_set);
 
             let block_id = nakamoto_block.block_id();
+
+            if !try_to_process {
+                blocks.push((nakamoto_block, size, cost));
+                block_count += 1;
+                break;
+            }
+
             debug!(
                 "Process Nakamoto block {} ({:?}",
                 &block_id, &nakamoto_block.header
@@ -1012,6 +1044,37 @@ impl<'a> TestPeer<'a> {
         proof
     }
 
+    pub fn try_process_block(&mut self, block: &NakamotoBlock) -> Result<bool, ChainstateError> {
+        let mut sort_handle = self.sortdb.as_ref().unwrap().index_handle_at_tip();
+        let accepted = Relayer::process_new_nakamoto_block(
+            &self.config.burnchain,
+            self.sortdb.as_ref().unwrap(),
+            &mut sort_handle,
+            &mut self.stacks_node.as_mut().unwrap().chainstate,
+            block,
+            None,
+        )?;
+        if !accepted {
+            return Ok(false);
+        }
+        let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb().conn()).unwrap();
+        let Some(block_receipt) =
+            NakamotoChainState::process_next_nakamoto_block::<NullEventDispatcher>(
+                &mut self.stacks_node.as_mut().unwrap().chainstate,
+                self.sortdb.as_mut().unwrap(),
+                &sort_tip,
+                None,
+            )?
+        else {
+            return Ok(false);
+        };
+        if block_receipt.header.index_block_hash() == block.block_id() {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Produce and process a Nakamoto tenure, after processing the block-commit from
     /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
     /// take the consensus hash, and feed it in here.
@@ -1031,6 +1094,40 @@ impl<'a> TestPeer<'a> {
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
+    {
+        self.make_nakamoto_tenure_and(
+            tenure_change,
+            coinbase,
+            signers,
+            |_| {},
+            block_builder,
+            |_| true,
+        )
+    }
+
+    /// Produce and process a Nakamoto tenure, after processing the block-commit from
+    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
+    /// take the consensus hash, and feed it in here.
+    ///
+    /// Returns the blocks, their sizes, and runtime costs
+    pub fn make_nakamoto_tenure_and<S, F, G>(
+        &mut self,
+        tenure_change: StacksTransaction,
+        coinbase: StacksTransaction,
+        signers: &mut TestSigners,
+        miner_setup: S,
+        block_builder: F,
+        after_block: G,
+    ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
+    where
+        S: FnMut(&mut NakamotoBlockBuilder),
+        F: FnMut(
+            &mut TestMiner,
+            &mut StacksChainState,
+            &SortitionDB,
+            &[(NakamotoBlock, u64, ExecutionCost)],
+        ) -> Vec<StacksTransaction>,
+        G: FnMut(&mut NakamotoBlock) -> bool,
     {
         let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
@@ -1052,7 +1149,9 @@ impl<'a> TestPeer<'a> {
             Some(tenure_change),
             Some(coinbase),
             &mut self.coord,
+            miner_setup,
             block_builder,
+            after_block,
         );
 
         let just_blocks = blocks
@@ -1124,7 +1223,9 @@ impl<'a> TestPeer<'a> {
             Some(tenure_extend_tx),
             None,
             &mut self.coord,
+            |_| {},
             block_builder,
+            |_| true,
         );
 
         let just_blocks = blocks

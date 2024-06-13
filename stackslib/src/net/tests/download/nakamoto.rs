@@ -104,7 +104,7 @@ fn test_nakamoto_tenure_downloader() {
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let tenure_change_payload = TenureChangePayload {
@@ -171,7 +171,7 @@ fn test_nakamoto_tenure_downloader() {
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
 
         let mut block = NakamotoBlock {
@@ -192,7 +192,7 @@ fn test_nakamoto_tenure_downloader() {
         state_index_root: TrieHash([0x08; 32]),
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let next_tenure_change_payload = TenureChangePayload {

@@ -77,11 +77,13 @@ use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::coordinator::{BlockEventDispatcher, Error, OnChainRewardSetProvider};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::tenure::{NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
+use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
@@ -326,9 +328,11 @@ pub struct NakamotoBlockHeader {
     /// the block header from the signer set active during the tenure.
     /// (ordered by reward set order)
     pub signer_signature: Vec<MessageSignature>,
-    /// A bitvec which represents the signers that participated in this block signature.
+    /// A bitvec which conveys whether reward addresses should be punished (by burning their PoX rewards)
+    ///  or not in this block.
+    ///
     /// The maximum number of entries in the bitvec is 4000.
-    pub signer_bitvec: BitVec<4000>,
+    pub pox_treatment: BitVec<4000>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -360,7 +364,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             state_index_root,
             signer_signature,
             miner_signature,
-            signer_bitvec,
+            pox_treatment: signer_bitvec,
         })
     }
 }
@@ -411,7 +415,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
-        write_next(fd, &self.signer_bitvec)?;
+        write_next(fd, &self.pox_treatment)?;
 
         Ok(())
     }
@@ -427,7 +431,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
-            signer_bitvec: read_next(fd)?,
+            pox_treatment: read_next(fd)?,
         })
     }
 }
@@ -475,7 +479,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
-        write_next(fd, &self.signer_bitvec)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -624,7 +628,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::ones(bitvec_len)
+            pox_treatment: BitVec::ones(bitvec_len)
                 .expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
@@ -641,7 +645,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -657,7 +661,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 }
@@ -1417,6 +1421,33 @@ impl NakamotoChainState {
                "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
         );
 
+        let elected_height = sort_db
+            .get_consensus_hash_height(&next_ready_block.header.consensus_hash)?
+            .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+        let elected_in_cycle = sort_db
+            .pox_constants
+            .block_height_to_reward_cycle(sort_db.first_block_height, elected_height)
+            .ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(
+                    "Elected in block height before first_block_height".into(),
+                )
+            })?;
+        let active_reward_set = OnChainRewardSetProvider::<DummyEventDispatcher>(None).read_reward_set_nakamoto_of_cycle(
+            elected_in_cycle,
+            stacks_chain_state,
+            sort_db,
+            &next_ready_block.header.parent_block_id,
+            true,
+        ).map_err(|e| {
+            warn!(
+                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "err" => ?e,
+                "consensus_hash" => %next_ready_block.header.consensus_hash,
+                "block_hash" => %next_ready_block.header.block_hash(),
+                "parent_block_id" => %next_ready_block.header.parent_block_id,
+            );
+            ChainstateError::NoSuchBlockError
+        })?;
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
 
         // find parent header
@@ -1583,6 +1614,7 @@ impl NakamotoChainState {
             block_size,
             commit_burn,
             sortition_burn,
+            &active_reward_set,
         ) {
             Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
             Err(e) => (None, Some(e)),
@@ -1646,7 +1678,7 @@ impl NakamotoChainState {
         // succeeds, since *we have already processed* the block.
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
-        let signer_bitvec = (&next_ready_block).header.signer_bitvec.clone();
+        let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2386,7 +2418,7 @@ impl NakamotoChainState {
             &header.parent_block_id,
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
-            &header.signer_bitvec,
+            &header.pox_treatment,
             tip_info.burn_view.as_ref().ok_or_else(|| {
                 error!(
                     "Attempted to store nakamoto block header information without burnchain view";
@@ -2629,6 +2661,9 @@ impl NakamotoChainState {
     /// * coinbase_height: the number of tenures that this block confirms (including epoch2 blocks)
     ///   (this is equivalent to the number of coinbases)
     /// * tenure_extend: whether or not to reset the tenure's ongoing execution cost
+    /// * block_bitvec: the bitvec that will control PoX reward handling for this block
+    /// * tenure_block_commit: the block commit that elected this miner
+    /// * active_reward_set: the reward and signer set active during `tenure_block_commit`
     ///
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
@@ -2649,7 +2684,12 @@ impl NakamotoChainState {
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
+        block_bitvec: &BitVec<4000>,
+        tenure_block_commit: &LeaderBlockCommitOp,
+        active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+        Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
+
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = sortition_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
@@ -2882,6 +2922,82 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
+    fn check_pox_bitvector(
+        block_bitvec: &BitVec<4000>,
+        tenure_block_commit: &LeaderBlockCommitOp,
+        active_reward_set: &RewardSet,
+    ) -> Result<(), ChainstateError> {
+        if !tenure_block_commit.treatment.is_empty() {
+            // our block commit issued a punishment, check the reward set and bitvector
+            //  to ensure that this was valid.
+            for treated_addr in tenure_block_commit.treatment.iter() {
+                if treated_addr.is_burn() {
+                    // Don't need to assert anything about burn addresses.
+                    // If they were in the reward set, "punishing" them is meaningless.
+                    continue;
+                }
+                // otherwise, we need to find the indices in the rewarded_addresses
+                //  corresponding to this address.
+                let address_indices = active_reward_set
+                    .rewarded_addresses
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(ix, addr)| {
+                        if addr == treated_addr.deref() {
+                            Some(ix)
+                        } else {
+                            None
+                        }
+                    });
+                // if any of them are 0, punishment is okay.
+                // if all of them are 1, punishment is not okay.
+                // if all of them are 0, *must* have punished
+                let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
+                    .map(
+                        |ix| {
+                            let ix = u16::try_from(ix)
+                                .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
+                            let bitvec_value = block_bitvec.get(ix)
+                                .unwrap_or_else(|| {
+                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    true
+                                });
+                            Ok(bitvec_value)
+                        }
+                    )
+                    .collect();
+                let bitvec_values = bitvec_values?;
+                let all_1 = bitvec_values.iter().all(|x| *x);
+                let all_0 = bitvec_values.iter().all(|x| !x);
+                if all_1 {
+                    if treated_addr.is_punish() {
+                        warn!(
+                            "Invalid Nakamoto block: punished PoX address when bitvec contained 1s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                } else if all_0 {
+                    if treated_addr.is_reward() {
+                        warn!(
+                            "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
+                            "reward_address" => %treated_addr.deref(),
+                            "bitvec_values" => ?bitvec_values,
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Bitvec does not match the block commit's PoX handling".into(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
     fn append_block<'a>(
@@ -2898,6 +3014,7 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
+        active_reward_set: &RewardSet,
     ) -> Result<
         (
             StacksEpochReceipt,
@@ -3033,24 +3150,25 @@ impl NakamotoChainState {
             ));
         }
 
+        // this block's bitvec header must match the miner's block commit punishments
+        let tenure_block_commit = SortitionDB::get_block_commit(
+            burn_dbconn.conn(),
+            &tenure_block_snapshot.winning_block_txid,
+            &tenure_block_snapshot.sortition_id,
+        )?
+        .ok_or_else(|| {
+            warn!("Invalid Nakamoto block: has no block-commit in its sortition";
+                      "block_id" => %block.header.block_id(),
+                      "sortition_id" => %tenure_block_snapshot.sortition_id,
+                      "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
+            ChainstateError::NoSuchBlockError
+        })?;
+
         // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
         // block.
         // (note that we can't check this earlier, since we need the parent tenure to have been
         // processed)
         if new_tenure && parent_chain_tip.is_nakamoto_block() && !block.is_first_mined() {
-            let tenure_block_commit = SortitionDB::get_block_commit(
-                burn_dbconn.conn(),
-                &tenure_block_snapshot.winning_block_txid,
-                &tenure_block_snapshot.sortition_id,
-            )?
-            .ok_or_else(|| {
-                warn!("Invalid Nakamoto block: has no block-commit in its sortition";
-                          "block_id" => %block.header.block_id(),
-                          "sortition_id" => %tenure_block_snapshot.sortition_id,
-                          "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
-                ChainstateError::NoSuchBlockError
-            })?;
-
             let parent_tenure_start_header =
                 Self::get_nakamoto_tenure_start_block_header(chainstate_tx.tx(), &parent_ch)?
                     .ok_or_else(|| {
@@ -3148,6 +3266,9 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            &block.header.pox_treatment,
+            &tenure_block_commit,
+            active_reward_set,
         )?;
 
         let starting_cost = clarity_tx.cost_so_far();

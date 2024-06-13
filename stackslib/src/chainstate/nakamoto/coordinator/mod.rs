@@ -17,8 +17,10 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use clarity::boot_util::boot_code_id;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, HeadersDB};
 use clarity::vm::types::PrincipalData;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
@@ -28,7 +30,7 @@ use stacks_common::types::{StacksEpoch, StacksEpochId};
 
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainBlockHeader};
-use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, SortitionDB};
+use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::comm::{
@@ -43,8 +45,10 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
+use crate::clarity_vm::database::HeadersDBConn;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::net::Error as NetError;
@@ -90,6 +94,21 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
+        self.read_reward_set_nakamoto_of_cycle(cycle, chainstate, sortdb, block_id, debug_log)
+    }
+
+    /// Read a reward_set written while updating .signers at a given cycle_id
+    /// `debug_log` should be set to true if the reward set loading should
+    ///  log messages as `debug!` instead of `error!` or `info!`. This allows
+    ///  RPC endpoints to expose this without flooding loggers.
+    pub fn read_reward_set_nakamoto_of_cycle(
+        &self,
+        cycle: u64,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        debug_log: bool,
+    ) -> Result<RewardSet, Error> {
         // figure out the block ID
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
@@ -115,6 +134,57 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             return Err(Error::PoXAnchorBlockRequired);
         };
 
+        self.read_reward_set_at_calculated_block(
+            coinbase_height_of_calculation,
+            chainstate,
+            block_id,
+            debug_log,
+        )
+    }
+
+    pub fn get_height_of_pox_calculation(
+        &self,
+        cycle: u64,
+        chainstate: &mut StacksChainState,
+        sort_handle: &SortitionHandleConn,
+        block_id: &StacksBlockId,
+    ) -> Result<u64, Error> {
+        let Some(coinbase_height_of_calculation) = chainstate
+            .clarity_state
+            .eval_read_only(
+                block_id,
+                &HeadersDBConn(chainstate.state_index.sqlite_conn()),
+                sort_handle,
+                &boot_code_id(SIGNERS_NAME, chainstate.mainnet),
+                &format!("(map-get? cycle-set-height u{})", cycle),
+                ASTRules::PrecheckSize,
+            )
+            .map_err(ChainstateError::ClarityError)?
+            .expect_optional()
+            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map(|x| {
+                let as_u128 = x.expect_u128()?;
+                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+            })
+            .transpose()
+            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
+        else {
+            error!(
+                "The reward set was not written to .signers before it was needed by Nakamoto";
+                "cycle_number" => cycle,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
+        Ok(coinbase_height_of_calculation)
+    }
+
+    pub fn read_reward_set_at_calculated_block(
+        &self,
+        coinbase_height_of_calculation: u64,
+        chainstate: &mut StacksChainState,
+        block_id: &StacksBlockId,
+        debug_log: bool,
+    ) -> Result<RewardSet, Error> {
         let Some(reward_set_block) = NakamotoChainState::get_header_by_coinbase_height(
             &mut chainstate.index_tx_begin()?,
             block_id,

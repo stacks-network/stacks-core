@@ -46,13 +46,14 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MemPoolRejection};
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
@@ -121,7 +122,7 @@ pub struct NakamotoBlockBuilder {
     /// transactions selected
     txs: Vec<StacksTransaction>,
     /// header we're filling in
-    header: NakamotoBlockHeader,
+    pub header: NakamotoBlockHeader,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -138,6 +139,8 @@ pub struct MinerTenureInfo<'a> {
     pub parent_burn_block_height: u32,
     pub coinbase_height: u64,
     pub cause: Option<TenureChangeCause>,
+    pub active_reward_set: boot::RewardSet,
+    pub tenure_block_commit: LeaderBlockCommitOp,
 }
 
 impl NakamotoBlockBuilder {
@@ -228,6 +231,61 @@ impl NakamotoBlockBuilder {
     ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
 
+        let Some(tenure_election_sn) =
+            SortitionDB::get_block_snapshot_consensus(&burn_dbconn, &self.header.consensus_hash)?
+        else {
+            warn!("Could not find sortition snapshot for burn block that elected the miner";
+                  "consensus_hash" => %self.header.consensus_hash);
+            return Err(Error::NoSuchBlockError);
+        };
+        let Some(tenure_block_commit) = SortitionDB::get_block_commit(
+            &burn_dbconn,
+            &tenure_election_sn.winning_block_txid,
+            &tenure_election_sn.sortition_id,
+        )?
+        else {
+            warn!("Could not find winning block commit for burn block that elected the miner";
+                  "consensus_hash" => %self.header.consensus_hash,
+                  "winning_txid" => %tenure_election_sn.winning_block_txid);
+            return Err(Error::NoSuchBlockError);
+        };
+
+        let elected_height = tenure_election_sn.block_height;
+        let elected_in_cycle = burn_dbconn
+            .context
+            .pox_constants
+            .block_height_to_reward_cycle(burn_dbconn.context.first_block_height, elected_height)
+            .ok_or_else(|| {
+                Error::InvalidStacksBlock(
+                    "Elected in block height before first_block_height".into(),
+                )
+            })?;
+        let rs_provider = OnChainRewardSetProvider::<DummyEventDispatcher>(None);
+        let coinbase_height_of_calc = rs_provider.get_height_of_pox_calculation(
+            elected_in_cycle,
+            chainstate,
+            burn_dbconn,
+            &self.header.parent_block_id,
+        ).map_err(|e| {
+            warn!(
+                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "err" => ?e,
+            );
+            Error::NoSuchBlockError
+        })?;
+        let active_reward_set = rs_provider.read_reward_set_at_calculated_block(
+            coinbase_height_of_calc,
+            chainstate,
+            &self.header.parent_block_id,
+            true,
+        ).map_err(|e| {
+            warn!(
+                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "err" => ?e,
+            );
+            Error::NoSuchBlockError
+        })?;
+
         // must build off of the header's consensus hash as the burnchain view, not the canonical_tip_bhh:
         let burn_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &self.header.consensus_hash)?
             .ok_or_else(|| {
@@ -289,6 +347,8 @@ impl NakamotoBlockBuilder {
             parent_burn_block_height: chain_tip.burn_header_height,
             cause,
             coinbase_height,
+            active_reward_set,
+            tenure_block_commit,
         })
     }
 
@@ -321,6 +381,9 @@ impl NakamotoBlockBuilder {
             info.cause == Some(TenureChangeCause::BlockFound),
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
+            &self.header.pox_treatment,
+            &info.tenure_block_commit,
+            &info.active_reward_set,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
