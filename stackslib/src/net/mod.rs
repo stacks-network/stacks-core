@@ -137,6 +137,7 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+pub mod unsolicited;
 
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
@@ -284,6 +285,8 @@ pub enum Error {
     InvalidState,
     /// Waiting for DNS resolution
     WaitingForDNS,
+    /// No reward set for given reward cycle
+    NoPoXRewardSet(u64),
 }
 
 impl From<libstackerdb_error> for Error {
@@ -432,6 +435,7 @@ impl fmt::Display for Error {
             Error::Http(e) => fmt::Display::fmt(&e, f),
             Error::InvalidState => write!(f, "Invalid state-machine state reached"),
             Error::WaitingForDNS => write!(f, "Waiting for DNS resolution"),
+            Error::NoPoXRewardSet(rc) => write!(f, "No PoX reward set for cycle {}", rc),
         }
     }
 }
@@ -505,6 +509,7 @@ impl error::Error for Error {
             Error::Http(ref e) => Some(e),
             Error::InvalidState => None,
             Error::WaitingForDNS => None,
+            Error::NoPoXRewardSet(..) => None,
         }
     }
 }
@@ -906,13 +911,22 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+/// Stacks epoch 2.x pushed block
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
 
-/// Blocks pushed
+/// Stacks epoch 2.x blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
+}
+
+/// Nakamoto epoch 3.x blocks pushed.
+/// No need for a separate NakamotoBlocksDatum struct, because the consensus hashes that place this
+/// block into the block stream are already embedded within the header
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksData {
+    pub blocks: Vec<NakamotoBlock>,
 }
 
 /// Microblocks pushed
@@ -1138,6 +1152,7 @@ pub enum StacksMessageType {
     // Nakamoto-specific
     GetNakamotoInv(GetNakamotoInvData),
     NakamotoInv(NakamotoInvData),
+    NakamotoBlocks(NakamotoBlocksData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1172,6 +1187,7 @@ pub enum StacksMessageID {
     // nakamoto
     GetNakamotoInv = 26,
     NakamotoInv = 27,
+    NakamotoBlocks = 28,
     // reserved
     Reserved = 255,
 }
@@ -1263,10 +1279,15 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 4096;
 #[cfg(test)]
 pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 
-// maximum number of blocks that can be pushed at once (even if the entire message is undersized).
+// maximum number of Stacks epoch2.x blocks that can be pushed at once (even if the entire message is undersized).
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
+
+// maximum number of Nakamoto blocks that can be pushed at once (even if the entire message is undersized).
+// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
+// message.
+pub const NAKAMOTO_BLOCKS_PUSHED_MAX: u32 = 32;
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -1423,6 +1444,7 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
+#[derive(Clone)]
 pub struct NetworkResult {
     /// PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub download_pox_id: Option<PoxId>,
@@ -1440,6 +1462,8 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
     /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
+    /// all Stacks 3.x blocks pushed to us
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
     /// transactions sent to us by the http server
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
@@ -1460,9 +1484,11 @@ pub struct NetworkResult {
     pub num_inv_sync_passes: u64,
     /// Number of times the Stacks 2.x block downloader has completed one pass
     pub num_download_passes: u64,
+    /// Number of connected peers
+    pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
-    /// The consensus hash of the start of this reward cycle
+    /// The consensus hash of the burnchain tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
@@ -1473,6 +1499,7 @@ impl NetworkResult {
         num_state_machine_passes: u64,
         num_inv_sync_passes: u64,
         num_download_passes: u64,
+        num_connected_peers: usize,
         burn_height: u64,
         rc_consensus_hash: ConsensusHash,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
@@ -1486,6 +1513,7 @@ impl NetworkResult {
             pushed_transactions: HashMap::new(),
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
+            pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
@@ -1496,6 +1524,7 @@ impl NetworkResult {
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
+            num_connected_peers,
             burn_height,
             rc_consensus_hash,
             stacker_db_configs,
@@ -1513,7 +1542,7 @@ impl NetworkResult {
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0
+        self.nakamoto_blocks.len() > 0 || self.pushed_nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1555,7 +1584,7 @@ impl NetworkResult {
     pub fn consume_unsolicited(
         &mut self,
         unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    ) -> () {
+    ) {
         for (neighbor_key, messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
                 match message.payload {
@@ -1583,6 +1612,16 @@ impl NetworkResult {
                         } else {
                             self.pushed_transactions
                                 .insert(neighbor_key.clone(), vec![(message.relayers, tx_data)]);
+                        }
+                    }
+                    StacksMessageType::NakamotoBlocks(block_data) => {
+                        if let Some(nakamoto_blocks_msgs) =
+                            self.pushed_nakamoto_blocks.get_mut(&neighbor_key)
+                        {
+                            nakamoto_blocks_msgs.push((message.relayers, block_data));
+                        } else {
+                            self.pushed_nakamoto_blocks
+                                .insert(neighbor_key.clone(), vec![(message.relayers, block_data)]);
                         }
                     }
                     _ => {
@@ -2747,8 +2786,8 @@ pub mod test {
             &mut self,
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
-        ) -> Result<ProcessedNetReceipts, net_error> {
-            let mut net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
+        ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
+            let net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
@@ -2756,7 +2795,7 @@ pub mod test {
 
             let receipts_res = self.relayer.process_network_result(
                 self.network.get_local_peer(),
-                &mut net_result,
+                &mut net_result.clone(),
                 &self.network.burnchain,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
@@ -2775,7 +2814,7 @@ pub mod test {
             self.coord.handle_new_stacks_block().unwrap();
             self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res
+            receipts_res.and_then(|receipts| Ok((net_result, receipts)))
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {

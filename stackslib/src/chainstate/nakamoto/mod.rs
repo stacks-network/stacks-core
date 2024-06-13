@@ -1835,7 +1835,7 @@ impl NakamotoChainState {
     /// Insert a Nakamoto block into the staging blocks DB
     pub(crate) fn store_block(
         staging_db_tx: &NakamotoStagingBlocksTx,
-        block: NakamotoBlock,
+        block: &NakamotoBlock,
         burn_attachable: bool,
     ) -> Result<(), ChainstateError> {
         let block_id = block.block_id();
@@ -1894,7 +1894,7 @@ impl NakamotoChainState {
     /// Returns true if we stored the block; false if not.
     pub fn accept_block(
         config: &ChainstateConfig,
-        block: NakamotoBlock,
+        block: &NakamotoBlock,
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
@@ -1927,14 +1927,14 @@ impl NakamotoChainState {
 
         // it's okay if this fails because we might not have the parent block yet.  It will be
         // checked on `::append_block()`
-        let expected_burn_opt = Self::get_expected_burns(db_handle, headers_conn, &block)?;
+        let expected_burn_opt = Self::get_expected_burns(db_handle, headers_conn, block)?;
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
         if let Err(e) = Self::validate_nakamoto_block_burnchain(
             db_handle,
             expected_burn_opt,
-            &block,
+            block,
             config.mainnet,
             config.chain_id,
         ) {
@@ -1958,9 +1958,8 @@ impl NakamotoChainState {
         // same sortition history as `db_handle` (and thus it must be burn_attachable)
         let burn_attachable = true;
 
-        let _block_id = block.block_id();
         Self::store_block(staging_db_tx, block, burn_attachable)?;
-        test_debug!("Stored Nakamoto block {}", &_block_id);
+        test_debug!("Stored Nakamoto block {}", &block.block_id());
         Ok(true)
     }
 

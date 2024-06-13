@@ -632,7 +632,7 @@ impl TestStacksNode {
                 sortdb,
                 &mut sort_handle,
                 chainstate,
-                nakamoto_block.clone(),
+                &nakamoto_block,
                 None,
             ) {
                 Ok(accepted) => accepted,
@@ -1159,7 +1159,7 @@ impl<'a> TestPeer<'a> {
                 &sortdb,
                 &mut sort_handle,
                 &mut node.chainstate,
-                block,
+                &block,
                 None,
             )
             .unwrap();

@@ -681,6 +681,7 @@ impl<
     /// with Some(pox-anchor-block-hash) until the reward cycle info is processed in the sortition
     /// DB.
     pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+        debug!("Handle new Nakamoto block");
         let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
         );
