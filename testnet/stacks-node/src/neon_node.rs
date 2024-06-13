@@ -401,9 +401,10 @@ struct ParentStacksBlockInfo {
     coinbase_nonce: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum LeaderKeyRegistrationState {
     /// Not started yet
+    #[default]
     Inactive,
     /// Waiting for burnchain confirmation
     /// `u64` is the target block height in which we intend this key to land
