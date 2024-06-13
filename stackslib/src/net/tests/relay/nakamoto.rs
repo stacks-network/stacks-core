@@ -401,7 +401,7 @@ fn test_buffer_data_message() {
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         },
         txs: vec![],
     };

@@ -3299,6 +3299,28 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(0), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(1)),
+                    Treatment::Reward(reward_addrs(0)),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
+                    commit_outs: vec![reward_addrs(1), burn_addr_1.clone()],
+                    ..default_block_commit.clone()
+                },
+                Some(rs_pox_addrs.clone()),
+                Ok(vec![
+                    Treatment::Punish(reward_addrs(0)),
+                    Treatment::Reward(reward_addrs(1)),
+                ]),
+            ),
+            (
+                LeaderBlockCommitOp {
                     commit_outs: vec![reward_addrs(0), reward_addrs(1)],
                     ..default_block_commit.clone()
                 },

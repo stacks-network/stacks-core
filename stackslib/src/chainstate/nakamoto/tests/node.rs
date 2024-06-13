@@ -1051,7 +1051,7 @@ impl<'a> TestPeer<'a> {
             self.sortdb.as_ref().unwrap(),
             &mut sort_handle,
             &mut self.stacks_node.as_mut().unwrap().chainstate,
-            block.clone(),
+            block,
             None,
         )?;
         if !accepted {
