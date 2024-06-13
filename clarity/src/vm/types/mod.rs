@@ -733,7 +733,7 @@ define_named_enum!(BurnBlockInfoProperty {
 });
 
 define_named_enum!(StacksBlockInfoProperty {
-    IdentityHeaderHash("id-header-hash"),
+    IndexHeaderHash("id-header-hash"),
     HeaderHash("header-hash"),
     Time("time"),
 });

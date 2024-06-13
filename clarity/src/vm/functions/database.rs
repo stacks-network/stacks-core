@@ -1009,7 +1009,7 @@ pub fn special_get_stacks_block_info(
                 data: header_hash.as_bytes().to_vec(),
             }))
         }
-        StacksBlockInfoProperty::IdentityHeaderHash => {
+        StacksBlockInfoProperty::IndexHeaderHash => {
             let id_header_hash = env
                 .global_context
                 .database
