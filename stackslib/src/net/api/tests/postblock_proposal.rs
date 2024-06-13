@@ -240,7 +240,6 @@ fn test_try_make_response() {
         .unwrap()
         .unwrap();
 
-        // let mut block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &tip, miner_privk, parent_stacks_header);
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
 
