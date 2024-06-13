@@ -827,7 +827,7 @@ impl StacksBlockInfoProperty {
         use self::StacksBlockInfoProperty::*;
         match self {
             Time => TypeSignature::UIntType,
-            IdentityHeaderHash | HeaderHash => BUFF_32.clone(),
+            IndexHeaderHash | HeaderHash => BUFF_32.clone(),
         }
     }
 }

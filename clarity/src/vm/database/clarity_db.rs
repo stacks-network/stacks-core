@@ -912,8 +912,10 @@ impl<'a> ClarityDatabase<'a> {
         block_height: u32,
         id_bhh_opt: Option<StacksBlockId>,
     ) -> Result<u64> {
-        let id_bhh =
-            id_bhh_opt.unwrap_or_else(|| self.get_index_block_header_hash(block_height)?);
+        let id_bhh = match id_bhh_opt {
+            Some(x) => x,
+            None => self.get_index_block_header_hash(block_height)?,
+        };
         self.headers_db
             .get_burn_block_time_for_block(&id_bhh)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
