@@ -779,7 +779,7 @@ pub fn special_get_block_info(
             let block_time = env
                 .global_context
                 .database
-                .get_burn_block_time(height_value)?;
+                .get_burn_block_time(height_value, None)?;
             Value::UInt(u128::from(block_time))
         }
         BlockInfoProperty::VrfSeed => {
@@ -1078,7 +1078,7 @@ pub fn special_get_tenure_info(
             let block_time = env
                 .global_context
                 .database
-                .get_burn_block_time(height_value)?;
+                .get_burn_block_time(height_value, None)?;
             Value::UInt(u128::from(block_time))
         }
         TenureInfoProperty::VrfSeed => {

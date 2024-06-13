@@ -907,8 +907,13 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
-    pub fn get_burn_block_time(&mut self, block_height: u32) -> Result<u64> {
-        let id_bhh = self.get_index_block_header_hash(block_height)?;
+    pub fn get_burn_block_time(
+        &mut self,
+        block_height: u32,
+        id_bhh_opt: Option<StacksBlockId>,
+    ) -> Result<u64> {
+        let id_bhh =
+            id_bhh_opt.unwrap_or_else(|| self.get_index_block_header_hash(block_height)?);
         self.headers_db
             .get_burn_block_time_for_block(&id_bhh)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
@@ -925,7 +930,7 @@ impl<'a> ClarityDatabase<'a> {
             )
         })?;
         if !epoch.epoch_id.has_block_timestamps() {
-            return self.get_burn_block_time(block_height);
+            return self.get_burn_block_time(block_height, Some(id_bhh));
         }
 
         self.headers_db
