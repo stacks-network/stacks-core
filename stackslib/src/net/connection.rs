@@ -368,6 +368,7 @@ pub struct ConnectionOptions {
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
     pub max_stackerdb_push_bandwidth: u64,
+    pub max_nakamoto_block_push_bandwidth: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
@@ -381,6 +382,7 @@ pub struct ConnectionOptions {
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
     pub max_buffered_microblocks: u64,
+    pub max_buffered_nakamoto_blocks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
     /// how many transactions to ask for in a mempool query
@@ -393,30 +395,55 @@ pub struct ConnectionOptions {
     pub socket_send_buffer_size: u32,
     /// whether or not to announce or accept neighbors that are behind private networks
     pub private_neighbors: bool,
+    /// maximum number of confirmations for a nakamoto block's sortition for which it will be
+    /// pushed
+    pub max_nakamoto_block_relay_age: u64,
+    /// The authorization token to enable the block proposal RPC endpoint
+    pub block_proposal_token: Option<String>,
 
     // fault injection
+    /// Disable neighbor walk and discovery
     pub disable_neighbor_walk: bool,
+    /// Disable sharing neighbors to a remote requester
     pub disable_chat_neighbors: bool,
+    /// Disable block inventory sync state machine
     pub disable_inv_sync: bool,
+    /// Disable sending inventory messages to a remote requester
     pub disable_inv_chat: bool,
+    /// Disable block download state machine
     pub disable_block_download: bool,
+    /// Disable network pruning
     pub disable_network_prune: bool,
+    /// Disable banning misbehaving peers
     pub disable_network_bans: bool,
+    /// Disable block availability advertisement
     pub disable_block_advertisement: bool,
+    /// Disable block pushing
     pub disable_block_push: bool,
+    /// Disable microblock pushing
     pub disable_microblock_push: bool,
+    /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
+    /// first
     pub disable_pingbacks: bool,
+    /// Disable walking to inbound neighbors
     pub disable_inbound_walks: bool,
+    /// Disable all attempts to learn our IP address
     pub disable_natpunch: bool,
+    /// Disable handshakes from inbound neighbors
     pub disable_inbound_handshakes: bool,
+    /// Disable getting chunks from StackerDB (e.g. to test push-only)
     pub disable_stackerdb_get_chunks: bool,
+    /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
     /// If set to true, this forces the p2p state machine to believe that it is running in
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+
+    // test facilitation
+    /// Do not require that an unsolicited message originate from an authenticated, connected
+    /// neighbor
+    pub test_disable_unsolicited_message_authentication: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -472,6 +499,7 @@ impl std::default::Default for ConnectionOptions {
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
             public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
@@ -481,16 +509,19 @@ impl std::default::Default for ConnectionOptions {
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
             antientropy_retry: 60,   // retry pushing data once every minute
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
-            max_buffered_blocks_available: 1,
-            max_buffered_microblocks_available: 1,
-            max_buffered_blocks: 1,
-            max_buffered_microblocks: 10,
+            max_buffered_blocks_available: 5,
+            max_buffered_microblocks_available: 5,
+            max_buffered_blocks: 5,
+            max_buffered_microblocks: 1024,
+            max_buffered_nakamoto_blocks: 1024,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
+            max_nakamoto_block_relay_age: 6,
+            block_proposal_token: None,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -510,7 +541,9 @@ impl std::default::Default for ConnectionOptions {
             disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
-            block_proposal_token: None,
+
+            // no test facilitations on by default
+            test_disable_unsolicited_message_authentication: false,
         }
     }
 }

@@ -128,6 +128,8 @@ pub struct NeighborStats {
     pub transaction_push_rx_counts: VecDeque<(u64, u64)>,
     /// (timestamp, num bytes)
     pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub nakamoto_block_push_rx_counts: VecDeque<(u64, u64)>,
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -152,6 +154,7 @@ impl NeighborStats {
             microblocks_push_rx_counts: VecDeque::new(),
             transaction_push_rx_counts: VecDeque::new(),
             stackerdb_push_rx_counts: VecDeque::new(),
+            nakamoto_block_push_rx_counts: VecDeque::new(),
             relayed_messages: HashMap::new(),
         }
     }
@@ -211,6 +214,17 @@ impl NeighborStats {
             .push_back((get_epoch_time_secs(), message_size));
         while self.stackerdb_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
             self.stackerdb_push_rx_counts.pop_front();
+        }
+    }
+
+    /// Record that we recently received a Nakamoto blcok push of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by Nakamoto block pushes
+    pub fn add_nakamoto_block_push(&mut self, message_size: u64) -> () {
+        self.nakamoto_block_push_rx_counts
+            .push_back((get_epoch_time_secs(), message_size));
+        while self.nakamoto_block_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
+            self.nakamoto_block_push_rx_counts.pop_front();
         }
     }
 
@@ -296,6 +310,14 @@ impl NeighborStats {
     /// Get a peer's total stackerdb-push bandwidth usage
     pub fn get_stackerdb_push_bandwidth(&self) -> f64 {
         NeighborStats::get_bandwidth(&self.stackerdb_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
+    }
+
+    /// Get a peer's total nakamoto block bandwidth usage
+    pub fn get_nakamoto_block_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(
+            &self.nakamoto_block_push_rx_counts,
+            BANDWIDTH_POINT_LIFETIME,
+        )
     }
 
     /// Determine how many of a particular message this peer has received
@@ -2217,6 +2239,45 @@ impl ConversationP2P {
         Ok(None)
     }
 
+    /// Validate a pushed Nakamoto block list.
+    /// Update bandwidth accounting, but forward the blocks along if we can accept them.
+    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    fn validate_nakamoto_block_push(
+        &mut self,
+        network: &PeerNetwork,
+        preamble: &Preamble,
+        relayers: Vec<RelayData>,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
+
+        let local_peer = network.get_local_peer();
+        let chain_view = network.get_chain_view();
+
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            warn!(
+                "Drop pushed Nakamoto blocks -- invalid relayers {:?}",
+                &relayers
+            );
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats
+            .add_nakamoto_block_push((preamble.payload_len as u64) - 1);
+
+        if self.connection.options.max_nakamoto_block_push_bandwidth > 0
+            && self.stats.get_nakamoto_block_push_bandwidth()
+                > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
+        {
+            debug!("Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
+            return self
+                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+
+        Ok(None)
+    }
+
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
     fn handle_data_message(
@@ -2298,6 +2359,21 @@ impl ConversationP2P {
                 // not handled here, but do some accounting -- we can't receive too many
                 // stackerdb chunks per second
                 match self.validate_stackerdb_push(network, &msg.preamble, msg.relayers.clone())? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg));
+                    }
+                }
+            }
+            StacksMessageType::NakamotoBlocks(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // Nakamoto blocks per second
+                match self.validate_nakamoto_block_push(
+                    network,
+                    &msg.preamble,
+                    msg.relayers.clone(),
+                )? {
                     Some(handle) => Ok(handle),
                     None => {
                         // will forward upstream
@@ -6601,6 +6677,54 @@ mod test {
 
         // 100 bytes/sec
         assert_eq!(bw_stats.get_stackerdb_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_nakamoto_block_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        stats.add_nakamoto_block_push(100);
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_nakamoto_block_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_nakamoto_block_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_nakamoto_block_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_nakamoto_block_push_bandwidth(), 110.0);
     }
 
     #[test]
