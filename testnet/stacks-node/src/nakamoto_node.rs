@@ -28,6 +28,7 @@ use stacks::net::atlas::AtlasConfig;
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util::hash::Hash160;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
 
@@ -178,6 +179,7 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
+                memo: keychain.get_nakamoto_pkh().as_bytes().to_vec(),
             })
         } else {
             LeaderKeyRegistrationState::Inactive

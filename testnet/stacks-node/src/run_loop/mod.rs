@@ -158,6 +158,9 @@ pub struct RegisteredKey {
     pub op_vtxindex: u32,
     /// the public key itself
     pub vrf_public_key: VRFPublicKey,
+    /// `memo` field that was used to register key
+    /// Could be `Hash160(miner_pubkey)`, or empty
+    pub memo: Vec<u8>,
 }
 
 pub fn announce_boot_receipts(

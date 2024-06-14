@@ -4827,6 +4827,7 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
+                memo: vec![],
             })
         } else {
             LeaderKeyRegistrationState::Inactive

@@ -286,6 +286,7 @@ impl<T> Globals<T> {
                                 vrf_public_key: op.public_key,
                                 block_height: op.block_height as u64,
                                 op_vtxindex: op.vtxindex as u32,
+                                memo: op.memo,
                             };
 
                             **leader_key_registration_state =
