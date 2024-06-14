@@ -565,7 +565,10 @@ impl HttpPeer {
         self.peers.iter().for_each(|(_, v)| {
             if max_peer_height.is_none() {
                 max_peer_height = v.get_canonical_stacks_tip_height();
-            } else if v.get_canonical_stacks_tip_height().is_some_and(|value| value > max_peer_height.unwrap()) {
+            } else if v
+                .get_canonical_stacks_tip_height()
+                .is_some_and(|value| value > max_peer_height.unwrap())
+            {
                 max_peer_height = Some(v.get_canonical_stacks_tip_height().unwrap());
             };
         });

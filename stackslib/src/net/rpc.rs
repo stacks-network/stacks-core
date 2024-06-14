@@ -289,7 +289,9 @@ impl ConversationHttp {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
         let (mut response_preamble, response_body) =
-            self.connection.protocol.try_handle_request(req, node, max_peer_height)?;
+            self.connection
+                .protocol
+                .try_handle_request(req, node, max_peer_height)?;
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let relay_msg_opt = node.take_relay_message();

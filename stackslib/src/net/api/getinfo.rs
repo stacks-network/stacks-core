@@ -134,7 +134,8 @@ impl RPCPeerInfoData {
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
         let stackerdb_contract_ids = network.get_local_peer().stacker_dbs.clone();
-        let is_fully_synced = !ibd && max_peer_height.is_some_and(|height| height as u64 <= network.stacks_tip.2);
+        let is_fully_synced =
+            !ibd && max_peer_height.is_some_and(|height| height as u64 <= network.stacks_tip.2);
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,

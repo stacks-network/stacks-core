@@ -1115,8 +1115,12 @@ impl StacksHttp {
             .get_mut(response_handler_index)
             .expect("FATAL: request points to a nonexistent handler");
         let request_preamble = request.preamble.clone();
-        let request_result =
-            request_handler.try_handle_request(request.preamble, request.contents, node, max_peer_height);
+        let request_result = request_handler.try_handle_request(
+            request.preamble,
+            request.contents,
+            node,
+            max_peer_height,
+        );
         request_handler.restart();
 
         let (response_preamble, response_contents) = match request_result {
