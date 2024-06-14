@@ -152,9 +152,10 @@ impl StacksEpochId {
         }
     }
 
-    /// Is a timestamp saved for each Stacks block in this epoch?
-    /// If not, the timestamp is retrieved from the burn block.
-    pub fn has_stacks_block_timestamps(&self) -> bool {
+    /// Returns true for epochs which use Nakamoto blocks. These blocks use a
+    /// different header format than the previous Stacks blocks, which among
+    /// other changes includes a Stacks-specific timestamp.
+    pub fn uses_nakamoto_blocks(&self) -> bool {
         self >= &StacksEpochId::Epoch30
     }
 
