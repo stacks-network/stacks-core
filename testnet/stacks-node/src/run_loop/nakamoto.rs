@@ -39,6 +39,7 @@ use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
@@ -437,8 +438,6 @@ impl RunLoop {
         // relayer linkup
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
-        let data_from_neon = data_from_neon.unwrap_or_default();
-
         // set up globals so other subsystems can instantiate off of the runloop state.
         let globals = Globals::new(
             coordinator_senders,
@@ -448,7 +447,7 @@ impl RunLoop {
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
             mine_start,
-            data_from_neon.leader_key_registration_state,
+            LeaderKeyRegistrationState::default(),
         );
         self.set_globals(globals.clone());
 
@@ -484,12 +483,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(
-            self,
-            globals.clone(),
-            relay_recv,
-            data_from_neon.peer_network,
-        );
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, data_from_neon);
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config
