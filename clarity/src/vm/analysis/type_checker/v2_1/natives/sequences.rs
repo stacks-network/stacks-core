@@ -22,7 +22,8 @@ use crate::vm::analysis::type_checker::v2_1::{
     TypeResult, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostTracker};
+use crate::vm::diagnostic::Diagnostic;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
@@ -73,9 +74,15 @@ pub fn check_special_map(
     )?;
 
     let iter = args[1..].iter();
-    let mut func_args = Vec::with_capacity(iter.len());
     let mut min_args = u32::MAX;
-    for arg in iter {
+
+    // use func_type visitor pattern
+    let mut accumulated_type = None;
+    let mut total_costs = vec![];
+    let mut check_result = Ok(());
+    let mut accumulated_types = Vec::new();
+
+    for (arg_ix, arg) in iter.enumerate() {
         let argument_type = checker.type_check(arg, context)?;
         let entry_type = match argument_type {
             TypeSignature::SequenceType(sequence) => {
@@ -101,11 +108,52 @@ pub fn check_special_map(
                 return Err(CheckErrors::ExpectedSequence(argument_type).into());
             }
         };
-        func_args.push(entry_type);
+
+        if check_result.is_ok() {
+            let (costs, result) = function_type.check_args_visitor_2_1(
+                checker,
+                &entry_type,
+                arg_ix,
+                accumulated_type.as_ref(),
+            );
+            // add the accumulated type and total cost *before*
+            //  checking for an error: we want the subsequent error handling
+            //  to account for this cost
+            accumulated_types.push(entry_type);
+            total_costs.extend(costs);
+
+            match result {
+                Ok(Some(returned_type)) => {
+                    accumulated_type = Some(returned_type);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    check_result = Err(e);
+                }
+            };
+        }
     }
 
-    let mapped_type =
-        function_type.check_args(checker, &func_args, context.epoch, context.clarity_version)?;
+    if let Err(mut check_error) = check_result {
+        if let CheckErrors::IncorrectArgumentCount(expected, _actual) = check_error.err {
+            check_error.err =
+                CheckErrors::IncorrectArgumentCount(expected, args.len().saturating_sub(1));
+            check_error.diagnostic = Diagnostic::err(&check_error.err)
+        }
+        // accumulate the checking costs
+        for cost in total_costs.into_iter() {
+            checker.add_cost(cost?)?;
+        }
+
+        return Err(check_error);
+    }
+
+    let mapped_type = function_type.check_args(
+        checker,
+        &accumulated_types,
+        context.epoch,
+        context.clarity_version,
+    )?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }

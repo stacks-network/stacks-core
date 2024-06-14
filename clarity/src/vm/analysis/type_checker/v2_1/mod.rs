@@ -37,6 +37,7 @@ use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::diagnostic::Diagnostic;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
@@ -151,7 +152,130 @@ impl TypeChecker<'_, '_> {
 
 pub type TypeResult = CheckResult<TypeSignature>;
 
+pub fn compute_typecheck_cost<T: CostTracker>(
+    track: &mut T,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<ExecutionCost, CostErrors> {
+    let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
+    let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
+    track.compute_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &[std::cmp::max(t1_size, t2_size).into()],
+    )
+}
+
+pub fn check_argument_len(expected: usize, args_len: usize) -> Result<(), CheckErrors> {
+    if args_len != expected {
+        Err(CheckErrors::IncorrectArgumentCount(expected, args_len))
+    } else {
+        Ok(())
+    }
+}
+
 impl FunctionType {
+    pub fn check_args_visitor_2_1<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        arg_type: &TypeSignature,
+        arg_index: usize,
+        accumulated_type: Option<&TypeSignature>,
+    ) -> (
+        Option<Result<ExecutionCost, CostErrors>>,
+        CheckResult<Option<TypeSignature>>,
+    ) {
+        match self {
+            // variadic stops checking cost at the first error...
+            FunctionType::Variadic(expected_type, _) => {
+                let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
+                let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
+                    Ok(admitted) => admitted,
+                    Err(e) => return (cost, Err(e.into())),
+                };
+                if !admitted {
+                    return (
+                        cost,
+                        Err(CheckErrors::TypeError(expected_type.clone(), arg_type.clone()).into()),
+                    );
+                }
+                (cost, Ok(None))
+            }
+            FunctionType::ArithmeticVariadic => {
+                let cost = Some(compute_typecheck_cost(
+                    accounting,
+                    &TypeSignature::IntType,
+                    arg_type,
+                ));
+                if arg_index == 0 {
+                    let return_type = match arg_type {
+                        TypeSignature::IntType => Ok(Some(TypeSignature::IntType)),
+                        TypeSignature::UIntType => Ok(Some(TypeSignature::UIntType)),
+                        _ => Err(CheckErrors::UnionTypeError(
+                            vec![TypeSignature::IntType, TypeSignature::UIntType],
+                            arg_type.clone(),
+                        )
+                        .into()),
+                    };
+                    (cost, return_type)
+                } else {
+                    let return_type = accumulated_type
+                        .ok_or_else(|| CheckErrors::Expects("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
+                    let check_result = return_type.and_then(|return_type| {
+                        if arg_type != return_type {
+                            Err(
+                                CheckErrors::TypeError(return_type.clone(), arg_type.clone())
+                                    .into(),
+                            )
+                        } else {
+                            Ok(None)
+                        }
+                    });
+                    (cost, check_result)
+                }
+            }
+            // For the fixed function types, the visitor will just
+            //  tell the processor that any results greater than the args len
+            //  do not need to be stored, because an error will occur before
+            //  further checking anyways
+            FunctionType::Fixed(FixedFunction {
+                args: arg_types, ..
+            }) => {
+                if arg_index >= arg_types.len() {
+                    // note: argument count will be wrong?
+                    return (
+                        None,
+                        Err(CheckErrors::IncorrectArgumentCount(arg_types.len(), arg_index).into()),
+                    );
+                }
+                return (None, Ok(None));
+            }
+            // For the following function types, the visitor will just
+            //  tell the processor that any results greater than len 1 or 2
+            //  do not need to be stored, because an error will occur before
+            //  further checking anyways
+            FunctionType::ArithmeticUnary | FunctionType::UnionArgs(..) => {
+                if arg_index >= 1 {
+                    return (
+                        None,
+                        Err(CheckErrors::IncorrectArgumentCount(1, arg_index).into()),
+                    );
+                }
+                return (None, Ok(None));
+            }
+            FunctionType::ArithmeticBinary
+            | FunctionType::ArithmeticComparison
+            | FunctionType::Binary(..) => {
+                if arg_index >= 2 {
+                    return (
+                        None,
+                        Err(CheckErrors::IncorrectArgumentCount(2, arg_index).into()),
+                    );
+                }
+                return (None, Ok(None));
+            }
+        }
+    }
+
     pub fn check_args_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
@@ -1017,17 +1141,23 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> TypeResult {
-        let mut types_returned = self.type_check_all(args, context)?;
-
-        let last_return = types_returned
-            .pop()
-            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-        for type_return in types_returned.iter() {
-            if type_return.is_response_type() {
-                return Err(CheckErrors::UncheckedIntermediaryResponses.into());
+        let mut last_return = None;
+        let mut return_failure = Ok(());
+        for ix in 0..args.len() {
+            let type_return = self.type_check(&args[ix], context)?;
+            if ix + 1 < args.len() {
+                if type_return.is_response_type() {
+                    return_failure = Err(CheckErrors::UncheckedIntermediaryResponses);
+                }
+            } else {
+                last_return = Some(type_return);
             }
         }
+
+        let last_return = last_return
+            .ok_or_else(|| CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+        return_failure?;
+
         Ok(last_return)
     }
 
@@ -1052,8 +1182,56 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> TypeResult {
-        let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(self, &typed_args, epoch, clarity_version)
+        if epoch <= StacksEpochId::Epoch2_05 {
+            let typed_args = self.type_check_all(args, context)?;
+            return func_type.check_args(self, &typed_args, epoch, clarity_version);
+        }
+        // use func_type visitor pattern
+        let mut accumulated_type = None;
+        let mut total_costs = vec![];
+        let mut check_result = Ok(());
+        let mut accumulated_types = Vec::new();
+        for (arg_ix, arg_expr) in args.iter().enumerate() {
+            let arg_type = self.type_check(arg_expr, context)?;
+            if check_result.is_ok() {
+                let (costs, result) = func_type.check_args_visitor_2_1(
+                    self,
+                    &arg_type,
+                    arg_ix,
+                    accumulated_type.as_ref(),
+                );
+                // add the accumulated type and total cost *before*
+                //  checking for an error: we want the subsequent error handling
+                //  to account for this cost
+                accumulated_types.push(arg_type);
+                total_costs.extend(costs);
+
+                match result {
+                    Ok(Some(returned_type)) => {
+                        accumulated_type = Some(returned_type);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        check_result = Err(e);
+                    }
+                };
+            }
+        }
+        if let Err(mut check_error) = check_result {
+            if let CheckErrors::IncorrectArgumentCount(expected, _actual) = check_error.err {
+                check_error.err = CheckErrors::IncorrectArgumentCount(expected, args.len());
+                check_error.diagnostic = Diagnostic::err(&check_error.err)
+            }
+            // accumulate the checking costs
+            // the reason we do this now (instead of within the loop) is for backwards compatibility
+            for cost in total_costs.into_iter() {
+                self.add_cost(cost?)?;
+            }
+
+            return Err(check_error);
+        }
+        // otherwise, just invoke the normal checking routine
+        func_type.check_args(self, &accumulated_types, epoch, clarity_version)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
