@@ -931,7 +931,7 @@ impl<'a> ClarityDatabase<'a> {
                 format!("Failed to get epoch for block height {block_height}.)").into(),
             )
         })?;
-        if !epoch.epoch_id.has_block_timestamps() {
+        if !epoch.epoch_id.has_stacks_block_timestamps() {
             return self.get_burn_block_time(block_height, Some(id_bhh));
         }
 
