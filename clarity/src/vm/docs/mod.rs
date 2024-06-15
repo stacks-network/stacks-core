@@ -2792,7 +2792,11 @@ mod test {
         fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
             Some(ConsensusHash([0; 20]))
         }
-        fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+        fn get_vrf_seed_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            epoch: &StacksEpochId,
+        ) -> Option<VRFSeed> {
             Some(
                 VRFSeed::from_hex(
                     "f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
@@ -2820,21 +2824,34 @@ mod test {
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
             Some(567890)
         }
-        fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        fn get_miner_address(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<StacksAddress> {
             None
         }
-        fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_burnchain_tokens_spent_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12345)
         }
 
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
             id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(2345)
         }
 
-        fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_tokens_earned_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12000)
         }
     }

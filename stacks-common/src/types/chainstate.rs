@@ -247,6 +247,13 @@ impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
 impl_byte_array_serde!(StacksBlockId);
 
+pub struct TenureBlockId(pub StacksBlockId);
+impl From<StacksBlockId> for TenureBlockId {
+    fn from(id: StacksBlockId) -> TenureBlockId {
+        TenureBlockId(id)
+    }
+}
+
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);

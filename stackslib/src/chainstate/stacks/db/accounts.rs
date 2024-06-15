@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use clarity::types::chainstate::TenureBlockId;
 use clarity::vm::database::clarity_store::*;
 use clarity::vm::database::*;
 use clarity::vm::types::*;
@@ -472,8 +473,8 @@ impl StacksChainState {
         // trying to store the same matured rewards for a common ancestor block.
         let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
             tx,
-            parent_block_id,
-            child_block_id,
+            &(*parent_block_id).into(),
+            &(*child_block_id).into(),
         )?;
         if cur_rewards.len() > 0 {
             let mut present = false;
@@ -608,11 +609,11 @@ impl StacksChainState {
 
     fn inner_get_matured_miner_payments(
         conn: &DBConn,
-        parent_block_id: &StacksBlockId,
-        child_block_id: &StacksBlockId,
+        parent_block_id: &TenureBlockId,
+        child_block_id: &TenureBlockId,
     ) -> Result<Vec<MinerReward>, Error> {
         let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
-        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
+        let args: &[&dyn ToSql] = &[&parent_block_id.0, &child_block_id.0];
         let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
         Ok(ret)
     }
@@ -621,8 +622,8 @@ impl StacksChainState {
     /// You'd be querying for the `child_block_id`'s reward.
     pub fn get_matured_miner_payment(
         conn: &DBConn,
-        parent_block_id: &StacksBlockId,
-        child_block_id: &StacksBlockId,
+        parent_block_id: &TenureBlockId,
+        child_block_id: &TenureBlockId,
     ) -> Result<Option<MinerReward>, Error> {
         let config = StacksChainState::load_db_config(conn)?;
         let ret = StacksChainState::inner_get_matured_miner_payments(
@@ -643,8 +644,8 @@ impl StacksChainState {
                 panic!("FATAL: got two parent rewards");
             };
             Ok(Some(reward))
-        } else if child_block_id
-            == &StacksBlockHeader::make_index_block_hash(
+        } else if child_block_id.0
+            == StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             )

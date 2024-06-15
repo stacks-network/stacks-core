@@ -357,8 +357,8 @@ fn test_bad_microblock_fees_pre_v210() {
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
-            &parent_block_id,
-            &block_id,
+            &parent_block_id.into(),
+            &block_id.into(),
         )
         .unwrap();
 
@@ -680,8 +680,8 @@ fn test_bad_microblock_fees_fix_transition() {
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
-            &parent_block_id,
-            &block_id,
+            &parent_block_id.into(),
+            &block_id.into(),
         )
         .unwrap();
 
