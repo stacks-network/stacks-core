@@ -88,17 +88,26 @@ pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed>;
-    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: Option<&StacksEpochId>,
+    ) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(
         &self,
@@ -211,6 +220,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -219,10 +229,18 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
-    fn get_consensus_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         None
     }
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: Option<&StacksEpochId>,
+    ) -> Option<u64> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
@@ -230,7 +248,7 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
-    fn get_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_stacks_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
         None
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
@@ -939,8 +957,9 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_stacks_block_header_hash_for_block(&id_bhh)
+            .get_stacks_block_header_hash_for_block(&id_bhh, &epoch)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -953,27 +972,21 @@ impl<'a> ClarityDatabase<'a> {
             Some(x) => x,
             None => self.get_index_block_header_hash(block_height)?,
         };
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_burn_block_time_for_block(&id_bhh)
+            .get_burn_block_time_for_block(&id_bhh, Some(&epoch))
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
-        let burn_block_height = self
-            .get_burnchain_block_height(&id_bhh)
-            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()))?;
-        let epoch = self.get_stacks_epoch(burn_block_height).ok_or_else(|| {
-            InterpreterError::Expect(
-                format!("Failed to get epoch for block height {block_height}.)").into(),
-            )
-        })?;
-        if !epoch.epoch_id.uses_nakamoto_blocks() {
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        if !epoch.uses_nakamoto_blocks() {
             return self.get_burn_block_time(block_height, Some(id_bhh));
         }
 
         self.headers_db
-            .get_block_time_for_block(&id_bhh)
+            .get_stacks_block_time_for_block(&id_bhh)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -1009,12 +1022,13 @@ impl<'a> ClarityDatabase<'a> {
 
             // this is the StacksBlockId of the last block evaluated in this fork
             let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1)?;
+            let epoch = self.get_stacks_epoch_for_block(&parent_id_bhh)?;
 
             // infallible, since we always store the consensus hash with the StacksBlockId in the
             // headers DB
             let consensus_hash = self
                 .headers_db
-                .get_consensus_hash_for_block(&parent_id_bhh)
+                .get_consensus_hash_for_block(&parent_id_bhh, &epoch)
                 .ok_or_else(|| {
                     InterpreterError::Expect(format!(
                         "FATAL: no consensus hash found for StacksBlockId {}",

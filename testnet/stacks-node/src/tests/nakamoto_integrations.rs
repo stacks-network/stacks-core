@@ -49,8 +49,7 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
-    self, BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult,
-    TransactionSuccessEvent,
+    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangePayload,

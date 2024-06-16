@@ -2815,10 +2815,14 @@ mod test {
                 .unwrap(),
             )
         }
-        fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        fn get_burn_block_time_for_block(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: Option<&StacksEpochId>,
+        ) -> Option<u64> {
             Some(1557860301)
         }
-        fn get_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        fn get_stacks_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
             Some(1557860302)
         }
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {

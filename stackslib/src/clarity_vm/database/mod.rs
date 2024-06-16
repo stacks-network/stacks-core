@@ -45,10 +45,17 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
-        get_stacks_header_column(self.0, id_bhh, "block_hash", |r| {
-            BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
-        })
+        get_stacks_header_column_from_table(
+            self.0,
+            id_bhh,
+            "block_hash",
+            &|r| {
+                BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
+            },
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
     fn get_burn_header_hash_for_block(
@@ -60,19 +67,41 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         })
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        get_stacks_header_column(self.0, id_bhh, "consensus_hash", |r| {
-            ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash")
-        })
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
+        get_stacks_header_column_from_table(
+            self.0,
+            id_bhh,
+            "consensus_hash",
+            &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.0, id_bhh, "burn_header_timestamp", |r| {
-            u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
-        })
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch_opt: Option<&StacksEpochId>,
+    ) -> Option<u64> {
+        if let Some(epoch) = epoch_opt {
+            get_stacks_header_column_from_table(
+                self.0,
+                id_bhh,
+                "burn_header_timestamp",
+                &|r| u64::from_row(r).expect("FATAL: malformed burn_header_timestamp"),
+                epoch.uses_nakamoto_blocks(),
+            )
+        } else {
+            get_stacks_header_column(self.0, id_bhh, "burn_header_timestamp", |r| {
+                u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
+            })
+        }
     }
 
-    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_column_from_table(
             self.0,
             id_bhh,
@@ -165,10 +194,17 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
-        get_stacks_header_column(self.deref().deref(), id_bhh, "block_hash", |r| {
-            BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
-        })
+        get_stacks_header_column_from_table(
+            self.deref().deref(),
+            id_bhh,
+            "block_hash",
+            &|r| {
+                BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
+            },
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
     fn get_burn_header_hash_for_block(
@@ -180,19 +216,41 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         })
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        get_stacks_header_column(self.deref().deref(), id_bhh, "consensus_hash", |r| {
-            ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash")
-        })
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
+        get_stacks_header_column_from_table(
+            self.deref().deref(),
+            id_bhh,
+            "consensus_hash",
+            &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.deref().deref(), id_bhh, "burn_header_timestamp", |r| {
-            u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
-        })
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch_opt: Option<&StacksEpochId>,
+    ) -> Option<u64> {
+        if let Some(epoch) = epoch_opt {
+            get_stacks_header_column_from_table(
+                self.deref().deref(),
+                id_bhh,
+                "burn_header_timestamp",
+                &|r| u64::from_row(r).expect("FATAL: malformed burn_header_timestamp"),
+                epoch.uses_nakamoto_blocks(),
+            )
+        } else {
+            get_stacks_header_column(self.deref().deref(), id_bhh, "burn_header_timestamp", |r| {
+                u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
+            })
+        }
     }
 
-    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_column_from_table(
             self.deref().deref(),
             id_bhh,
@@ -291,10 +349,17 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
-        get_stacks_header_column(self.sqlite_conn(), id_bhh, "block_hash", |r| {
-            BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
-        })
+        get_stacks_header_column_from_table(
+            self.sqlite_conn(),
+            id_bhh,
+            "block_hash",
+            &|r| {
+                BlockHeaderHash::from_column(r, "block_hash").expect("FATAL: malformed block hash")
+            },
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
     fn get_burn_header_hash_for_block(
@@ -306,19 +371,41 @@ impl HeadersDB for MARF<StacksBlockId> {
         })
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        get_stacks_header_column(self.sqlite_conn(), id_bhh, "consensus_hash", |r| {
-            ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash")
-        })
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
+        get_stacks_header_column_from_table(
+            self.sqlite_conn(),
+            id_bhh,
+            "consensus_hash",
+            &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+            epoch.uses_nakamoto_blocks(),
+        )
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_column(self.sqlite_conn(), id_bhh, "burn_header_timestamp", |r| {
-            u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
-        })
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch_opt: Option<&StacksEpochId>,
+    ) -> Option<u64> {
+        if let Some(epoch) = epoch_opt {
+            get_stacks_header_column_from_table(
+                self.sqlite_conn(),
+                id_bhh,
+                "burn_header_timestamp",
+                &|r| u64::from_row(r).expect("FATAL: malformed burn_header_timestamp"),
+                epoch.uses_nakamoto_blocks(),
+            )
+        } else {
+            get_stacks_header_column(self.sqlite_conn(), id_bhh, "burn_header_timestamp", |r| {
+                u64::from_row(r).expect("FATAL: malformed burn_header_timestamp")
+            })
+        }
     }
 
-    fn get_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_column_from_table(
             self.sqlite_conn(),
             id_bhh,
@@ -438,7 +525,7 @@ where
         |x| Ok(loader(x)),
     )
     .optional()
-    .unwrap_or_else(|e| {
+    .unwrap_or_else(|_| {
         panic!(
             "Unexpected SQL failure querying block header table for '{}'",
             column_name
@@ -494,7 +581,7 @@ fn get_first_block_in_tenure(
                 .into())
         },
     )
-    .unwrap_or_else(|e| {
+    .unwrap_or_else(|_| {
         panic!("Unexpected SQL failure querying block header table for 'index_block_hash'")
     })
 }
