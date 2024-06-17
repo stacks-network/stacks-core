@@ -52,9 +52,10 @@ use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangePayload,
-    TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
+    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+    TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
@@ -5233,6 +5234,40 @@ fn continue_tenure_extend() {
         .unwrap()
         .unwrap();
 
+    // assert that the tenure extend tx was observed
+    let extend_tx_included = test_observer::get_blocks()
+        .into_iter()
+        .find(|block_json| {
+            block_json["transactions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tx_json| {
+                    let raw_tx = tx_json["raw_tx"].as_str().unwrap();
+                    if raw_tx == "0x00" {
+                        return false;
+                    }
+                    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                    let parsed =
+                        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                    match parsed.payload {
+                        TransactionPayload::TenureChange(payload) => {
+                            if payload.cause == TenureChangeCause::Extended {
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    };
+                    false
+                })
+                .is_some()
+        })
+        .is_some();
+    assert!(
+        extend_tx_included,
+        "Nakamoto node failed to include the tenure extend tx"
+    );
+
     // assert that the transfer tx was observed
     let transfer_tx_included = test_observer::get_blocks()
         .into_iter()
@@ -5245,7 +5280,6 @@ fn continue_tenure_extend() {
                 .is_some()
         })
         .is_some();
-
     assert!(
         transfer_tx_included,
         "Nakamoto node failed to include the transfer tx"

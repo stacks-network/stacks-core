@@ -698,10 +698,20 @@ impl RelayerThread {
             return Ok(());
         };
         let mining_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(mining_key));
-        if block_election_snapshot.miner_pk_hash != Some(mining_pkh) {
+
+        let last_winner_snapshot = {
+            let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
+            ih.get_last_snapshot_with_sortition(burn_tip.block_height)
+                .map_err(|e| {
+                    error!("Relayer: failed to get last snapshot with sortition: {e:?}");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?
+        };
+
+        if last_winner_snapshot.miner_pk_hash != Some(mining_pkh) {
             debug!("Relayer: the miner did not win the last sortition. No tenure to continue.";
                    "current_mining_pkh" => %mining_pkh,
-                   "block_snapshot.miner_pk_hash" => ?block_election_snapshot.miner_pk_hash,
+                   "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
             );
             return Ok(());
         } else {
