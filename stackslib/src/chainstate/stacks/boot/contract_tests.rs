@@ -549,7 +549,11 @@ impl HeadersDB for TestSimHeadersDB {
         None
     }
 
-    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         // capture the first 20 bytes of the block ID, which in this case captures the height and
         // fork ID.
         let mut bytes_20 = [0u8; 20];
@@ -560,6 +564,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
