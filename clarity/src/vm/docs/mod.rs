@@ -2789,7 +2789,11 @@ mod test {
         ) -> Option<BurnchainHeaderHash> {
             None
         }
-        fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        fn get_consensus_hash_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<ConsensusHash> {
             Some(ConsensusHash([0; 20]))
         }
         fn get_vrf_seed_for_block(
@@ -2807,6 +2811,7 @@ mod test {
         fn get_stacks_block_header_hash_for_block(
             &self,
             _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<BlockHeaderHash> {
             Some(
                 BlockHeaderHash::from_hex(
