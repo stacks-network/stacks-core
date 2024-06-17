@@ -535,7 +535,7 @@ fn sign_request_rejected() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     let mut block1 = NakamotoBlock {
         header: header1,
@@ -563,7 +563,7 @@ fn sign_request_rejected() {
         timestamp: 9,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     let mut block2 = NakamotoBlock {
         header: header2,

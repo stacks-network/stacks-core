@@ -620,7 +620,7 @@ impl BlockMinerThread {
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
-            block,
+            &block,
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
@@ -928,13 +928,7 @@ impl BlockMinerThread {
                 "Current reward cycle did not select a reward set. Cannot mine!".into(),
             ));
         };
-        let signer_bitvec_len = reward_set
-            .signers
-            .as_ref()
-            .map(|x| x.len())
-            .unwrap_or(0)
-            .try_into()
-            .ok();
+        let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(

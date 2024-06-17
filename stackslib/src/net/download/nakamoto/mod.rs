@@ -217,6 +217,10 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
+        if self.connection_opts.disable_block_download {
+            return Ok(HashMap::new());
+        }
+
         let res = self.sync_blocks_nakamoto(burnchain_height, sortdb, chainstate, ibd)?;
 
         let Some(mut block_downloader) = self.block_downloader_nakamoto.take() else {

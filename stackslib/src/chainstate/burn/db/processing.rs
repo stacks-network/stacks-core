@@ -40,7 +40,7 @@ impl<'a> SortitionHandleTx<'a> {
     fn check_transaction(
         &mut self,
         burnchain: &Burnchain,
-        blockstack_op: &BlockstackOperationType,
+        blockstack_op: &mut BlockstackOperationType,
         reward_info: Option<&RewardSetInfo>,
     ) -> Result<(), BurnchainError> {
         match blockstack_op {
@@ -53,7 +53,7 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
+            BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
                         "REJECTED({}) leader block commit {} at {},{} (parent {},{}): {:?}",
@@ -259,7 +259,7 @@ impl<'a> SortitionHandleTx<'a> {
         let mut missed_block_commits = vec![];
 
         // classify and check each transaction
-        blockstack_txs.retain(|blockstack_op| {
+        blockstack_txs.retain_mut(|blockstack_op| {
             match self.check_transaction(burnchain, blockstack_op, reward_set_info) {
                 Ok(_) => true,
                 Err(BurnchainError::OpError(OpError::MissedBlockCommit(missed_op))) => {
@@ -404,6 +404,7 @@ mod tests {
             block_height: 102,
             burn_parent_modulus: (101 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+            treatment: vec![],
         };
 
         let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);

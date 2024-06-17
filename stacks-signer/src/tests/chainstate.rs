@@ -96,7 +96,7 @@ fn setup_test_environment(
             timestamp: 11,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::ones(1).unwrap(),
         },
         txs: vec![],
     };

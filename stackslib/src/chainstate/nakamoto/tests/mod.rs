@@ -241,7 +241,7 @@ fn codec_nakamoto_header() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
-        signer_bitvec: BitVec::zeros(8).unwrap(),
+        pox_treatment: BitVec::zeros(8).unwrap(),
     };
 
     let mut bytes = vec![
@@ -294,7 +294,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     // sortition-inducing tenure change
@@ -858,7 +858,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: header_signatures.clone(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -904,7 +904,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -945,7 +945,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_3 = StacksHeaderInfo {
@@ -1075,7 +1075,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             300,
         )
         .unwrap();
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block.clone(), false).unwrap();
+        NakamotoChainState::store_block(&staging_tx, &nakamoto_block, false).unwrap();
 
         // tenure has one block
         assert_eq!(
@@ -1108,7 +1108,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         )
         .unwrap();
 
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block_2.clone(), false).unwrap();
+        NakamotoChainState::store_block(&staging_tx, &nakamoto_block_2, false).unwrap();
 
         // tenure has two blocks
         assert_eq!(
@@ -1129,7 +1129,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store, but do not process, a block
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block_3.clone(), false).unwrap();
+        NakamotoChainState::store_block(&staging_tx, &nakamoto_block_3, false).unwrap();
 
         staging_tx.commit().unwrap();
         tx.commit().unwrap();
@@ -1625,7 +1625,7 @@ fn test_nakamoto_block_static_verification() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1645,7 +1645,7 @@ fn test_nakamoto_block_static_verification() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1665,7 +1665,7 @@ fn test_nakamoto_block_static_verification() {
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)
@@ -1819,7 +1819,7 @@ pub fn test_get_highest_nakamoto_tenure() {
             timestamp: get_epoch_time_secs(),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
         let tenure_change = TenureChangePayload {
             tenure_consensus_hash: sn.consensus_hash.clone(),
@@ -2056,6 +2056,7 @@ fn test_make_miners_stackerdb_config() {
             block_height: snapshot.block_height,
             burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: snapshot.burn_header_hash.clone(),
+            treatment: vec![],
         };
 
         let winning_ops = if i == 0 {
@@ -2124,7 +2125,7 @@ fn test_make_miners_stackerdb_config() {
             timestamp: 8,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
         let block = NakamotoBlock {
             header,

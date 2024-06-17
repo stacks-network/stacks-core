@@ -1241,7 +1241,7 @@ impl EventDispatcher {
             return;
         }
 
-        let signer_bitvec = serde_json::to_value(block.header.signer_bitvec.clone())
+        let signer_bitvec = serde_json::to_value(block.header.pox_treatment.clone())
             .unwrap_or_default()
             .as_str()
             .unwrap_or_default()

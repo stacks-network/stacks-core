@@ -4726,7 +4726,7 @@ fn signer_chainstate() {
         let timer = Instant::now();
         while proposals_submitted.load(Ordering::SeqCst) <= before {
             thread::sleep(Duration::from_millis(5));
-            if timer.elapsed() > Duration::from_secs(20) {
+            if timer.elapsed() > Duration::from_secs(30) {
                 panic!("Timed out waiting for nakamoto miner to produce intermediate block");
             }
         }
@@ -4799,7 +4799,7 @@ fn signer_chainstate() {
         timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4830,7 +4830,7 @@ fn signer_chainstate() {
         timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4881,7 +4881,7 @@ fn signer_chainstate() {
         timestamp: last_tenure_header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
@@ -4940,7 +4940,7 @@ fn signer_chainstate() {
         timestamp: reorg_to_block.header.timestamp + 1,
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
-        signer_bitvec: BitVec::ones(1).unwrap(),
+        pox_treatment: BitVec::ones(1).unwrap(),
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 

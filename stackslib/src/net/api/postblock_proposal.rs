@@ -290,7 +290,7 @@ impl NakamotoBlockProposal {
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
-            self.block.header.signer_bitvec.len(),
+            self.block.header.pox_treatment.len(),
         )?;
 
         let mut miner_tenure_info =
