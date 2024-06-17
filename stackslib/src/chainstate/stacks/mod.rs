@@ -1723,7 +1723,7 @@ pub mod test {
             timestamp: get_epoch_time_secs(),
             miner_signature: MessageSignature::empty(),
             signer_signature: Vec::new(),
-            signer_bitvec: BitVec::ones(8).unwrap(),
+            pox_treatment: BitVec::ones(8).unwrap(),
         };
 
         NakamotoBlock {
