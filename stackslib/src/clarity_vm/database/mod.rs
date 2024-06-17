@@ -125,7 +125,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -148,7 +148,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, Some(epoch));
         get_miner_column(self.0, &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
             let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
@@ -161,7 +161,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, Some(epoch));
         get_miner_column(self.0, &tenure_id_bhh, "burnchain_sortition_burn", |r| {
             u64::from_row(r).expect("FATAL: malformed sortition burn")
         })
@@ -173,7 +173,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, Some(epoch));
         get_miner_column(self.0, &tenure_id_bhh, "burnchain_commit_burn", |r| {
             u64::from_row(r).expect("FATAL: malformed commit burn")
         })
@@ -185,7 +185,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.0, id_bhh, Some(epoch));
         get_matured_reward(self.0, &tenure_id_bhh, epoch).map(|x| x.total().into())
     }
 }
@@ -274,7 +274,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -297,7 +297,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, Some(epoch));
         get_miner_column(self.deref().deref(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
             let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
@@ -310,7 +310,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, Some(epoch));
         get_miner_column(
             self.deref().deref(),
             &tenure_id_bhh,
@@ -325,7 +325,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, Some(epoch));
         get_miner_column(
             self.deref().deref(),
             &tenure_id_bhh,
@@ -340,7 +340,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref().deref(), id_bhh, Some(epoch));
         get_matured_reward(self.deref().deref(), &tenure_id_bhh, epoch).map(|x| x.total().into())
     }
 }
@@ -429,7 +429,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -452,7 +452,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, Some(epoch));
         get_miner_column(self.sqlite_conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
             let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
@@ -465,7 +465,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -480,7 +480,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -495,7 +495,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, epoch);
+        let tenure_id_bhh = get_first_block_in_tenure(self.sqlite_conn(), id_bhh, Some(epoch));
         get_matured_reward(self.sqlite_conn(), &tenure_id_bhh, epoch).map(|x| x.total().into())
     }
 }
@@ -551,29 +551,52 @@ where
 fn get_first_block_in_tenure(
     conn: &DBConn,
     id_bhh: &StacksBlockId,
-    epoch: &StacksEpochId,
+    epoch_opt: Option<&StacksEpochId>,
 ) -> TenureBlockId {
-    // Pre-nakamoto, each block is a tenure
-    if !epoch.uses_nakamoto_blocks() {
-        return id_bhh.clone().into();
-    }
-
-    let args: &[&dyn ToSql] = &[id_bhh];
+    let consensus_hash = match epoch_opt {
+        Some(epoch) => {
+            if !epoch.uses_nakamoto_blocks() {
+                return id_bhh.clone().into();
+            } else {
+                get_stacks_header_column_from_table(
+                    conn,
+                    id_bhh,
+                    "consensus_hash",
+                    &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+                    true,
+                )
+            }
+        }
+        None => {
+            if let Some(ch) = get_stacks_header_column_from_table(
+                conn,
+                id_bhh,
+                "consensus_hash",
+                &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+                false,
+            ) {
+                return id_bhh.clone().into();
+            } else {
+                get_stacks_header_column_from_table(
+                    conn,
+                    id_bhh,
+                    "consensus_hash",
+                    &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
+                    true,
+                )
+            }
+        }
+    };
+    let ch = consensus_hash
+        .expect("Unexpected SQL failure querying block header table for 'consensus_hash'");
+    let args: &[&dyn ToSql] = &[&ch];
     conn.query_row(
         "
-        WITH BlockInTenure AS (
-            SELECT consensus_hash
-            FROM nakamoto_block_headers
-            WHERE index_block_hash = ?
-        )
-        SELECT nbh.index_block_hash
-        FROM nakamoto_block_headers nbh
-        JOIN BlockInTenure bit ON nbh.consensus_hash = bit.consensus_hash
-        WHERE nbh.block_height = (
-            SELECT MIN(block_height)
-            FROM nakamoto_block_headers
-            WHERE consensus_hash = bit.consensus_hash
-        )",
+        SELECT index_block_hash
+        FROM nakamoto_block_headers
+        WHERE consensus_hash = ?
+        ORDER BY block_height ASC
+        LIMIT 1;",
         args,
         |x| {
             Ok(StacksBlockId::from_column(x, "index_block_hash")
@@ -636,7 +659,7 @@ fn get_matured_reward(
         .expect("Unexpected SQL failure querying parent block ID");
 
     if let Some(parent_id_bhh) = parent_id_bhh {
-        let parent_tenure_id = get_first_block_in_tenure(conn, &parent_id_bhh, epoch);
+        let parent_tenure_id = get_first_block_in_tenure(conn, &parent_id_bhh, None);
         StacksChainState::get_matured_miner_payment(conn, &parent_tenure_id, child_id_bhh)
             .expect("Unexpected SQL failure querying miner reward table")
     } else {
