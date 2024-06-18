@@ -2309,7 +2309,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let signer_bitvec = BitVec::<4000>::consensus_deserialize(&mut signer_bitvec_bytes.as_slice())
         .expect("Failed to deserialize signer bitvec");
 
-    assert_eq!(signer_bitvec.len(), 1);
+    assert_eq!(signer_bitvec.len(), 30);
 
     assert_eq!(
         format!("0x{}", observed_block.block_hash),
