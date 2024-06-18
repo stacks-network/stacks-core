@@ -5010,10 +5010,13 @@ fn signer_chainstate() {
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+///  struct handles the epoch-2/3 tear-down and spin-up. It mines a regular Nakamoto tenure
+///  before pausing the commit op to produce an empty sortition, forcing a tenure extend.
+///  Commit ops are resumed, and an additional 15 nakamoto tenures mined.
 /// This test makes three assertions:
-///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
+///  * 15 blocks are mined after 3.0 starts.
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
+///  * A tenure extend transaction was successfully mined in 3.0
 ///  * The final chain tip is a nakamoto block
 fn continue_tenure_extend() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -5235,58 +5238,47 @@ fn continue_tenure_extend() {
         .unwrap();
 
     // assert that the tenure extend tx was observed
-    let extend_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| {
-                    let raw_tx = tx_json["raw_tx"].as_str().unwrap();
-                    if raw_tx == "0x00" {
-                        return false;
-                    }
-                    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                    let parsed =
-                        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-                    match parsed.payload {
-                        TransactionPayload::TenureChange(payload) => {
-                            if payload.cause == TenureChangeCause::Extended {
-                                return true;
-                            }
-                        }
-                        _ => {}
-                    };
-                    false
-                })
-                .is_some()
-        })
-        .is_some();
+    let mut tenure_extends = vec![];
+    let mut tenure_block_founds = vec![];
+    let mut transfer_tx_included = false;
+    for block in test_observer::get_blocks() {
+        for tx in block["transactions"].as_array().unwrap() {
+            let raw_tx = tx["raw_tx"].as_str().unwrap();
+            if raw_tx == &transfer_tx_hex {
+                transfer_tx_included = true;
+                continue;
+            }
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            match &parsed.payload {
+                TransactionPayload::TenureChange(payload) => match payload.cause {
+                    TenureChangeCause::Extended => tenure_extends.push(parsed),
+                    TenureChangeCause::BlockFound => tenure_block_founds.push(parsed),
+                },
+                _ => {}
+            };
+        }
+    }
     assert!(
-        extend_tx_included,
-        "Nakamoto node failed to include the tenure extend tx"
+        !tenure_extends.is_empty(),
+        "Nakamoto node failed to include the tenure extend txs"
     );
 
-    // assert that the transfer tx was observed
-    let transfer_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
-                .is_some()
-        })
-        .is_some();
+    assert!(
+        tenure_block_founds.len() >= 17 - tenure_extends.len(),
+        "Nakamoto node failed to include the block found tx per winning sortition"
+    );
+
     assert!(
         transfer_tx_included,
         "Nakamoto node failed to include the transfer tx"
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 15);
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 17);
 
     // make sure prometheus returns an updated height
     #[cfg(feature = "monitoring_prom")]
