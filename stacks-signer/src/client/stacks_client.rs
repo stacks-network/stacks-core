@@ -1090,7 +1090,7 @@ mod tests {
                 let principal_data = StacksAddress::from_string(signer).unwrap().into();
 
                 let data_map = [
-                    ("num-slots".into(), ClarityValue::UInt(14)),
+                    ("num-slots".into(), ClarityValue::UInt(13)),
                     (
                         "signer".into(),
                         ClarityValue::Principal(PrincipalData::Standard(principal_data)),
