@@ -73,10 +73,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxAuthCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -111,10 +108,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxAuthCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -149,10 +143,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxAuthCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -187,10 +178,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxSigCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -225,10 +213,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxSigCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -263,10 +248,7 @@ export function ErrCommands(
         r.authId,
         r.period,
         r.margin,
-        function (
-          this: StackStxSigCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -292,10 +274,7 @@ export function ErrCommands(
     ) =>
       new RevokeDelegateStxCommand_Err(
         r.wallet,
-        function (
-          this: RevokeDelegateStxCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
             model.stackingMinimum > 0 &&
@@ -330,10 +309,7 @@ export function ErrCommands(
           r.delegateTo,
           r.untilBurnHt,
           r.amount,
-          function (
-            this: DelegateStxCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -357,10 +333,7 @@ export function ErrCommands(
         new StackAggregationCommitSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -386,10 +359,7 @@ export function ErrCommands(
         new StackAggregationCommitSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -415,10 +385,7 @@ export function ErrCommands(
         new StackAggregationCommitSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -443,10 +410,7 @@ export function ErrCommands(
         new StackAggregationCommitAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -472,10 +436,7 @@ export function ErrCommands(
         new StackAggregationCommitAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -501,10 +462,7 @@ export function ErrCommands(
         new StackAggregationCommitAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -529,10 +487,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -558,10 +513,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -587,10 +539,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedSigCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -615,10 +564,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -644,10 +590,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -672,10 +615,7 @@ export function ErrCommands(
         new StackAggregationCommitIndexedAuthCommand_Err(
           r.wallet,
           r.authId,
-          function (
-            this: StackAggregationCommitIndexedAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
@@ -715,10 +655,7 @@ export function ErrCommands(
           r.wallet,
           r.rewardCycleIndex,
           r.authId,
-          function (
-            this: StackAggregationIncreaseCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
             if (
               operator.lockedAddresses.length > 0 &&
@@ -782,10 +719,7 @@ export function ErrCommands(
         finalResult.period,
         finalResult.amount,
         finalResult.unlockBurnHt,
-        function (
-          this: DelegateStackStxCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
@@ -859,10 +793,7 @@ export function ErrCommands(
         finalResult.period,
         finalResult.amount,
         finalResult.unlockBurnHt,
-        function (
-          this: DelegateStackStxCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
@@ -933,10 +864,7 @@ export function ErrCommands(
         finalResult.period,
         finalResult.amount,
         finalResult.unlockBurnHt,
-        function (
-          this: DelegateStackStxCommand_Err,
-          model: Readonly<Stub>,
-        ): boolean {
+        function (this, model) {
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
@@ -970,10 +898,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1004,10 +929,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1038,10 +960,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1072,10 +991,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1106,10 +1022,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1140,10 +1053,7 @@ export function ErrCommands(
           r.operator,
           r.increaseBy,
           r.authId,
-          function (
-            this: StackIncreaseAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
               model.stackingMinimum > 0 &&
@@ -1181,10 +1091,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1233,10 +1140,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1285,10 +1189,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1337,10 +1238,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1389,10 +1287,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendSigCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1441,10 +1336,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1493,10 +1385,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1545,10 +1434,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1597,10 +1483,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1649,10 +1532,7 @@ export function ErrCommands(
           r.extendCount,
           r.authId,
           r.currentCycle,
-          function (
-            this: StackExtendAuthCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
             const firstRewardCycle =
@@ -1714,10 +1594,7 @@ export function ErrCommands(
           final.stacker,
           final.extendCount,
           final.currentCycle,
-          function (
-            this: DelegateStackExtendCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -1796,10 +1673,7 @@ export function ErrCommands(
           final.stacker,
           final.extendCount,
           final.currentCycle,
-          function (
-            this: DelegateStackExtendCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -1877,10 +1751,7 @@ export function ErrCommands(
           final.stacker,
           final.extendCount,
           final.currentCycle,
-          function (
-            this: DelegateStackExtendCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -1938,10 +1809,7 @@ export function ErrCommands(
           final.stacker,
           final.extendCount,
           final.currentCycle,
-          function (
-            this: DelegateStackExtendCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -2016,10 +1884,7 @@ export function ErrCommands(
           final.operator,
           final.stacker,
           final.increaseBy,
-          function (
-            this: DelegateStackIncreaseCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -2080,10 +1945,7 @@ export function ErrCommands(
           final.operator,
           final.stacker,
           final.increaseBy,
-          function (
-            this: DelegateStackIncreaseCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -2142,10 +2004,7 @@ export function ErrCommands(
           final.operator,
           final.stacker,
           final.increaseBy,
-          function (
-            this: DelegateStackIncreaseCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -2209,10 +2068,7 @@ export function ErrCommands(
           final.operator,
           final.stacker,
           final.increaseBy,
-          function (
-            this: DelegateStackIncreaseCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const operatorWallet = model.stackers.get(
               this.operator.stxAddress,
             )!;
@@ -2253,10 +2109,7 @@ export function ErrCommands(
         new DisallowContractCallerCommand_Err(
           r.stacker,
           r.callerToDisallow,
-          function (
-            this: DisallowContractCallerCommand_Err,
-            model: Readonly<Stub>,
-          ): boolean {
+          function (this, model) {
             const stacker = model.stackers.get(this.stacker.stxAddress)!;
             const callerToDisallow = model.stackers.get(
               this.callerToDisallow.stxAddress,
