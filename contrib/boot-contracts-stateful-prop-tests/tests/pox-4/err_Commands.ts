@@ -1,12 +1,6 @@
 import fc from "fast-check";
 import { Simnet } from "@hirosystems/clarinet-sdk";
-import {
-  PoxCommand,
-  Stacker,
-  Stub,
-  StxAddress,
-  Wallet,
-} from "./pox_CommandModel";
+import { PoxCommand, Stacker, StxAddress, Wallet } from "./pox_CommandModel";
 import {
   currentCycle,
   currentCycleFirstBlock,
