@@ -76,15 +76,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            stacker.isStacking &&
-            !stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxAuthCommand_Err_Stacking_Already_Stacked_1",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            !stacker.isStacking ||
+            stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxAuthCommand_Err_Stacking_Already_Stacked_1",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_STACKED,
       )
@@ -111,15 +111,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            stacker.isStacking &&
-            stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxAuthCommand_Err_Stacking_Already_Stacked_2",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            !stacker.isStacking ||
+            !stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxAuthCommand_Err_Stacking_Already_Stacked_2",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_STACKED,
       )
@@ -146,15 +146,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stacker.isStacking &&
-            stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxAuthCommand_Err_Stacking_Already_Delegated",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            stacker.isStacking ||
+            !stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxAuthCommand_Err_Stacking_Already_Delegated",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
       )
@@ -181,15 +181,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            stacker.isStacking &&
-            !stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxSigCommand_Err_Stacking_Already_Stacked_1",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            !stacker.isStacking ||
+            stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxSigCommand_Err_Stacking_Already_Stacked_1",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_STACKED,
       )
@@ -216,15 +216,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            stacker.isStacking &&
-            stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxSigCommand_Err_Stacking_Already_Stacked_2",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            !stacker.isStacking ||
+            !stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxSigCommand_Err_Stacking_Already_Stacked_2",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_STACKED,
       )
@@ -251,15 +251,15 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stacker.isStacking &&
-            stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "StackStxSigCommand_Err_Stacking_Already_Delegated",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            stacker.isStacking ||
+            !stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "StackStxSigCommand_Err_Stacking_Already_Delegated",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
       )
@@ -277,14 +277,14 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stacker.hasDelegated
-          ) {
-            model.trackCommandRun(
-              "RevokeDelegateStxCommand_Err_Delegation_Already_Revoked",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            stacker.hasDelegated
+          ) return false;
+
+          model.trackCommandRun(
+            "RevokeDelegateStxCommand_Err_Delegation_Already_Revoked",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_DELEGATION_ALREADY_REVOKED,
       )
@@ -312,14 +312,14 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.hasDelegated
-            ) {
-              model.trackCommandRun(
-                "DelegateStxCommand_Err_Stacking_Already_Delegated",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.hasDelegated
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStxCommand_Err_Stacking_Already_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
         )
@@ -337,15 +337,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit > 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitSigCommand_Err_Stacking_Threshold_Not_Met",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              !(operator.amountToCommit > 0)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitSigCommand_Err_Stacking_Threshold_Not_Met",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
         ),
@@ -363,15 +363,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit === 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_1",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              (operator.amountToCommit >= model.stackingMinimum) ||
+              operator.amountToCommit !== 0
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -389,14 +389,14 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) &&
-              !(operator.amountToCommit >= model.stackingMinimum)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_2",
-              );
-              return true;
-            } else return false;
+              operator.lockedAddresses.length > 0 ||
+              operator.amountToCommit >= model.stackingMinimum
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitSigCommand_Err_Stacking_No_Such_Principal_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -414,15 +414,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit > 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitAuthCommand_Err_Stacking_Threshold_Not_Met",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              !(operator.amountToCommit > 0)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitAuthCommand_Err_Stacking_Threshold_Not_Met",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
         ),
@@ -440,15 +440,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit === 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitAuthCommand_Err_Stacking_No_Such_Principal_1",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              !(operator.amountToCommit === 0)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitAuthCommand_Err_Stacking_No_Such_Principal_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -466,14 +466,14 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) &&
-              !(operator.amountToCommit >= model.stackingMinimum)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitAuthCommand_Err_Stacking_No_Such_Principal_2",
-              );
-              return true;
-            } else return false;
+              operator.lockedAddresses.length > 0 ||
+              operator.amountToCommit >= model.stackingMinimum
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitAuthCommand_Err_Stacking_No_Such_Principal_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -491,15 +491,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit > 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedSigCommand_Err_Stacking_Threshold_Not_Met",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              !(operator.amountToCommit > 0)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedSigCommand_Err_Stacking_Threshold_Not_Met",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
         ),
@@ -517,15 +517,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              !(operator.amountToCommit > 0)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedSigCommand_Err_Stacking_No_Such_Principal_1",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              operator.amountToCommit > 0
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedSigCommand_Err_Stacking_No_Such_Principal_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -543,14 +543,14 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) &&
-              !(operator.amountToCommit >= model.stackingMinimum)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedSigCommand_Err_Stacking_No_Such_Principal_2",
-              );
-              return true;
-            } else return false;
+              operator.lockedAddresses.length > 0 ||
+              operator.amountToCommit >= model.stackingMinimum
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedSigCommand_Err_Stacking_No_Such_Principal_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -568,15 +568,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              !(operator.amountToCommit > 0)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedAuthCommand_Err_Stacking_No_Such_Principal_1",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              operator.amountToCommit > 0
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedAuthCommand_Err_Stacking_No_Such_Principal_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -594,14 +594,14 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) &&
-              !(operator.amountToCommit >= model.stackingMinimum)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedAuthCommand_Err_Stacking_No_Such_Principal_2",
-              );
-              return true;
-            } else return false;
+              operator.lockedAddresses.length > 0 ||
+              operator.amountToCommit >= model.stackingMinimum
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedAuthCommand_Err_Stacking_No_Such_Principal_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -619,15 +619,15 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 &&
-              !(operator.amountToCommit >= model.stackingMinimum) &&
-              operator.amountToCommit > 0
-            ) {
-              model.trackCommandRun(
-                "StackAggregationCommitIndexedAuthCommand_Err_Stacking_Threshold_Not_Met",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              operator.amountToCommit >= model.stackingMinimum ||
+              !(operator.amountToCommit > 0)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationCommitIndexedAuthCommand_Err_Stacking_Threshold_Not_Met",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_THRESHOLD_NOT_MET,
         ),
@@ -658,15 +658,15 @@ export function ErrCommands(
           function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
             if (
-              operator.lockedAddresses.length > 0 &&
-              this.rewardCycleIndex >= 0 &&
-              !(operator.amountToCommit > 0)
-            ) {
-              model.trackCommandRun(
-                "StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal",
-              );
-              return true;
-            } else return false;
+              !(operator.lockedAddresses.length > 0) ||
+              !(this.rewardCycleIndex >= 0) ||
+              operator.amountToCommit > 0
+            ) return false;
+
+            model.trackCommandRun(
+              "StackAggregationIncreaseCommand_Err_Stacking_No_Such_Principal",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NO_SUCH_PRINCIPAL,
         ),
@@ -723,21 +723,21 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stackerWallet.isStacking &&
-            stackerWallet.hasDelegated &&
-            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) &&
-            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
-            Number(this.amountUstx) >= model.stackingMinimum &&
-            operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-            (stackerWallet.delegatedUntilBurnHt === undefined ||
+            !(model.stackingMinimum > 0) ||
+            stackerWallet.isStacking ||
+            !(stackerWallet.hasDelegated) ||
+            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) ||
+            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
+            !(Number(this.amountUstx) >= model.stackingMinimum) ||
+            !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) ||
+            !(stackerWallet.delegatedUntilBurnHt === undefined ||
               this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
-          ) {
-            model.trackCommandRun(
-              "DelegateStackStxCommand_Err_Delegation_Too_Much_Locked",
-            );
-            return true;
-          } else return false;
+          ) return false;
+
+          model.trackCommandRun(
+            "DelegateStackStxCommand_Err_Delegation_Too_Much_Locked",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_DELEGATION_TOO_MUCH_LOCKED,
       );
@@ -797,21 +797,21 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stackerWallet.isStacking &&
-            stackerWallet.hasDelegated &&
-            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
-            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
-            Number(this.amountUstx) >= model.stackingMinimum &&
-            !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-            (stackerWallet.delegatedUntilBurnHt === undefined ||
+            !(model.stackingMinimum > 0) ||
+            stackerWallet.isStacking ||
+            !stackerWallet.hasDelegated ||
+            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) ||
+            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
+            !(Number(this.amountUstx) >= model.stackingMinimum) ||
+            operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+            !(stackerWallet.delegatedUntilBurnHt === undefined ||
               this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
-          ) {
-            model.trackCommandRun(
-              "DelegateStackStxCommand_Err_Stacking_Permission_Denied_1",
-            );
-            return true;
-          } else return false;
+          ) return false;
+
+          model.trackCommandRun(
+            "DelegateStackStxCommand_Err_Stacking_Permission_Denied_1",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
       );
@@ -868,21 +868,21 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            model.stackingMinimum > 0 &&
-            !stackerWallet.isStacking &&
-            !(stackerWallet.hasDelegated) &&
-            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) &&
-            Number(this.amountUstx) <= stackerWallet.ustxBalance &&
-            Number(this.amountUstx) >= model.stackingMinimum &&
-            !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) &&
-            !(stackerWallet.delegatedUntilBurnHt === undefined ||
-              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
-          ) {
-            model.trackCommandRun(
-              "DelegateStackStxCommand_Err_Stacking_Permission_Denied_2",
-            );
-            return true;
-          } else return false;
+            !(model.stackingMinimum > 0) ||
+            stackerWallet.isStacking ||
+            stackerWallet.hasDelegated ||
+            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) ||
+            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
+            !(Number(this.amountUstx) >= model.stackingMinimum) ||
+            operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
+              (stackerWallet.delegatedUntilBurnHt === undefined ||
+                this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+          ) return false;
+
+          model.trackCommandRun(
+            "DelegateStackStxCommand_Err_Stacking_Permission_Denied_2",
+          );
+          return true;
         },
         POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
       );
@@ -901,19 +901,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              this.increaseBy <= stacker.amountUnlocked &&
-              this.increaseBy >= 1
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseSigCommand_Err_Stacking_Is_Delegated",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(this.increaseBy <= stacker.amountUnlocked) ||
+              !(this.increaseBy >= 1)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseSigCommand_Err_Stacking_Is_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -932,19 +932,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              !(this.increaseBy <= stacker.amountUnlocked) &&
-              this.increaseBy >= 1
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseSigCommand_Err_Stacking_Insufficient_Funds",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              this.increaseBy <= stacker.amountUnlocked ||
+              !(this.increaseBy >= 1)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseSigCommand_Err_Stacking_Insufficient_Funds",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS,
         ),
@@ -963,19 +963,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              this.increaseBy <= stacker.amountUnlocked &&
-              !(this.increaseBy >= 1)
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseSigCommand_Err_Stacking_Invalid_Amount",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(this.increaseBy <= stacker.amountUnlocked) ||
+              this.increaseBy >= 1
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseSigCommand_Err_Stacking_Invalid_Amount",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
         ),
@@ -994,19 +994,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              this.increaseBy <= stacker.amountUnlocked &&
-              this.increaseBy >= 1
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseAuthCommand_Err_Stacking_Is_Delegated",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(this.increaseBy <= stacker.amountUnlocked) ||
+              !(this.increaseBy >= 1)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseAuthCommand_Err_Stacking_Is_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -1025,19 +1025,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              !(this.increaseBy <= stacker.amountUnlocked) &&
-              this.increaseBy >= 1
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseAuthCommand_Err_Stacking_Insufficient_Funds",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              this.increaseBy <= stacker.amountUnlocked ||
+              !(this.increaseBy >= 1)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseAuthCommand_Err_Stacking_Insufficient_Funds",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS,
         ),
@@ -1056,19 +1056,19 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              this.increaseBy <= stacker.amountUnlocked &&
-              !(this.increaseBy >= 1)
-            ) {
-              model.trackCommandRun(
-                "StackIncreaseAuthCommand_Err_Stacking_Invalid_Amount",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(this.increaseBy <= stacker.amountUnlocked) ||
+              this.increaseBy >= 1
+            ) return false;
+
+            model.trackCommandRun(
+              "StackIncreaseAuthCommand_Err_Stacking_Invalid_Amount",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
         ),
@@ -1105,19 +1105,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendSigCommand_Err_Stacking_Is_Delegated_1",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendSigCommand_Err_Stacking_Is_Delegated_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -1154,19 +1154,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              !(stacker.poolMembers.length === 0) &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendSigCommand_Err_Stacking_Is_Delegated_2",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              stacker.poolMembers.length === 0 ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendSigCommand_Err_Stacking_Is_Delegated_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -1203,19 +1203,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendSigCommand_Err_Stacking_Already_Delegated",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              !stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendSigCommand_Err_Stacking_Already_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
         ),
@@ -1252,19 +1252,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              !(totalPeriod <= 12)
-            ) {
-              model.trackCommandRun(
-                "StackExtendSigCommand_Err_Stacking_Invalid_Lock_Period",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              totalPeriod <= 12
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendSigCommand_Err_Stacking_Invalid_Lock_Period",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD,
         ),
@@ -1301,19 +1301,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              !stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              !(stacker.amountLocked > 0) &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendSigCommand_Err_Stack_Extend_Not_Locked",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              stacker.amountLocked > 0 ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendSigCommand_Err_Stack_Extend_Not_Locked",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
         ),
@@ -1350,19 +1350,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendAuthCommand_Err_Stacking_Is_Delegated_1",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendAuthCommand_Err_Stacking_Is_Delegated_1",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -1399,19 +1399,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              !(stacker.poolMembers.length === 0) &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendAuthCommand_Err_Stacking_Is_Delegated_2",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              stacker.poolMembers.length === 0 ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendAuthCommand_Err_Stacking_Is_Delegated_2",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_IS_DELEGATED,
         ),
@@ -1448,19 +1448,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendAuthCommand_Err_Stacking_Already_Delegated",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              !stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendAuthCommand_Err_Stacking_Already_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_ALREADY_DELEGATED,
         ),
@@ -1497,19 +1497,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              stacker.isStacking &&
-              stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              stacker.amountLocked > 0 &&
-              stacker.poolMembers.length === 0 &&
-              !(totalPeriod <= 12)
-            ) {
-              model.trackCommandRun(
-                "StackExtendAuthCommand_Err_Stacking_Invalid_Lock_Period",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              !(stacker.amountLocked > 0) ||
+              !(stacker.poolMembers.length === 0) ||
+              totalPeriod <= 12
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendAuthCommand_Err_Stacking_Invalid_Lock_Period",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD,
         ),
@@ -1546,19 +1546,19 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              model.stackingMinimum > 0 &&
-              !stacker.isStacking &&
-              !stacker.isStackingSolo &&
-              !stacker.hasDelegated &&
-              !(stacker.amountLocked > 0) &&
-              stacker.poolMembers.length === 0 &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "StackExtendAuthCommand_Err_Stack_Extend_Not_Locked",
-              );
-              return true;
-            } else return false;
+              !(model.stackingMinimum > 0) ||
+              stacker.isStacking ||
+              stacker.isStackingSolo ||
+              stacker.hasDelegated ||
+              stacker.amountLocked > 0 ||
+              !(stacker.poolMembers.length === 0) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "StackExtendAuthCommand_Err_Stack_Extend_Not_Locked",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
         ),
@@ -1618,24 +1618,24 @@ export function ErrCommands(
             const stackedAmount = stackerWallet.amountLocked;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              stackerWallet.hasDelegated === true &&
-              stackerWallet.isStacking === true &&
-              stackerWallet.delegatedTo === this.operator.stxAddress &&
-              !(stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
-              stackerWallet.delegatedMaxAmount >= stackedAmount &&
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              operatorWallet.lockedAddresses.includes(
+              !(stackerWallet.amountLocked > 0) ||
+              !stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              !(stackerWallet.delegatedTo === this.operator.stxAddress) ||
+              (stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
+              !(stackerWallet.delegatedMaxAmount >= stackedAmount) ||
+              !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) ||
+              !operatorWallet.lockedAddresses.includes(
                 this.stacker.stxAddress,
-              ) &&
-              !(totalPeriod <= 12)
-            ) {
-              model.trackCommandRun(
-                "DelegateStackExtendCommand_Err_Stacking_Invalid_Lock_Period",
-              );
-              return true;
-            } else return false;
+              ) ||
+              totalPeriod <= 12
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackExtendCommand_Err_Stacking_Invalid_Lock_Period",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_LOCK_PERIOD,
         ),
@@ -1697,25 +1697,25 @@ export function ErrCommands(
             const stackedAmount = stackerWallet.amountLocked;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              !(stackerWallet.hasDelegated === true) &&
-              stackerWallet.isStacking === true &&
-              stackerWallet.isStackingSolo === true &&
-              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              !(stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
-              !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              !operatorWallet.lockedAddresses.includes(
+              !(stackerWallet.amountLocked > 0) ||
+              stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              !stackerWallet.isStackingSolo ||
+              stackerWallet.delegatedTo === this.operator.stxAddress ||
+              (stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stackerWallet.delegatedMaxAmount >= stackedAmount ||
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              operatorWallet.lockedAddresses.includes(
                 this.stacker.stxAddress,
-              ) &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "DelegateStackExtendCommand_Err_Stacking_Not_Delegated",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackExtendCommand_Err_Stacking_Not_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NOT_DELEGATED,
         ),
@@ -1774,24 +1774,24 @@ export function ErrCommands(
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
             const stackedAmount = stackerWallet.amountLocked;
             if (
-              !(stackerWallet.amountLocked > 0) &&
-              stackerWallet.hasDelegated === true &&
-              !(stackerWallet.isStacking === true) &&
-              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              (stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
-              stackerWallet.delegatedMaxAmount >= stackedAmount &&
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              !operatorWallet.lockedAddresses.includes(
+              stackerWallet.amountLocked > 0 ||
+              !stackerWallet.hasDelegated ||
+              stackerWallet.isStacking ||
+              stackerWallet.delegatedTo === this.operator.stxAddress ||
+              !(stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stackerWallet.delegatedMaxAmount >= stackedAmount ||
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              operatorWallet.lockedAddresses.includes(
                 this.stacker.stxAddress,
-              ) &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "DelegateStackExtendCommand_Err_Stack_Extend_Not_Locked",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackExtendCommand_Err_Stack_Extend_Not_Locked",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACK_EXTEND_NOT_LOCKED,
         ),
@@ -1833,24 +1833,24 @@ export function ErrCommands(
             const stackedAmount = stackerWallet.amountLocked;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              !(stackerWallet.hasDelegated === true) &&
-              stackerWallet.isStacking === true &&
-              !(stackerWallet.delegatedTo === this.operator.stxAddress) &&
-              !(stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
-              !(stackerWallet.delegatedMaxAmount >= stackedAmount) &&
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              operatorWallet.lockedAddresses.includes(
+              !(stackerWallet.amountLocked > 0) ||
+              stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              stackerWallet.delegatedTo === this.operator.stxAddress ||
+              (stackerWallet.delegatedUntilBurnHt === undefined ||
+                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stackerWallet.delegatedMaxAmount >= stackedAmount ||
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              !operatorWallet.lockedAddresses.includes(
                 this.stacker.stxAddress,
-              ) &&
-              totalPeriod <= 12
-            ) {
-              model.trackCommandRun(
-                "DelegateStackExtendCommand_Err_Stacking_Permission_Denied",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(totalPeriod <= 12)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackExtendCommand_Err_Stacking_Permission_Denied",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
         ),
@@ -1893,25 +1893,27 @@ export function ErrCommands(
             )!;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              stackerWallet.hasDelegated === true &&
-              stackerWallet.isStacking === true &&
-              this.increaseBy > 0 &&
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              !(stackerWallet.amountUnlocked >= this.increaseBy) &&
-              !(
+              !(stackerWallet.amountLocked > 0) ||
+              !(stackerWallet.hasDelegated) ||
+              !stackerWallet.isStacking ||
+              !(this.increaseBy > 0) ||
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              stackerWallet.amountUnlocked >= this.increaseBy ||
+              (
                 stackerWallet.delegatedMaxAmount >=
                   this.increaseBy + stackerWallet.amountLocked
-              ) &&
-              operatorWallet.lockedAddresses.indexOf(
-                  this.stacker.stxAddress,
-                ) > -1
-            ) {
-              model.trackCommandRun(
-                "DelegateStackIncreaseCommand_Err_Stacking_Insufficient_Funds",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(operatorWallet.lockedAddresses.indexOf(
+                this.stacker.stxAddress,
+              ) > -1) ||
+              !(stackerWallet.unlockHeight >
+                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackIncreaseCommand_Err_Stacking_Insufficient_Funds",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INSUFFICIENT_FUNDS,
         ),
@@ -1954,23 +1956,25 @@ export function ErrCommands(
             )!;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              stackerWallet.hasDelegated === true &&
-              stackerWallet.isStacking === true &&
-              !(this.increaseBy > 0) &&
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              stackerWallet.amountUnlocked >= this.increaseBy &&
-              stackerWallet.delegatedMaxAmount >=
-                this.increaseBy + stackerWallet.amountLocked &&
-              operatorWallet.lockedAddresses.indexOf(
-                  this.stacker.stxAddress,
-                ) > -1
-            ) {
-              model.trackCommandRun(
-                "DelegateStackIncreaseCommand_Err_Stacking_Invalid_Amount",
-              );
-              return true;
-            } else return false;
+              !(stackerWallet.amountLocked > 0) ||
+              !stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              this.increaseBy > 0 ||
+              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
+              !(stackerWallet.delegatedMaxAmount >=
+                this.increaseBy + stackerWallet.amountLocked) ||
+              !(operatorWallet.lockedAddresses.indexOf(
+                this.stacker.stxAddress,
+              ) > -1) ||
+              !(stackerWallet.unlockHeight >
+                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackIncreaseCommand_Err_Stacking_Invalid_Amount",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_INVALID_AMOUNT,
         ),
@@ -2013,28 +2017,30 @@ export function ErrCommands(
             )!;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              !(stackerWallet.hasDelegated === true) &&
-              stackerWallet.isStacking === true &&
-              stackerWallet.isStackingSolo === true &&
-              this.increaseBy > 0 &&
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              stackerWallet.amountUnlocked >= this.increaseBy &&
-              !(
+              !(stackerWallet.amountLocked > 0) ||
+              stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              !stackerWallet.isStackingSolo ||
+              !(this.increaseBy > 0) ||
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
+              (
                 stackerWallet.delegatedMaxAmount >=
                   this.increaseBy + stackerWallet.amountLocked
-              ) &&
-              !(
+              ) ||
+              (
                 operatorWallet.lockedAddresses.indexOf(
                   this.stacker.stxAddress,
                 ) > -1
-              )
-            ) {
-              model.trackCommandRun(
-                "DelegateStackIncreaseCommand_Err_Stacking_Not_Delegated",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(stackerWallet.unlockHeight >
+                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackIncreaseCommand_Err_Stacking_Not_Delegated",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_NOT_DELEGATED,
         ),
@@ -2077,25 +2083,27 @@ export function ErrCommands(
             )!;
 
             if (
-              stackerWallet.amountLocked > 0 &&
-              !(stackerWallet.hasDelegated === true) &&
-              stackerWallet.isStacking === true &&
-              this.increaseBy > 0 &&
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              stackerWallet.amountUnlocked >= this.increaseBy &&
-              !(
+              !(stackerWallet.amountLocked > 0) ||
+              stackerWallet.hasDelegated ||
+              !stackerWallet.isStacking ||
+              !(this.increaseBy > 0) ||
+              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
+              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
+              (
                 stackerWallet.delegatedMaxAmount >=
                   this.increaseBy + stackerWallet.amountLocked
-              ) &&
-              operatorWallet.lockedAddresses.indexOf(
-                  this.stacker.stxAddress,
-                ) > -1
-            ) {
-              model.trackCommandRun(
-                "DelegateStackIncreaseCommand_Err_Stacking_Permission_Denied",
-              );
-              return true;
-            } else return false;
+              ) ||
+              !(operatorWallet.lockedAddresses.indexOf(
+                this.stacker.stxAddress,
+              ) > -1) ||
+              !(stackerWallet.unlockHeight >
+                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+            ) return false;
+
+            model.trackCommandRun(
+              "DelegateStackIncreaseCommand_Err_Stacking_Permission_Denied",
+            );
+            return true;
           },
           POX_4_ERRORS.ERR_STACKING_PERMISSION_DENIED,
         ),
@@ -2115,18 +2123,18 @@ export function ErrCommands(
               this.callerToDisallow.stxAddress,
             )!;
             if (
-              !stacker.allowedContractCallers.includes(
+              stacker.allowedContractCallers.includes(
                 this.callerToDisallow.stxAddress,
-              ) &&
-              !callerToDisallow.callerAllowedBy.includes(
-                  this.stacker.stxAddress,
-                ) === true
-            ) {
-              model.trackCommandRun(
-                "DisallowContractCallerCommand_Err",
-              );
-              return true;
-            } else return false;
+              ) ||
+              callerToDisallow.callerAllowedBy.includes(
+                this.stacker.stxAddress,
+              )
+            ) return false;
+
+            model.trackCommandRun(
+              "DisallowContractCallerCommand_Err",
+            );
+            return true;
           },
         ),
     ),
