@@ -52,9 +52,10 @@ use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangePayload,
-    TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
+    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+    TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
@@ -2309,7 +2310,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let signer_bitvec = BitVec::<4000>::consensus_deserialize(&mut signer_bitvec_bytes.as_slice())
         .expect("Failed to deserialize signer bitvec");
 
-    assert_eq!(signer_bitvec.len(), 1);
+    assert_eq!(signer_bitvec.len(), 30);
 
     assert_eq!(
         format!("0x{}", observed_block.block_hash),
@@ -5007,6 +5008,305 @@ fn signer_chainstate() {
     // view is stale, if we ever expand this test, sortitions_view should
     // be fetched again, so drop it here.
     drop(sortitions_view);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up. It mines a regular Nakamoto tenure
+///  before pausing the commit op to produce an empty sortition, forcing a tenure extend.
+///  Commit ops are resumed, and an additional 15 nakamoto tenures mined.
+/// This test makes three assertions:
+///  * 15 blocks are mined after 3.0 starts.
+///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
+///  * A tenure extend transaction was successfully mined in 3.0
+///  * The final chain tip is a nakamoto block
+fn continue_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for a test stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 100;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        send_amt * 2 + send_fee,
+    );
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    // query for prometheus metrics
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+        assert!(res.contains(&expected_result));
+    }
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // Mine a regular nakamoto tenure
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    info!("Pausing commit ops to trigger a tenure extend.");
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+
+    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    // Submit a TX
+    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let mut mempool = naka_conf
+        .connect_mempool_db()
+        .expect("Database failure opening mempool");
+
+    mempool
+        .submit_raw(
+            &mut chainstate,
+            &sortdb,
+            &tip.consensus_hash,
+            &tip.anchored_header.block_hash(),
+            transfer_tx.clone(),
+            &ExecutionCost::max_value(),
+            &StacksEpochId::Epoch30,
+        )
+        .unwrap();
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
+
+    signer_vote_if_needed(
+        &btc_regtest_controller,
+        &naka_conf,
+        &[sender_signer_sk],
+        &signers,
+    );
+
+    info!("Resuming commit ops to mine regular tenures.");
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+
+    // Mine 15 more regular nakamoto tenures
+    for _i in 0..15 {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(commits_count > commits_before && blocks_processed > blocks_processed_before)
+        })
+        .unwrap();
+
+        signer_vote_if_needed(
+            &btc_regtest_controller,
+            &naka_conf,
+            &[sender_signer_sk],
+            &signers,
+        );
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    // assert that the tenure extend tx was observed
+    let mut tenure_extends = vec![];
+    let mut tenure_block_founds = vec![];
+    let mut transfer_tx_included = false;
+    for block in test_observer::get_blocks() {
+        for tx in block["transactions"].as_array().unwrap() {
+            let raw_tx = tx["raw_tx"].as_str().unwrap();
+            if raw_tx == &transfer_tx_hex {
+                transfer_tx_included = true;
+                continue;
+            }
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            match &parsed.payload {
+                TransactionPayload::TenureChange(payload) => match payload.cause {
+                    TenureChangeCause::Extended => tenure_extends.push(parsed),
+                    TenureChangeCause::BlockFound => tenure_block_founds.push(parsed),
+                },
+                _ => {}
+            };
+        }
+    }
+    assert!(
+        !tenure_extends.is_empty(),
+        "Nakamoto node failed to include the tenure extend txs"
+    );
+
+    assert!(
+        tenure_block_founds.len() >= 17 - tenure_extends.len(),
+        "Nakamoto node failed to include the block found tx per winning sortition"
+    );
+
+    assert!(
+        transfer_tx_included,
+        "Nakamoto node failed to include the transfer tx"
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 17);
+
+    // make sure prometheus returns an updated height
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
+        assert!(res.contains(&expected_result));
+    }
 
     coord_channel
         .lock()
