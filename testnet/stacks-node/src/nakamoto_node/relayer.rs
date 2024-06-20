@@ -741,25 +741,22 @@ impl RelayerThread {
             return None;
         }
 
-        // do we need a VRF key registration?
-        if matches!(
-            self.globals.get_leader_key_registration_state(),
-            LeaderKeyRegistrationState::Inactive
-        ) {
-            let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()) else {
-                warn!("Failed to fetch sortition tip while needing to register VRF key");
+        match self.globals.get_leader_key_registration_state() {
+            // do we need a VRF key registration?
+            LeaderKeyRegistrationState::Inactive => {
+                let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
+                else {
+                    warn!("Failed to fetch sortition tip while needing to register VRF key");
+                    return None;
+                };
+                return Some(RelayerDirective::RegisterKey(sort_tip));
+            }
+            // are we still waiting on a pending registration?
+            LeaderKeyRegistrationState::Pending(..) => {
                 return None;
-            };
-            return Some(RelayerDirective::RegisterKey(sort_tip));
-        }
-
-        // are we still waiting on a pending registration?
-        if !matches!(
-            self.globals.get_leader_key_registration_state(),
-            LeaderKeyRegistrationState::Active(_)
-        ) {
-            return None;
-        }
+            }
+            LeaderKeyRegistrationState::Active(_) => {}
+        };
 
         // has there been a new sortition
         let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()) else {

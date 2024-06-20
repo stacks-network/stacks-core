@@ -4835,14 +4835,13 @@ impl StacksNode {
                 memo: vec![],
             })
         } else {
+            // Warn the user that they need to set up a miner key
+            if miner && config.miner.mining_key.is_none() {
+                warn!("`[miner.mining_key]` not set in config file. This will be required to mine in Epoch 3.0!")
+            }
             LeaderKeyRegistrationState::Inactive
         };
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
-
-        // Warn the user that they need to set up a miner key
-        if miner && !mock_mining && config.miner.mining_key.is_none() {
-            warn!("`[miner.mining_key]` not set in config file. This will be required to mine in Epoch 3.0!")
-        }
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
 
