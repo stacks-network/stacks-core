@@ -64,10 +64,10 @@ export class DelegateStackExtendCommand implements PoxCommand {
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
-    const firstRewardCycle =
-      this.currentCycle > stackerWallet.firstLockedRewardCycle
-        ? this.currentCycle
-        : stackerWallet.firstLockedRewardCycle;
+    const firstRewardCycle = Math.max(
+      stackerWallet.firstLockedRewardCycle,
+      this.currentCycle,
+    );
     const firstExtendCycle = Math.floor(
       (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
         REWARD_CYCLE_LENGTH,

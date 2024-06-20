@@ -50,9 +50,10 @@ export class StackExtendSigCommand implements PoxCommand {
     // - The new lock period must be less than or equal to 12.
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-    const firstRewardCycle = stacker.firstLockedRewardCycle < this.currentCycle
-      ? this.currentCycle
-      : stacker.firstLockedRewardCycle;
+    const firstRewardCycle = Math.max(
+      stacker.firstLockedRewardCycle,
+      this.currentCycle,
+    );
     const firstExtendCycle = Math.floor(
       (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
         REWARD_CYCLE_LENGTH,
