@@ -86,7 +86,7 @@ export class DelegateStackStxCommand_Err implements PoxCommand {
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.operator.label} Ӿ ${this.stacker.label}`,
+      `✗ ${this.operator.label} Ӿ ${this.stacker.label}`,
       "delegate-stack-stx",
       "lock-amount",
       this.amountUstx.toString(),
