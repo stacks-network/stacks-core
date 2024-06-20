@@ -1,5 +1,18 @@
 import { poxAddressToTuple } from "@stacks/stacking";
-import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
+import {
+  hasPoolMembers,
+  isAmountLockedPositive,
+  isPeriodWithinMax,
+  isDelegating,
+  isStacking,
+  isStackingSolo,
+  isStackingMinimumCalculated,
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel";
 import {
   currentCycle,
   FIRST_BURNCHAIN_BLOCK_HEIGHT,
@@ -63,13 +76,13 @@ export class StackExtendAuthCommand implements PoxCommand {
     const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
 
     return (
-      model.stackingMinimum > 0 &&
-      stacker.isStacking &&
-      stacker.isStackingSolo &&
-      !stacker.hasDelegated &&
-      stacker.amountLocked > 0 &&
-      stacker.poolMembers.length === 0 &&
-      totalPeriod <= 12
+      isStackingMinimumCalculated(model) &&
+      isStacking(stacker) &&
+      isStackingSolo(stacker) &&
+      !isDelegating(stacker) &&
+      isAmountLockedPositive(stacker) &&
+      !hasPoolMembers(stacker) &&
+      isPeriodWithinMax(totalPeriod)
     );
   }
 

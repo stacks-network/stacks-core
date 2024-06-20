@@ -1,4 +1,6 @@
 import {
+  hasLockedStackers,
+  isATCAboveThreshold,
   logCommand,
   PoxCommand,
   Real,
@@ -31,7 +33,7 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackAggregationCommitSigCommand` to commit partially 
+   * Constructs a `StackAggregationCommitSigCommand` to commit partially
    * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
@@ -52,8 +54,10 @@ export class StackAggregationCommitSigCommand implements PoxCommand {
     //   stackers has to be greater than the uSTX threshold.
 
     const operator = model.stackers.get(this.operator.stxAddress)!;
-    return operator.lockedAddresses.length > 0 &&
-      operator.amountToCommit >= model.stackingMinimum;
+    return (
+      hasLockedStackers(operator) &&
+      isATCAboveThreshold(operator, model)
+    );
   }
 
   run(model: Stub, real: Real): void {

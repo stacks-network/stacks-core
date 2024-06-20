@@ -1,4 +1,6 @@
 import {
+  hasLockedStackers,
+  isATCAboveThreshold,
   logCommand,
   PoxCommand,
   Real,
@@ -55,8 +57,8 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
 
     const operator = model.stackers.get(this.operator.stxAddress)!;
     return (
-      operator.lockedAddresses.length > 0 &&
-      operator.amountToCommit >= model.stackingMinimum
+      hasLockedStackers(operator) &&
+      isATCAboveThreshold(operator, model)
     );
   }
 
