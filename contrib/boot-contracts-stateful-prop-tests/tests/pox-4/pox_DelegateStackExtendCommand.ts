@@ -1,4 +1,13 @@
 import {
+  isAmountLockedPositive,
+  isAmountWithinDelegationLimit,
+  isPeriodWithinMax,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isUBHWithinDelegationLimit,
+  isStackerInOperatorPool,
+  isStackerLockedByOperator,
   logCommand,
   PoxCommand,
   Real,
@@ -80,16 +89,15 @@ export class DelegateStackExtendCommand implements PoxCommand {
     const stackedAmount = stackerWallet.amountLocked;
 
     return (
-      stackerWallet.amountLocked > 0 &&
-      stackerWallet.hasDelegated === true &&
-      stackerWallet.isStacking === true &&
-      stackerWallet.delegatedTo === this.operator.stxAddress &&
-      (stackerWallet.delegatedUntilBurnHt === undefined ||
-        stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) &&
-      stackerWallet.delegatedMaxAmount >= stackedAmount &&
-      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      operatorWallet.lockedAddresses.includes(this.stacker.stxAddress) &&
-      totalPeriod <= 12
+      isAmountLockedPositive(stackerWallet) &&
+      isDelegating(stackerWallet) &&
+      isStacking(stackerWallet) &&
+      isStackerDelegatingToOperator(stackerWallet, this.operator) &&
+      isUBHWithinDelegationLimit(stackerWallet, newUnlockHeight) &&
+      isAmountWithinDelegationLimit(stackerWallet, stackedAmount) &&
+      isStackerInOperatorPool(operatorWallet, this.stacker) &&
+      isStackerLockedByOperator(operatorWallet, this.stacker) &&
+      isPeriodWithinMax(totalPeriod)
     );
   }
 

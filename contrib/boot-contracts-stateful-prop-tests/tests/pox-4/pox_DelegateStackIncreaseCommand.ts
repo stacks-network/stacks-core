@@ -1,4 +1,13 @@
 import {
+  isAmountLockedPositive,
+  isAmountWithinDelegationLimit,
+  isIncreaseAmountGTZero,
+  isIncreaseByWithinUnlockedBalance,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isUnlockedWithinCurrentRC,
+  isStackerLockedByOperator,
   logCommand,
   PoxCommand,
   Real,
@@ -8,7 +17,6 @@ import {
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
-import { REWARD_CYCLE_LENGTH } from "./pox_Commands.ts";
 
 /**
  * The `DelegateStackIncreaseCommand` allows a pool operator to
@@ -62,16 +70,18 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     return (
-      stackerWallet.amountLocked > 0 &&
-      stackerWallet.hasDelegated === true &&
-      stackerWallet.isStacking === true &&
-      this.increaseBy > 0 &&
-      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      stackerWallet.amountUnlocked >= this.increaseBy &&
-      stackerWallet.delegatedMaxAmount >=
-        this.increaseBy + stackerWallet.amountLocked &&
-      operatorWallet.lockedAddresses.indexOf(this.stacker.stxAddress) > -1 &&
-      stackerWallet.unlockHeight > model.burnBlockHeight + REWARD_CYCLE_LENGTH
+      isAmountLockedPositive(stackerWallet) &&
+      isDelegating(stackerWallet) &&
+      isStacking(stackerWallet) &&
+      isIncreaseAmountGTZero(this.increaseBy) &&
+      isStackerDelegatingToOperator(stackerWallet, this.operator) &&
+      isIncreaseByWithinUnlockedBalance(stackerWallet, this.increaseBy) &&
+      isAmountWithinDelegationLimit(
+        stackerWallet,
+        this.increaseBy + stackerWallet.amountLocked,
+      ) &&
+      isStackerLockedByOperator(operatorWallet, this.stacker) &&
+      isUnlockedWithinCurrentRC(stackerWallet, model)
     );
   }
 

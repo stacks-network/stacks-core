@@ -1,4 +1,6 @@
 import {
+  isDelegating,
+  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -55,10 +57,11 @@ export class DelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker cannot currently be a delegator in another delegation.
+    const stackerWallet = model.stackers.get(this.wallet.stxAddress)!;
 
     return (
-      model.stackingMinimum > 0 &&
-      !model.stackers.get(this.wallet.stxAddress)?.hasDelegated
+      isStackingMinimumCalculated(model) &&
+      !isDelegating(stackerWallet)
     );
   }
 
