@@ -1,6 +1,34 @@
 import fc from "fast-check";
 import { Simnet } from "@hirosystems/clarinet-sdk";
-import { PoxCommand, Stacker, StxAddress, Wallet } from "./pox_CommandModel";
+import {
+  hasLockedStackers,
+  hasPoolMembers,
+  isAllowedContractCaller,
+  isAmountAboveThreshold,
+  isAmountLockedPositive,
+  isAmountWithinBalance,
+  isAmountWithinDelegationLimit,
+  isATCAboveThreshold,
+  isATCPositive,
+  isCallerAllowedByStacker,
+  isIncreaseByGTZero,
+  isIncreaseByWithinUnlockedBalance,
+  isPeriodWithinMax,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isStackingSolo,
+  isStackingMinimumCalculated,
+  isUBHWithinDelegationLimit,
+  isUnlockedWithinCurrentRC,
+  isStackerInOperatorPool,
+  isStackerLockedByOperator,
+  PoxCommand,
+  Stacker,
+  StxAddress,
+  Wallet,
+  isPositive,
+} from "./pox_CommandModel";
 import {
   currentCycle,
   currentCycleFirstBlock,
@@ -70,9 +98,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            !stacker.isStacking ||
-            stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            !isStacking(stacker) ||
+            isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -105,9 +133,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            !stacker.isStacking ||
-            !stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            !isStacking(stacker) ||
+            !isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -140,9 +168,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stacker.isStacking ||
-            !stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            isStacking(stacker) ||
+            !isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -175,9 +203,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            !stacker.isStacking ||
-            stacker.hasDelegated
+            !(isStackingMinimumCalculated(model)) ||
+            !isStacking(stacker) ||
+            isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -210,9 +238,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            !stacker.isStacking ||
-            !stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            !isStacking(stacker) ||
+            !isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -245,9 +273,9 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stacker.isStacking ||
-            !stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            isStacking(stacker) ||
+            !isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -271,8 +299,8 @@ export function ErrCommands(
         function (this, model) {
           const stacker = model.stackers.get(this.wallet.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stacker.hasDelegated
+            !isStackingMinimumCalculated(model) ||
+            isDelegating(stacker)
           ) return false;
 
           model.trackCommandRun(
@@ -306,8 +334,8 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.hasDelegated
+              !isStackingMinimumCalculated(model) ||
+              !isDelegating(stacker)
             ) return false;
 
             model.trackCommandRun(
@@ -331,9 +359,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              !(operator.amountToCommit > 0)
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              !isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -357,9 +385,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              (operator.amountToCommit >= model.stackingMinimum) ||
-              operator.amountToCommit !== 0
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -383,8 +411,8 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 ||
-              operator.amountToCommit >= model.stackingMinimum
+              hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model)
             ) return false;
 
             model.trackCommandRun(
@@ -408,9 +436,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              !(operator.amountToCommit > 0)
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              !isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -434,9 +462,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              !(operator.amountToCommit === 0)
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -460,8 +488,8 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 ||
-              operator.amountToCommit >= model.stackingMinimum
+              hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model)
             ) return false;
 
             model.trackCommandRun(
@@ -485,9 +513,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              !(operator.amountToCommit > 0)
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              !isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -511,9 +539,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              operator.amountToCommit > 0
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -537,8 +565,8 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 ||
-              operator.amountToCommit >= model.stackingMinimum
+              hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model)
             ) return false;
 
             model.trackCommandRun(
@@ -562,9 +590,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              operator.amountToCommit > 0
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -588,8 +616,8 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              operator.lockedAddresses.length > 0 ||
-              operator.amountToCommit >= model.stackingMinimum
+              hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model)
             ) return false;
 
             model.trackCommandRun(
@@ -613,9 +641,9 @@ export function ErrCommands(
             const operator = model.stackers.get(this.operator.stxAddress)!;
 
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              operator.amountToCommit >= model.stackingMinimum ||
-              !(operator.amountToCommit > 0)
+              !hasLockedStackers(operator) ||
+              isATCAboveThreshold(operator, model) ||
+              !isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -652,9 +680,9 @@ export function ErrCommands(
           function (this, model) {
             const operator = model.stackers.get(this.operator.stxAddress)!;
             if (
-              !(operator.lockedAddresses.length > 0) ||
-              !(this.rewardCycleIndex >= 0) ||
-              operator.amountToCommit > 0
+              !hasLockedStackers(operator) ||
+              !isPositive(this.rewardCycleIndex) ||
+              isATCPositive(operator)
             ) return false;
 
             model.trackCommandRun(
@@ -717,15 +745,14 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stackerWallet.isStacking ||
-            !(stackerWallet.hasDelegated) ||
-            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) ||
-            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
-            !(Number(this.amountUstx) >= model.stackingMinimum) ||
-            !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) ||
-            !(stackerWallet.delegatedUntilBurnHt === undefined ||
-              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+            !isStackingMinimumCalculated(model) ||
+            isStacking(stackerWallet) ||
+            !isDelegating(stackerWallet) ||
+            isAmountWithinDelegationLimit(stackerWallet, this.amountUstx) ||
+            !isAmountWithinBalance(stackerWallet, this.amountUstx) ||
+            !isAmountAboveThreshold(model, this.amountUstx) ||
+            !isStackerInOperatorPool(operatorWallet, this.stacker) ||
+            !isUBHWithinDelegationLimit(stackerWallet, this.unlockBurnHt)
           ) return false;
 
           model.trackCommandRun(
@@ -791,15 +818,14 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stackerWallet.isStacking ||
-            !stackerWallet.hasDelegated ||
-            !(stackerWallet.delegatedMaxAmount >= Number(this.amountUstx)) ||
-            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
-            !(Number(this.amountUstx) >= model.stackingMinimum) ||
-            operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-            !(stackerWallet.delegatedUntilBurnHt === undefined ||
-              this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+            !isStackingMinimumCalculated(model) ||
+            isStacking(stackerWallet) ||
+            !isDelegating(stackerWallet) ||
+            !isAmountWithinDelegationLimit(stackerWallet, this.amountUstx) ||
+            !isAmountWithinBalance(stackerWallet, this.amountUstx) ||
+            !isAmountAboveThreshold(model, this.amountUstx) ||
+            isStackerInOperatorPool(operatorWallet, this.stacker) ||
+            !isUBHWithinDelegationLimit(stackerWallet, this.unlockBurnHt)
           ) return false;
 
           model.trackCommandRun(
@@ -862,15 +888,14 @@ export function ErrCommands(
           const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
           const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
           if (
-            !(model.stackingMinimum > 0) ||
-            stackerWallet.isStacking ||
-            stackerWallet.hasDelegated ||
-            stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) ||
-            !(Number(this.amountUstx) <= stackerWallet.ustxBalance) ||
-            !(Number(this.amountUstx) >= model.stackingMinimum) ||
-            operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-              (stackerWallet.delegatedUntilBurnHt === undefined ||
-                this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt)
+            !isStackingMinimumCalculated(model) ||
+            isStacking(stackerWallet) ||
+            isDelegating(stackerWallet) ||
+            isAmountWithinDelegationLimit(stackerWallet, this.amountUstx) ||
+            !isAmountWithinBalance(stackerWallet, this.amountUstx) ||
+            !isAmountAboveThreshold(model, this.amountUstx) ||
+            isStackerInOperatorPool(operatorWallet, this.stacker) ||
+            isUBHWithinDelegationLimit(stackerWallet, this.unlockBurnHt)
           ) return false;
 
           model.trackCommandRun(
@@ -895,13 +920,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(this.increaseBy <= stacker.amountUnlocked) ||
-              !(this.increaseBy >= 1)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              !isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -926,13 +951,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              this.increaseBy <= stacker.amountUnlocked ||
-              !(this.increaseBy >= 1)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              !isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -957,13 +982,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(this.increaseBy <= stacker.amountUnlocked) ||
-              this.increaseBy >= 1
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -988,13 +1013,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(this.increaseBy <= stacker.amountUnlocked) ||
-              !(this.increaseBy >= 1)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              !isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -1019,13 +1044,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              this.increaseBy <= stacker.amountUnlocked ||
-              !(this.increaseBy >= 1)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              !isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -1050,13 +1075,13 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(this.increaseBy <= stacker.amountUnlocked) ||
-              this.increaseBy >= 1
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) ||
+              isIncreaseByGTZero(this.increaseBy)
             ) return false;
 
             model.trackCommandRun(
@@ -1099,13 +1124,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1148,13 +1173,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              stacker.poolMembers.length === 0 ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !hasPoolMembers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1197,13 +1222,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              !stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              !isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1246,13 +1271,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              totalPeriod <= 12
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1295,13 +1320,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              stacker.amountLocked > 0 ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1344,13 +1369,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1393,13 +1418,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              stacker.poolMembers.length === 0 ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              !hasPoolMembers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1442,13 +1467,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              !stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              !isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1491,13 +1516,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              !(stacker.amountLocked > 0) ||
-              !(stacker.poolMembers.length === 0) ||
-              totalPeriod <= 12
+              !isStackingMinimumCalculated(model) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              !isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1540,13 +1565,13 @@ export function ErrCommands(
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
             const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
             if (
-              !(model.stackingMinimum > 0) ||
-              stacker.isStacking ||
-              stacker.isStackingSolo ||
-              stacker.hasDelegated ||
-              stacker.amountLocked > 0 ||
-              !(stacker.poolMembers.length === 0) ||
-              !(totalPeriod <= 12)
+              !isStackingMinimumCalculated(model) ||
+              isStacking(stacker) ||
+              isStackingSolo(stacker) ||
+              isDelegating(stacker) ||
+              isAmountLockedPositive(stacker) ||
+              hasLockedStackers(stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1612,18 +1637,15 @@ export function ErrCommands(
             const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stacker.amountLocked > 0) ||
-              !stacker.hasDelegated ||
-              !stacker.isStacking ||
-              !(stacker.delegatedTo === this.operator.stxAddress) ||
-              (stacker.delegatedUntilBurnHt === undefined ||
-                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
-              !(stacker.delegatedMaxAmount >= stackedAmount) ||
-              !(operator.poolMembers.includes(this.stacker.stxAddress)) ||
-              !operator.lockedAddresses.includes(
-                this.stacker.stxAddress,
-              ) ||
-              totalPeriod <= 12
+              !isAmountLockedPositive(stacker) ||
+              !isDelegating(stacker) ||
+              !isStacking(stacker) ||
+              !isStackerDelegatingToOperator(stacker, this.operator) ||
+              isUBHWithinDelegationLimit(stacker, newUnlockHeight) ||
+              !isAmountWithinDelegationLimit(stacker, stackedAmount) ||
+              !isStackerInOperatorPool(operator, this.stacker) ||
+              !isStackerLockedByOperator(operator, this.stacker) ||
+              isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1691,19 +1713,16 @@ export function ErrCommands(
             const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stacker.amountLocked > 0) ||
-              stacker.hasDelegated ||
-              !stacker.isStacking ||
-              !stacker.isStackingSolo ||
-              stacker.delegatedTo === this.operator.stxAddress ||
-              (stacker.delegatedUntilBurnHt === undefined ||
-                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stacker.delegatedMaxAmount >= stackedAmount ||
-              operator.poolMembers.includes(this.stacker.stxAddress) ||
-              operator.lockedAddresses.includes(
-                this.stacker.stxAddress,
-              ) ||
-              !(totalPeriod <= 12)
+              !isAmountLockedPositive(stacker) ||
+              isDelegating(stacker) ||
+              !isStacking(stacker) ||
+              !isStackingSolo(stacker) ||
+              isStackerDelegatingToOperator(stacker, this.operator) ||
+              isUBHWithinDelegationLimit(stacker, newUnlockHeight) ||
+              isAmountWithinDelegationLimit(stacker, stackedAmount) ||
+              isStackerInOperatorPool(operator, this.stacker) ||
+              isStackerLockedByOperator(operator, this.stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1768,18 +1787,15 @@ export function ErrCommands(
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
             const stackedAmount = stacker.amountLocked;
             if (
-              stacker.amountLocked > 0 ||
-              !stacker.hasDelegated ||
-              stacker.isStacking ||
-              stacker.delegatedTo === this.operator.stxAddress ||
-              !(stacker.delegatedUntilBurnHt === undefined ||
-                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stacker.delegatedMaxAmount >= stackedAmount ||
-              operator.poolMembers.includes(this.stacker.stxAddress) ||
-              operator.lockedAddresses.includes(
-                this.stacker.stxAddress,
-              ) ||
-              !(totalPeriod <= 12)
+              isAmountLockedPositive(stacker) ||
+              !isDelegating(stacker) ||
+              isStacking(stacker) ||
+              isStackerDelegatingToOperator(stacker, this.operator) ||
+              !isUBHWithinDelegationLimit(stacker, newUnlockHeight) ||
+              isAmountWithinDelegationLimit(stacker, stackedAmount) ||
+              isStackerInOperatorPool(operator, this.stacker) ||
+              isStackerLockedByOperator(operator, this.stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1827,18 +1843,15 @@ export function ErrCommands(
             const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stacker.amountLocked > 0) ||
-              stacker.hasDelegated ||
-              !stacker.isStacking ||
-              stacker.delegatedTo === this.operator.stxAddress ||
-              (stacker.delegatedUntilBurnHt === undefined ||
-                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stacker.delegatedMaxAmount >= stackedAmount ||
-              operator.poolMembers.includes(this.stacker.stxAddress) ||
-              !operator.lockedAddresses.includes(
-                this.stacker.stxAddress,
-              ) ||
-              !(totalPeriod <= 12)
+              !isAmountLockedPositive(stacker) ||
+              isDelegating(stacker) ||
+              !isStacking(stacker) ||
+              isStackerDelegatingToOperator(stacker, this.operator) ||
+              isUBHWithinDelegationLimit(stacker, newUnlockHeight) ||
+              isAmountWithinDelegationLimit(stacker, stackedAmount) ||
+              isStackerInOperatorPool(operator, this.stacker) ||
+              !isStackerLockedByOperator(operator, this.stacker) ||
+              !isPeriodWithinMax(totalPeriod)
             ) return false;
 
             model.trackCommandRun(
@@ -1887,21 +1900,21 @@ export function ErrCommands(
             )!;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              !(stackerWallet.hasDelegated) ||
-              !stackerWallet.isStacking ||
-              !(this.increaseBy > 0) ||
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              stackerWallet.amountUnlocked >= this.increaseBy ||
-              (
-                stackerWallet.delegatedMaxAmount >=
-                  this.increaseBy + stackerWallet.amountLocked
+              !isAmountLockedPositive(stackerWallet) ||
+              !isDelegating(stackerWallet) ||
+              !isStacking(stackerWallet) ||
+              !isIncreaseByGTZero(this.increaseBy) ||
+              !isStackerInOperatorPool(operatorWallet, this.stacker) ||
+              isIncreaseByWithinUnlockedBalance(
+                stackerWallet,
+                this.increaseBy,
               ) ||
-              !(operatorWallet.lockedAddresses.indexOf(
-                this.stacker.stxAddress,
-              ) > -1) ||
-              !(stackerWallet.unlockHeight >
-                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+              isAmountWithinDelegationLimit(
+                stackerWallet,
+                this.increaseBy + stackerWallet.amountLocked,
+              ) ||
+              !isStackerLockedByOperator(operatorWallet, this.stacker) ||
+              isUnlockedWithinCurrentRC(stackerWallet, model)
             ) return false;
 
             model.trackCommandRun(
@@ -1950,19 +1963,21 @@ export function ErrCommands(
             )!;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              !stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              this.increaseBy > 0 ||
-              !operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
-              !(stackerWallet.delegatedMaxAmount >=
-                this.increaseBy + stackerWallet.amountLocked) ||
-              !(operatorWallet.lockedAddresses.indexOf(
-                this.stacker.stxAddress,
-              ) > -1) ||
-              !(stackerWallet.unlockHeight >
-                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+              !isAmountLockedPositive(stackerWallet) ||
+              !isDelegating(stackerWallet) ||
+              !isStacking(stackerWallet) ||
+              isIncreaseByGTZero(this.increaseBy) ||
+              !isStackerInOperatorPool(operatorWallet, this.stacker) ||
+              !isIncreaseByWithinUnlockedBalance(
+                stackerWallet,
+                this.increaseBy,
+              ) ||
+              !isAmountWithinDelegationLimit(
+                stackerWallet,
+                this.increaseBy + stackerWallet.amountLocked,
+              ) ||
+              !isStackerLockedByOperator(operatorWallet, this.stacker) ||
+              isUnlockedWithinCurrentRC(stackerWallet, model)
             ) return false;
 
             model.trackCommandRun(
@@ -2011,24 +2026,22 @@ export function ErrCommands(
             )!;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              !stackerWallet.isStackingSolo ||
-              !(this.increaseBy > 0) ||
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
-              (
-                stackerWallet.delegatedMaxAmount >=
-                  this.increaseBy + stackerWallet.amountLocked
+              !isAmountLockedPositive(stackerWallet) ||
+              isDelegating(stackerWallet) ||
+              !isStacking(stackerWallet) ||
+              !isStackingSolo(stackerWallet) ||
+              !isIncreaseByGTZero(this.increaseBy) ||
+              isStackerInOperatorPool(operatorWallet, this.stacker) ||
+              !isIncreaseByWithinUnlockedBalance(
+                stackerWallet,
+                this.increaseBy,
               ) ||
-              (
-                operatorWallet.lockedAddresses.indexOf(
-                  this.stacker.stxAddress,
-                ) > -1
+              isAmountWithinDelegationLimit(
+                stackerWallet,
+                this.increaseBy + stackerWallet.amountLocked,
               ) ||
-              !(stackerWallet.unlockHeight >
-                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+              isStackerLockedByOperator(operatorWallet, this.stacker) ||
+              isUnlockedWithinCurrentRC(stackerWallet, model)
             ) return false;
 
             model.trackCommandRun(
@@ -2077,21 +2090,21 @@ export function ErrCommands(
             )!;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              !(this.increaseBy > 0) ||
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              !(stackerWallet.amountUnlocked >= this.increaseBy) ||
-              (
-                stackerWallet.delegatedMaxAmount >=
-                  this.increaseBy + stackerWallet.amountLocked
+              !isAmountLockedPositive(stackerWallet) ||
+              isDelegating(stackerWallet) ||
+              !isStacking(stackerWallet) ||
+              !isIncreaseByGTZero(this.increaseBy) ||
+              isStackerInOperatorPool(operatorWallet, this.stacker) ||
+              !isIncreaseByWithinUnlockedBalance(
+                stackerWallet,
+                this.increaseBy,
               ) ||
-              !(operatorWallet.lockedAddresses.indexOf(
-                this.stacker.stxAddress,
-              ) > -1) ||
-              !(stackerWallet.unlockHeight >
-                model.burnBlockHeight + REWARD_CYCLE_LENGTH)
+              isAmountWithinDelegationLimit(
+                stackerWallet,
+                this.increaseBy + stackerWallet.amountLocked,
+              ) ||
+              !isStackerLockedByOperator(operatorWallet, this.stacker) ||
+              isUnlockedWithinCurrentRC(stackerWallet, model)
             ) return false;
 
             model.trackCommandRun(
@@ -2117,12 +2130,8 @@ export function ErrCommands(
               this.callerToDisallow.stxAddress,
             )!;
             if (
-              stacker.allowedContractCallers.includes(
-                this.callerToDisallow.stxAddress,
-              ) ||
-              callerToDisallow.callerAllowedBy.includes(
-                this.stacker.stxAddress,
-              )
+              isAllowedContractCaller(stacker, this.callerToDisallow) ||
+              isCallerAllowedByStacker(this.stacker, callerToDisallow)
             ) return false;
 
             model.trackCommandRun(
