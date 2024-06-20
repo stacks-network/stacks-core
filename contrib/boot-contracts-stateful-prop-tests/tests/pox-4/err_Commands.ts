@@ -1094,10 +1094,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1143,10 +1143,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1192,10 +1192,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1241,10 +1241,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1290,10 +1290,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1339,10 +1339,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1388,10 +1388,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1437,10 +1437,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1486,10 +1486,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1535,10 +1535,10 @@ export function ErrCommands(
           function (this, model) {
             const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-            const firstRewardCycle =
-              stacker.firstLockedRewardCycle < this.currentCycle
-                ? this.currentCycle
-                : stacker.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
               (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
@@ -1595,19 +1595,19 @@ export function ErrCommands(
           final.extendCount,
           final.currentCycle,
           function (this, model) {
-            const operatorWallet = model.stackers.get(
+            const operator = model.stackers.get(
               this.operator.stxAddress,
             )!;
-            const stackerWallet = model.stackers.get(
+            const stacker = model.stackers.get(
               this.stacker.stxAddress,
             )!;
 
-            const firstRewardCycle =
-              this.currentCycle > stackerWallet.firstLockedRewardCycle
-                ? this.currentCycle
-                : stackerWallet.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
-              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
             );
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
@@ -1615,18 +1615,18 @@ export function ErrCommands(
             const newUnlockHeight =
               REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
-            const stackedAmount = stackerWallet.amountLocked;
+            const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              !stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              !(stackerWallet.delegatedTo === this.operator.stxAddress) ||
-              (stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
-              !(stackerWallet.delegatedMaxAmount >= stackedAmount) ||
-              !(operatorWallet.poolMembers.includes(this.stacker.stxAddress)) ||
-              !operatorWallet.lockedAddresses.includes(
+              !(stacker.amountLocked > 0) ||
+              !stacker.hasDelegated ||
+              !stacker.isStacking ||
+              !(stacker.delegatedTo === this.operator.stxAddress) ||
+              (stacker.delegatedUntilBurnHt === undefined ||
+                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
+              !(stacker.delegatedMaxAmount >= stackedAmount) ||
+              !(operator.poolMembers.includes(this.stacker.stxAddress)) ||
+              !operator.lockedAddresses.includes(
                 this.stacker.stxAddress,
               ) ||
               totalPeriod <= 12
@@ -1674,19 +1674,19 @@ export function ErrCommands(
           final.extendCount,
           final.currentCycle,
           function (this, model) {
-            const operatorWallet = model.stackers.get(
+            const operator = model.stackers.get(
               this.operator.stxAddress,
             )!;
-            const stackerWallet = model.stackers.get(
+            const stacker = model.stackers.get(
               this.stacker.stxAddress,
             )!;
 
-            const firstRewardCycle =
-              this.currentCycle > stackerWallet.firstLockedRewardCycle
-                ? this.currentCycle
-                : stackerWallet.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
-              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
             );
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
@@ -1694,19 +1694,19 @@ export function ErrCommands(
             const newUnlockHeight =
               REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
-            const stackedAmount = stackerWallet.amountLocked;
+            const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              !stackerWallet.isStackingSolo ||
-              stackerWallet.delegatedTo === this.operator.stxAddress ||
-              (stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stackerWallet.delegatedMaxAmount >= stackedAmount ||
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              operatorWallet.lockedAddresses.includes(
+              !(stacker.amountLocked > 0) ||
+              stacker.hasDelegated ||
+              !stacker.isStacking ||
+              !stacker.isStackingSolo ||
+              stacker.delegatedTo === this.operator.stxAddress ||
+              (stacker.delegatedUntilBurnHt === undefined ||
+                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stacker.delegatedMaxAmount >= stackedAmount ||
+              operator.poolMembers.includes(this.stacker.stxAddress) ||
+              operator.lockedAddresses.includes(
                 this.stacker.stxAddress,
               ) ||
               !(totalPeriod <= 12)
@@ -1752,19 +1752,19 @@ export function ErrCommands(
           final.extendCount,
           final.currentCycle,
           function (this, model) {
-            const operatorWallet = model.stackers.get(
+            const operator = model.stackers.get(
               this.operator.stxAddress,
             )!;
-            const stackerWallet = model.stackers.get(
+            const stacker = model.stackers.get(
               this.stacker.stxAddress,
             )!;
 
-            const firstRewardCycle =
-              this.currentCycle > stackerWallet.firstLockedRewardCycle
-                ? this.currentCycle
-                : stackerWallet.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
-              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
             );
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
@@ -1772,17 +1772,17 @@ export function ErrCommands(
             const newUnlockHeight =
               REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
-            const stackedAmount = stackerWallet.amountLocked;
+            const stackedAmount = stacker.amountLocked;
             if (
-              stackerWallet.amountLocked > 0 ||
-              !stackerWallet.hasDelegated ||
-              stackerWallet.isStacking ||
-              stackerWallet.delegatedTo === this.operator.stxAddress ||
-              !(stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stackerWallet.delegatedMaxAmount >= stackedAmount ||
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              operatorWallet.lockedAddresses.includes(
+              stacker.amountLocked > 0 ||
+              !stacker.hasDelegated ||
+              stacker.isStacking ||
+              stacker.delegatedTo === this.operator.stxAddress ||
+              !(stacker.delegatedUntilBurnHt === undefined ||
+                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stacker.delegatedMaxAmount >= stackedAmount ||
+              operator.poolMembers.includes(this.stacker.stxAddress) ||
+              operator.lockedAddresses.includes(
                 this.stacker.stxAddress,
               ) ||
               !(totalPeriod <= 12)
@@ -1810,19 +1810,19 @@ export function ErrCommands(
           final.extendCount,
           final.currentCycle,
           function (this, model) {
-            const operatorWallet = model.stackers.get(
+            const operator = model.stackers.get(
               this.operator.stxAddress,
             )!;
-            const stackerWallet = model.stackers.get(
+            const stacker = model.stackers.get(
               this.stacker.stxAddress,
             )!;
 
-            const firstRewardCycle =
-              this.currentCycle > stackerWallet.firstLockedRewardCycle
-                ? this.currentCycle
-                : stackerWallet.firstLockedRewardCycle;
+            const firstRewardCycle = Math.max(
+              stacker.firstLockedRewardCycle,
+              this.currentCycle,
+            );
             const firstExtendCycle = Math.floor(
-              (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
+              (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
                 REWARD_CYCLE_LENGTH,
             );
             const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
@@ -1830,18 +1830,18 @@ export function ErrCommands(
             const newUnlockHeight =
               REWARD_CYCLE_LENGTH * (firstRewardCycle + totalPeriod - 1) +
               FIRST_BURNCHAIN_BLOCK_HEIGHT;
-            const stackedAmount = stackerWallet.amountLocked;
+            const stackedAmount = stacker.amountLocked;
 
             if (
-              !(stackerWallet.amountLocked > 0) ||
-              stackerWallet.hasDelegated ||
-              !stackerWallet.isStacking ||
-              stackerWallet.delegatedTo === this.operator.stxAddress ||
-              (stackerWallet.delegatedUntilBurnHt === undefined ||
-                stackerWallet.delegatedUntilBurnHt >= newUnlockHeight) ||
-              stackerWallet.delegatedMaxAmount >= stackedAmount ||
-              operatorWallet.poolMembers.includes(this.stacker.stxAddress) ||
-              !operatorWallet.lockedAddresses.includes(
+              !(stacker.amountLocked > 0) ||
+              stacker.hasDelegated ||
+              !stacker.isStacking ||
+              stacker.delegatedTo === this.operator.stxAddress ||
+              (stacker.delegatedUntilBurnHt === undefined ||
+                stacker.delegatedUntilBurnHt >= newUnlockHeight) ||
+              stacker.delegatedMaxAmount >= stackedAmount ||
+              operator.poolMembers.includes(this.stacker.stxAddress) ||
+              !operator.lockedAddresses.includes(
                 this.stacker.stxAddress,
               ) ||
               !(totalPeriod <= 12)
