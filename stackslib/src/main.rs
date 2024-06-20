@@ -899,11 +899,11 @@ simulating a miner.
 
         let query = match mode {
             Some("prefix") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
                 argv[4]
             ),
             Some("first") => format!(
-                "SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {}",
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
                 argv[4]
             ),
             Some("range") => {
@@ -913,7 +913,7 @@ simulating a miner.
                 let arg5 = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
                 let start = arg4.saturating_sub(1);
                 let blocks = arg5.saturating_sub(arg4);
-                format!("SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {start}, {blocks}")
+                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
             }
             Some("index-range") => {
                 let start = argv[4]
@@ -921,15 +921,15 @@ simulating a miner.
                     .expect("<start_block> not a valid u64");
                 let end = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
                 let blocks = end.saturating_sub(start);
-                format!("SELECT index_block_hash FROM staging_blocks ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
             }
             Some("last") => format!(
-                "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
                 argv[4]
             ),
             Some(_) => print_help_and_exit(),
             // Default to ALL blocks
-            None => "SELECT index_block_hash FROM staging_blocks".into(),
+            None => "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0".into(),
         };
 
         let mut stmt = conn.prepare(&query).unwrap();
