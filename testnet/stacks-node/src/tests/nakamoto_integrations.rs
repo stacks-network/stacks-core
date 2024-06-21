@@ -1079,7 +1079,6 @@ fn simple_neon_integration() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -1134,14 +1133,7 @@ fn simple_neon_integration() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -1319,7 +1311,6 @@ fn mine_multiple_per_tenure_integration() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -1363,14 +1354,7 @@ fn mine_multiple_per_tenure_integration() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -1516,7 +1500,6 @@ fn correct_burn_outs() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -1688,14 +1671,7 @@ fn correct_burn_outs() {
     );
     assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -1857,7 +1833,6 @@ fn block_proposal_api_endpoint() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -1898,14 +1873,7 @@ fn block_proposal_api_endpoint() {
 
     info!("Nakamoto miner started...");
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -2228,7 +2196,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -2249,14 +2216,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
 
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -2355,7 +2316,6 @@ fn vote_for_aggregate_key_burn_op() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -2391,14 +2351,8 @@ fn vote_for_aggregate_key_burn_op() {
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
 
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -2615,7 +2569,6 @@ fn follower_bootup() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -2658,14 +2611,7 @@ fn follower_bootup() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -2862,7 +2808,6 @@ fn stack_stx_burn_op_integration_test() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -2888,14 +2833,8 @@ fn stack_stx_burn_op_integration_test() {
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
 
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -3304,7 +3243,6 @@ fn forked_tenure_is_ignored() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
@@ -3340,18 +3278,10 @@ fn forked_tenure_is_ignored() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     info!("Starting tenure A.");
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count > commits_before)
+        Ok(commits_count >= 1)
     })
     .unwrap();
 
@@ -3578,7 +3508,6 @@ fn check_block_heights() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -3649,14 +3578,7 @@ fn check_block_heights() {
     let preheights = heights0_value.expect_tuple().unwrap();
     info!("Heights from pre-epoch 3.0: {}", preheights);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -4006,7 +3928,6 @@ fn nakamoto_attempt_time() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -4046,14 +3967,7 @@ fn nakamoto_attempt_time() {
 
     info!("Nakamoto miner started...");
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -4292,7 +4206,6 @@ fn clarity_burn_state() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -4319,14 +4232,7 @@ fn clarity_burn_state() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -4551,7 +4457,6 @@ fn signer_chainstate() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -4611,14 +4516,7 @@ fn signer_chainstate() {
         false,
     );
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -5077,7 +4975,6 @@ fn continue_tenure_extend() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -5132,14 +5029,7 @@ fn continue_tenure_extend() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)

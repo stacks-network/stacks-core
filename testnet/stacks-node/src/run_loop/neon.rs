@@ -21,7 +21,6 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
-use stacks::net::p2p::PeerNetwork;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
@@ -34,11 +33,14 @@ use super::RunLoopCallbacks;
 use crate::burnchains::{make_bitcoin_indexer, Error};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
-use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::{
+    LeaderKeyRegistrationState, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER,
+};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
@@ -1000,11 +1002,13 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
+    ///
+    /// Returns `Option<NeonGlobals>` so that data can be passed to `NakamotoNode`
     pub fn start(
         &mut self,
         burnchain_opt: Option<Burnchain>,
         mut mine_start: u64,
-    ) -> Option<PeerNetwork> {
+    ) -> Option<Neon2NakaData> {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -1051,6 +1055,7 @@ impl RunLoop {
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
             mine_start,
+            LeaderKeyRegistrationState::default(),
         );
         self.set_globals(globals.clone());
 
@@ -1150,8 +1155,12 @@ impl RunLoop {
                 let peer_network = node.join();
                 liveness_thread.join().unwrap();
 
+                // Data that will be passed to Nakamoto run loop
+                // Only gets transfered on clean shutdown of neon run loop
+                let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
                 info!("Exiting stacks-node");
-                break peer_network;
+                break Some(data_to_naka);
             }
 
             let remote_chain_height = burnchain.get_headers_height() - 1;

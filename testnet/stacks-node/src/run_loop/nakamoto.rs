@@ -31,7 +31,6 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
-use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
@@ -40,10 +39,12 @@ use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
@@ -397,7 +398,7 @@ impl RunLoop {
         &mut self,
         burnchain_opt: Option<Burnchain>,
         mut mine_start: u64,
-        peer_network: Option<PeerNetwork>,
+        data_from_neon: Option<Neon2NakaData>,
     ) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
@@ -446,6 +447,7 @@ impl RunLoop {
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
             mine_start,
+            LeaderKeyRegistrationState::default(),
         );
         self.set_globals(globals.clone());
 
@@ -481,7 +483,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, peer_network);
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, data_from_neon);
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config

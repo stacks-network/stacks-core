@@ -100,20 +100,10 @@ impl SignerTest<SpawnedSigner> {
 
         self.run_until_epoch_3_boundary();
 
-        let (vrfs_submitted, commits_submitted) = (
-            self.running_nodes.vrfs_submitted.clone(),
-            self.running_nodes.commits_submitted.clone(),
-        );
-        info!("Submitting 1 BTC block for miner VRF key registration");
-        // first block wakes up the run loop, wait until a key registration has been submitted.
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-            Ok(vrf_count >= 1)
-        })
-        .unwrap();
+        let commits_submitted = self.running_nodes.commits_submitted.clone();
 
-        info!("Successfully triggered first block to wake up the miner runloop.");
-        // second block should confirm the VRF register, wait until a block commit is submitted
+        info!("Waiting 1 burnchain block for miner VRF key confirmation");
+        // Wait one block to confirm the VRF register, wait until a block commit is submitted
         next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             Ok(commits_count >= 1)
