@@ -28,7 +28,7 @@ use rand::{thread_rng, Rng};
 use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -2101,18 +2101,12 @@ impl Relayer {
             ret.push((vec![], tx.clone()));
         }
 
-        // garbage-collect
-        if chain_height > MEMPOOL_MAX_TRANSACTION_AGE {
-            let min_height = chain_height.saturating_sub(MEMPOOL_MAX_TRANSACTION_AGE);
-            let mut mempool_tx = mempool.tx_begin()?;
+        mempool.garbage_collect(
+            chain_height,
+            &epoch_id.mempool_garbage_behavior(),
+            event_observer,
+        )?;
 
-            debug!(
-                "Remove all transactions beneath block height {}",
-                min_height
-            );
-            MemPoolDB::garbage_collect(&mut mempool_tx, min_height, event_observer)?;
-            mempool_tx.commit()?;
-        }
         update_stacks_tip_height(chain_height as i64);
 
         Ok(ret)
