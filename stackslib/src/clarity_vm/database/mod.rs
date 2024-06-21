@@ -568,7 +568,7 @@ fn get_first_block_in_tenure(
             }
         }
         None => {
-            if let Some(ch) = get_stacks_header_column_from_table(
+            if let Some(_) = get_stacks_header_column_from_table(
                 conn,
                 id_bhh,
                 "consensus_hash",

@@ -5258,7 +5258,6 @@ fn check_block_times() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -5318,14 +5317,7 @@ fn check_block_times() {
         .unwrap();
     info!("Time from pre-epoch 3.0: {}", time0);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -5738,7 +5730,6 @@ fn check_block_info() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -5811,14 +5802,7 @@ fn check_block_info() {
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     info!("Info from pre-epoch 3.0: {:?}", tuple0);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
@@ -6200,7 +6184,6 @@ fn check_block_info_rewards() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
@@ -6266,14 +6249,7 @@ fn check_block_info_rewards() {
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     info!("Info from pre-epoch 3.0: {:?}", tuple0);
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-        Ok(vrf_count >= 1)
-    })
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count >= 1)
