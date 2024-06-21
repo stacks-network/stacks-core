@@ -25,7 +25,6 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::monitoring;
 use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
-use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks_common::types::chainstate::SortitionId;
@@ -34,6 +33,7 @@ use stacks_common::types::StacksEpochId;
 use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::addr2str;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 
@@ -133,7 +133,7 @@ impl StacksNode {
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
-        peer_network: Option<PeerNetwork>,
+        data_from_neon: Option<Neon2NakaData>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
@@ -159,7 +159,10 @@ impl StacksNode {
             .connect_mempool_db()
             .expect("FATAL: database failure opening mempool");
 
-        let mut p2p_net = peer_network
+        let data_from_neon = data_from_neon.unwrap_or_default();
+
+        let mut p2p_net = data_from_neon
+            .peer_network
             .unwrap_or_else(|| NeonNode::setup_peer_network(&config, &atlas_config, burnchain));
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
@@ -178,10 +181,22 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
+                memo: keychain.get_nakamoto_pkh().as_bytes().to_vec(),
             })
         } else {
-            LeaderKeyRegistrationState::Inactive
+            match &data_from_neon.leader_key_registration_state {
+                LeaderKeyRegistrationState::Active(registered_key) => {
+                    let pubkey_hash = keychain.get_nakamoto_pkh();
+                    if pubkey_hash.as_ref() == &registered_key.memo {
+                        data_from_neon.leader_key_registration_state
+                    } else {
+                        LeaderKeyRegistrationState::Inactive
+                    }
+                }
+                _ => LeaderKeyRegistrationState::Inactive,
+            }
         };
+
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread =

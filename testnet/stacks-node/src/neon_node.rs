@@ -208,6 +208,7 @@ use crate::burnchains::bitcoin_regtest_controller::{
 };
 use crate::burnchains::make_bitcoin_indexer;
 use crate::chain_data::MinerStats;
+use crate::config::NodeConfig;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -401,9 +402,10 @@ struct ParentStacksBlockInfo {
     coinbase_nonce: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum LeaderKeyRegistrationState {
     /// Not started yet
+    #[default]
     Inactive,
     /// Waiting for burnchain confirmation
     /// `u64` is the target block height in which we intend this key to land
@@ -663,7 +665,7 @@ impl MicroblockMinerThread {
                     frequency,
                     last_mined: 0,
                     quantity: 0,
-                    cost_so_far: cost_so_far,
+                    cost_so_far,
                     settings,
                 })
             }
@@ -4842,8 +4844,12 @@ impl StacksNode {
 
         let local_peer = p2p_net.local_peer.clone();
 
+        let NodeConfig {
+            mock_mining, miner, ..
+        } = config.get_node_config(false);
+
         // setup initial key registration
-        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
+        let leader_key_registration_state = if mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
@@ -4851,8 +4857,13 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
+                memo: vec![],
             })
         } else {
+            // Warn the user that they need to set up a miner key
+            if miner && config.miner.mining_key.is_none() {
+                warn!("`[miner.mining_key]` not set in config file. This will be required to mine in Epoch 3.0!")
+            }
             LeaderKeyRegistrationState::Inactive
         };
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);

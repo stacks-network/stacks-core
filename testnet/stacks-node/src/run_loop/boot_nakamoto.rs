@@ -23,12 +23,41 @@ use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::core::StacksEpochExtension;
+use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
+use crate::globals::NeonGlobals;
 use crate::neon::Counters;
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::nakamoto::RunLoop as NakaRunLoop;
 use crate::run_loop::neon::RunLoop as NeonRunLoop;
 use crate::Config;
+
+/// Data which should persist through transition from Neon => Nakamoto run loop
+#[derive(Default)]
+pub struct Neon2NakaData {
+    pub leader_key_registration_state: LeaderKeyRegistrationState,
+    pub peer_network: Option<PeerNetwork>,
+}
+
+impl Neon2NakaData {
+    /// Take needed values from `NeonGlobals` and optionally `PeerNetwork`, consuming them
+    pub fn new(globals: NeonGlobals, peer_network: Option<PeerNetwork>) -> Self {
+        let key_state = globals
+            .leader_key_registration_state
+            .lock()
+            .unwrap_or_else(|e| {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: leader key registration mutex is poisoned: {e:?}");
+                panic!();
+            });
+
+        Self {
+            leader_key_registration_state: (*key_state).clone(),
+            peer_network,
+        }
+    }
+}
 
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.
@@ -120,7 +149,7 @@ impl BootRunLoop {
 
         let boot_thread = Self::spawn_stopper(&self.config, neon_loop)
             .expect("FATAL: failed to spawn epoch-2/3-boot thread");
-        let peer_network = neon_loop.start(burnchain_opt.clone(), mine_start);
+        let data_to_naka = neon_loop.start(burnchain_opt.clone(), mine_start);
 
         let monitoring_thread = neon_loop.take_monitoring_thread();
         // did we exit because of the epoch-3.0 transition, or some other reason?
@@ -150,7 +179,7 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly found epoch2 loop after setting epoch3 active");
         };
-        naka_loop.start(burnchain_opt, mine_start, peer_network)
+        naka_loop.start(burnchain_opt, mine_start, data_to_naka)
     }
 
     fn spawn_stopper(
