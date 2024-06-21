@@ -5720,7 +5720,7 @@ fn check_block_times() {
 
 fn assert_block_info(
     tuple0: &BTreeMap<ClarityName, Value>,
-    miner: &clarity::vm::Value,
+    miner: &Value,
     miner_spend: &clarity::vm::Value,
 ) {
     assert!(tuple0
