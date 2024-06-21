@@ -1133,12 +1133,19 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
+    use boot::signers_voting_tests::make_dummy_tx;
+    use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::*;
+    use crate::chainstate::burn::BlockSnapshot;
+    use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+    use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::core::*;
     use crate::net::codec::test::check_codec_and_corruption;
@@ -1659,6 +1666,67 @@ pub mod test {
         };
 
         StacksBlock {
+            header,
+            txs: txs_anchored,
+        }
+    }
+
+    pub fn make_codec_test_nakamoto_block(
+        epoch_id: StacksEpochId,
+        miner_privk: &StacksPrivateKey,
+    ) -> NakamotoBlock {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+
+        let auth = TransactionAuth::from_p2pkh(miner_privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        tx.chain_id = 0x80000000;
+        tx.auth.set_origin_nonce(34);
+        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        tx.set_tx_fee(300);
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.sign_origin(miner_privk).unwrap();
+        let tx = tx_signer.get_tx().unwrap();
+
+        let txid_vecs = vec![tx.txid().as_bytes().to_vec()];
+        let txs_anchored = vec![tx];
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+
+        let header = NakamotoBlockHeader {
+            version: 0x00,
+            chain_length: 107,
+            burn_spent: 25000,
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
+            tx_merkle_root,
+            state_index_root: TrieHash::from_hex(
+                "fb419c3d8f40ae154018f2abf3935e2275a14c091e071bacaf6cbf5579743a0f",
+            )
+            .unwrap(),
+            timestamp: get_epoch_time_secs(),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: Vec::new(),
+            pox_treatment: BitVec::ones(8).unwrap(),
+        };
+
+        NakamotoBlock {
             header,
             txs: txs_anchored,
         }

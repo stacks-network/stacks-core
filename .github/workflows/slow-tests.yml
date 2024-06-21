@@ -32,6 +32,7 @@ jobs:
         test-name:
           - tests::epoch_21::test_pox_reorg_flap_duel
           - tests::epoch_21::test_pox_reorg_flap_reward_cycles
+          - tests::nakamoto_integrations::check_block_info_rewards
     steps:
       ## Setup test environment
       - name: Setup Test Environment

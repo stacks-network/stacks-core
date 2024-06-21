@@ -877,7 +877,7 @@ pub fn call_read_only(
     principal: &StacksAddress,
     contract: &str,
     function: &str,
-    args: Vec<&str>,
+    args: Vec<&Value>,
 ) -> Value {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
@@ -886,8 +886,14 @@ pub fn call_read_only(
         "{http_origin}/v2/contracts/call-read/{}/{}/{}",
         principal, contract, function
     );
+
+    let serialized_args = args
+        .iter()
+        .map(|arg| arg.serialize_to_hex().unwrap())
+        .collect::<Vec<String>>();
+
     let body = json!({
-        "arguments": args,
+        "arguments": serialized_args,
         "sender": principal.to_string(),
     });
     let response: ReadOnlyResponse = client

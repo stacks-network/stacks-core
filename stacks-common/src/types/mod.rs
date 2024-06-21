@@ -188,6 +188,13 @@ impl StacksEpochId {
         }
     }
 
+    /// Returns true for epochs which use Nakamoto blocks. These blocks use a
+    /// different header format than the previous Stacks blocks, which among
+    /// other changes includes a Stacks-specific timestamp.
+    pub fn uses_nakamoto_blocks(&self) -> bool {
+        self >= &StacksEpochId::Epoch30
+    }
+
     /// Returns whether or not this epoch uses the tip for reading burn block
     /// info in Clarity (3.0+ behavior) or should use the parent block's burn
     /// block (behavior before 3.0).

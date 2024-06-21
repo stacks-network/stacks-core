@@ -30,9 +30,9 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
@@ -40,7 +40,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
@@ -106,6 +106,18 @@ pub struct BlockValidateReject {
 pub struct BlockValidateRejectReason {
     pub reason: String,
     pub reason_code: ValidateRejectCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BlockProposalResult {
+    Accepted,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockProposalResponse {
+    pub result: BlockProposalResult,
+    pub message: String,
 }
 
 impl<T> From<T> for BlockValidateRejectReason
@@ -236,6 +248,27 @@ impl NakamotoBlockProposal {
             reason_code: ValidateRejectCode::InvalidBlock,
             reason: "Invalid parent block".into(),
         })?;
+
+        // Validate the block's timestamp. It must be:
+        // - Greater than the parent block's timestamp
+        // - Less than 15 seconds into the future
+        if let StacksBlockHeaderTypes::Nakamoto(parent_nakamoto_header) =
+            &parent_stacks_header.anchored_header
+        {
+            if self.block.header.timestamp <= parent_nakamoto_header.timestamp {
+                return Err(BlockValidateRejectReason {
+                    reason_code: ValidateRejectCode::InvalidBlock,
+                    reason: "Block timestamp is not greater than parent block".into(),
+                });
+            }
+        }
+        if self.block.header.timestamp > get_epoch_time_secs() + 15 {
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::InvalidBlock,
+                reason: "Block timestamp is too far into the future".into(),
+            });
+        }
+
         let tenure_change = self
             .block
             .txs
@@ -305,7 +338,10 @@ impl NakamotoBlockProposal {
         block.header.miner_signature = self.block.header.miner_signature.clone();
         block.header.signer_signature = self.block.header.signer_signature.clone();
 
-        // Assuming `tx_nerkle_root` has been checked we don't need to hash the whole block
+        // Clone the timestamp from the block proposal, which has already been validated
+        block.header.timestamp = self.block.header.timestamp;
+
+        // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
 
@@ -519,7 +555,7 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let response: BlockValidateResponse = parse_json(preamble, body)?;
+        let response: BlockProposalResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
     }
 }

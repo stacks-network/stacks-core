@@ -292,6 +292,7 @@ impl NakamotoBootPlan {
         peer_config
             .initial_balances
             .append(&mut self.initial_balances.clone());
+        peer_config.connection_opts.block_proposal_token = Some("password".to_string());
 
         // Create some balances for test Stackers
         // They need their stacking amount + enough to pay fees
