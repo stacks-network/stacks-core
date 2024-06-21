@@ -18,10 +18,13 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
-use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
+use libsigner::StackerDBSession;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -30,7 +33,7 @@ use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::RewardSet;
+use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -56,9 +59,9 @@ use crate::run_loop::RegisteredKey;
 use crate::{neon_node, ChainTip};
 
 #[cfg(test)]
-lazy_static::lazy_static! {
-    pub static ref TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-}
+pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
@@ -258,7 +261,7 @@ impl BlockMinerThread {
                 };
 
                 new_block.header.signer_signature = signer_signature;
-                if let Err(e) = self.broadcast(new_block.clone(), reward_set) {
+                if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
                     warn!("Error accepting own block: {e:?}. Will try mining again.");
                     continue;
                 } else {
@@ -562,12 +565,12 @@ impl BlockMinerThread {
         let signer_chunks = stackerdbs
             .get_latest_chunks(&signers_contract_id, &slot_ids)
             .expect("FATAL: could not get latest chunks from stacker DB");
-        let signer_messages: Vec<(u32, SignerMessage)> = slot_ids
+        let signer_messages: Vec<(u32, SignerMessageV1)> = slot_ids
             .iter()
             .zip(signer_chunks.into_iter())
             .filter_map(|(slot_id, chunk)| {
                 chunk.and_then(|chunk| {
-                    read_next::<SignerMessage, _>(&mut &chunk[..])
+                    read_next::<SignerMessageV1, _>(&mut &chunk[..])
                         .ok()
                         .map(|msg| (*slot_id, msg))
                 })
@@ -609,7 +612,7 @@ impl BlockMinerThread {
         let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
         for (_slot, signer_message) in signer_messages {
             match signer_message {
-                SignerMessage::Transactions(transactions) => {
+                SignerMessageV1::Transactions(transactions) => {
                     NakamotoSigners::update_filtered_transactions(
                         &mut filtered_transactions,
                         &account_nonces,
@@ -623,11 +626,40 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
+    fn broadcast_p2p(
+        sort_db: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        block: &NakamotoBlock,
+        reward_set: RewardSet,
+    ) -> Result<(), ChainstateError> {
+        #[cfg(test)]
+        {
+            if *TEST_SKIP_P2P_BROADCAST.lock().unwrap() == Some(true) {
+                return Ok(());
+            }
+        }
+
+        let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
+        let chainstate_config = chain_state.config();
+        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
+        NakamotoChainState::accept_block(
+            &chainstate_config,
+            &block,
+            &mut sortition_handle,
+            &staging_tx,
+            headers_conn,
+            reward_set,
+        )?;
+        staging_tx.commit()?;
+        Ok(())
+    }
+
     fn broadcast(
         &self,
         block: NakamotoBlock,
         reward_set: RewardSet,
-    ) -> Result<(), ChainstateError> {
+        stackerdbs: &StackerDBs,
+    ) -> Result<(), NakamotoNodeError> {
         #[cfg(test)]
         {
             if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
@@ -647,7 +679,6 @@ impl BlockMinerThread {
         }
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
-        let chainstate_config = chain_state.config();
         let sort_db = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
@@ -655,18 +686,32 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
-        let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
-        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
-        NakamotoChainState::accept_block(
-            &chainstate_config,
-            &block,
-            &mut sortition_handle,
-            &staging_tx,
-            headers_conn,
-            reward_set,
-        )?;
-        staging_tx.commit()?;
-        Ok(())
+        Self::broadcast_p2p(&sort_db, &mut chain_state, &block, reward_set)
+            .map_err(NakamotoNodeError::AcceptFailure)?;
+
+        let Some(ref miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+
+        let rpc_socket = self.config.node.get_rpc_loopback().ok_or_else(|| {
+            NakamotoNodeError::MinerConfigurationFailed("Failed to get RPC loopback socket")
+        })?;
+        let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
+        let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+
+        SignCoordinator::send_miners_message(
+            miner_privkey,
+            &sort_db,
+            &self.burn_block,
+            &stackerdbs,
+            SignerMessageV0::BlockPushed(block),
+            MinerSlotID::BlockPushed,
+            chain_state.mainnet,
+            &mut miners_session,
+        )
+        .map_err(NakamotoNodeError::SigningCoordinatorFailure)
     }
 
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch

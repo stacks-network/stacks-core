@@ -94,7 +94,11 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         &mut self,
         message: T,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let msg_id = message.msg_id();
+        let msg_id = message.msg_id().ok_or_else(|| {
+            ClientError::PutChunkRejected(
+                "Tried to send a SignerMessage which does not have a corresponding .signers slot identifier".into()
+            )
+        })?;
         let message_bytes = message.serialize_to_vec();
         self.send_message_bytes_with_retry(&msg_id, message_bytes)
     }
