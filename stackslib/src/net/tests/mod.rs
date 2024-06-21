@@ -18,6 +18,7 @@ pub mod download;
 pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
+pub mod relay;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::PrincipalData;
@@ -28,7 +29,7 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
@@ -234,7 +235,7 @@ impl NakamotoBootPlan {
                     &sortdb,
                     &mut sort_handle,
                     &mut node.chainstate,
-                    block.clone(),
+                    &block,
                     None,
                 )
                 .unwrap();
@@ -338,27 +339,35 @@ impl NakamotoBootPlan {
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
 
-        let tip = {
-            let sort_db = peer.sortdb.as_mut().unwrap();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            tip
-        };
-
+        let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
         debug!("PoxConstants = {:#?}", &peer.config.burnchain.pox_constants);
-        debug!("tip = {}", tip.block_height);
+        debug!("tip = {}", sortition_height);
         debug!("========================\n\n");
 
-        // advance to just past pox-3 unlock
-        let mut sortition_height = tip.block_height;
-        while sortition_height
-            <= peer
-                .config
-                .burnchain
-                .pox_constants
-                .pox_4_activation_height
-                .into()
-        {
+        let epoch_25_height = peer
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height;
+
+        let epoch_30_height = peer
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch30)
+            .unwrap()
+            .start_height;
+
+        // advance to just past pox-4 instantiation
+        let mut blocks_produced = false;
+        while sortition_height <= epoch_25_height {
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
@@ -366,12 +375,23 @@ impl NakamotoBootPlan {
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
             }
 
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
+            sortition_height = peer.get_burn_block_height();
+            blocks_produced = true;
+        }
+
+        // need to produce at least 1 block before making pox-4 lockups:
+        //  the way `burn-block-height` constant works in Epoch 2.5 is such
+        //  that if its the first block produced, this will be 0 which will
+        //  prevent the lockups from being valid.
+        if !blocks_produced {
+            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            for (other_peer, other_peer_nonce) in
+                other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
+            {
+                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+            }
+
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -392,8 +412,9 @@ impl NakamotoBootPlan {
             .unwrap_or(vec![])
             .iter()
             .map(|test_stacker| {
-                let pox_addr =
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+                let pox_addr = test_stacker.pox_address.clone().unwrap_or_else(|| {
+                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone())
+                });
                 let signature = make_signer_key_signature(
                     &pox_addr,
                     &test_stacker.signer_private_key,
@@ -410,7 +431,7 @@ impl NakamotoBootPlan {
                     &pox_addr,
                     12,
                     &StacksPublicKey::from_private(&test_stacker.signer_private_key),
-                    34,
+                    sortition_height + 1,
                     Some(signature),
                     u128::MAX,
                     1,
@@ -440,12 +461,7 @@ impl NakamotoBootPlan {
                 .for_each(|(peer, nonce)| {
                     peer.tenure_with_txs(&[], nonce);
                 });
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -481,21 +497,14 @@ impl NakamotoBootPlan {
         debug!("========================\n\n");
 
         // advance to the start of epoch 3.0
-        while sortition_height
-            < Self::nakamoto_start_burn_height(&peer.config.burnchain.pox_constants)
-        {
+        while sortition_height < epoch_30_height - 1 {
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
             }
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -514,12 +523,15 @@ impl NakamotoBootPlan {
 
         let (mut peer, mut other_peers) =
             self.boot_nakamoto(test_signers.aggregate_public_key.clone(), observer);
+        if boot_plan.is_empty() {
+            debug!("No boot plan steps supplied -- returning once nakamoto epoch has been reached");
+            return (peer, other_peers);
+        }
 
         let mut all_blocks = vec![];
         let mut consensus_hashes = vec![];
         let mut last_tenure_change: Option<TenureChangePayload> = None;
         let mut blocks_since_last_tenure = 0;
-        let stx_miner_key = peer.miner.nakamoto_miner_key();
 
         debug!("\n\nProcess plan with {} steps", boot_plan.len());
 

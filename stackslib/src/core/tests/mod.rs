@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use std::{cmp, io};
 
 use clarity::vm::costs::ExecutionCost;
@@ -31,7 +32,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     VRFSeed,
 };
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, *};
 use stacks_common::util::secp256k1::{MessageSignature, *};
 use stacks_common::util::vrf::VRFProof;
@@ -1388,8 +1389,10 @@ fn mempool_do_not_replace_tx() {
     assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 }
 
-#[test]
-fn mempool_db_load_store_replace_tx() {
+#[rstest]
+#[case(MempoolCollectionBehavior::ByStacksHeight)]
+#[case(MempoolCollectionBehavior::ByReceiveTime)]
+fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior) {
     let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
@@ -1616,7 +1619,17 @@ fn mempool_db_load_store_replace_tx() {
 
     eprintln!("garbage-collect");
     let mut mempool_tx = mempool.tx_begin().unwrap();
-    MemPoolDB::garbage_collect(&mut mempool_tx, 101, None).unwrap();
+    match behavior {
+        MempoolCollectionBehavior::ByStacksHeight => {
+            MemPoolDB::garbage_collect_by_height(&mut mempool_tx, 101, None)
+        }
+        MempoolCollectionBehavior::ByReceiveTime => {
+            let test_max_age = Duration::from_secs(1);
+            std::thread::sleep(2 * test_max_age);
+            MemPoolDB::garbage_collect_by_time(&mut mempool_tx, &test_max_age, None)
+        }
+    }
+    .unwrap();
     mempool_tx.commit().unwrap();
 
     let txs = MemPoolDB::get_txs_after(

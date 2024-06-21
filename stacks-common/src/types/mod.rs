@@ -87,9 +87,29 @@ pub enum StacksEpochId {
     Epoch30 = 0x03000,
 }
 
+pub enum MempoolCollectionBehavior {
+    ByStacksHeight,
+    ByReceiveTime,
+}
+
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
         StacksEpochId::Epoch30
+    }
+
+    /// In this epoch, how should the mempool perform garbage collection?
+    pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => MempoolCollectionBehavior::ByStacksHeight,
+            StacksEpochId::Epoch30 => MempoolCollectionBehavior::ByReceiveTime,
+        }
     }
 
     /// Returns whether or not this Epoch should perform
@@ -118,6 +138,22 @@ impl StacksEpochId {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
             StacksEpochId::Epoch24 | StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+        }
+    }
+
+    /// Whether or not this epoch supports the punishment of PoX reward
+    /// recipients using the bitvec scheme
+    pub fn allows_pox_punishment(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => false,
+            StacksEpochId::Epoch30 => true,
         }
     }
 

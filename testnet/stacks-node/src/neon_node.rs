@@ -153,7 +153,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
 };
@@ -1113,6 +1113,7 @@ impl BlockMinerThread {
         let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
         let sender = self.keychain.get_burnchain_signer();
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn,
             block_header_hash,
             burn_fee,
@@ -1147,6 +1148,50 @@ impl BlockMinerThread {
         ret
     }
 
+    /// Is a given Stacks staging block on the canonical burnchain fork?
+    pub(crate) fn is_on_canonical_burnchain_fork(
+        candidate: &StagingBlock,
+        sortdb_tip_handle: &SortitionHandleConn,
+    ) -> bool {
+        let candidate_ch = &candidate.consensus_hash;
+        let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
+            sortdb_tip_handle.conn(),
+            candidate_ch,
+        ) {
+            Ok(Some(x)) => x.block_height,
+            Ok(None) => {
+                warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                return false;
+            }
+            Err(e) => {
+                warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "err" => ?e);
+                return false;
+            }
+        };
+        let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                return false;
+            }
+            Err(e) => {
+                warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "err" => ?e);
+                return false;
+            }
+        };
+        &tip_ch == candidate_ch
+    }
+
     /// Load all candidate tips upon which to build.  This is all Stacks blocks whose heights are
     /// less than or equal to at `at_stacks_height` (or the canonical chain tip height, if not given),
     /// but greater than or equal to this end height minus `max_depth`.
@@ -1176,61 +1221,42 @@ impl BlockMinerThread {
 
         let stacks_tips: Vec<_> = stacks_tips
             .into_iter()
-            .filter(|candidate| {
-                let candidate_ch = &candidate.consensus_hash;
-                let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
-                    sortdb_tip_handle.conn(),
-                    candidate_ch
-                ) {
-                    Ok(Some(x)) => x.block_height,
-                    Ok(None) => {
-                        warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash);
-                        return false;
-                    },
-                    Err(e) => {
-                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash,
-                              "err" => ?e);
-                        return false;
-                    },
-                };
-                let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
-                    Ok(Some(x)) => x,
-                    Ok(None) => {
-                        warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash);
-                        return false;
-                    },
-                    Err(e) => {
-                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash,
-                              "err" => ?e);
-                        return false;
-                    },
-                };
-                if &tip_ch != candidate_ch {
-                    false
-                } else {
-                    true
-                }
-            })
+            .filter(|candidate| Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle))
             .collect();
+
+        if stacks_tips.len() == 0 {
+            return vec![];
+        }
 
         let mut considered = HashSet::new();
         let mut candidates = vec![];
         let end_height = stacks_tips[0].height;
 
-        for cur_height in end_height.saturating_sub(max_depth)..=end_height {
-            let stacks_tips = chain_state
-                .get_stacks_chain_tips_at_height(cur_height)
-                .expect("FATAL: could not query chain tips at height");
+        // process these tips
+        for tip in stacks_tips.into_iter() {
+            let index_block_hash =
+                StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
+            let burn_height = burn_db
+                .get_consensus_hash_height(&tip.consensus_hash)
+                .expect("FATAL: could not query burnchain block height")
+                .expect("FATAL: no burnchain block height for Stacks tip");
+            let candidate = TipCandidate::new(tip, burn_height);
+            candidates.push(candidate);
+            considered.insert(index_block_hash);
+        }
 
-            for tip in stacks_tips {
+        // process earlier tips, back to max_depth
+        for cur_height in end_height.saturating_sub(max_depth)..end_height {
+            let stacks_tips: Vec<_> = chain_state
+                .get_stacks_chain_tips_at_height(cur_height)
+                .expect("FATAL: could not query chain tips at height")
+                .into_iter()
+                .filter(|candidate| {
+                    Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle)
+                })
+                .collect();
+
+            for tip in stacks_tips.into_iter() {
                 let index_block_hash =
                     StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
 

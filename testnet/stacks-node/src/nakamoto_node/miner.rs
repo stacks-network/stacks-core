@@ -42,7 +42,6 @@ use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
@@ -77,8 +76,12 @@ pub enum MinerDirective {
     StopTenure,
 }
 
+#[derive(PartialEq, Debug, Clone)]
+/// Tenure info needed to construct a tenure change or tenure extend transaction
 struct ParentTenureInfo {
+    /// The number of blocks in the parent tenure
     parent_tenure_blocks: u64,
+    /// The consensus hash of the parent tenure
     parent_tenure_consensus_hash: ConsensusHash,
 }
 
@@ -89,6 +92,33 @@ struct ParentStacksBlockInfo {
     /// nonce to use for this new block's coinbase transaction
     coinbase_nonce: u64,
     parent_tenure: Option<ParentTenureInfo>,
+}
+
+/// The reason the miner thread was spawned
+#[derive(PartialEq, Clone, Debug)]
+pub enum MinerReason {
+    /// The miner thread was spawned to begin a new tenure
+    BlockFound,
+    /// The miner thread was spawned to extend an existing tenure
+    Extended {
+        /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
+        /// sortition.
+        burn_view_consensus_hash: ConsensusHash,
+    },
+}
+
+impl std::fmt::Display for MinerReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MinerReason::BlockFound => write!(f, "BlockFound"),
+            MinerReason::Extended {
+                burn_view_consensus_hash,
+            } => write!(
+                f,
+                "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
+            ),
+        }
+    }
 }
 
 pub struct BlockMinerThread {
@@ -105,11 +135,15 @@ pub struct BlockMinerThread {
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
     /// Burnchain block snapshot which elected this miner
+    burn_election_block: BlockSnapshot,
+    /// Current burnchain tip
     burn_block: BlockSnapshot,
     /// The start of the parent tenure for this tenure
     parent_tenure_id: StacksBlockId,
     /// Handle to the node's event dispatcher
     event_dispatcher: EventDispatcher,
+    /// The reason the miner thread was spawned
+    reason: MinerReason,
 }
 
 impl BlockMinerThread {
@@ -117,8 +151,10 @@ impl BlockMinerThread {
     pub fn new(
         rt: &RelayerThread,
         registered_key: RegisteredKey,
+        burn_election_block: BlockSnapshot,
         burn_block: BlockSnapshot,
         parent_tenure_id: StacksBlockId,
+        reason: MinerReason,
     ) -> BlockMinerThread {
         BlockMinerThread {
             config: rt.config.clone(),
@@ -127,9 +163,11 @@ impl BlockMinerThread {
             burnchain: rt.burnchain.clone(),
             mined_blocks: vec![],
             registered_key,
+            burn_election_block,
             burn_block,
             event_dispatcher: rt.event_dispatcher.clone(),
             parent_tenure_id,
+            reason,
         }
     }
 
@@ -165,6 +203,7 @@ impl BlockMinerThread {
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
             "burn_block_consensus_hash" => %self.burn_block.consensus_hash,
+            "reason" => %self.reason,
         );
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner)?;
@@ -306,19 +345,6 @@ impl BlockMinerThread {
                 NakamotoNodeError::SigningCoordinatorFailure(format!(
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
-            })?;
-
-        let reward_cycle = self
-            .burnchain
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.burnchain.first_block_height,
-                self.burn_block.block_height,
-            )
-            .ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure(
-                    "Building on a burn block that is before the first burn block".into(),
-                )
             })?;
 
         let reward_info = match load_nakamoto_reward_set(
@@ -633,7 +659,7 @@ impl BlockMinerThread {
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
-            block,
+            &block,
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
@@ -654,25 +680,13 @@ impl BlockMinerThread {
     }
 
     fn generate_tenure_change_tx(
-        &mut self,
+        &self,
         nonce: u64,
-        parent_block_id: StacksBlockId,
-        parent_tenure_consensus_hash: ConsensusHash,
-        parent_tenure_blocks: u64,
-        miner_pkh: Hash160,
+        payload: TenureChangePayload,
     ) -> Result<StacksTransaction, NakamotoNodeError> {
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
-        let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
-            tenure_consensus_hash: self.burn_block.consensus_hash.clone(),
-            prev_tenure_consensus_hash: parent_tenure_consensus_hash,
-            burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
-            previous_tenure_end: parent_block_id,
-            previous_tenure_blocks: u32::try_from(parent_tenure_blocks)
-                .expect("FATAL: more than u32 blocks in a tenure"),
-            cause: TenureChangeCause::BlockFound,
-            pubkey_hash: miner_pkh,
-        });
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
 
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
         tx_auth.set_origin_nonce(nonce);
@@ -695,7 +709,7 @@ impl BlockMinerThread {
 
     /// Create a coinbase transaction.
     fn generate_coinbase_tx(
-        &mut self,
+        &self,
         nonce: u64,
         epoch_id: StacksEpochId,
         vrf_proof: VRFProof,
@@ -871,39 +885,18 @@ impl BlockMinerThread {
             .make_vrf_proof()
             .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
-        if self.mined_blocks.is_empty() {
-            if parent_block_info.parent_tenure.is_none() {
-                warn!(
-                    "Miner should be starting a new tenure, but failed to load parent tenure info"
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            }
-        }
-
-        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
+        if self.mined_blocks.is_empty() && parent_block_info.parent_tenure.is_none() {
+            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
 
         // create our coinbase if this is the first block we've mined this tenure
-        let tenure_start_info = if let Some(ref par_tenure_info) = parent_block_info.parent_tenure {
-            let current_miner_nonce = parent_block_info.coinbase_nonce;
-            let tenure_change_tx = self.generate_tenure_change_tx(
-                current_miner_nonce,
-                parent_block_id,
-                par_tenure_info.parent_tenure_consensus_hash,
-                par_tenure_info.parent_tenure_blocks,
-                self.keychain.get_nakamoto_pkh(),
-            )?;
-            let coinbase_tx =
-                self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
-            NakamotoTenureInfo {
-                coinbase_tx: Some(coinbase_tx),
-                tenure_change_tx: Some(tenure_change_tx),
-            }
-        } else {
-            NakamotoTenureInfo {
-                coinbase_tx: None,
-                tenure_change_tx: None,
-            }
-        };
+        let tenure_start_info = self.make_tenure_start_info(
+            &chain_state,
+            &parent_block_info,
+            vrf_proof,
+            target_epoch_id,
+        )?;
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
@@ -941,13 +934,7 @@ impl BlockMinerThread {
                 "Current reward cycle did not select a reward set. Cannot mine!".into(),
             ));
         };
-        let signer_bitvec_len = reward_set
-            .signers
-            .as_ref()
-            .map(|x| x.len())
-            .unwrap_or(0)
-            .try_into()
-            .ok();
+        let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
@@ -957,7 +944,7 @@ impl BlockMinerThread {
                 .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
-            &self.burn_block.consensus_hash,
+            &self.burn_election_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
             self.config
@@ -1012,6 +999,68 @@ impl BlockMinerThread {
         // Stacks blocks with heights higher than the canoincal tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
         Ok(block)
+    }
+
+    /// Create the tenure start info for the block we're going to build
+    fn make_tenure_start_info(
+        &self,
+        chainstate: &StacksChainState,
+        parent_block_info: &ParentStacksBlockInfo,
+        vrf_proof: VRFProof,
+        target_epoch_id: StacksEpochId,
+    ) -> Result<NakamotoTenureInfo, NakamotoNodeError> {
+        let current_miner_nonce = parent_block_info.coinbase_nonce;
+        let Some(parent_tenure_info) = &parent_block_info.parent_tenure else {
+            return Ok(NakamotoTenureInfo {
+                coinbase_tx: None,
+                tenure_change_tx: None,
+            });
+        };
+
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
+        let mut payload = TenureChangePayload {
+            tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
+            burn_view_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            previous_tenure_end: parent_block_id,
+            previous_tenure_blocks: u32::try_from(parent_tenure_info.parent_tenure_blocks)
+                .expect("FATAL: more than u32 blocks in a tenure"),
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: self.keychain.get_nakamoto_pkh(),
+        };
+
+        let (tenure_change_tx, coinbase_tx) = match &self.reason {
+            MinerReason::BlockFound => {
+                let tenure_change_tx =
+                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                let coinbase_tx =
+                    self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
+                (Some(tenure_change_tx), Some(coinbase_tx))
+            }
+            MinerReason::Extended {
+                burn_view_consensus_hash,
+            } => {
+                let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                    chainstate.db(),
+                    &self.burn_election_block.consensus_hash,
+                )
+                .map_err(NakamotoNodeError::MiningFailure)?;
+                debug!("Miner: Extending tenure"; "burn_view_consensus_hash" => %burn_view_consensus_hash, "parent_block_id" => %parent_block_id, "num_blocks_so_far" => num_blocks_so_far);
+                payload = payload.extend(
+                    *burn_view_consensus_hash,
+                    parent_block_id,
+                    num_blocks_so_far,
+                );
+                let tenure_change_tx =
+                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                (Some(tenure_change_tx), None)
+            }
+        };
+
+        Ok(NakamotoTenureInfo {
+            coinbase_tx,
+            tenure_change_tx,
+        })
     }
 
     /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error

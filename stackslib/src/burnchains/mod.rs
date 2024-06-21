@@ -695,6 +695,8 @@ pub enum Error {
     CoordinatorClosed,
     /// Graceful shutdown error
     ShutdownInitiated,
+    /// No epoch defined at that height
+    NoStacksEpoch,
 }
 
 impl fmt::Display for Error {
@@ -720,6 +722,10 @@ impl fmt::Display for Error {
             ),
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
             Error::ShutdownInitiated => write!(f, "Graceful shutdown was initiated"),
+            Error::NoStacksEpoch => write!(
+                f,
+                "No Stacks epoch is defined at the height being evaluated"
+            ),
         }
     }
 }
@@ -743,6 +749,7 @@ impl error::Error for Error {
             Error::NonCanonicalPoxId(_, _) => None,
             Error::CoordinatorClosed => None,
             Error::ShutdownInitiated => None,
+            Error::NoStacksEpoch => None,
         }
     }
 }
