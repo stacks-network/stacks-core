@@ -19,12 +19,14 @@ use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::v0::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
 
+use crate::chainstate::SortitionsView;
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerResult};
@@ -77,6 +79,7 @@ impl SignerTrait<SignerMessage> for Signer {
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         _res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
@@ -112,7 +115,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     messages.len()
                 );
             }
-            SignerEvent::MinerMessages(messages, _) => {
+            SignerEvent::MinerMessages(messages, miner_pubkey) => {
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -120,7 +123,12 @@ impl SignerTrait<SignerMessage> for Signer {
                 for message in messages {
                     match message {
                         SignerMessage::BlockProposal(block_proposal) => {
-                            self.handle_block_proposal(stacks_client, block_proposal);
+                            self.handle_block_proposal(
+                                stacks_client,
+                                sortition_state,
+                                block_proposal,
+                                miner_pubkey,
+                            );
                         }
                         SignerMessage::BlockPushed(b) => {
                             let block_push_result = stacks_client.post_block(&b);
@@ -139,7 +147,8 @@ impl SignerTrait<SignerMessage> for Signer {
                 debug!("{self}: Received a status check event.");
             }
             SignerEvent::NewBurnBlock(height) => {
-                debug!("{self}: Receved a new burn block event for block height {height}")
+                debug!("{self}: Receved a new burn block event for block height {height}");
+                *sortition_state = None;
             }
         }
     }
@@ -210,7 +219,9 @@ impl Signer {
     fn handle_block_proposal(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         block_proposal: &BlockProposal,
+        miner_pubkey: &Secp256k1PublicKey,
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
@@ -245,23 +256,76 @@ impl Signer {
             {
                 warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
             }
-        } else {
-            debug!(
-                "{self}: received a block proposal for a new block. Submit block for validation. ";
+            return;
+        }
+
+        debug!(
+            "{self}: received a block proposal for a new block. Submit block for validation. ";
+            "signer_sighash" => %signer_signature_hash,
+            "block_id" => %block_proposal.block.block_id(),
+        );
+        crate::monitoring::increment_block_proposals_received();
+
+        // Get sortition view if we don't have it
+        if sortition_state.is_none() {
+            *sortition_state = SortitionsView::fetch_view(stacks_client)
+                .inspect_err(|e| {
+                    warn!(
+                        "{self}: Failed to update sortition view: {e:?}";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %block_proposal.block.block_id(),
+                    )
+                })
+                .ok();
+        }
+
+        let Some(sortition_state) = sortition_state else {
+            warn!(
+                "{self}: Cannot validate block, no sortition view";
                 "signer_sighash" => %signer_signature_hash,
                 "block_id" => %block_proposal.block.block_id(),
             );
-            let block_info = BlockInfo::from(block_proposal.clone());
-            crate::monitoring::increment_block_proposals_received();
-            stacks_client
-                .submit_block_for_validation(block_info.block.clone())
-                .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to submit block for validation: {e:?}",);
-                });
-            self.signer_db
-                .insert_block(&block_info)
-                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            return;
+        };
+
+        match sortition_state.check_proposal(
+            stacks_client,
+            &self.signer_db,
+            &block_proposal.block,
+            miner_pubkey,
+        ) {
+            // Error validating block
+            Err(e) => {
+                warn!(
+                    "{self}: Error checking block proposal: {e:?}";
+                    "signer_sighash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                );
+                return;
+            }
+            // Block proposal is bad
+            Ok(false) => {
+                warn!(
+                    "{self}: Block proposal invalid";
+                    "signer_sighash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                );
+                return;
+            }
+            // Block proposal is good, continue
+            Ok(true) => {}
         }
+
+        let block_info = BlockInfo::from(block_proposal.clone());
+        stacks_client
+            .submit_block_for_validation(block_info.block.clone())
+            .unwrap_or_else(|e| {
+                warn!("{self}: Failed to submit block for validation: {e:?}",);
+            });
+
+        self.signer_db
+            .insert_block(&block_info)
+            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
