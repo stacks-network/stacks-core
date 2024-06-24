@@ -135,6 +135,7 @@ pub enum WasmError {
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
     InvalidClarityName(String),
+    StackPointerNotFound,
     #[cfg(feature = "canonical")]
     UnableToWriteStackPointer(wasmtime::Error),
     #[cfg(feature = "canonical")]
@@ -173,6 +174,7 @@ impl fmt::Display for WasmError {
                 write!(f, "Unable to retrieve identifier: {id}")
             }
             WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
+            WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
             #[cfg(feature = "canonical")]
             WasmError::UnableToWriteStackPointer(e) => {
                 write!(f, "Unable to write stack pointer: {e}")
