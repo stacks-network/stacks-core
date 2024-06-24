@@ -946,7 +946,7 @@ impl NakamotoChainState {
     }
 
     /// Check that this block is in the same tenure as its parent, and that this tenure is the
-    /// highest-seen tenure.  Use this to check blocks that do _not_ have tenure-changes.
+    /// highest-seen tenure.  Use this to check blocks that do _not_ have BlockFound tenure-changes.
     ///
     /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
     /// Returns Err(..) on DB error

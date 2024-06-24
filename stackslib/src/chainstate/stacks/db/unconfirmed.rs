@@ -240,7 +240,7 @@ impl UnconfirmedState {
             .get_burn_block_height_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block height based on chain tip");
         let burn_block_timestamp = headers_db
-            .get_burn_block_time_for_block(&self.confirmed_chain_tip)
+            .get_burn_block_time_for_block(&self.confirmed_chain_tip, None)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
 
         let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);

@@ -35,8 +35,9 @@ use crate::vm::types::signatures::{
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
-    BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
+    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -699,6 +700,48 @@ fn check_get_burn_block_info(
     )?)
 }
 
+fn check_get_stacks_block_info(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
+        CheckErrors::GetStacksBlockInfoExpectPropertyName,
+    ))?;
+
+    let block_info_prop =
+        StacksBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
+            CheckErrors::NoSuchStacksBlockInfoProperty(block_info_prop_str.to_string()),
+        ))?;
+
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+}
+
+fn check_get_tenure_info(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
+        CheckErrors::GetTenureInfoExpectPropertyName,
+    ))?;
+
+    let block_info_prop =
+        TenureInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
+            CheckErrors::NoSuchTenureInfoProperty(block_info_prop_str.to_string()),
+        ))?;
+
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+}
+
 impl TypedNativeFunction {
     pub fn type_check_application(
         &self,
@@ -1034,6 +1077,8 @@ impl TypedNativeFunction {
             PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
             GetBurnBlockInfo => Special(SpecialNativeFunction(&check_get_burn_block_info)),
+            GetStacksBlockInfo => Special(SpecialNativeFunction(&check_get_stacks_block_info)),
+            GetTenureInfo => Special(SpecialNativeFunction(&check_get_tenure_info)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),

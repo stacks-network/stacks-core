@@ -515,6 +515,7 @@ pub fn make_simple_block_commit(
     let block_height = burn_header.block_height;
     let mut new_op = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         block_header_hash: block_hash,
         new_seed: VRFSeed([1u8; 32]),
         parent_block_ptr: 0,

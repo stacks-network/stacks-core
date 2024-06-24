@@ -102,9 +102,10 @@ fn test_nakamoto_tenure_downloader() {
         parent_block_id: StacksBlockId([0x05; 32]),
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let tenure_change_payload = TenureChangePayload {
@@ -169,9 +170,10 @@ fn test_nakamoto_tenure_downloader() {
             parent_block_id: last_block.header.block_id(),
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
+            timestamp: 8,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
 
         let mut block = NakamotoBlock {
@@ -190,9 +192,10 @@ fn test_nakamoto_tenure_downloader() {
         parent_block_id: blocks.last().unwrap().header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum([0x07; 32]),
         state_index_root: TrieHash([0x08; 32]),
+        timestamp: 9,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let next_tenure_change_payload = TenureChangePayload {

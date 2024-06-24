@@ -26,6 +26,7 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use stacks_common::types::MempoolCollectionBehavior;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -37,6 +38,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
 use blockstack_lib::burnchains::bitcoin::indexer::{
@@ -65,7 +67,6 @@ use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::clarity_cli;
 use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
@@ -76,6 +77,7 @@ use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::StacksMessage;
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
+use blockstack_lib::{clarity_cli, util_lib};
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
@@ -879,6 +881,7 @@ simulating a miner.
             eprintln!("Usage:");
             eprintln!("  {n} <chainstate_path>");
             eprintln!("  {n} <chainstate_path> prefix <index-block-hash-prefix>");
+            eprintln!("  {n} <chainstate_path> index-range <start_block> <end_block>");
             eprintln!("  {n} <chainstate_path> range <start_block> <end_block>");
             eprintln!("  {n} <chainstate_path> <first|last> <block_count>");
             process::exit(1);
@@ -886,6 +889,7 @@ simulating a miner.
         if argv.len() < 2 {
             print_help_and_exit();
         }
+        let start = Instant::now();
         let stacks_path = &argv[2];
         let mode = argv.get(3).map(String::as_str);
         let staging_blocks_db_path = format!("{stacks_path}/mainnet/chainstate/vm/index.sqlite");
@@ -910,6 +914,14 @@ simulating a miner.
                 let start = arg4.saturating_sub(1);
                 let blocks = arg5.saturating_sub(arg4);
                 format!("SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {start}, {blocks}")
+            }
+            Some("index-range") => {
+                let start = argv[4]
+                    .parse::<u64>()
+                    .expect("<start_block> not a valid u64");
+                let end = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
+                let blocks = end.saturating_sub(start);
+                format!("SELECT index_block_hash FROM staging_blocks ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
             }
             Some("last") => format!(
                 "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
@@ -936,7 +948,7 @@ simulating a miner.
             }
             replay_block(stacks_path, index_block_hash);
         }
-        println!("Finished!");
+        println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
         process::exit(0);
     }
 
@@ -1373,13 +1385,11 @@ simulating a miner.
     let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
         .expect("Failed to open mempool db");
 
-    {
-        info!("Clearing mempool");
-        let mut tx = mempool_db.tx_begin().unwrap();
-        let min_height = u32::MAX as u64;
-        MemPoolDB::garbage_collect(&mut tx, min_height, None).unwrap();
-        tx.commit().unwrap();
-    }
+    info!("Clearing mempool");
+    let min_height = u32::MAX as u64;
+    mempool_db
+        .garbage_collect(min_height, &MempoolCollectionBehavior::ByStacksHeight, None)
+        .unwrap();
 
     let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
         .unwrap()

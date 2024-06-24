@@ -88,17 +88,47 @@ pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
-    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash>;
+    fn get_vrf_seed_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<VRFSeed>;
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: Option<&StacksEpochId>,
+    ) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
-    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
-    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
-    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
-    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_miner_address(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<StacksAddress>;
+    fn get_burnchain_tokens_spent_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<u128>;
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<u128>;
+    fn get_tokens_earned_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        epoch: &StacksEpochId,
+    ) -> Option<u128>;
 }
 
 pub trait BurnStateDB {
@@ -180,12 +210,17 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
-    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(
+        &self,
+        _bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<VRFSeed> {
         None
     }
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -194,16 +229,27 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
-    fn get_consensus_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         None
     }
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: Option<&StacksEpochId>,
+    ) -> Option<u64> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
             None
         }
+    }
+    fn get_stacks_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        None
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
@@ -213,19 +259,32 @@ impl HeadersDB for NullHeadersDB {
             Some(1)
         }
     }
-    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+    fn get_miner_address(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<StacksAddress> {
         None
     }
-    fn get_burnchain_tokens_spent_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         None
     }
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
     }
-    fn get_tokens_earned_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_tokens_earned_for_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         None
     }
 }
@@ -898,15 +957,36 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_stacks_block_header_hash_for_block(&id_bhh)
+            .get_stacks_block_header_hash_for_block(&id_bhh, &epoch)
+            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
+    }
+
+    pub fn get_burn_block_time(
+        &mut self,
+        block_height: u32,
+        id_bhh_opt: Option<StacksBlockId>,
+    ) -> Result<u64> {
+        let id_bhh = match id_bhh_opt {
+            Some(x) => x,
+            None => self.get_index_block_header_hash(block_height)?,
+        };
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        self.headers_db
+            .get_burn_block_time_for_block(&id_bhh, Some(&epoch))
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        if !epoch.uses_nakamoto_blocks() {
+            return self.get_burn_block_time(block_height, Some(id_bhh));
+        }
+
         self.headers_db
-            .get_burn_block_time_for_block(&id_bhh)
+            .get_stacks_block_time_for_block(&id_bhh)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -942,12 +1022,13 @@ impl<'a> ClarityDatabase<'a> {
 
             // this is the StacksBlockId of the last block evaluated in this fork
             let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1)?;
+            let epoch = self.get_stacks_epoch_for_block(&parent_id_bhh)?;
 
             // infallible, since we always store the consensus hash with the StacksBlockId in the
             // headers DB
             let consensus_hash = self
                 .headers_db
-                .get_consensus_hash_for_block(&parent_id_bhh)
+                .get_consensus_hash_for_block(&parent_id_bhh, &epoch)
                 .ok_or_else(|| {
                     InterpreterError::Expect(format!(
                         "FATAL: no consensus hash found for StacksBlockId {}",
@@ -1007,22 +1088,24 @@ impl<'a> ClarityDatabase<'a> {
             .get_pox_payout_addrs(burnchain_block_height, &sortition_id))
     }
 
-    pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
+    pub fn get_burnchain_block_height(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> Result<VRFSeed> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_vrf_seed_for_block(&id_bhh)
+            .get_vrf_seed_for_block(&id_bhh, &epoch)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
     pub fn get_miner_address(&mut self, block_height: u32) -> Result<StandardPrincipalData> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_miner_address(&id_bhh)
+            .get_miner_address(&id_bhh, &epoch)
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()))?
             .into())
     }
@@ -1033,9 +1116,10 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_winning_block(&id_bhh)
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &epoch)
             .ok_or_else(|| {
                 InterpreterError::Expect(
                     "FATAL: no winning burnchain token spend record for block".into(),
@@ -1050,9 +1134,10 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_block(&id_bhh)
+            .get_burnchain_tokens_spent_for_block(&id_bhh, &epoch)
             .ok_or_else(|| {
                 InterpreterError::Expect(
                     "FATAL: no total burnchain token spend record for block".into(),
@@ -1075,9 +1160,10 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         let reward: u128 = self
             .headers_db
-            .get_tokens_earned_for_block(&id_bhh)
+            .get_tokens_earned_for_block(&id_bhh, &epoch)
             .map(|x| x.into())
             .ok_or_else(|| {
                 InterpreterError::Expect("FATAL: matured block has no recorded reward".into())
@@ -2087,5 +2173,18 @@ impl<'a> ClarityDatabase<'a> {
     /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
+    }
+
+    pub fn get_stacks_epoch_for_block(&self, id_bhh: &StacksBlockId) -> Result<StacksEpochId> {
+        let burn_block = self.get_burnchain_block_height(&id_bhh).ok_or_else(|| {
+            InterpreterError::Expect(format!(
+                "FATAL: no burnchain block height found for Stacks block {}",
+                id_bhh
+            ))
+        })?;
+        let epoch = self
+            .get_stacks_epoch(burn_block)
+            .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()))?;
+        Ok(epoch.epoch_id)
     }
 }

@@ -655,7 +655,11 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         // mock it
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -666,7 +670,11 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
-    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
             // mock it, but make it unique
@@ -681,6 +689,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -694,10 +703,23 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: Option<&StacksEpochId>,
+    ) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
             Some((height * 600 + 1231006505) as u64)
+        } else {
+            None
+        }
+    }
+
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        let conn = self.conn();
+        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
+            Some((height * 10 + 1713799973) as u64)
         } else {
             None
         }
@@ -712,21 +734,37 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
-    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+    fn get_miner_address(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<StacksAddress> {
         None
     }
 
-    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         get_cli_block_height(&self.conn(), id_bhh).map(|_| 2000)
     }
 
-    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         get_cli_block_height(&self.conn(), id_bhh).map(|_| 1000)
     }
 
-    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_tokens_earned_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
     }

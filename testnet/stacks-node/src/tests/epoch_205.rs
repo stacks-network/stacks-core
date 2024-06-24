@@ -602,6 +602,7 @@ fn transition_empty_blocks() {
             let burn_parent_modulus =
                 (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
                 burn_fee: rest_commit,

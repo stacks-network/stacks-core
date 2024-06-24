@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
@@ -684,7 +685,14 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 
     debug!(
         "Database is locked; sleeping {}ms and trying again",
-        &sleep_count
+        &sleep_count;
+        "backtrace" => ?{
+            if run_count > 10 && run_count % 10 == 0 {
+                Some(Backtrace::capture())
+            } else {
+                None
+            }
+        },
     );
 
     sleep_ms(sleep_count);

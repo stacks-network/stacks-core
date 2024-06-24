@@ -698,6 +698,7 @@ fn make_genesis_block_with_recipients(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: (Txid([0; 32]), 0),
@@ -970,6 +971,7 @@ fn make_stacks_block_with_input(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn,
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input,
@@ -2408,6 +2410,7 @@ fn test_sortition_with_reward_set() {
             let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
+                allow_nakamoto_punishment: false,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
@@ -2653,6 +2656,7 @@ fn test_sortition_with_burner_reward_set() {
             let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
+                allow_nakamoto_punishment: false,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
