@@ -1703,7 +1703,7 @@ fn test_get_block_info_time() {
 
         conn.as_transaction(|clarity_db| {
             // Analyze the contract as Clarity 2
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_identifier2,
                     ClarityVersion::Clarity2,
@@ -1717,7 +1717,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract2,
                     None,
                     |_, _| false,
@@ -1725,7 +1726,7 @@ fn test_get_block_info_time() {
                 .unwrap();
 
             // Analyze the contract as Clarity 3
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_identifier3,
                     ClarityVersion::Clarity3,
@@ -1739,7 +1740,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract3,
                     None,
                     |_, _| false,
@@ -1747,7 +1749,7 @@ fn test_get_block_info_time() {
                 .unwrap();
 
             // Analyze the contract as Clarity 3
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_identifier3_3,
                     ClarityVersion::Clarity3,
@@ -1761,7 +1763,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier3_3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract3_3,
                     None,
                     |_, _| false,
