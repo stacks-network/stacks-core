@@ -92,8 +92,8 @@ jobs:
           - tests::nakamoto_integrations::check_block_info
           - tests::nakamoto_integrations::continue_tenure_extend
           # Do not run this one until we figure out why it fails in CI
-          # - tests::neon_integrations::bitcoin_reorg_flap
-          # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
+          - tests::neon_integrations::bitcoin_reorg_flap
+          - tests::neon_integrations::bitcoin_reorg_flap_with_follower
           # TODO: enable these once v1 signer is supported by a new nakamoto epoch
           # - tests::signer::v1::dkg
           # - tests::signer::v1::sign_request_rejected
