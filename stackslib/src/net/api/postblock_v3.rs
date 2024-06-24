@@ -20,10 +20,13 @@ use stacks_common::types::net::PeerHost;
 use super::postblock::StacksBlockAcceptedData;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::net::http::{
-    parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
+    parse_json, Error, HttpContentType, HttpError, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble,
 };
-use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest};
+use crate::net::httpcore::{
+    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+};
 use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
@@ -116,8 +119,8 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             .take()
             .ok_or(NetError::SendError("`block` not set".into()))?;
 
-        let accepted =
-            node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+        let response = node
+            .with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
                 let mut handle_conn = sortdb.index_handle_at_tip();
                 Relayer::process_new_nakamoto_block(
                     &network.burnchain,
@@ -127,11 +130,19 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                     &block,
                     None,
                 )
-            })?;
+            })
+            .map_err(|e| {
+                StacksHttpResponse::new_error(&preamble, &HttpError::new(400, e.to_string()))
+            });
 
-        let data_resp = StacksBlockAcceptedData {
-            accepted,
-            stacks_block_id: block.block_id(),
+        let data_resp = match response {
+            Ok(accepted) => StacksBlockAcceptedData {
+                accepted,
+                stacks_block_id: block.block_id(),
+            },
+            Err(e) => {
+                return e.try_into_contents().map_err(NetError::from);
+            }
         };
 
         // should set to relay...
