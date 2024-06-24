@@ -11480,7 +11480,7 @@ pub fn make_random_tx_chain(
         let mut addr_prefix = addr.to_string();
         let _ = addr_prefix.split_off(12);
         let contract_name = format!("large-{}-{}-{}", nonce, &addr_prefix, random_iters);
-        eprintln!("Make tx {}", &contract_name);
+        debug!("Make tx {}", &contract_name);
         let tx = if mblock_only {
             make_contract_publish_microblock_only(
                 privk,
