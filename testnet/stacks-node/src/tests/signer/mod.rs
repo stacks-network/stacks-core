@@ -51,7 +51,6 @@ use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State};
 use stacks_signer::{Signer, SpawnedSigner};
-use wsts::curve::point::Point;
 use wsts::state_machine::PublicKeys;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
@@ -235,18 +234,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .get_burnchain()
             .reward_cycle_to_block_height(reward_cycle);
         reward_cycle_height.saturating_sub(current_block_height)
-    }
-
-    fn mine_and_verify_confirmed_naka_block(
-        &mut self,
-        agg_key: &Point,
-        timeout: Duration,
-    ) -> MinedNakamotoBlockEvent {
-        let new_block = self.mine_nakamoto_block(timeout);
-        let signer_sighash = new_block.signer_signature_hash.clone();
-        let signature = self.wait_for_confirmed_block_v1(&signer_sighash, timeout);
-        assert!(signature.0.verify(&agg_key, signer_sighash.as_bytes()));
-        new_block
     }
 
     fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {

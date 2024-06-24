@@ -111,6 +111,64 @@ impl SignerTest<SpawnedSigner> {
         .unwrap();
         info!("Ready to mine Nakamoto blocks!");
     }
+
+    // Only call after already past the epoch 3.0 boundary
+    fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
+        info!("------------------------- Try mining one block -------------------------");
+        self.mine_nakamoto_block(timeout);
+
+        // Verify that the signers accepted the proposed block, sending back a validate ok response
+        let proposed_signer_signature_hash = self.wait_for_validate_ok_response(timeout);
+        let message = proposed_signer_signature_hash.0;
+
+        info!("------------------------- Test Block Signed -------------------------");
+        // Verify that the signers signed the proposed block
+        let signature = self.wait_for_confirmed_block_v0(&proposed_signer_signature_hash, timeout);
+
+        info!("Got {} signatures", signature.len());
+
+        assert_eq!(signature.len(), num_signers);
+
+        let reward_cycle = self.get_current_reward_cycle();
+        let signers = self.get_reward_set_signers(reward_cycle);
+
+        // Verify that the signers signed the proposed block
+        let all_signed = signers.iter().zip(signature).all(|(signer, signature)| {
+            let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
+                .expect("Failed to convert signing key to StacksPublicKey");
+
+            // let valid = stacks_public_key.verify(message, signature);
+            let valid = stacks_public_key
+                .verify(&message, &signature)
+                .expect("Failed to verify signature");
+            if !valid {
+                error!(
+                    "Failed to verify signature for signer: {:?}",
+                    stacks_public_key
+                );
+            }
+            valid
+        });
+        assert!(all_signed);
+    }
+
+    // Only call after already past the epoch 3.0 boundary
+    fn run_until_burnchain_height_nakamoto(
+        &mut self,
+        timeout: Duration,
+        burnchain_height: u64,
+        num_signers: usize,
+    ) {
+        let current_block_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        let total_nmb_blocks_to_mine = burnchain_height.saturating_sub(current_block_height);
+        debug!("Mining {total_nmb_blocks_to_mine} Nakamoto block(s) to reach burnchain height {burnchain_height}");
+        for _ in 0..total_nmb_blocks_to_mine {
+            self.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+        }
+    }
 }
 
 #[test]
@@ -247,44 +305,8 @@ fn miner_gather_signatures() {
     signer_test.boot_to_epoch_3();
     let timeout = Duration::from_secs(30);
 
-    info!("------------------------- Try mining one block -------------------------");
-    signer_test.mine_nakamoto_block(timeout);
-
-    // Verify that the signers accepted the proposed block, sending back a validate ok response
-    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(timeout);
-    let message = proposed_signer_signature_hash.0;
-
-    info!("------------------------- Test Block Signed -------------------------");
-    // Verify that the signers signed the proposed block
-    let signature =
-        signer_test.wait_for_confirmed_block_v0(&proposed_signer_signature_hash, timeout);
-
-    info!("Got {} signatures", signature.len());
-
-    assert_eq!(signature.len(), num_signers);
-
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let signers = signer_test.get_reward_set_signers(reward_cycle);
-
-    // Verify that the signers signed the proposed block
-
-    let all_signed = signers.iter().zip(signature).all(|(signer, signature)| {
-        let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
-            .expect("Failed to convert signing key to StacksPublicKey");
-
-        // let valid = stacks_public_key.verify(message, signature);
-        let valid = stacks_public_key
-            .verify(&message, &signature)
-            .expect("Failed to verify signature");
-        if !valid {
-            error!(
-                "Failed to verify signature for signer: {:?}",
-                stacks_public_key
-            );
-        }
-        valid
-    });
-    assert!(all_signed);
+    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
 
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
@@ -302,4 +324,60 @@ fn miner_gather_signatures() {
         );
         assert!(metrics_response.contains(&expected_result));
     }
+}
+
+#[test]
+#[ignore]
+/// Test that signers can handle a transition between Nakamoto reward cycles
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// The node mines 2 full Nakamoto reward cycles, sending blocks to observing signers to sign and return.
+///
+/// Test Assertion:
+/// All signers sign all blocks successfully.
+/// The chain advances 2 full reward cycles.
+fn mine_2_nakamoto_reward_cycles() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let nmb_reward_cycles = 2;
+    let num_signers = 5;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
+    let timeout = Duration::from_secs(200);
+    signer_test.boot_to_epoch_3();
+    let curr_reward_cycle = signer_test.get_current_reward_cycle();
+    // Mine 2 full Nakamoto reward cycles (epoch 3 starts in the middle of one, hence the + 1)
+    let next_reward_cycle = curr_reward_cycle.saturating_add(1);
+    let final_reward_cycle = next_reward_cycle.saturating_add(nmb_reward_cycles);
+    let final_reward_cycle_height_boundary = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain()
+        .reward_cycle_to_block_height(final_reward_cycle)
+        .saturating_sub(1);
+
+    info!("------------------------- Test Mine 2 Nakamoto Reward Cycles -------------------------");
+    signer_test.run_until_burnchain_height_nakamoto(
+        timeout,
+        final_reward_cycle_height_boundary,
+        num_signers,
+    );
+
+    let current_burnchain_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    assert_eq!(current_burnchain_height, final_reward_cycle_height_boundary);
+    signer_test.shutdown();
 }

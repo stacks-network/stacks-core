@@ -55,6 +55,7 @@ use wsts::net::Message;
 use wsts::state_machine::OperationResult;
 
 use super::SignerTest;
+use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary, next_block_and,
 };
@@ -194,6 +195,18 @@ impl SignerTest<SpawnedSigner> {
             self.mine_and_verify_confirmed_naka_block(&set_dkg, timeout);
         }
         points
+    }
+
+    fn mine_and_verify_confirmed_naka_block(
+        &mut self,
+        agg_key: &Point,
+        timeout: Duration,
+    ) -> MinedNakamotoBlockEvent {
+        let new_block = self.mine_nakamoto_block(timeout);
+        let signer_sighash = new_block.signer_signature_hash.clone();
+        let signature = self.wait_for_confirmed_block_v1(&signer_sighash, timeout);
+        assert!(signature.0.verify(&agg_key, signer_sighash.as_bytes()));
+        new_block
     }
 
     fn wait_for_dkg(&mut self, timeout: Duration) -> Point {
