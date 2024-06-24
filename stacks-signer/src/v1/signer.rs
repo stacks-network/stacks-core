@@ -53,6 +53,7 @@ use wsts::traits::Signer as _;
 use wsts::v2;
 
 use super::stackerdb_manager::StackerDBManager;
+use crate::chainstate::SortitionsView;
 use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand, SignerResult};
@@ -161,6 +162,7 @@ impl SignerTrait<SignerMessage> for Signer {
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
+        _sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
@@ -238,7 +240,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 debug!("{self}: Received a status check event.")
             }
             SignerEvent::NewBurnBlock(height) => {
-                debug!("{self}: Receved a new burn block event for block height {height}")
+                debug!("{self}: Receved a new burn block event for block height {height}");
             }
         }
     }
