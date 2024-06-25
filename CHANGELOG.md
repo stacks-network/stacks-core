@@ -32,6 +32,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Update /v2/fees/transfer to report the median transaction fee estimate for a STX-transfer of 180 bytes (#4754)
 - Reduce connection spamming in stackerdb (#4759)
 - Remove deprecated signer cli commands (#4772)
+- Fix/signer-slot-count (#4868)
+- Fix: slots count in the .signers contract (#4891)
+- Fix: never consider Stacks chain tips that are not on the canonical burn chain #4886 (#4893)
 
 
 ## [2.5.0.0.3]
