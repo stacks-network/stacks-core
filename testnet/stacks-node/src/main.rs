@@ -290,6 +290,8 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
+    warn_deprecated_subcommands(subcommand.as_str());
+
     info!("{}", version());
 
     let mine_start: Option<u64> = args
@@ -308,9 +310,9 @@ fn main() {
             args.finish();
             ConfigFile::mocknet()
         }
-        "helium" => {
+        "regtest" | "helium" => {
             args.finish();
-            ConfigFile::helium()
+            ConfigFile::regtest()
         }
         "testnet" => {
             args.finish();
@@ -432,10 +434,10 @@ fn main() {
 
     let num_round: u64 = 0; // Infinite number of rounds
 
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
+    if conf.burnchain.mode == "regtest" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {}", e);
+            warn!("Local runloop exited with error: {}", e);
             return;
         }
     } else if conf.burnchain.mode == "neon"
@@ -477,14 +479,14 @@ mainnet\t\tStart a node that will join and stream blocks from the public mainnet
 
 mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development. 
 
-helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
+regtest\t\tStart a node based on a local setup relying on a local instance of bitcoind.
 \t\tThe following bitcoin.conf is expected:
 \t\t  chain=regtest
 \t\t  disablewallet=0
 \t\t  txindex=1
 \t\t  server=1
-\t\t  rpcuser=helium
-\t\t  rpcpassword=helium
+\t\t  rpcuser=user
+\t\t  rpcpassword=pass
 
 testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 
@@ -509,6 +511,13 @@ OPTIONAL ARGUMENTS:
 \t\t--mine-at-height=<height>: optional argument for a miner to not attempt mining until Stacks block has sync'ed to <height>
 
 ", argv[0]);
+}
+
+/// Prints a warning if the subcommand has been deprecated.
+fn warn_deprecated_subcommands(subcommand: &str) {
+    if subcommand == "helium" {
+        warn!("Subcommand 'helium' is deprecated and will be removed in future versions. Use 'stacks-node regtest' to use a local Bitcoin node (regtest)");
+    }
 }
 
 #[cfg(test)]

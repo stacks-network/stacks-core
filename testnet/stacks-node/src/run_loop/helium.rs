@@ -44,7 +44,7 @@ impl RunLoop {
     pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainControllerError> {
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
-            "helium" => Box::new(BitcoinRegtestController::new(self.config.clone(), None)),
+            "regtest" => Box::new(BitcoinRegtestController::new(self.config.clone(), None)),
             "mocknet" => MocknetController::generic(self.config.clone()),
             _ => unreachable!(),
         };

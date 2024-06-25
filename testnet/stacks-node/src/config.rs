@@ -402,7 +402,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn helium() -> ConfigFile {
+    pub fn regtest() -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
         // ##
@@ -410,17 +410,17 @@ impl ConfigFile {
         // ##    disablewallet=0
         // ##    txindex=1
         // ##    server=1
-        // ##    rpcuser=helium
-        // ##    rpcpassword=helium
+        // ##    rpcuser=user
+        // ##    rpcpassword=pass
         // ##
         let burnchain = BurnchainConfigFile {
-            mode: Some("helium".to_string()),
+            mode: Some("regtest".to_string()),
             commit_anchor_block_within: Some(10_000),
             rpc_port: Some(18443),
             peer_port: Some(18444),
             peer_host: Some("0.0.0.0".to_string()),
-            username: Some("helium".to_string()),
-            password: Some("helium".to_string()),
+            username: Some("user".to_string()),
+            password: Some("pass".to_string()),
             local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -978,8 +978,8 @@ impl Config {
         };
 
         let supported_modes = [
+            "regtest",
             "mocknet",
-            "helium",
             "neon",
             "argon",
             "krypton",
@@ -995,8 +995,8 @@ impl Config {
             ));
         }
 
-        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            return Err(format!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)"));
+        if burnchain.mode == "regtest" && burnchain.local_mining_public_key.is_none() {
+            return Err(format!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for regtest)"));
         }
 
         let is_mainnet = burnchain.mode == "mainnet";
@@ -1472,7 +1472,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
+            "regtest" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -2071,7 +2071,7 @@ impl Default for NodeConfig {
         let mut seed = [0u8; 32];
         rng.fill_bytes(&mut seed);
 
-        let name = "helium-node";
+        let name = "regtest-node";
         NodeConfig {
             name: name.to_string(),
             seed: seed.to_vec(),
