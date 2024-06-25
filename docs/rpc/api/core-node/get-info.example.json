@@ -12,6 +12,5 @@
   "stacks_tip_consensus_hash": "17f76e597bab45646956f38dd39573085d72cbc0",
   "unanchored_tip": "0000000000000000000000000000000000000000000000000000000000000000",
   "exit_at_block_height": null,
-  "is_fully_synced": false,
-  "max_peer_height": 15
+  "is_fully_synced": false
 }

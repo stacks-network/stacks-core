@@ -18,8 +18,7 @@
     "stacks_tip_consensus_hash",
     "unanchored_tip",
     "exit_at_block_height",
-    "is_fully_synced",
-    "max_peer_height"
+    "is_fully_synced"
   ],
   "properties": {
     "peer_version": {
@@ -74,16 +73,9 @@
       "type": "integer",
       "description": "the block height at which the testnet network will be reset. not applicable for mainnet"
     },
-    
-      "is_fully_synced": {
-        "type": "boolean",
-        "description": "indicates whether the node has fully synchronized with the network"
-      },
-      "max_peer_height": {
-        "type": "integer",
-        "description": "the highest block height observed among all connected peers, indicating the most advanced state of the blockchain network known to the node"
-      }
-    
-    
+    "is_fully_synced": {
+      "type": "boolean",
+      "description": "indicates whether the node has fully synchronized with the network"
+    }
   }
 }
