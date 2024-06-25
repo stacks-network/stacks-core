@@ -1,6 +1,4 @@
 import {
-  isDelegating,
-  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -9,65 +7,51 @@ import {
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
-import {
-  boolCV,
-  Cl,
-  ClarityType,
-  cvToValue,
-  isClarityType,
-  OptionalCV,
-  UIntCV,
-} from "@stacks/transactions";
+import { Cl } from "@stacks/transactions";
 
-/**
- * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This
- * operation allows the `tx-sender` (the `wallet` in this case) to delegate
- * stacking participation to a `delegatee`.
- *
- * Constraints for running this command include:
- * - The Stacker cannot currently be a delegator in another delegation.
- */
-export class DelegateStxCommand implements PoxCommand {
+type CheckFunc = (
+  this: DelegateStxCommand_Err,
+  model: Readonly<Stub>,
+) => boolean;
+
+export class DelegateStxCommand_Err implements PoxCommand {
   readonly wallet: Wallet;
   readonly delegateTo: Wallet;
-  readonly untilBurnHt: OptionalCV<UIntCV>;
+  readonly untilBurnHt: number;
   readonly amount: bigint;
+  readonly checkFunc: CheckFunc;
+  readonly errorCode: number;
 
   /**
-   * Constructs a `DelegateStxCommand` to delegate uSTX for stacking.
+   * Constructs a `DelegateStxCommand_Err` to delegate uSTX for stacking.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param delegateTo - Represents the Delegatee's STX address.
    * @param untilBurnHt - The burn block height until the delegation is valid.
    * @param amount - The maximum amount the `Stacker` delegates the `Delegatee`
    *                 to stack on his behalf.
+   * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
   constructor(
     wallet: Wallet,
     delegateTo: Wallet,
-    untilBurnHt: OptionalCV<UIntCV>,
+    untilBurnHt: number,
     amount: bigint,
+    checkFunc: CheckFunc,
+    errorCode: number,
   ) {
     this.wallet = wallet;
     this.delegateTo = delegateTo;
     this.untilBurnHt = untilBurnHt;
     this.amount = amount;
+    this.checkFunc = checkFunc;
+    this.errorCode = errorCode;
   }
 
-  check(model: Readonly<Stub>): boolean {
-    // Constraints for running this command include:
-    // - The Stacker cannot currently be a delegator in another delegation.
-    const stackerWallet = model.stackers.get(this.wallet.stxAddress)!;
-
-    return (
-      isStackingMinimumCalculated(model) &&
-      !isDelegating(stackerWallet)
-    );
-  }
+  check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
-
     // The amount of uSTX delegated by the Stacker to the Delegatee.
     // Even if there are no constraints about the delegated amount,
     // it will be checked in the future, when calling delegate-stack-stx.
@@ -83,7 +67,7 @@ export class DelegateStxCommand implements PoxCommand {
         // (delegate-to principal)
         Cl.principal(this.delegateTo.stxAddress),
         // (until-burn-ht (optional uint))
-        this.untilBurnHt,
+        Cl.some(Cl.uint(this.untilBurnHt)),
         // (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) }))
         Cl.some(poxAddressToTuple(this.delegateTo.btcAddress)),
       ],
@@ -91,29 +75,13 @@ export class DelegateStxCommand implements PoxCommand {
     );
 
     // Assert
-    expect(delegateStx.result).toBeOk(boolCV(true));
+    expect(delegateStx.result).toBeErr(Cl.int(this.errorCode));
 
-    // Get the wallet from the model and update it with the new state.
-    const wallet = model.stackers.get(this.wallet.stxAddress)!;
-    const delegatedWallet = model.stackers.get(this.delegateTo.stxAddress)!;
-    // Update model so that we know this wallet has delegated. This is important
-    // in order to prevent the test from delegating multiple times with the same
-    // address.
-    wallet.hasDelegated = true;
-    wallet.delegatedTo = this.delegateTo.stxAddress;
-    wallet.delegatedMaxAmount = amountUstx;
-    wallet.delegatedUntilBurnHt =
-      isClarityType(this.untilBurnHt, ClarityType.OptionalNone)
-        ? undefined
-        : Number(cvToValue(this.untilBurnHt).value);
-    wallet.delegatedPoxAddress = this.delegateTo.btcAddress;
-
-    delegatedWallet.poolMembers.push(this.wallet.stxAddress);
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.wallet.label}`,
+      `✗ ${this.wallet.label}`,
       "delegate-stx",
       "amount",
       amountUstx.toString(),

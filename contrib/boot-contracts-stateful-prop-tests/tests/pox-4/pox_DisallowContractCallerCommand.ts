@@ -1,4 +1,6 @@
 import {
+  isAllowedContractCaller,
+  isCallerAllowedByStacker,
   logCommand,
   PoxCommand,
   Real,
@@ -41,14 +43,10 @@ export class DisallowContractCallerCommand implements PoxCommand {
     const callerToDisallow = model.stackers.get(
       this.callerToDisallow.stxAddress,
     )!;
+
     return (
-      stacker.allowedContractCallers.includes(
-        this.callerToDisallow.stxAddress,
-      ) &&
-      callerToDisallow.callerAllowedBy.includes(
-          this.stacker.stxAddress,
-        ) ===
-        true
+      isAllowedContractCaller(stacker, this.callerToDisallow) &&
+      isCallerAllowedByStacker(this.stacker, callerToDisallow)
     );
   }
 
