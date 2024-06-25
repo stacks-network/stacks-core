@@ -731,11 +731,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block,
             anchor_block_consensus_hash,
             anchor_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: false,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }
@@ -809,11 +809,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block: anchored_block_hash,
             anchor_block_consensus_hash: anchored_consensus_hash,
             anchor_block_height: anchored_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: true,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }

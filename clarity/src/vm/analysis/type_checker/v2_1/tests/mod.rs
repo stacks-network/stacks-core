@@ -60,9 +60,13 @@ fn type_check_helper(exp: &str) -> TypeResult {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
-fn type_check_helper_v1(exp: &str) -> TypeResult {
-    mem_run_analysis(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
+fn type_check_helper_version(exp: &str, version: ClarityVersion) -> TypeResult {
+    mem_run_analysis(exp, version, StacksEpochId::latest())
         .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+}
+
+fn type_check_helper_v1(exp: &str) -> TypeResult {
+    type_check_helper_version(exp, ClarityVersion::Clarity1)
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -269,18 +273,29 @@ fn test_get_block_info() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(good_test).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(good_test, ClarityVersion::Clarity2).unwrap()
+            )
         );
     }
     for (good_test_v210, expected_v210) in good_v210.iter().zip(expected_v210.iter()) {
         assert_eq!(
             expected_v210,
-            &format!("{}", type_check_helper(good_test_v210).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(good_test_v210, ClarityVersion::Clarity2).unwrap()
+            )
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(
+            expected,
+            &type_check_helper_version(bad_test, ClarityVersion::Clarity2)
+                .unwrap_err()
+                .err
+        );
     }
 
     for good_test in good_v210.iter() {

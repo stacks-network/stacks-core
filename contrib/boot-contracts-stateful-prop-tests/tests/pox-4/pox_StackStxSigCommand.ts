@@ -1,4 +1,7 @@
 import {
+  isDelegating,
+  isStacking,
+  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -66,7 +69,9 @@ export class StackStxSigCommand implements PoxCommand {
 
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
-      model.stackingMinimum > 0 && !stacker.isStacking && !stacker.hasDelegated
+      isStackingMinimumCalculated(model) &&
+      !isStacking(stacker) &&
+      !isDelegating(stacker)
     );
   }
 

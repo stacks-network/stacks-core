@@ -1,4 +1,6 @@
 import {
+  hasLockedStackers,
+  isATCAboveThreshold,
   logCommand,
   PoxCommand,
   Real,
@@ -31,7 +33,8 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackAggregationCommitAuthCommand` to lock uSTX for stacking.
+   * Constructs a `StackAggregationCommitAuthCommand` to commit partially
+   * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.
@@ -51,8 +54,10 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
     //   stackers has to be greater than the uSTX threshold.
 
     const operator = model.stackers.get(this.operator.stxAddress)!;
-    return operator.lockedAddresses.length > 0 &&
-      operator.amountToCommit >= model.stackingMinimum;
+    return (
+      hasLockedStackers(operator) &&
+      isATCAboveThreshold(operator, model)
+    );
   }
 
   run(model: Stub, real: Real): void {
@@ -63,10 +68,10 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
 
     // Act
 
-    // Include the authorization and the `stack-aggregation-commit` transactions 
-    // in a single block. This way we ensure both the authorization and the 
-    // stack-aggregation-commit transactions are called during the same reward 
-    // cycle, so the authorization currentRewCycle param is relevant for the 
+    // Include the authorization and the `stack-aggregation-commit` transactions
+    // in a single block. This way we ensure both the authorization and the
+    // stack-aggregation-commit transactions are called during the same reward
+    // cycle, so the authorization currentRewCycle param is relevant for the
     // upcoming stack-aggregation-commit call.
     const block = real.network.mineBlock([
       tx.callPublicFn(

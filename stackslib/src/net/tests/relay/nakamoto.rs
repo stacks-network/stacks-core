@@ -399,6 +399,7 @@ fn test_buffer_data_message() {
             parent_block_id: StacksBlockId([0x03; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0x05; 32]),
             state_index_root: TrieHash([0x07; 32]),
+            timestamp: 8,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),

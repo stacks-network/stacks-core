@@ -85,22 +85,23 @@ jobs:
           - tests::nakamoto_integrations::nakamoto_attempt_time
           - tests::signer::v0::block_proposal_rejection
           - tests::signer::v0::miner_gather_signatures
-          - tests::signer::v1::dkg
-          - tests::signer::v1::sign_request_rejected
-          # TODO: enable these once v1 signer is fixed
-          # - tests::signer::v1::filter_bad_transactions
-          - tests::signer::v1::delayed_dkg
-          # TODO: enable these once v1 signer is fixed
-          # - tests::signer::v1::mine_2_nakamoto_reward_cycles
-          # - tests::signer::v1::sign_after_signer_reboot
-          # - tests::signer::v1::block_proposal
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
+          - tests::nakamoto_integrations::check_block_times
+          - tests::nakamoto_integrations::check_block_info
           - tests::nakamoto_integrations::continue_tenure_extend
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
+          # TODO: enable these once v1 signer is supported by a new nakamoto epoch
+          # - tests::signer::v1::dkg
+          # - tests::signer::v1::sign_request_rejected
+          # - tests::signer::v1::filter_bad_transactions
+          # - tests::signer::v1::delayed_dkg
+          # - tests::signer::v1::mine_2_nakamoto_reward_cycles
+          # - tests::signer::v1::sign_after_signer_reboot
+          # - tests::signer::v1::block_proposal
     steps:
       ## Setup test environment
       - name: Setup Test Environment
