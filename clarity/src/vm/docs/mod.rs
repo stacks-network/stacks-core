@@ -2089,7 +2089,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.  
 
-If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
+If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
 returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
 `define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",

@@ -149,7 +149,7 @@ pub struct RunDkgArgs {
     /// Path to config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
-    /// The reward cycle the signer is registered for and wants to peform DKG for
+    /// The reward cycle the signer is registered for and wants to perform DKG for
     #[arg(long, short)]
     pub reward_cycle: u64,
 }
