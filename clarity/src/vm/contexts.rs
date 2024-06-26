@@ -74,7 +74,7 @@ pub struct Environment<'a, 'b, 'hooks> {
 }
 
 pub struct OwnedEnvironment<'a, 'hooks> {
-    context: GlobalContext<'a, 'hooks>,
+    pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
 }
 
@@ -973,7 +973,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let contract = self
             .global_context
             .database
-            .get_contract(contract_identifier)?;
+            .get_contract(contract_identifier)
+            .or_else(|e| {
+                self.global_context.roll_back()?;
+                Err(e)
+            })?;
 
         let result = {
             let mut nested_env = Environment::new(

@@ -152,7 +152,7 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
+                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
                      -- height of the burnchain block header that generated this consensus hash
@@ -188,7 +188,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -503,6 +503,7 @@ impl NakamotoBlockHeader {
         burn_spent: u64,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
+        bitvec_len: u16,
     ) -> NakamotoBlockHeader {
         NakamotoBlockHeader {
             version: NAKAMOTO_BLOCK_VERSION,
@@ -514,7 +515,8 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            signer_bitvec: BitVec::ones(bitvec_len)
+                .expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -1826,6 +1828,11 @@ impl NakamotoChainState {
                 .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
         let aggregate_key_block_header =
             Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), block_sn.block_height)?
+            .ok_or(ChainstateError::InvalidStacksBlock(
+                "Failed to get epoch ID".into(),
+            ))?
+            .epoch_id;
 
         let aggregate_public_key = Self::load_aggregate_public_key(
             sortdb,
@@ -1833,7 +1840,7 @@ impl NakamotoChainState {
             chainstate,
             block_sn.block_height,
             &aggregate_key_block_header.index_block_hash(),
-            true,
+            epoch_id >= StacksEpochId::Epoch30,
         )?;
         Ok(aggregate_public_key)
     }
@@ -2586,6 +2593,27 @@ impl NakamotoChainState {
             "parent_header_hash" => %parent_header_hash,
         );
 
+        if new_tenure {
+            clarity_tx
+                .connection()
+                .as_free_transaction(|clarity_tx_conn| {
+                    clarity_tx_conn.with_clarity_db(|db| {
+                        db.set_tenure_height(
+                            coinbase_height
+                                .try_into()
+                                .expect("Tenure height overflowed 32-bit range"),
+                        )?;
+                        Ok(())
+                    })
+                })
+                .map_err(|e| {
+                    error!("Failed to set tenure height during block setup";
+                        "error" => ?e,
+                    );
+                    e
+                })?;
+        }
+
         let evaluated_epoch = clarity_tx.get_epoch();
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
@@ -2982,6 +3010,7 @@ impl NakamotoChainState {
         debug!(
             "Append nakamoto block";
             "block" => format!("{}/{block_hash}", block.header.consensus_hash),
+            "block_id" => %block.header.block_id(),
             "parent_block" => %block.header.parent_block_id,
             "stacks_height" => next_block_height,
             "total_burns" => block.header.burn_spent,

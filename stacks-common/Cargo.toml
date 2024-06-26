@@ -53,6 +53,7 @@ features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
 version = "=0.24.2"
+optional = true
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
@@ -73,10 +74,11 @@ assert-json-diff = "1.0.0"
 rand_core = { workspace = true }
 
 [features]
-default = ["developer-mode"]
+default = ["canonical", "developer-mode"]
+canonical = ["rusqlite"]
 developer-mode = []
 slog_json = ["slog-json"]
-testing = []
+testing = ["canonical"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

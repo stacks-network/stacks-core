@@ -21,6 +21,7 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
+use stacks::net::p2p::PeerNetwork;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
@@ -373,7 +374,7 @@ impl RunLoop {
                     return true;
                 }
             }
-            if self.config.node.mock_mining {
+            if self.config.get_node_config(false).mock_mining {
                 info!("No UTXOs found, but configured to mock mine");
                 return true;
             } else {
@@ -999,7 +1000,11 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
+    pub fn start(
+        &mut self,
+        burnchain_opt: Option<Burnchain>,
+        mut mine_start: u64,
+    ) -> Option<PeerNetwork> {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -1018,12 +1023,12 @@ impl RunLoop {
             Ok(burnchain_controller) => burnchain_controller,
             Err(burnchain_error::ShutdownInitiated) => {
                 info!("Exiting stacks-node");
-                return;
+                return None;
             }
             Err(e) => {
                 error!("Error initializing burnchain: {}", e);
                 info!("Exiting stacks-node");
-                return;
+                return None;
             }
         };
 
@@ -1142,11 +1147,11 @@ impl RunLoop {
 
                 globals.coord().stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
-                node.join();
+                let peer_network = node.join();
                 liveness_thread.join().unwrap();
 
                 info!("Exiting stacks-node");
-                break;
+                break peer_network;
             }
 
             let remote_chain_height = burnchain.get_headers_height() - 1;
@@ -1269,7 +1274,7 @@ impl RunLoop {
                         if !node.relayer_sortition_notify() {
                             // relayer hung up, exit.
                             error!("Runloop: Block relayer and miner hung up, exiting.");
-                            return;
+                            return None;
                         }
                     }
 
@@ -1343,7 +1348,7 @@ impl RunLoop {
                     if !node.relayer_issue_tenure(ibd) {
                         // relayer hung up, exit.
                         error!("Runloop: Block relayer and miner hung up, exiting.");
-                        break;
+                        break None;
                     }
                 }
             }

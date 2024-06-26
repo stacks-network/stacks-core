@@ -129,8 +129,9 @@ fn test_get_block_info_eval(
         let contract_identifier =
             QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
         owned_env
-            .initialize_contract(
+            .initialize_versioned_contract(
                 contract_identifier.clone(),
+                ClarityVersion::Clarity2,
                 contracts[i],
                 None,
                 ASTRules::PrecheckSize,
@@ -1146,4 +1147,39 @@ fn test_cc_trait_stack_depth(
             .unwrap_err(),
         RuntimeErrorType::MaxStackDepthReached.into()
     );
+}
+
+#[apply(test_epochs)]
+fn test_eval_with_non_existing_contract(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity2,
+    );
+
+    let mut env = owned_env.get_exec_environment(
+        Some(get_principal().expect_principal().unwrap()),
+        None,
+        &mut placeholder_context,
+    );
+
+    let result = env.eval_read_only(
+        &QualifiedContractIdentifier::local("absent").unwrap(),
+        "(ok 0)",
+    );
+    assert_eq!(
+        result.as_ref().unwrap_err(),
+        &Error::Unchecked(CheckErrors::NoSuchContract(
+            QualifiedContractIdentifier::local("absent")
+                .unwrap()
+                .to_string()
+        ))
+    );
+    drop(env);
+    owned_env.commit().unwrap();
+    assert!(owned_env.destruct().is_some());
 }

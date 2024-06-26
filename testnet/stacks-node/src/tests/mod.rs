@@ -21,7 +21,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::STXEventType;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use lazy_static::lazy_static;
 use rand::RngCore;
 use stacks::chainstate::burn::ConsensusHash;
@@ -223,6 +223,23 @@ pub fn serialize_sign_tx_anchor_mode_version(
     buf
 }
 
+pub fn make_contract_publish_versioned(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    contract_name: &str,
+    contract_content: &str,
+    version: Option<ClarityVersion>,
+) -> Vec<u8> {
+    let name = ContractName::from(contract_name);
+    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+    let payload =
+        TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
+
+    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee)
+}
+
 pub fn make_contract_publish(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -230,12 +247,30 @@ pub fn make_contract_publish(
     contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
+    make_contract_publish_versioned(sender, nonce, tx_fee, contract_name, contract_content, None)
+}
+
+pub fn make_contract_publish_microblock_only_versioned(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    contract_name: &str,
+    contract_content: &str,
+    version: Option<ClarityVersion>,
+) -> Vec<u8> {
     let name = ContractName::from(contract_name);
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
-    let payload = TransactionSmartContract { name, code_body };
+    let payload =
+        TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx_anchor_mode(
+        payload,
+        sender,
+        nonce,
+        tx_fee,
+        TransactionAnchorMode::OffChainOnly,
+    )
 }
 
 pub fn make_contract_publish_microblock_only(
@@ -245,17 +280,13 @@ pub fn make_contract_publish_microblock_only(
     contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
-    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
-
-    let payload = TransactionSmartContract { name, code_body };
-
-    serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload.into(),
+    make_contract_publish_microblock_only_versioned(
         sender,
         nonce,
         tx_fee,
-        TransactionAnchorMode::OffChainOnly,
+        contract_name,
+        contract_content,
+        None,
     )
 }
 
@@ -567,7 +598,7 @@ fn should_succeed_mining_valid_txs() {
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
-                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\" 
+                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),

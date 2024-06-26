@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -20,16 +21,34 @@ use std::time::Duration;
 use blockstack_lib::burnchains::PoxConstants;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
-use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
+use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
+use wsts::common::MerkleRoot;
 use wsts::state_machine::OperationResult;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
+use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
-use crate::signer::{Command as SignerCommand, Signer, SignerSlotID};
+use crate::Signer as SignerTrait;
+
+/// Which signer operation to perform
+#[derive(PartialEq, Clone, Debug)]
+pub enum SignerCommand {
+    /// Generate a DKG aggregate public key
+    Dkg,
+    /// Sign a message
+    Sign {
+        /// The block to sign over
+        block_proposal: BlockProposal,
+        /// Whether to make a taproot signature
+        is_taproot: bool,
+        /// Taproot merkle root
+        merkle_root: Option<MerkleRoot>,
+    },
+}
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -56,8 +75,8 @@ pub enum State {
 pub struct RewardCycleInfo {
     /// The current reward cycle
     pub reward_cycle: u64,
-    /// The reward phase cycle length
-    pub reward_phase_block_length: u64,
+    /// The total reward cycle length
+    pub reward_cycle_length: u64,
     /// The prepare phase length
     pub prepare_phase_block_length: u64,
     /// The first burn block height
@@ -70,26 +89,42 @@ impl RewardCycleInfo {
     /// Check if the provided burnchain block height is part of the reward cycle
     pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
-        let reward_cycle_length = self
-            .reward_phase_block_length
-            .saturating_add(self.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
+        let reward_cycle = blocks_mined / self.reward_cycle_length;
         self.reward_cycle == reward_cycle
+    }
+
+    /// Get the reward cycle for a specific burnchain block height
+    pub const fn get_reward_cycle(&self, burnchain_block_height: u64) -> u64 {
+        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
+        blocks_mined / self.reward_cycle_length
     }
 
     /// Check if the provided burnchain block height is in the prepare phase
     pub fn is_in_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         PoxConstants::static_is_in_prepare_phase(
             self.first_burnchain_block_height,
-            self.reward_phase_block_length,
+            self.reward_cycle_length,
             self.prepare_phase_block_length,
             burnchain_block_height,
         )
     }
+
+    /// Check if the provided burnchain block height is in the prepare phase of the next cycle
+    pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
+        let effective_height = burnchain_block_height - self.first_burnchain_block_height;
+        let reward_index = effective_height % self.reward_cycle_length;
+
+        reward_index >= (self.reward_cycle_length - self.prepare_phase_block_length)
+            && self.get_reward_cycle(burnchain_block_height) == self.reward_cycle
+    }
 }
 
 /// The runloop for the stacks signer
-pub struct RunLoop {
+pub struct RunLoop<Signer, T>
+where
+    Signer: SignerTrait<T>,
+    T: StacksMessageCodec + Clone + Send + Debug,
+{
     /// Configuration info
     pub config: GlobalConfig,
     /// The stacks node client
@@ -103,11 +138,13 @@ pub struct RunLoop {
     pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
+    /// Phantom data for the message codec
+    _phantom_data: std::marker::PhantomData<T>,
 }
 
-impl From<GlobalConfig> for RunLoop {
-    /// Creates new runloop from a config
-    fn from(config: GlobalConfig) -> Self {
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
+    /// Create a new signer runloop from the provided configuration
+    pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
         Self {
             config,
@@ -116,11 +153,9 @@ impl From<GlobalConfig> for RunLoop {
             state: State::Uninitialized,
             commands: VecDeque::new(),
             current_reward_cycle_info: None,
+            _phantom_data: std::marker::PhantomData,
         }
     }
-}
-
-impl RunLoop {
     /// Get the registered signers for a specific reward cycle
     /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_parsed_reward_set(
@@ -128,10 +163,7 @@ impl RunLoop {
         reward_cycle: u64,
     ) -> Result<Option<SignerEntries>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self
-            .stacks_client
-            .get_reward_set_signers_with_retry(reward_cycle)?
-        else {
+        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
@@ -213,6 +245,7 @@ impl RunLoop {
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
             tx_fee_ustx: self.config.tx_fee_ustx,
+            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
         })
     }
@@ -227,20 +260,14 @@ impl RunLoop {
                 let prior_reward_cycle = reward_cycle.saturating_sub(1);
                 let prior_reward_set = prior_reward_cycle % 2;
                 if let Some(signer) = self.stacks_signers.get_mut(&prior_reward_set) {
-                    if signer.reward_cycle == prior_reward_cycle {
+                    if signer.reward_cycle() == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
                         debug!("{signer}: Next reward cycle ({reward_cycle}) signer set calculated. Reconfiguring current reward cycle signer.");
-                        signer.next_signer_addresses = new_signer_config
-                            .signer_entries
-                            .signer_ids
-                            .keys()
-                            .copied()
-                            .collect();
-                        signer.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
+                        signer.update_next_signer_data(&new_signer_config);
                     }
                 }
             }
-            let new_signer = Signer::from(new_signer_config);
+            let new_signer = Signer::new(new_signer_config);
             info!("{new_signer} initialized.");
             self.stacks_signers.insert(reward_index, new_signer);
         } else {
@@ -258,7 +285,8 @@ impl RunLoop {
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if reward_cycle_info.is_in_prepare_phase(reward_cycle_info.last_burnchain_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(reward_cycle_info.last_burnchain_block_height)
+        {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
         self.current_reward_cycle_info = Some(reward_cycle_info);
@@ -275,23 +303,39 @@ impl RunLoop {
             .current_reward_cycle_info
             .as_mut()
             .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let block_reward_cycle = reward_cycle_info.get_reward_cycle(current_burn_block_height);
+
         // First ensure we refresh our view of the current reward cycle information
-        if !reward_cycle_info.is_in_reward_cycle(current_burn_block_height) {
+        if block_reward_cycle != current_reward_cycle {
             let new_reward_cycle_info = retry_with_exponential_backoff(|| {
-                self.stacks_client
+                let info = self
+                    .stacks_client
                     .get_current_reward_cycle_info()
-                    .map_err(backoff::Error::transient)
+                    .map_err(backoff::Error::transient)?;
+                if info.reward_cycle < block_reward_cycle {
+                    // If the stacks-node is still processing the burn block, the /v2/pox endpoint
+                    // may return the previous reward cycle. In this case, we should retry.
+                    return Err(backoff::Error::transient(ClientError::InvalidResponse(
+                        format!("Received reward cycle ({}) does not match the expected reward cycle ({}) for block {}.",
+                            info.reward_cycle,
+                            block_reward_cycle,
+                            current_burn_block_height
+                        ),
+                    )));
+                }
+                Ok(info)
             })?;
             *reward_cycle_info = new_reward_cycle_info;
         }
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         // We should only attempt to refresh the signer if we are not configured for the next reward cycle yet and we received a new burn block for its prepare phase
-        if reward_cycle_info.is_in_prepare_phase(current_burn_block_height) {
+        if reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height) {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if self
                 .stacks_signers
                 .get(&(next_reward_cycle % 2))
-                .map(|signer| signer.reward_cycle != next_reward_cycle)
+                .map(|signer| signer.reward_cycle() != next_reward_cycle)
                 .unwrap_or(true)
             {
                 info!("Received a new burnchain block height ({current_burn_block_height}) in the prepare phase of the next reward cycle ({next_reward_cycle}). Checking for signer registration...");
@@ -310,7 +354,7 @@ impl RunLoop {
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
-            if signer.reward_cycle < current_reward_cycle {
+            if signer.reward_cycle() < current_reward_cycle {
                 debug!("{signer}: Signer's tenure has completed.");
                 to_delete.push(*idx);
                 continue;
@@ -322,7 +366,9 @@ impl RunLoop {
     }
 }
 
-impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
+    SignerRunLoop<Vec<OperationResult>, RunLoopCommand, T> for RunLoop<Signer, T>
+{
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.config.event_timeout = timeout;
     }
@@ -333,7 +379,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
 
     fn run_one_pass(
         &mut self,
-        event: Option<SignerEvent>,
+        event: Option<SignerEvent<T>>,
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {
@@ -366,76 +412,37 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         if self.state == State::NoRegisteredSigners {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if let Some(event) = event {
-                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}) or next reward cycle ({next_reward_cycle}). Waiting for confirmed registration...");
+                info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}).");
                 warn!("Ignoring event: {event:?}");
             }
             return None;
         }
         for signer in self.stacks_signers.values_mut() {
-            let event_parity = match event {
-                Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
-                // Block proposal events do have reward cycles, but each proposal has its own cycle,
-                //  and the vec could be heterogenous, so, don't differentiate.
-                Some(SignerEvent::MinerMessages(..))
-                | Some(SignerEvent::NewBurnBlock(_))
-                | Some(SignerEvent::StatusCheck)
-                | None => None,
-                Some(SignerEvent::SignerMessages(msg_parity, ..)) => {
-                    Some(u64::from(msg_parity) % 2)
-                }
-            };
-            let other_signer_parity = (signer.reward_cycle + 1) % 2;
-            if event_parity == Some(other_signer_parity) {
-                continue;
-            }
-
-            if signer.approved_aggregate_public_key.is_none() {
-                if let Err(e) = retry_with_exponential_backoff(|| {
-                    signer
-                        .update_dkg(&self.stacks_client, current_reward_cycle)
-                        .map_err(backoff::Error::transient)
-                }) {
-                    error!("{signer}: failed to update DKG: {e}");
-                }
-            }
-            signer.refresh_coordinator();
-            if let Err(e) = signer.process_event(
+            signer.process_event(
                 &self.stacks_client,
                 event.as_ref(),
                 res.clone(),
                 current_reward_cycle,
-            ) {
-                error!("{signer}: errored processing event: {e}");
-            }
-            if let Some(command) = self.commands.pop_front() {
-                let reward_cycle = command.reward_cycle;
-                if signer.reward_cycle != reward_cycle {
-                    warn!(
-                        "{signer}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
-                    );
-                } else {
-                    info!(
-                        "{signer}: Queuing an external runloop command ({:?}): {command:?}",
-                        signer
-                            .state_machine
-                            .public_keys
-                            .signers
-                            .get(&signer.signer_id)
-                    );
-                    signer.commands.push_back(command.command);
-                }
-            }
+            );
             // After processing event, run the next command for each signer
-            signer.process_next_command(&self.stacks_client, current_reward_cycle);
+            signer.process_command(
+                &self.stacks_client,
+                current_reward_cycle,
+                self.commands.pop_front(),
+            );
         }
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
+    use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+    use super::RewardCycleInfo;
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
@@ -461,5 +468,143 @@ mod tests {
             signer_ids,
             (0..nmb_signers).map(|id| id as u32).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn is_in_reward_cycle_info() {
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(last_burnchain_block_height));
+        assert!(!reward_cycle_info.is_in_prepare_phase(last_burnchain_block_height));
+
+        assert!(!reward_cycle_info
+            .is_in_reward_cycle(first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+        assert!(!reward_cycle_info
+            .is_in_prepare_phase(!first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_length)
+                .wrapping_sub(1)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+        assert!(!reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
+        ));
+
+        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height.wrapping_add(1)));
+        assert!(
+            !reward_cycle_info.is_in_prepare_phase(first_burnchain_block_height.wrapping_add(1))
+        );
+
+        assert!(reward_cycle_info.is_in_reward_cycle(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
+        assert!(reward_cycle_info.is_in_prepare_phase(
+            first_burnchain_block_height
+                .wrapping_add(reward_cycle_phase_block_length)
+                .wrapping_add(1)
+        ));
+    }
+
+    #[test]
+    fn is_in_next_prepare_phase() {
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle: 5,
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 5,
+            first_burnchain_block_height: 0,
+            last_burnchain_block_height: 50,
+        };
+
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(49));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(50));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(51));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(52));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(53));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(54));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(55));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(56));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(57));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(58));
+        assert!(reward_cycle_info.is_in_next_prepare_phase(59));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(60));
+        assert!(!reward_cycle_info.is_in_next_prepare_phase(61));
+
+        let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
+        let prepare_phase_block_length = rand_byte as u64;
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        let reward_cycle_length = (std::cmp::max(
+            prepare_phase_block_length.wrapping_add(1),
+            thread_rng().next_u32() as u64,
+        ))
+        .wrapping_add(prepare_phase_block_length);
+        let reward_cycle_phase_block_length =
+            reward_cycle_length.wrapping_sub(prepare_phase_block_length);
+        let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
+        let last_burnchain_block_height = thread_rng().gen_range(
+            first_burnchain_block_height
+                ..first_burnchain_block_height
+                    .wrapping_add(reward_cycle_length)
+                    .wrapping_sub(prepare_phase_block_length),
+        );
+        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
+        let reward_cycle = blocks_mined / reward_cycle_length;
+
+        let reward_cycle_info = RewardCycleInfo {
+            reward_cycle,
+            reward_cycle_length,
+            prepare_phase_block_length,
+            first_burnchain_block_height,
+            last_burnchain_block_height,
+        };
+
+        for i in 0..reward_cycle_length {
+            if i < reward_cycle_phase_block_length {
+                assert!(!reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            } else {
+                assert!(reward_cycle_info
+                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+            }
+        }
     }
 }

@@ -1,17 +1,14 @@
 use std::collections::HashSet;
 use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::Value;
-use libsigner::{
-    BlockResponse, MessageSlotID, RejectCode, RunningSigner, Signer, SignerEventReceiver,
-    SignerMessage,
-};
+use libsigner::v1::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
+use libsigner::{BlockProposal, SignerEntries};
 use rand::thread_rng;
 use rand_core::RngCore;
 use stacks::burnchains::Txid;
@@ -40,15 +37,17 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_signer::client::{StackerDB, StacksClient};
+use stacks_signer::client::{SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::signer::{Command as SignerCommand, SignerSlotID};
+use stacks_signer::runloop::{RunLoopCommand, SignerCommand};
+use stacks_signer::v1::coordinator::CoordinatorSelector;
+use stacks_signer::v1::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
-use wsts::state_machine::OperationResult;
+use wsts::net::Message;
+use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
@@ -56,8 +55,9 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
-    next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
+    boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
+    naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
@@ -82,12 +82,8 @@ struct RunningNodes {
 struct SignerTest {
     // The stx and bitcoin nodes and their run loops
     pub running_nodes: RunningNodes,
-    // The channels for sending commands to the signers
-    pub signer_cmd_senders: Vec<Sender<RunLoopCommand>>,
-    // The channels for receiving results from the signers
-    pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
-    // The running signer and its threads
-    pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+    // The spawned signers and their threads
+    pub spawned_signers: Vec<SpawnedSigner>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -120,23 +116,20 @@ impl SignerTest {
             password,
             run_stamp,
             3000,
+            Some(100_000),
+            None,
+            Some(9000),
         );
 
-        let mut running_signers = Vec::new();
-        let mut signer_cmd_senders = Vec::new();
-        let mut result_receivers = Vec::new();
-        for i in 0..num_signers {
-            let (cmd_send, cmd_recv) = channel();
-            let (res_send, res_recv) = channel();
-            info!("spawn signer");
-            running_signers.push(spawn_signer(
-                &signer_configs[i as usize],
-                cmd_recv,
-                res_send,
-            ));
-            signer_cmd_senders.push(cmd_send);
-            result_receivers.push(res_recv);
-        }
+        let spawned_signers: Vec<_> = (0..num_signers)
+            .into_iter()
+            .map(|i| {
+                info!("spawning signer");
+                let signer_config =
+                    SignerConfig::load_from_str(&signer_configs[i as usize]).unwrap();
+                SpawnedSigner::from(signer_config)
+            })
+            .collect();
 
         // Setup the nodes and deploy the contract to it
         let node = setup_stx_btc_node(naka_conf, &signer_stacks_private_keys, &signer_configs);
@@ -145,9 +138,7 @@ impl SignerTest {
 
         Self {
             running_nodes: node,
-            result_receivers,
-            signer_cmd_senders,
-            running_signers,
+            spawned_signers,
             signer_stacks_private_keys,
             stacks_client,
             run_stamp,
@@ -425,10 +416,11 @@ impl SignerTest {
         debug!("Waiting for DKG...");
         let mut key = Point::default();
         let dkg_now = Instant::now();
-        for recv in self.result_receivers.iter() {
+        for signer in self.spawned_signers.iter() {
             let mut aggregate_public_key = None;
             loop {
-                let results = recv
+                let results = signer
+                    .res_recv
                     .recv_timeout(timeout)
                     .expect("failed to recv dkg results");
                 for result in results {
@@ -496,6 +488,34 @@ impl SignerTest {
             .expect("FATAL: signer not registered")
     }
 
+    fn get_signer_public_keys(&self, reward_cycle: u64) -> PublicKeys {
+        let entries = self
+            .stacks_client
+            .get_reward_set_signers(reward_cycle)
+            .unwrap()
+            .unwrap();
+        let entries = SignerEntries::parse(false, &entries).unwrap();
+        entries.public_keys
+    }
+
+    #[allow(dead_code)]
+    fn get_signer_metrics(&self) -> String {
+        #[cfg(feature = "monitoring_prom")]
+        {
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get("http://localhost:9000/metrics")
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+
+            return res;
+        }
+        #[cfg(not(feature = "monitoring_prom"))]
+        return String::new();
+    }
+
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
         let host = self
             .running_nodes
@@ -549,7 +569,7 @@ impl SignerTest {
                 None,
             ),
         };
-        let invalid_contract_address = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_address = StacksClient::build_unsigned_contract_call_transaction(
             &StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key)),
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -558,11 +578,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_contract_name = StacksClient::build_signed_contract_call_transaction(
+        let invalid_contract_name = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             "bad-signers-contract-name".into(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -571,11 +590,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_signers_vote_function = StacksClient::build_signed_contract_call_transaction(
+        let invalid_signers_vote_function = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             "some-other-function".into(),
@@ -584,12 +602,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_signer_index =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -603,11 +620,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_function_arg_key = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_key = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -621,11 +637,10 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
-        let invalid_function_arg_round = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_round = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -639,12 +654,11 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             1,
-            10,
         )
         .unwrap();
 
         let invalid_function_arg_reward_cycle =
-            StacksClient::build_signed_contract_call_transaction(
+            StacksClient::build_unsigned_contract_call_transaction(
                 &contract_addr,
                 contract_name.clone(),
                 SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -658,11 +672,10 @@ impl SignerTest {
                 TransactionVersion::Testnet,
                 CHAIN_ID_TESTNET,
                 1,
-                10,
             )
             .unwrap();
 
-        let invalid_nonce = StacksClient::build_signed_contract_call_transaction(
+        let invalid_nonce = StacksClient::build_unsigned_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             SIGNERS_VOTING_FUNCTION_NAME.into(),
@@ -671,7 +684,6 @@ impl SignerTest {
             TransactionVersion::Testnet,
             CHAIN_ID_TESTNET,
             0, // Old nonce
-            10,
         )
         .unwrap();
 
@@ -682,10 +694,10 @@ impl SignerTest {
             false,
         );
         let invalid_signer_tx = invalid_stacks_client
-            .build_vote_for_aggregate_public_key(0, round, point, reward_cycle, None, 0)
+            .build_unsigned_vote_for_aggregate_public_key(0, round, point, reward_cycle, 0)
             .expect("FATAL: failed to build vote for aggregate public key");
 
-        vec![
+        let unsigned_txs = vec![
             invalid_nonce,
             invalid_not_contract_call,
             invalid_contract_name,
@@ -696,7 +708,15 @@ impl SignerTest {
             invalid_function_arg_round,
             invalid_function_arg_signer_index,
             invalid_signer_tx,
-        ]
+        ];
+        unsigned_txs
+            .into_iter()
+            .map(|unsigned| {
+                invalid_stacks_client
+                    .sign_transaction(unsigned)
+                    .expect("Failed to sign transaction")
+            })
+            .collect()
     }
 
     /// Kills the signer runloop at index `signer_idx`
@@ -705,12 +725,10 @@ impl SignerTest {
     /// # Panics
     /// Panics if `signer_idx` is out of bounds
     fn stop_signer(&mut self, signer_idx: usize) -> StacksPrivateKey {
-        let running_signer = self.running_signers.remove(signer_idx);
-        self.signer_cmd_senders.remove(signer_idx);
-        self.result_receivers.remove(signer_idx);
+        let spawned_signer = self.spawned_signers.remove(signer_idx);
         let signer_key = self.signer_stacks_private_keys.remove(signer_idx);
 
-        running_signer.stop();
+        spawned_signer.stop();
         signer_key
     }
 
@@ -724,19 +742,17 @@ impl SignerTest {
             "12345", // It worked sir, we have the combination! -Great, what's the combination?
             self.run_stamp,
             3000 + signer_idx,
+            Some(100_000),
+            None,
+            Some(9000 + signer_idx),
         )
         .pop()
         .unwrap();
 
-        let (cmd_send, cmd_recv) = channel();
-        let (res_send, res_recv) = channel();
-
         info!("Restarting signer");
-        let signer = spawn_signer(&signer_config, cmd_recv, res_send);
-
-        self.result_receivers.insert(signer_idx, res_recv);
-        self.signer_cmd_senders.insert(signer_idx, cmd_send);
-        self.running_signers.insert(signer_idx, signer);
+        let config = SignerConfig::load_from_str(&signer_config).unwrap();
+        let signer = SpawnedSigner::from(config);
+        self.spawned_signers.insert(signer_idx, signer);
     }
 
     fn shutdown(self) {
@@ -750,30 +766,11 @@ impl SignerTest {
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         // Stop the signers before the node to prevent hanging
-        for signer in self.running_signers {
+        for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
         self.running_nodes.run_loop_thread.join().unwrap();
     }
-}
-
-fn spawn_signer(
-    data: &str,
-    receiver: Receiver<RunLoopCommand>,
-    sender: Sender<Vec<OperationResult>>,
-) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
-    let config = SignerConfig::load_from_str(data).unwrap();
-    let ev = SignerEventReceiver::new(config.network.is_mainnet());
-    let endpoint = config.endpoint;
-    let runloop: stacks_signer::runloop::RunLoop = stacks_signer::runloop::RunLoop::from(config);
-    let mut signer: Signer<
-        RunLoopCommand,
-        Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop,
-        SignerEventReceiver,
-    > = Signer::new(runloop, ev, receiver, sender);
-    info!("Spawning signer on endpoint {}", endpoint);
-    signer.spawn(endpoint).unwrap()
 }
 
 fn setup_stx_btc_node(
@@ -942,8 +939,9 @@ fn stackerdb_dkg() {
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
-    for sender in signer_test.signer_cmd_senders.iter() {
-        sender
+    for signer in signer_test.spawned_signers.iter() {
+        signer
+            .cmd_send
             .send(RunLoopCommand {
                 reward_cycle,
                 command: SignerCommand::Dkg,
@@ -959,8 +957,8 @@ fn stackerdb_dkg() {
 
 #[test]
 #[ignore]
-/// Test the signer can respond to external commands to perform DKG
-fn stackerdb_sign() {
+/// Test the signer rejects requests to sign that do not come from a miner
+fn stackerdb_sign_request_rejected() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1033,13 +1031,23 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Sign -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
+    let block_proposal_1 = BlockProposal {
+        block: block1.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
+    let block_proposal_2 = BlockProposal {
+        block: block2.clone(),
+        burn_height: 0,
+        reward_cycle,
+    };
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do sign");
     let sign_now = Instant::now();
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block1,
+            block_proposal: block_proposal_1,
             is_taproot: false,
             merkle_root: None,
         },
@@ -1047,16 +1055,18 @@ fn stackerdb_sign() {
     let sign_taproot_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
-            block: block2,
+            block_proposal: block_proposal_2,
             is_taproot: true,
             merkle_root: None,
         },
     };
-    for sender in signer_test.signer_cmd_senders.iter() {
-        sender
+    for signer in signer_test.spawned_signers.iter() {
+        signer
+            .cmd_send
             .send(sign_command.clone())
             .expect("failed to send sign command");
-        sender
+        signer
+            .cmd_send
             .send(sign_taproot_command.clone())
             .expect("failed to send sign taproot command");
     }
@@ -1092,6 +1102,167 @@ fn stackerdb_sign() {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
+}
+
+#[test]
+#[ignore]
+/// Test that a signer can be offline when a DKG round has commenced and
+/// can rejoin the DKG round after it has restarted
+fn stackerdb_delayed_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
+    boot_to_epoch_3_reward_set_calculation_boundary(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
+    let public_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let coordinator_selector = CoordinatorSelector::from(public_keys);
+    let (_, coordinator_public_key) = coordinator_selector.get_coordinator();
+    let coordinator_public_key =
+        StacksPublicKey::from_slice(coordinator_public_key.to_bytes().as_slice()).unwrap();
+    let signer_slot_ids: Vec<_> = (0..num_signers)
+        .into_iter()
+        .map(|i| SignerSlotID(i as u32))
+        .collect();
+    let mut stackerdbs: Vec<_> = signer_slot_ids
+        .iter()
+        .map(|i| {
+            StackerDB::new(
+                &signer_test.running_nodes.conf.node.rpc_bind,
+                StacksPrivateKey::new(), // Doesn't matter what key we use. We are just reading, not writing
+                false,
+                reward_cycle,
+                *i,
+            )
+        })
+        .collect();
+    info!("------------------------- Stop Signers -------------------------");
+    let mut to_stop = None;
+    for (idx, key) in signer_test.signer_stacks_private_keys.iter().enumerate() {
+        let public_key = StacksPublicKey::from_private(key);
+        if public_key == coordinator_public_key {
+            // Do not stop the coordinator. We want coordinator to start a DKG round
+            continue;
+        }
+        // Only stop one signer
+        to_stop = Some(idx);
+        break;
+    }
+    let signer_idx = to_stop.expect("Failed to find a signer to stop");
+    let signer_key = signer_test.stop_signer(signer_idx);
+    debug!(
+        "Removed signer {signer_idx} with key: {:?}, {}",
+        signer_key,
+        signer_key.to_hex()
+    );
+    info!("------------------------- Start DKG -------------------------");
+    info!("Waiting for DKG to start...");
+    // Advance one more to trigger DKG
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        timeout.as_secs(),
+        || Ok(true),
+    )
+    .expect("Failed to mine bitcoin block");
+    // Do not proceed until we guarantee that DKG was triggered
+    let start_time = Instant::now();
+    loop {
+        let stackerdb = stackerdbs.first_mut().unwrap();
+        let dkg_packets: Vec<_> = stackerdb
+            .get_dkg_packets(&signer_slot_ids)
+            .expect("Failed to get dkg packets");
+        let begin_packets: Vec<_> = dkg_packets
+            .iter()
+            .filter_map(|packet| {
+                if matches!(packet.msg, Message::DkgBegin(_)) {
+                    Some(packet)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !begin_packets.is_empty() {
+            break;
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Timed out waiting for DKG to be triggered"
+        );
+    }
+
+    info!("------------------------- Restart Stopped Signer -------------------------");
+
+    signer_test.restart_signer(signer_idx, signer_key);
+
+    info!("------------------------- Wait for DKG -------------------------");
+    let key = signer_test.wait_for_dkg(timeout);
+    let mut transactions = HashSet::with_capacity(num_signers);
+    let start_time = Instant::now();
+    while transactions.len() < num_signers {
+        for stackerdb in stackerdbs.iter_mut() {
+            let current_transactions = stackerdb
+                .get_current_transactions()
+                .expect("Failed getting current transactions for signer slot id");
+            for tx in current_transactions {
+                transactions.insert(tx.txid());
+            }
+        }
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to retrieve pending vote transactions within timeout"
+        );
+    }
+
+    // Make sure transactions get mined
+    let start_time = Instant::now();
+    while !transactions.is_empty() {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "Failed to mine transactions within timeout"
+        );
+        next_block_and_wait(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.blocks_processed,
+        );
+        let blocks = test_observer::get_blocks();
+        for block in blocks.iter() {
+            let txs = block.get("transactions").unwrap().as_array().unwrap();
+            for tx in txs.iter() {
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                if raw_tx == "0x00" {
+                    continue;
+                }
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                transactions.remove(&parsed.txid());
+            }
+        }
+    }
+
+    // Make sure DKG did get set
+    assert_eq!(
+        key,
+        signer_test
+            .stacks_client
+            .get_approved_aggregate_key(reward_cycle)
+            .expect("Failed to get approved aggregate key")
+            .expect("No approved aggregate key found")
+    );
 }
 
 pub fn find_block_response(chunk_events: Vec<StackerDBChunksEvent>) -> Option<SignerMessage> {
@@ -1141,7 +1312,8 @@ fn stackerdb_block_proposal() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(5);
+    let num_signers = 5;
+    let mut signer_test = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1159,6 +1331,17 @@ fn stackerdb_block_proposal() {
         .0
         .verify(&key, proposed_signer_signature_hash.as_bytes()));
 
+    // Test prometheus metrics response
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let metrics_response = signer_test.get_signer_metrics();
+
+        // Because 5 signers are running in the same process, the prometheus metrics
+        // are incremented once for every signer. This is why we expect the metric to be
+        // `5`, even though there is only one block proposed.
+        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
+        assert!(metrics_response.contains(&expected_result));
+    }
     signer_test.shutdown();
 }
 
@@ -1350,7 +1533,8 @@ fn stackerdb_sign_after_signer_reboot() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(3);
+    let num_signers = 3;
+    let mut signer_test = SignerTest::new(num_signers);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 
@@ -1379,10 +1563,19 @@ fn stackerdb_sign_after_signer_reboot() {
 
     info!("------------------------- Test Mine Block after restart -------------------------");
 
-    signer_test.mine_nakamoto_block(timeout);
+    let last_block = signer_test.mine_nakamoto_block(timeout);
     let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
     let frost_signature =
         signer_test.wait_for_confirmed_block(&proposed_signer_signature_hash, short_timeout);
+
+    // Check that the latest block's bitvec is all 1's
+    assert_eq!(
+        last_block.signer_bitvec,
+        serde_json::to_value(BitVec::<4000>::ones(num_signers as u16).unwrap())
+            .expect("Failed to serialize BitVec")
+            .as_str()
+            .expect("Failed to serialize BitVec")
+    );
 
     assert!(
         frost_signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),

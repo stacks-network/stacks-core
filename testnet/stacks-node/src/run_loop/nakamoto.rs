@@ -31,6 +31,7 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
+use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
@@ -195,7 +196,7 @@ impl RunLoop {
                     return true;
                 }
             }
-            if self.config.node.mock_mining {
+            if self.config.get_node_config(false).mock_mining {
                 info!("No UTXOs found, but configured to mock mine");
                 return true;
             } else {
@@ -392,7 +393,12 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
+    pub fn start(
+        &mut self,
+        burnchain_opt: Option<Burnchain>,
+        mut mine_start: u64,
+        peer_network: Option<PeerNetwork>,
+    ) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -475,7 +481,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv);
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, peer_network);
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config

@@ -37,6 +37,7 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 
 pub mod consts {
     use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
+    pub use crate::types::MINING_COMMITMENT_WINDOW;
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 
@@ -63,4 +64,19 @@ pub mod consts {
     /// The number of StackerDB slots each signing key needs
     ///  to use to participate in DKG and block validation signing.
     pub const SIGNER_SLOTS_PER_USER: u32 = 13;
+}
+
+/// This test asserts that the constant above doesn't change.
+/// This exists because the constant above is used by Epoch 2.5 instantiation code.
+///
+/// Adding more slots will require instantiating more .signers contracts through either
+///  consensus changes (i.e., a new epoch) or through non-consensus-critical contract
+///  deployments.
+#[test]
+fn signer_slots_count_2_5() {
+    assert_eq!(
+        consts::SIGNER_SLOTS_PER_USER,
+        13,
+        "The .signers-x-y contracts in Epoch 2.5 were instantiated with 13 slots"
+    );
 }

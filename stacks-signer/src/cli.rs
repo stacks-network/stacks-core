@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
@@ -27,8 +26,6 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::types::chainstate::StacksPrivateKey;
-
-use crate::config::Network;
 
 extern crate alloc;
 
@@ -44,24 +41,16 @@ pub struct Cli {
 /// Subcommands for the stacks signer binary
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
-    /// Get a chunk from the stacker-db instance
+    /// Get a chunk from the stacker-db instance in hex encoding
     GetChunk(GetChunkArgs),
-    /// Get the latest chunk from the stacker-db instance
+    /// Get the latest chunk from the stacker-db instance in hex encoding
     GetLatestChunk(GetLatestChunkArgs),
-    /// List chunks from the stacker-db instance
+    /// List chunks from the stacker-db instance in hex encoding
     ListChunks(StackerDBArgs),
     /// Upload a chunk to the stacker-db instance
     PutChunk(PutChunkArgs),
-    /// Run DKG and sign the message through the stacker-db instance
-    DkgSign(SignArgs),
-    /// Sign the message through the stacker-db instance
-    Sign(SignArgs),
-    /// Run a DKG round through the stacker-db instance
-    Dkg(RunDkgArgs),
     /// Run the signer, waiting for events from the stacker-db instance
     Run(RunSignerArgs),
-    /// Generate necessary files for running a collection of signers
-    GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
     GenerateStackingSignature(GenerateStackingSignatureArgs),
     /// Check a configuration file and output config information
@@ -127,69 +116,11 @@ pub struct PutChunkArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the dkg-sign and sign command
-pub struct SignArgs {
-    /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
-    pub config: PathBuf,
-    /// The reward cycle the signer is registered for and wants to sign for
-    /// Note: this must be the current reward cycle of the node
-    #[arg(long, short)]
-    pub reward_cycle: u64,
-    /// The data to sign
-    #[arg(required = false, value_parser = parse_data)]
-    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
-    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
-    pub data: alloc::vec::Vec<u8>,
-}
-
-#[derive(Parser, Debug, Clone)]
-/// Arguments for the Dkg command
-pub struct RunDkgArgs {
-    /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
-    pub config: PathBuf,
-    /// The reward cycle the signer is registered for and wants to peform DKG for
-    #[arg(long, short)]
-    pub reward_cycle: u64,
-}
-
-#[derive(Parser, Debug, Clone)]
 /// Arguments for the Run command
 pub struct RunSignerArgs {
     /// Path to config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
-}
-
-#[derive(Parser, Debug, Clone)]
-/// Arguments for the generate-files command
-pub struct GenerateFilesArgs {
-    /// The Stacks node to connect to
-    #[arg(long)]
-    pub host: SocketAddr,
-    #[arg(
-        long,
-        required_unless_present = "private_keys",
-        conflicts_with = "private_keys"
-    )]
-    /// The number of signers to generate
-    pub num_signers: Option<u32>,
-    #[clap(long, value_name = "FILE")]
-    /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
-    pub private_keys: Option<PathBuf>,
-    #[arg(long, value_parser = parse_network)]
-    /// The network to use. One of "mainnet", "testnet", or "mocknet".
-    pub network: Network,
-    /// The directory to write the test data files to
-    #[arg(long, default_value = ".")]
-    pub dir: PathBuf,
-    /// The number of milliseconds to wait when polling for events from the stacker-db instance.
-    #[arg(long)]
-    pub timeout: Option<u64>,
-    #[arg(long)]
-    /// The authorization password to use to connect to the validate block proposal node endpoint
-    pub password: String,
 }
 
 #[derive(Clone, Debug)]
@@ -312,21 +243,6 @@ fn parse_data(data: &str) -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
-/// Parse the network. Must be one of "mainnet", "testnet", or "mocknet".
-fn parse_network(network: &str) -> Result<Network, String> {
-    Ok(match network.to_lowercase().as_str() {
-        "mainnet" => Network::Mainnet,
-        "testnet" => Network::Testnet,
-        "mocknet" => Network::Mocknet,
-        _ => {
-            return Err(format!(
-                "Invalid network: {}. Must be one of \"mainnet\", \"testnet\", or \"mocknet\".",
-                network
-            ))
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
@@ -351,7 +267,7 @@ mod tests {
     }
 
     fn clarity_tuple_version(pox_addr: &PoxAddress) -> u8 {
-        pox_addr
+        *pox_addr
             .as_clarity_tuple()
             .expect("Failed to generate clarity tuple for pox address")
             .get("version")
@@ -359,9 +275,8 @@ mod tests {
             .clone()
             .expect_buff(1)
             .expect("Expected version to be a u128")
-            .get(0)
+            .first()
             .expect("Expected version to be a uint")
-            .clone()
     }
 
     #[test]

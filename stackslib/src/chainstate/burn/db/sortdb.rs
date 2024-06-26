@@ -50,9 +50,9 @@ use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
-    BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
-    PoxConstants, PublicKey, Txid,
+    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
+    BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView,
+    Error as BurnchainError, PoxConstants, PublicKey, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
@@ -744,7 +744,7 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     );"#,
 ];
 
-const LAST_SORTITION_DB_INDEX: &'static str = "index_vote_for_aggregate_key_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -766,14 +766,34 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_vote_for_aggregate_key_burn_header_hash ON vote_for_aggregate_key(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_by_burn_height ON block_commits(block_height);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_by_sender ON block_commits(apparent_sender);"
 ];
 
+/// Handle to the sortition database, a MARF'ed sqlite DB on disk.
+/// It stores information pertaining to cryptographic sortitions performed in each Bitcoin block --
+/// either to select the next Stacks block (in epoch 2.5 and earlier), or to choose the next Stacks
+/// miner (epoch 3.0 and later).
 pub struct SortitionDB {
+    /// Whether or not write operations are permitted.  Pertains to whether or not transaction
+    /// objects can be created or schema migrations can happen on this SortitionDB instance.
     pub readwrite: bool,
+    /// If true, then while write operations will be permitted, they will not be committed (and may
+    /// even be skipped).  This is not used in production; it's used in the `stacks-inspect` tool
+    /// to simulate what could happen (e.g. to replay sortitions with different anti-MEV strategies
+    /// without corrupting the underlying DB).
+    pub dryrun: bool,
+    /// Handle to the MARF which stores an index over each burnchain and PoX fork.
     pub marf: MARF<SortitionId>,
+    /// First burnchain block height at which sortitions will be considered.  All Stacks epochs
+    /// besides epoch 1.0 must start at or after this height.
     pub first_block_height: u64,
+    /// Hash of the first burnchain block at which sortitions will be considered.
     pub first_burn_header_hash: BurnchainHeaderHash,
+    /// PoX constants that pertain to this DB, for purposes of (but not limited to) evaluating PoX
+    /// reward cycles and evaluating block-commit validity within a PoX reward cycle
     pub pox_constants: PoxConstants,
+    /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
 }
 
@@ -781,6 +801,7 @@ pub struct SortitionDB {
 pub struct SortitionDBTxContext {
     pub first_block_height: u64,
     pub pox_constants: PoxConstants,
+    pub dryrun: bool,
 }
 
 #[derive(Clone)]
@@ -788,6 +809,7 @@ pub struct SortitionHandleContext {
     pub first_block_height: u64,
     pub pox_constants: PoxConstants,
     pub chain_tip: SortitionId,
+    pub dryrun: bool,
 }
 
 pub type SortitionDBConn<'a> = IndexDBConn<'a, SortitionDBTxContext, SortitionId>;
@@ -1130,6 +1152,7 @@ impl<'a> SortitionHandleTx<'a> {
                 chain_tip: parent_chain_tip.clone(),
                 first_block_height: conn.first_block_height,
                 pox_constants: conn.pox_constants.clone(),
+                dryrun: conn.dryrun,
             },
         );
 
@@ -2019,6 +2042,7 @@ impl<'a> SortitionHandleConn<'a> {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height,
                 pox_constants: connection.context.pox_constants.clone(),
+                dryrun: connection.context.dryrun,
             },
             index: &connection.index,
         })
@@ -2586,6 +2610,7 @@ impl SortitionDB {
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
                 pox_constants: self.pox_constants.clone(),
+                dryrun: self.dryrun,
             },
         );
         Ok(index_tx)
@@ -2598,6 +2623,7 @@ impl SortitionDB {
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
                 pox_constants: self.pox_constants.clone(),
+                dryrun: self.dryrun,
             },
         )
     }
@@ -2609,6 +2635,7 @@ impl SortitionDB {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.pox_constants.clone(),
+                dryrun: self.dryrun,
             },
         )
     }
@@ -2620,13 +2647,13 @@ impl SortitionDB {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }
-
         Ok(SortitionHandleTx::new(
             &mut self.marf,
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.pox_constants.clone(),
+                dryrun: self.dryrun,
             },
         ))
     }
@@ -2666,6 +2693,7 @@ impl SortitionDB {
             path: path.to_string(),
             marf,
             readwrite,
+            dryrun: false,
             pox_constants,
             first_block_height,
             first_burn_header_hash,
@@ -2723,6 +2751,7 @@ impl SortitionDB {
             path: path.to_string(),
             marf,
             readwrite,
+            dryrun: false,
             first_block_height,
             pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
@@ -3428,6 +3457,7 @@ impl SortitionDB {
                 path: path.to_string(),
                 marf,
                 readwrite: true,
+                dryrun: false,
                 first_block_height: migrator.get_burnchain().first_block_height,
                 first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
                 pox_constants: migrator.get_burnchain().pox_constants.clone(),
@@ -3585,6 +3615,23 @@ impl SortitionDB {
 
         Ok(rc_info)
     }
+
+    pub fn get_preprocessed_reward_set_size(&self, tip: &SortitionId) -> Option<u16> {
+        let Ok(Some(reward_info)) = &self.get_preprocessed_reward_set_of(&tip) else {
+            return None;
+        };
+        let Some(reward_set) = reward_info.known_selected_anchor_block() else {
+            return None;
+        };
+
+        reward_set
+            .signers
+            .clone()
+            .map(|x| x.len())
+            .unwrap_or(0)
+            .try_into()
+            .ok()
+    }
 }
 
 impl<'a> SortitionDBTx<'a> {
@@ -3616,6 +3663,7 @@ impl<'a> SortitionDBConn<'a> {
                 first_block_height: self.context.first_block_height.clone(),
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.context.pox_constants.clone(),
+                dryrun: self.context.dryrun,
             },
         }
     }
@@ -4091,6 +4139,7 @@ impl SortitionDB {
         next_pox_info: Option<RewardCycleInfo>,
         announce_to: F,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+        let dryrun = self.dryrun;
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -4170,14 +4219,19 @@ impl SortitionDB {
             initial_mining_bonus,
         )?;
 
-        sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
+        if !dryrun {
+            sortition_db_handle
+                .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
+        }
 
         announce_to(reward_set_info);
 
-        // commit everything!
-        sortition_db_handle.commit().expect(
-            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
-        );
+        if !dryrun {
+            // commit everything!
+            sortition_db_handle.commit().expect(
+                "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+            );
+        }
         Ok((new_snapshot.0, new_snapshot.1))
     }
 
@@ -5243,6 +5297,11 @@ impl<'a> SortitionHandleTx<'a> {
             sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
         }
 
+        if self.context.dryrun {
+            // don't do any inserts
+            return Ok(root_hash);
+        }
+
         self.insert_block_snapshot(&sn, pox_payout)?;
 
         for block_op in block_ops {
@@ -6050,19 +6109,23 @@ impl<'a> SortitionHandleTx<'a> {
             vec![]
         };
 
-        // commit to all newly-arrived blocks
-        let (mut block_arrival_keys, mut block_arrival_values) =
-            self.process_new_block_arrivals(parent_snapshot)?;
-        keys.append(&mut block_arrival_keys);
-        values.append(&mut block_arrival_values);
-
         // store each indexed field
-        let root_hash = self.put_indexed_all(
-            &parent_snapshot.sortition_id,
-            &snapshot.sortition_id,
-            &keys,
-            &values,
-        )?;
+        let root_hash = if !self.context.dryrun {
+            // commit to all newly-arrived blocks
+            let (mut block_arrival_keys, mut block_arrival_values) =
+                self.process_new_block_arrivals(parent_snapshot)?;
+            keys.append(&mut block_arrival_keys);
+            values.append(&mut block_arrival_values);
+
+            self.put_indexed_all(
+                &parent_snapshot.sortition_id,
+                &snapshot.sortition_id,
+                &keys,
+                &values,
+            )?
+        } else {
+            TrieHash([0x00; 32])
+        };
 
         // pox payout addrs must include burn addresses
         let num_pox_payouts = self.get_num_pox_payouts(snapshot.block_height);
@@ -6503,6 +6566,7 @@ pub mod tests {
                 path: path.to_string(),
                 marf,
                 readwrite,
+                dryrun: false,
                 first_block_height,
                 first_burn_header_hash: first_burn_hash.clone(),
                 pox_constants: PoxConstants::test_default(),
@@ -6711,6 +6775,18 @@ pub mod tests {
                 ret.push((sort_id, consensus_hash, block_hash, block_height));
             }
             Ok(ret)
+        }
+
+        /// Get the last block-commit from a given sender
+        pub fn get_last_block_commit_by_sender(
+            conn: &DBConn,
+            sender: &BurnchainSigner,
+        ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+            let apparent_sender_str =
+                serde_json::to_string(sender).map_err(|e| db_error::SerializationError(e))?;
+            let sql = "SELECT * FROM block_commits WHERE apparent_sender = ?1 ORDER BY block_height DESC LIMIT 1";
+            let args = rusqlite::params![&apparent_sender_str];
+            query_row(conn, sql, args)
         }
     }
 

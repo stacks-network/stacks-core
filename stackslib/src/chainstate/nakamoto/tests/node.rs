@@ -547,6 +547,7 @@ impl TestStacksNode {
                     } else {
                         None
                     },
+                    1,
                 )
                 .unwrap()
             } else {

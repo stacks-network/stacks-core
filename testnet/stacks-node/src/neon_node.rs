@@ -153,7 +153,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
 };
@@ -298,7 +298,7 @@ pub struct StacksNode {
     /// True if we're a miner
     is_miner: bool,
     /// handle to the p2p thread
-    pub p2p_thread_handle: JoinHandle<()>,
+    pub p2p_thread_handle: JoinHandle<Option<PeerNetwork>>,
     /// handle to the relayer thread
     pub relayer_thread_handle: JoinHandle<()>,
 }
@@ -1144,6 +1144,50 @@ impl BlockMinerThread {
         ret
     }
 
+    /// Is a given Stacks staging block on the canonical burnchain fork?
+    pub(crate) fn is_on_canonical_burnchain_fork(
+        candidate: &StagingBlock,
+        sortdb_tip_handle: &SortitionHandleConn,
+    ) -> bool {
+        let candidate_ch = &candidate.consensus_hash;
+        let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
+            sortdb_tip_handle.conn(),
+            candidate_ch,
+        ) {
+            Ok(Some(x)) => x.block_height,
+            Ok(None) => {
+                warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                return false;
+            }
+            Err(e) => {
+                warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "err" => ?e);
+                return false;
+            }
+        };
+        let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                return false;
+            }
+            Err(e) => {
+                warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
+                      "consensus_hash" => %candidate_ch,
+                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "err" => ?e);
+                return false;
+            }
+        };
+        &tip_ch == candidate_ch
+    }
+
     /// Load all candidate tips upon which to build.  This is all Stacks blocks whose heights are
     /// less than or equal to at `at_stacks_height` (or the canonical chain tip height, if not given),
     /// but greater than or equal to this end height minus `max_depth`.
@@ -1173,61 +1217,42 @@ impl BlockMinerThread {
 
         let stacks_tips: Vec<_> = stacks_tips
             .into_iter()
-            .filter(|candidate| {
-                let candidate_ch = &candidate.consensus_hash;
-                let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
-                    sortdb_tip_handle.conn(),
-                    candidate_ch
-                ) {
-                    Ok(Some(x)) => x.block_height,
-                    Ok(None) => {
-                        warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash);
-                        return false;
-                    },
-                    Err(e) => {
-                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash,
-                              "err" => ?e);
-                        return false;
-                    },
-                };
-                let tip_ch = match sortdb_tip_handle.get_consensus_at(candidate_burn_ht) {
-                    Ok(Some(x)) => x,
-                    Ok(None) => {
-                        warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash);
-                        return false;
-                    },
-                    Err(e) => {
-                        warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
-                              "consensus_hash" => %candidate_ch,
-                              "stacks_block_hash" => %candidate.anchored_block_hash,
-                              "err" => ?e);
-                        return false;
-                    },
-                };
-                if &tip_ch != candidate_ch {
-                    false
-                } else {
-                    true
-                }
-            })
+            .filter(|candidate| Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle))
             .collect();
+
+        if stacks_tips.len() == 0 {
+            return vec![];
+        }
 
         let mut considered = HashSet::new();
         let mut candidates = vec![];
         let end_height = stacks_tips[0].height;
 
-        for cur_height in end_height.saturating_sub(max_depth)..=end_height {
-            let stacks_tips = chain_state
-                .get_stacks_chain_tips_at_height(cur_height)
-                .expect("FATAL: could not query chain tips at height");
+        // process these tips
+        for tip in stacks_tips.into_iter() {
+            let index_block_hash =
+                StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
+            let burn_height = burn_db
+                .get_consensus_hash_height(&tip.consensus_hash)
+                .expect("FATAL: could not query burnchain block height")
+                .expect("FATAL: no burnchain block height for Stacks tip");
+            let candidate = TipCandidate::new(tip, burn_height);
+            candidates.push(candidate);
+            considered.insert(index_block_hash);
+        }
 
-            for tip in stacks_tips {
+        // process earlier tips, back to max_depth
+        for cur_height in end_height.saturating_sub(max_depth)..end_height {
+            let stacks_tips: Vec<_> = chain_state
+                .get_stacks_chain_tips_at_height(cur_height)
+                .expect("FATAL: could not query chain tips at height")
+                .into_iter()
+                .filter(|candidate| {
+                    Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle)
+                })
+                .collect();
+
+            for tip in stacks_tips.into_iter() {
                 let index_block_hash =
                     StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
 
@@ -1712,7 +1737,7 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        let vrf_proof = if self.config.node.mock_mining {
+        let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
                 self.burn_block.sortition_hash.as_bytes(),
@@ -2535,7 +2560,7 @@ impl BlockMinerThread {
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         if res.is_none() {
             self.failed_to_submit_last_attempt = true;
-            if !self.config.node.mock_mining {
+            if !self.config.get_node_config(false).mock_mining {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
                 return None;
             }
@@ -3518,7 +3543,7 @@ impl RelayerThread {
             return false;
         }
 
-        if !self.config.node.mock_mining {
+        if !self.config.get_node_config(false).mock_mining {
             // mock miner can't mine microblocks yet, so don't stop it from trying multiple
             // anchored blocks
             if self.mined_stacks_block && self.config.node.mine_microblocks {
@@ -4171,7 +4196,7 @@ impl PeerThread {
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        let poll_timeout = config.get_poll_time();
 
         PeerThread {
             config,
@@ -4655,7 +4680,10 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+    ) -> Option<PeerNetwork> {
         let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
@@ -4718,6 +4746,7 @@ impl StacksNode {
             thread::sleep(Duration::from_secs(5));
         }
         info!("P2P thread exit!");
+        p2p_thread.net
     }
 
     /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
@@ -4777,7 +4806,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.node.mock_mining {
+        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
@@ -4814,7 +4843,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher)
             })
             .expect("FATAL: failed to start p2p thread");
 
@@ -5017,8 +5046,8 @@ impl StacksNode {
     }
 
     /// Join all inner threads
-    pub fn join(self) {
+    pub fn join(self) -> Option<PeerNetwork> {
         self.relayer_thread_handle.join().unwrap();
-        self.p2p_thread_handle.join().unwrap();
+        self.p2p_thread_handle.join().unwrap()
     }
 }

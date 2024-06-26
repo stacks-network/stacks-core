@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,7 +20,8 @@ use std::str;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{
     stackerdb_get_chunk_path, stackerdb_get_metadata_path, stackerdb_post_chunk_path, SlotMetadata,
-    StackerDBChunkAckData, StackerDBChunkData,
+    StackerDBChunkAckData, StackerDBChunkData, SIGNERS_STACKERDB_CHUNK_SIZE,
+    STACKERDB_MAX_CHUNK_SIZE,
 };
 use stacks_common::codec::StacksMessageCodec;
 
@@ -94,6 +95,7 @@ pub trait SignerSession {
 }
 
 /// signer session for a stackerdb instance
+#[derive(Debug)]
 pub struct StackerDBSession {
     /// host we're talking to
     pub host: String,
@@ -214,10 +216,23 @@ impl SignerSession for StackerDBSession {
     /// query the replica for zero or more latest chunks
     fn get_latest_chunks(&mut self, slot_ids: &[u32]) -> Result<Vec<Option<Vec<u8>>>, RPCError> {
         let mut payloads = vec![];
+        let limit = if self.stackerdb_contract_id.name.starts_with("signer") {
+            SIGNERS_STACKERDB_CHUNK_SIZE
+        } else {
+            usize::try_from(STACKERDB_MAX_CHUNK_SIZE)
+                .expect("infallible: StackerDB chunk size exceeds usize::MAX")
+        };
         for slot_id in slot_ids.iter() {
             let path = stackerdb_get_chunk_path(self.stackerdb_contract_id.clone(), *slot_id, None);
             let chunk = match self.rpc_request("GET", &path, None, &[]) {
-                Ok(body_bytes) => Some(body_bytes),
+                Ok(body_bytes) => {
+                    // Verify that the chunk is not too large
+                    if body_bytes.len() > limit {
+                        None
+                    } else {
+                        Some(body_bytes)
+                    }
+                }
                 Err(RPCError::HttpError(code)) => {
                     if code != 404 {
                         return Err(RPCError::HttpError(code));

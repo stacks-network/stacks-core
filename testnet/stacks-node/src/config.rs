@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{fs, thread};
+use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -101,7 +101,8 @@ mod tests {
                     seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -115,7 +116,8 @@ mod tests {
                     local_peer_seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -130,6 +132,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .unwrap_err();
         assert_eq!(
@@ -137,7 +140,7 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
     }
 
     #[test]
@@ -195,6 +198,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .expect("Expected to be able to parse block proposal token from file");
 
@@ -218,6 +222,7 @@ mod tests {
                 "#
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -241,7 +246,7 @@ mod tests {
         ))
         .expect("Expected to be able to parse config file from string");
 
-        assert!(Config::from_config_file(file).is_err());
+        assert!(Config::from_config_file(file, false).is_err());
     }
 
     #[test]
@@ -249,6 +254,7 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(r#""#)
                 .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -266,6 +272,7 @@ mod tests {
                 "#,
             )
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
@@ -291,6 +298,7 @@ mod tests {
                 "#,
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides, but overwrite with the configured one above
@@ -537,7 +545,7 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.burnchain.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.burnchain.clone();
         };
         config.burnchain
@@ -552,10 +560,23 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.miner.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.miner.clone();
         };
         return config.miner;
+    }
+
+    pub fn get_node_config(&self, resolve_bootstrap_nodes: bool) -> NodeConfig {
+        let Some(path) = &self.config_path else {
+            return self.node.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.node.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file, resolve_bootstrap_nodes) else {
+            return self.node.clone();
+        };
+        return config.node;
     }
 
     /// Apply any test settings to this burnchain config struct
@@ -928,11 +949,18 @@ impl Config {
         Ok(out_epochs)
     }
 
-    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        Self::from_config_default(config_file, Config::default())
+    pub fn from_config_file(
+        config_file: ConfigFile,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
+        Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
     }
 
-    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+    fn from_config_default(
+        config_file: ConfigFile,
+        default: Config,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
         let Config {
             node: default_node_config,
             burnchain: default_burnchain_config,
@@ -983,9 +1011,15 @@ impl Config {
         };
 
         if let Some(bootstrap_node) = bootstrap_node {
-            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+            if resolve_bootstrap_nodes {
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         } else {
-            if is_mainnet {
+            if is_mainnet && resolve_bootstrap_nodes {
                 let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
                 node.set_bootstrap_nodes(
                     bootstrap_node,
@@ -1220,6 +1254,26 @@ impl Config {
         self.events_observers.len() > 0
     }
 
+    pub fn make_nakamoto_block_builder_settings(
+        &self,
+        miner_status: Arc<Mutex<MinerStatus>>,
+    ) -> BlockBuilderSettings {
+        let miner_config = self.get_miner_config();
+        BlockBuilderSettings {
+            max_miner_time_ms: miner_config.nakamoto_attempt_time_ms,
+            mempool_settings: MemPoolWalkSettings {
+                max_walk_time_ms: miner_config.nakamoto_attempt_time_ms,
+                consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
+                nonce_cache_size: miner_config.nonce_cache_size,
+                candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
+                txs_to_consider: miner_config.txs_to_consider,
+                filter_origins: miner_config.filter_origins,
+            },
+            miner_status,
+            confirm_microblocks: false,
+        }
+    }
+
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -1267,6 +1321,20 @@ impl Config {
             return Some(miner_stats);
         }
         None
+    }
+
+    /// Determine how long the p2p state machine should poll for.
+    /// If the node is not mining, then use a default value.
+    /// If the node is mining, however, then at the time of this writing, the miner's latency is in
+    /// part dependent on the state machine getting block data back to the miner quickly, and thus
+    /// the poll time is dependent on the first attempt time.
+    pub fn get_poll_time(&self) -> u64 {
+        let poll_timeout = if self.node.miner {
+            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+        } else {
+            5000
+        };
+        poll_timeout
     }
 }
 
@@ -1727,6 +1795,13 @@ pub struct NodeConfig {
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub wait_time_for_blocks: u64,
+    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
+    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
+    /// how frequently the miner checks if a new burnchain block has been processed.
+    ///
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
+    /// but environments where burn blocks are more frequent may want to decrease this value.
+    pub next_initiative_delay: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -2012,6 +2087,7 @@ impl Default for NodeConfig {
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
+            next_initiative_delay: 10_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -2192,6 +2268,8 @@ pub struct MinerConfig {
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
+    /// Max time to assemble Nakamoto block
+    pub nakamoto_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
@@ -2242,6 +2320,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
+            nakamoto_attempt_time_ms: 10_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
@@ -2459,6 +2538,7 @@ pub struct NodeConfigFile {
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub wait_time_for_blocks: Option<u64>,
+    pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
@@ -2519,6 +2599,9 @@ impl NodeConfigFile {
             wait_time_for_blocks: self
                 .wait_time_for_blocks
                 .unwrap_or(default_node_config.wait_time_for_blocks),
+            next_initiative_delay: self
+                .next_initiative_delay
+                .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
             marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
@@ -2567,6 +2650,7 @@ pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
+    pub nakamoto_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
     pub segwit: Option<bool>,
@@ -2600,6 +2684,9 @@ impl MinerConfigFile {
             microblock_attempt_time_ms: self
                 .microblock_attempt_time_ms
                 .unwrap_or(miner_default_config.microblock_attempt_time_ms),
+            nakamoto_attempt_time_ms: self
+                .nakamoto_attempt_time_ms
+                .unwrap_or(miner_default_config.nakamoto_attempt_time_ms),
             probability_pick_no_estimate_tx: self
                 .probability_pick_no_estimate_tx
                 .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
