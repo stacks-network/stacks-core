@@ -8687,14 +8687,14 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch2_05,
                         start_height: 1,
                         end_height: 2,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
                         network_epoch: PEER_VERSION_EPOCH_2_05,
                     },
                     _ => StacksEpoch {
                         epoch_id: StacksEpochId::Epoch21,
                         start_height: 2,
                         end_height: u64::MAX,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
                         network_epoch: PEER_VERSION_EPOCH_2_1,
                     },
                 })
@@ -8708,7 +8708,7 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch10,
                         start_height: 0,
                         end_height: 0,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
                         network_epoch: PEER_VERSION_EPOCH_2_0,
                     }),
                     StacksEpochId::Epoch20 => self.get_stacks_epoch(0),
@@ -8916,7 +8916,7 @@ pub mod test {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 0,
                     end_height: u64::MAX,
-                    block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                    block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
                     network_epoch: PEER_VERSION_EPOCH_2_1,
                 })
             }
@@ -8929,7 +8929,7 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch10,
                         start_height: 0,
                         end_height: 0,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
                         network_epoch: PEER_VERSION_EPOCH_2_0,
                     }),
                     _ => self.get_stacks_epoch(0),

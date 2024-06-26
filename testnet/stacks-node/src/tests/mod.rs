@@ -46,7 +46,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::neon_node::{BlockMinerThread, TipCandidate};
 use super::Config;
-use crate::helium::RunLoop;
+use crate::local::RunLoop;
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::BitcoinRegtestController;
 

@@ -51,7 +51,7 @@ pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
-pub use self::run_loop::{helium, neon};
+pub use self::run_loop::{local, neon};
 pub use self::tenure::Tenure;
 use crate::chain_data::MinerStats;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
@@ -435,7 +435,7 @@ fn main() {
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "regtest" || conf.burnchain.mode == "mocknet" {
-        let mut run_loop = helium::RunLoop::new(conf);
+        let mut run_loop = local::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Local runloop exited with error: {}", e);
             return;

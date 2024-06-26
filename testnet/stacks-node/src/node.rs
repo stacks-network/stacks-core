@@ -150,7 +150,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
     )
 }
 
-// This function is called for helium and mocknet.
+// This function is called for local testnet (regtest/mocknet).
 fn spawn_peer(
     is_mainnet: bool,
     chain_id: u32,
@@ -389,7 +389,7 @@ impl Node {
         .unwrap()
     }
 
-    // This function is used for helium and mocknet.
+    // This function is used for local testnet (regtest/mocknet).
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -883,7 +883,7 @@ impl Node {
             }
         }
 
-        // todo(ludo): yikes but good enough in the context of helium:
+        // todo(ludo): yikes but good enough in the context of local testnet:
         // we only expect 1 block.
         let processed_block = processed_blocks[0].clone().0.unwrap();
 

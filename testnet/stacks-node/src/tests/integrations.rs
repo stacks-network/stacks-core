@@ -40,7 +40,7 @@ use super::{
     SK_3,
 };
 use crate::config::InitialBalance;
-use crate::helium::RunLoop;
+use crate::local::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 const OTHER_CONTRACT: &'static str = "

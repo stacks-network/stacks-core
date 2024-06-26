@@ -42,7 +42,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
     self, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
-    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
+    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, LOCAL_TESTNET_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
     PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
     PEER_VERSION_TESTNET,
@@ -107,21 +107,21 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: 1000000 - 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 1000000 - 1,
             end_height: 9223372036854775807,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: LOCAL_TESTNET_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
