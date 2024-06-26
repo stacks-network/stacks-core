@@ -375,7 +375,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             let event_parity = match event {
                 Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
                 // Block proposal events do have reward cycles, but each proposal has its own cycle,
-                //  and the vec could be heterogenous, so, don't differentiate.
+                //  and the vec could be heterogeneous, so, don't differentiate.
                 Some(SignerEvent::MinerMessages(..))
                 | Some(SignerEvent::NewBurnBlock(_))
                 | Some(SignerEvent::StatusCheck)

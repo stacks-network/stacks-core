@@ -34,7 +34,7 @@ use wsts::curve::scalar::Scalar;
 use crate::signer::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-// Default transaction fee in microstacks (if unspecificed in the config file)
+// Default transaction fee in microstacks (if unspecified in the config file)
 // TODO: Use the fee estimation endpoint to get the default fee.
 const TX_FEE_USTX: u64 = 10_000;
 
