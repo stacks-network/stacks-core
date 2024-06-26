@@ -265,6 +265,7 @@ impl Signer {
             "block_id" => %block_proposal.block.block_id(),
         );
         crate::monitoring::increment_block_proposals_received();
+        let mut block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
@@ -279,49 +280,48 @@ impl Signer {
                 .ok();
         }
 
-        let Some(sortition_state) = sortition_state else {
+        // If we have sortition state, run some additional checks
+        if let Some(sortition_state) = sortition_state {
+            match sortition_state.check_proposal(
+                stacks_client,
+                &self.signer_db,
+                &block_proposal.block,
+                miner_pubkey,
+            ) {
+                // Error validating block
+                Err(e) => warn!(
+                    "{self}: Error checking block proposal: {e:?}";
+                    "signer_sighash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                ),
+                // Block proposal is bad
+                Ok(false) => {
+                    warn!(
+                        "{self}: Block proposal invalid";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %block_proposal.block.block_id(),
+                    );
+                    block_info.valid = Some(false);
+                }
+                // Block proposal passed check, still don't know if valid
+                Ok(true) => {}
+            }
+        } else {
             warn!(
                 "{self}: Cannot validate block, no sortition view";
                 "signer_sighash" => %signer_signature_hash,
                 "block_id" => %block_proposal.block.block_id(),
-            );
-            return;
+            )
         };
 
-        match sortition_state.check_proposal(
-            stacks_client,
-            &self.signer_db,
-            &block_proposal.block,
-            miner_pubkey,
-        ) {
-            // Error validating block
-            Err(e) => {
-                warn!(
-                    "{self}: Error checking block proposal: {e:?}";
-                    "signer_sighash" => %signer_signature_hash,
-                    "block_id" => %block_proposal.block.block_id(),
-                );
-                return;
-            }
-            // Block proposal is bad
-            Ok(false) => {
-                warn!(
-                    "{self}: Block proposal invalid";
-                    "signer_sighash" => %signer_signature_hash,
-                    "block_id" => %block_proposal.block.block_id(),
-                );
-                return;
-            }
-            // Block proposal is good, continue
-            Ok(true) => {}
+        // This is an expensive call, skip if we already know if block is valid
+        if block_info.valid.is_none() {
+            stacks_client
+                .submit_block_for_validation(block_info.block.clone())
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to submit block for validation: {e:?}",);
+                });
         }
-
-        let block_info = BlockInfo::from(block_proposal.clone());
-        stacks_client
-            .submit_block_for_validation(block_info.block.clone())
-            .unwrap_or_else(|e| {
-                warn!("{self}: Failed to submit block for validation: {e:?}",);
-            });
 
         self.signer_db
             .insert_block(&block_info)
