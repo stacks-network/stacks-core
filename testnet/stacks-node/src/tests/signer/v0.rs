@@ -17,6 +17,7 @@ use std::env;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
@@ -25,9 +26,10 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
-use stacks::types::chainstate::StacksPrivateKey;
+use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
+use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks::types::PublicKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
@@ -37,7 +39,8 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
-use crate::tests::neon_integrations::next_block_and_wait;
+use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait, submit_tx};
+use crate::tests::{self, make_stacks_transfer};
 use crate::BurnchainController;
 
 impl SignerTest<SpawnedSigner> {
@@ -198,7 +201,7 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
@@ -301,7 +304,7 @@ fn miner_gather_signatures() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     signer_test.boot_to_epoch_3();
     let timeout = Duration::from_secs(30);
 
@@ -353,7 +356,7 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -379,5 +382,122 @@ fn mine_2_nakamoto_reward_cycles() {
         .btc_regtest_controller
         .get_headers_height();
     assert_eq!(current_burnchain_height, final_reward_cycle_height_boundary);
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behavior at the end of a tenure. Specifically:
+/// - The miner will broadcast the last block of the tenure, even if the signing is
+///   completed after the next burn block arrives
+/// - The signers will not sign a block that arrives after the next burn block, but
+///   will finish a signing process that was in progress when the next burn block arrived
+fn end_of_tenure() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    // signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers);
+    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+
+    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    loop {
+        let blocks_proposed = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
+        if blocks_proposed > proposals_before {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    info!("Block proposed, verifying that it is not processed");
+
+    // Wait 10 seconds and verify that the block has not been processed
+    std::thread::sleep(Duration::from_secs(10));
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst),
+        blocks_before
+    );
+
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    info!("Triggering a new block to be mined");
+
+    // Trigger the next block to be mined and commit submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        10,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    info!("Disabling the stall and waiting for the blocks to be processed");
+    // Disable the stall and wait for the block to be processed
+    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    loop {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        if blocks_mined > blocks_before + 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(info.stacks_tip_height, 30);
+
     signer_test.shutdown();
 }
