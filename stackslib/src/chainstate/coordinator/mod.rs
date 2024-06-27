@@ -789,46 +789,50 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
         ic.get_chosen_pox_anchor(burnchain_db_conn_opt, &parent_bhh, &burnchain.pox_constants)
     }?;
-    let reward_cycle_info = if let Some((consensus_hash, stacks_block_hash, txid)) =
-        reward_cycle_info
-    {
-        let anchor_block_known = StacksChainState::is_stacks_block_processed(
-            &chain_state.db(),
-            &consensus_hash,
-            &stacks_block_hash,
-        )?;
-        info!(
-            "PoX Anchor block selected";
-            "cycle" => reward_cycle,
-            "consensus_hash" => %consensus_hash,
-            "block_hash" => %stacks_block_hash,
-            "block_id" => %StacksBlockId::new(&consensus_hash, &stacks_block_hash),
-            "is_known" => anchor_block_known,
-            "commit_txid" => %txid,
-            "cycle_burn_height" => burn_height
-        );
-        let anchor_status = if anchor_block_known {
-            let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
-            let reward_set =
-                provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
-            PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
+    let reward_cycle_info =
+        if let Some((consensus_hash, stacks_block_hash, txid)) = reward_cycle_info {
+            let anchor_block_known = StacksChainState::is_stacks_block_processed(
+                &chain_state.db(),
+                &consensus_hash,
+                &stacks_block_hash,
+            )?;
+            let stacks_block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
+            info!(
+                "PoX Anchor block selected";
+                "cycle" => reward_cycle,
+                "consensus_hash" => %consensus_hash,
+                "stacks_block_hash" => %stacks_block_hash,
+                "stacks_block_id" => %stacks_block_id,
+                "is_known" => anchor_block_known,
+                "commit_txid" => %txid,
+                "cycle_burn_height" => burn_height
+            );
+            let anchor_status = if anchor_block_known {
+                let reward_set = provider.get_reward_set(
+                    burn_height,
+                    chain_state,
+                    burnchain,
+                    sort_db,
+                    &stacks_block_id,
+                )?;
+                PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
+            } else {
+                PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
+            };
+            RewardCycleInfo {
+                reward_cycle,
+                anchor_status,
+            }
         } else {
-            PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
+            info!(
+                "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
+                reward_cycle, burn_height
+            );
+            RewardCycleInfo {
+                reward_cycle,
+                anchor_status: PoxAnchorBlockStatus::NotSelected,
+            }
         };
-        RewardCycleInfo {
-            reward_cycle,
-            anchor_status,
-        }
-    } else {
-        info!(
-            "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
-            reward_cycle, burn_height
-        );
-        RewardCycleInfo {
-            reward_cycle,
-            anchor_status: PoxAnchorBlockStatus::NotSelected,
-        }
-    };
 
     // cache the reward cycle info as of the first sortition in the prepare phase, so that
     // the first Nakamoto epoch can go find it later.  Subsequent Nakamoto epochs will use the
@@ -2348,13 +2352,13 @@ impl<
                 if self.config.require_affirmed_anchor_blocks {
                     // missing this anchor block -- cannot proceed until we have it
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &missing_anchor_block
                     );
                     return Ok(Some(missing_anchor_block));
                 } else {
                     // this and descendant sortitions might already exist
-                    info!("Burnchain block processing will continue in spite of missing affirmed anchor block {}", &missing_anchor_block);
+                    info!("Burnchain block processing will continue in spite of missing affirmed anchor stacks block hash {}", &missing_anchor_block);
                 }
             }
         }
@@ -2609,7 +2613,7 @@ impl<
                     self.check_missing_anchor_block(&header, &canonical_affirmation_map, rc_info)?
                 {
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &missing_anchor_block
                     );
                     return Ok(Some(missing_anchor_block));
@@ -2797,7 +2801,7 @@ impl<
                     self.process_new_pox_anchor(pox_anchor, already_processed_burn_blocks)?
                 {
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &expected_anchor_block_hash
                     );
                     return Ok(Some(expected_anchor_block_hash));
@@ -2953,6 +2957,9 @@ impl<
                 "attachments_count" => attachments_instances.len(),
                 "index_block_hash" => %block_receipt.header.index_block_hash(),
                 "stacks_height" => block_receipt.header.stacks_block_height,
+                "burn_height" => block_receipt.header.burn_header_height,
+                "burn_block_hash" => %block_receipt.header.burn_header_hash,
+                "consensus_hash" => %block_receipt.header.consensus_hash,
             );
             if let Some(atlas_db) = atlas_db {
                 for new_attachment in attachments_instances.into_iter() {
@@ -3133,12 +3140,29 @@ impl<
                 == &AffirmationMapEntry::PoxAnchorBlockPresent
             {
                 // yup, we're expecting this
-                debug!("Discovered an old anchor block: {} (height {}, rc {}) with heaviest affirmation map {}", pox_anchor, commit.block_height, reward_cycle, &heaviest_am);
-                info!("Discovered an old anchor block: {}", pox_anchor);
+                debug!("Discovered an old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle,
+                    "heaviest_affirmation_map" => %heaviest_am
+                );
+                info!("Discovered an old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle
+                );
                 return Ok(Some(pox_anchor.clone()));
             } else {
                 // nope -- can ignore
-                debug!("Discovered unaffirmed old anchor block: {} (height {}, rc {}) with heaviest affirmation map {}", pox_anchor, commit.block_height, reward_cycle, &heaviest_am);
+                debug!("Discovered unaffirmed old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle,
+                    "heaviest_affirmation_map" => %heaviest_am
+                );
                 return Ok(None);
             }
         } else {
@@ -3417,7 +3441,10 @@ impl<
 
         info!(
             "Reprocessing with anchor block information, starting at block height: {}",
-            prep_end.block_height
+            prep_end.block_height;
+            "consensus_hash" => %prep_end.consensus_hash,
+            "burn_block_hash" => %prep_end.burn_header_hash,
+            "stacks_block_height" => prep_end.stacks_block_height
         );
         let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
         pox_id.extend_with_present_block();

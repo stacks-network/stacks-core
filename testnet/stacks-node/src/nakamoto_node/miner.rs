@@ -265,7 +265,7 @@ impl BlockMinerThread {
                     info!(
                         "Miner: Block signed by signer set and broadcasted";
                         "signer_sighash" => %new_block.header.signer_signature_hash(),
-                        "block_hash" => %new_block.header.block_hash(),
+                        "stacks_block_hash" => %new_block.header.block_hash(),
                         "stacks_block_id" => %new_block.header.block_id(),
                         "block_height" => new_block.header.chain_length,
                         "consensus_hash" => %new_block.header.consensus_hash,
@@ -633,8 +633,10 @@ impl BlockMinerThread {
             if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                 // Do an extra check just so we don't log EVERY time.
                 warn!("Broadcasting is stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
+                    "stacks_block_id" => %block.block_id(),
+                    "stacks_block_hash" => %block.header.block_hash(),
                     "height" => block.header.chain_length,
+                    "consensus_hash" => %block.header.consensus_hash
                 );
                 while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -642,6 +644,7 @@ impl BlockMinerThread {
                 info!("Broadcasting is no longer stalled due to testing directive.";
                     "block_id" => %block.block_id(),
                     "height" => block.header.chain_length,
+                    "consensus_hash" => %block.header.consensus_hash
                 );
             }
         }

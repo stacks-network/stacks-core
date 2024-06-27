@@ -2423,17 +2423,14 @@ impl StacksChainState {
             }
         };
 
+        let stacks_block_id =
+            StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
         if !block.processed {
             if !has_stored_block {
                 if accept {
                     debug!(
                         "Accept block {}/{} as {}",
-                        consensus_hash,
-                        anchored_block_hash,
-                        StacksBlockHeader::make_index_block_hash(
-                            &consensus_hash,
-                            &anchored_block_hash
-                        )
+                        consensus_hash, anchored_block_hash, stacks_block_id
                     );
                 } else {
                     info!("Reject block {}/{}", consensus_hash, anchored_block_hash);
@@ -2441,17 +2438,13 @@ impl StacksChainState {
             } else {
                 debug!(
                     "Already stored block {}/{} ({})",
-                    consensus_hash,
-                    anchored_block_hash,
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash)
+                    consensus_hash, anchored_block_hash, stacks_block_id
                 );
             }
         } else {
             debug!(
                 "Already processed block {}/{} ({})",
-                consensus_hash,
-                anchored_block_hash,
-                StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash)
+                consensus_hash, anchored_block_hash, stacks_block_id
             );
         }
 
@@ -4086,7 +4079,10 @@ impl StacksChainState {
             let mut current_epoch = stacks_parent_epoch;
             while current_epoch != sortition_epoch.epoch_id {
                 applied = true;
-                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %current_epoch);
+                info!("Applying epoch transition";
+                    "new_epoch_id" => %sortition_epoch.epoch_id,
+                    "old_epoch_id" => %current_epoch
+                );
                 // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
                 assert!(current_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, current epoch = {}", sortition_epoch.epoch_id, current_epoch);
                 // time for special cases:
@@ -4199,7 +4195,14 @@ impl StacksChainState {
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
-                            debug!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
+                            debug!("Processed StackStx burnchain op";
+                                "amount_ustx" => stacked_ustx,
+                                "num_cycles" => num_cycles,
+                                "burn_block_height" => block_height,
+                                "sender" => %sender,
+                                "reward_addr" => %reward_addr,
+                                "txid" => %txid
+                            );
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
@@ -4232,7 +4235,8 @@ impl StacksChainState {
                     info!("StackStx burn op processing error.";
                            "error" => %format!("{:?}", e),
                            "txid" => %txid,
-                           "burn_block" => %burn_header_hash);
+                           "burn_block_hash" => %burn_header_hash
+                    );
                 }
             };
         }
@@ -4318,9 +4322,10 @@ impl StacksChainState {
                             }
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";
-                              "error" => ?e,
-                              "txid" => %txid,
-                              "burn_block" => %burn_header_hash);
+                                    "error" => ?e,
+                                    "txid" => %txid,
+                                    "burn_block_hash" => %burn_header_hash
+                                );
                                 None
                             }
                         }
@@ -4394,13 +4399,22 @@ impl StacksChainState {
                     if let Value::Response(ref resp) = value {
                         if !resp.committed {
                             info!("DelegateStx burn op rejected by PoX contract.";
-                                   "txid" => %txid,
-                                   "burn_block" => %burn_header_hash,
-                                   "contract_call_ecode" => %resp.data);
+                                "txid" => %txid,
+                                "burn_block_hash" => %burn_header_hash,
+                                "contract_call_ecode" => %resp.data);
                         } else {
                             let reward_addr_fmt = format!("{:?}", reward_addr);
                             let delegate_to_fmt = format!("{:?}", delegate_to);
-                            info!("Processed DelegateStx burnchain op"; "resp" => %resp.data, "amount_ustx" => delegated_ustx, "delegate_to" => delegate_to_fmt, "until_burn_height" => until_burn_height, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => reward_addr_fmt, "txid" => %txid);
+                            info!("Processed DelegateStx burnchain op";
+                                "resp" => %resp.data,
+                                "amount_ustx" => delegated_ustx,
+                                "delegate_to" => delegate_to_fmt,
+                                "until_burn_height" => until_burn_height,
+                                "burn_block_height" => block_height,
+                                "sender" => %sender,
+                                "reward_addr" => reward_addr_fmt,
+                                "txid" => %txid
+                            );
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
@@ -4433,7 +4447,7 @@ impl StacksChainState {
                     info!("DelegateStx burn op processing error.";
                            "error" => %format!("{:?}", e),
                            "txid" => %txid,
-                           "burn_block" => %burn_header_hash);
+                           "burn_header_hash" => %burn_header_hash);
                 }
             };
         }
@@ -4492,7 +4506,7 @@ impl StacksChainState {
                         if !resp.committed {
                             info!("VoteForAggregateKey burn op rejected by signers-voting contract.";
                                    "txid" => %txid,
-                                   "burn_block" => %burn_header_hash,
+                                   "burn_block_hash" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
                             let aggregate_key_fmt = format!("{:?}", aggregate_key.to_hex());
@@ -4541,7 +4555,7 @@ impl StacksChainState {
                     info!("VoteForAggregateKey burn op processing error.";
                            "error" => %format!("{:?}", e),
                            "txid" => %txid,
-                           "burn_block" => %burn_header_hash);
+                           "burn_block_hash" => %burn_header_hash);
                 }
             };
         }
