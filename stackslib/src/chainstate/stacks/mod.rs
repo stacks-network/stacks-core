@@ -1062,7 +1062,8 @@ impl fmt::Display for TransactionPostCondition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPostConditionStatus {
     Success,
-    UnmetPostCondition(TransactionPostCondition),
+    FailedFungibleAssetPostCondition((TransactionPostCondition, u128)),
+    FailedNonFungibleAssetPostCondition((TransactionPostCondition, Value)),
     UncheckedFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
     UncheckedNonFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
 }
@@ -1071,8 +1072,11 @@ impl fmt::Display for TransactionPostConditionStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TransactionPostConditionStatus::Success => write!(f, "Success"),
-            TransactionPostConditionStatus::UnmetPostCondition(condition) => {
-                write!(f, "Unmet post condition: {:?}", condition)
+            TransactionPostConditionStatus::FailedFungibleAssetPostCondition(data) => {
+                write!(f, "Failed fungible asset post condition: {:?}", data)
+            }
+            TransactionPostConditionStatus::FailedNonFungibleAssetPostCondition(data) => {
+                write!(f, "Failed non-fungible asset post condition: {:?}", data)
             }
             TransactionPostConditionStatus::UncheckedFungibleAsset(asset) => {
                 write!(f, "Unchecked fungible asset: {:?}", asset)

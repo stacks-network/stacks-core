@@ -624,7 +624,10 @@ impl StacksChainState {
                         );
 
                         post_condition_statuses.push(
-                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                            TransactionPostConditionStatus::FailedFungibleAssetPostCondition((
+                                postcond.clone(),
+                                amount_sent,
+                            )),
                         );
 
                         return Ok(false);
@@ -671,7 +674,10 @@ impl StacksChainState {
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         post_condition_statuses.push(
-                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                            TransactionPostConditionStatus::FailedFungibleAssetPostCondition((
+                                postcond.clone(),
+                                amount_sent,
+                            )),
                         );
                         return Ok(false);
                     }
@@ -708,7 +714,10 @@ impl StacksChainState {
                     if !condition_code.check(asset_value, assets_sent) {
                         info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
                         post_condition_statuses.push(
-                            TransactionPostConditionStatus::UnmetPostCondition(postcond.clone()),
+                            TransactionPostConditionStatus::FailedNonFungibleAssetPostCondition((
+                                postcond.clone(),
+                                asset_value.clone(),
+                            )),
                         );
                         return Ok(false);
                     }
@@ -1706,7 +1715,10 @@ pub mod test {
                 TransactionPostConditionStatusAssert::UnmetPostCondition => {
                     matches!(
                         status,
-                        TransactionPostConditionStatus::UnmetPostCondition(_)
+                        TransactionPostConditionStatus::FailedFungibleAssetPostCondition(_)
+                    ) | matches!(
+                        status,
+                        TransactionPostConditionStatus::FailedNonFungibleAssetPostCondition(_)
                     )
                 }
                 TransactionPostConditionStatusAssert::UncheckedFungibleAsset => {
