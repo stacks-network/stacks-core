@@ -899,7 +899,7 @@ impl PeerNetwork {
             nakamoto_blocks,
         )
     }
-    
+
     #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited message, with either the intention of just processing it (in which
     /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
