@@ -54,6 +54,7 @@ use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -318,10 +319,16 @@ impl DBConfig {
                 self.version == "3" || self.version == "4" || self.version == "5"
             }
             StacksEpochId::Epoch25 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
+                self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
+                    || self.version == "6"
             }
             StacksEpochId::Epoch30 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
+                self.version == "3"
+                    || self.version == "4"
+                    || self.version == "5"
+                    || self.version == "6"
             }
         }
     }
@@ -368,6 +375,16 @@ impl StacksBlockHeaderTypes {
         match &self {
             StacksBlockHeaderTypes::Nakamoto(ref x) => Some(x),
             _ => None,
+        }
+    }
+
+    /// Get the sighash of a block.
+    /// * In Nakamoto blocks, this is the hash signers must sign
+    /// * In epoch 2, this is simply the blocok hash (there are no signers)
+    pub fn sighash(&self) -> Sha512Trunc256Sum {
+        match &self {
+            StacksBlockHeaderTypes::Nakamoto(ref x) => x.signer_signature_hash(),
+            StacksBlockHeaderTypes::Epoch2(ref x) => Sha512Trunc256Sum(x.block_hash().0),
         }
     }
 }
@@ -696,7 +713,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "5";
+pub const CHAINSTATE_VERSION: &'static str = "6";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1111,6 +1128,13 @@ impl StacksChainState {
                         // migrate to nakamoto 2
                         info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "5" => {
+                        // migrate to nakamoto 3
+                        info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }
@@ -1662,7 +1686,7 @@ impl StacksChainState {
 
         {
             // add a block header entry for the boot code
-            let mut tx = chainstate.index_tx_begin()?;
+            let mut tx = chainstate.index_tx_begin();
             let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -1881,12 +1905,12 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     /// Does not create a Clarity instance.
-    pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        Ok(StacksDBTx::new(&mut self.state_index, ()))
+    pub fn index_tx_begin<'a>(&'a mut self) -> StacksDBTx<'a> {
+        StacksDBTx::new(&mut self.state_index, ())
     }
 
-    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
-        Ok(StacksDBConn::new(&self.state_index, ()))
+    pub fn index_conn<'a>(&'a self) -> StacksDBConn<'a> {
+        StacksDBConn::new(&self.state_index, ())
     }
 
     /// Begin a transaction against the underlying DB
@@ -1922,7 +1946,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1941,7 +1965,7 @@ impl StacksChainState {
     ) -> Result<Value, clarity_error> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1960,7 +1984,7 @@ impl StacksChainState {
         function: &str,
         args: &[Value],
     ) -> Result<Value, clarity_error> {
-        let headers_db = HeadersDBConn(self.state_index.sqlite_conn());
+        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,
             &headers_db,
