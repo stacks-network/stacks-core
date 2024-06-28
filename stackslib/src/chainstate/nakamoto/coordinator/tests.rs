@@ -775,7 +775,10 @@ fn block_descendant() {
     // this would be where things go haywire. this tenure's parent will be the anchor block.
     let (first_reward_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
 
-    assert_eq!(first_reward_block.header.parent_block_id, naka_anchor_block.block_id());
+    assert_eq!(
+        first_reward_block.header.parent_block_id,
+        naka_anchor_block.block_id()
+    );
 }
 
 #[test]
