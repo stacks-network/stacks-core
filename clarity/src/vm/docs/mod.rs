@@ -2751,7 +2751,7 @@ mod test {
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::{Address, StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::{Address, StacksEpochId};
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -2905,7 +2905,7 @@ mod test {
                 start_height: 0,
                 end_height: u64::MAX,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_1,
+                network_epoch: 0x06,
             })
         }
         fn get_burn_start_height(&self) -> u32 {
