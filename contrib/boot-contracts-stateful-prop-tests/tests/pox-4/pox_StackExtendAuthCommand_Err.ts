@@ -1,35 +1,25 @@
 import { poxAddressToTuple } from "@stacks/stacking";
-import {
-  hasPoolMembers,
-  isAmountLockedPositive,
-  isPeriodWithinMax,
-  isDelegating,
-  isStacking,
-  isStackingSolo,
-  isStackingMinimumCalculated,
-  logCommand,
-  PoxCommand,
-  Real,
-  Stub,
-  Wallet,
-} from "./pox_CommandModel";
-import {
-  currentCycle,
-  FIRST_BURNCHAIN_BLOCK_HEIGHT,
-  REWARD_CYCLE_LENGTH,
-} from "./pox_Commands";
-import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
-import { assert, expect } from "vitest";
+import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
+import { currentCycle } from "./pox_Commands";
+import { Cl } from "@stacks/transactions";
+import { expect } from "vitest";
 import { tx } from "@hirosystems/clarinet-sdk";
 
-export class StackExtendAuthCommand implements PoxCommand {
+type CheckFunc = (
+  this: StackExtendAuthCommand_Err,
+  model: Readonly<Stub>,
+) => boolean;
+
+export class StackExtendAuthCommand_Err implements PoxCommand {
   readonly wallet: Wallet;
   readonly extendCount: number;
   readonly authId: number;
   readonly currentCycle: number;
+  readonly checkFunc: CheckFunc;
+  readonly errorCode: number;
 
   /**
-   * Constructs a `StackExtendAuthCommand` to extend an active stacking lock.
+   * Constructs a `StackExtendAuthCommand_Err` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using an `authorization`.
    *
@@ -37,81 +27,30 @@ export class StackExtendAuthCommand implements PoxCommand {
    * @param extendCount - Represents the cycles to extend the stack with.
    * @param authId - Unique auth-id for the authorization.
    * @param currentCycle - Represents the current PoX reward cycle.
-   *
-   * Constraints for running this command include:
-   * - The Stacker must have locked uSTX.
-   * - The Stacker must be stacking solo.
-   * - The Stacker must not have delegated to a pool.
-   * - The new lock period must be less than or equal to 12.
+   * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
   constructor(
     wallet: Wallet,
     extendCount: number,
     authId: number,
     currentCycle: number,
+    checkFunc: CheckFunc,
+    errorCode: number,
   ) {
     this.wallet = wallet;
     this.extendCount = extendCount;
     this.authId = authId;
     this.currentCycle = currentCycle;
+    this.checkFunc = checkFunc;
+    this.errorCode = errorCode;
   }
 
-  check(model: Readonly<Stub>): boolean {
-    // Constraints for running this command include:
-    // - The Stacker must have locked uSTX.
-    // - The Stacker must be stacking solo.
-    // - The Stacker must not have delegated to a pool.
-    // - The new lock period must be less than or equal to 12.
-    const stacker = model.stackers.get(this.wallet.stxAddress)!;
-
-    const firstRewardCycle = Math.max(
-      stacker.firstLockedRewardCycle,
-      this.currentCycle,
-    );
-    const firstExtendCycle = Math.floor(
-      (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
-        REWARD_CYCLE_LENGTH,
-    );
-    const lastExtendCycle = firstExtendCycle + this.extendCount - 1;
-    const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
-
-    return (
-      isStackingMinimumCalculated(model) &&
-      isStacking(stacker) &&
-      isStackingSolo(stacker) &&
-      !isDelegating(stacker) &&
-      isAmountLockedPositive(stacker) &&
-      !hasPoolMembers(stacker) &&
-      isPeriodWithinMax(totalPeriod)
-    );
-  }
+  check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
     const currentRewCycle = currentCycle(real.network);
-
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
-
-    const { result: firstExtendCycle } = real.network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "burn-height-to-reward-cycle",
-      [Cl.uint(stacker.unlockHeight)],
-      this.wallet.stxAddress,
-    );
-    assert(isClarityType(firstExtendCycle, ClarityType.UInt));
-
-    const lastExtendCycle = Number(firstExtendCycle.value) + this.extendCount -
-      1;
-
-    const { result: extendedUnlockHeight } = real.network.callReadOnlyFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "reward-cycle-to-burn-height",
-      [Cl.uint(lastExtendCycle + 1)],
-      this.wallet.stxAddress,
-    );
-    assert(isClarityType(extendedUnlockHeight, ClarityType.UInt));
-
-    const newUnlockHeight = extendedUnlockHeight.value;
 
     // Include the authorization and the `stack-extend` transactions in a single
     // block. This way we ensure both the authorization and the stack-extend
@@ -163,23 +102,13 @@ export class StackExtendAuthCommand implements PoxCommand {
     ]);
 
     expect(block[0].result).toBeOk(Cl.bool(true));
-    expect(block[1].result).toBeOk(
-      Cl.tuple({
-        stacker: Cl.principal(this.wallet.stxAddress),
-        "unlock-burn-height": Cl.uint(newUnlockHeight),
-      }),
-    );
-
-    // Get the wallet from the model and update it with the new state.
-    const wallet = model.stackers.get(this.wallet.stxAddress)!;
-    // Update model so that we know this wallet's unlock height was extended.
-    wallet.unlockHeight = Number(newUnlockHeight);
+    expect(block[1].result).toBeErr(Cl.int(this.errorCode));
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.wallet.label}`,
+      `✗ ${this.wallet.label}`,
       "stack-extend-auth",
       "extend-count",
       this.extendCount.toString(),

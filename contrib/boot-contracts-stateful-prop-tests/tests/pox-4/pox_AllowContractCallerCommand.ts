@@ -77,7 +77,6 @@ export class AllowContractCallerCommand implements PoxCommand {
 
     const callerToAllow = model.stackers.get(this.allowanceTo.stxAddress)!;
     // Update model so that we know this wallet has authorized a contract-caller.
-    // If the caller is already allowed, there's no need to add it again.
     const callerToAllowIndexInAllowedList = wallet.allowedContractCallers
       .indexOf(this.allowanceTo.stxAddress);
 

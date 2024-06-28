@@ -1,5 +1,5 @@
 import fc from "fast-check";
-import { Real, Stacker, Stub, StxAddress, Wallet } from "./pox_CommandModel";
+import { PoxCommand, Stacker, StxAddress, Wallet } from "./pox_CommandModel";
 import { GetStackingMinimumCommand } from "./pox_GetStackingMinimumCommand";
 import { GetStxAccountCommand } from "./pox_GetStxAccountCommand";
 import { StackStxSigCommand } from "./pox_StackStxSigCommand";
@@ -27,7 +27,7 @@ export function PoxCommands(
   wallets: Map<StxAddress, Wallet>,
   stackers: Map<StxAddress, Stacker>,
   network: Simnet,
-): fc.Arbitrary<Iterable<fc.Command<Stub, Real>>> {
+): fc.Arbitrary<PoxCommand>[] {
   const cmds = [
     // GetStackingMinimumCommand
     fc.record({
@@ -452,9 +452,7 @@ export function PoxCommands(
     ),
   ];
 
-  // More on size: https://github.com/dubzzz/fast-check/discussions/2978
-  // More on cmds: https://github.com/dubzzz/fast-check/discussions/3026
-  return fc.commands(cmds, { size: "xsmall" });
+  return cmds;
 }
 
 export const REWARD_CYCLE_LENGTH = 1050;
@@ -481,7 +479,7 @@ export const currentCycleFirstBlock = (network: Simnet) =>
     ).result,
   ));
 
-const nextCycleFirstBlock = (network: Simnet) =>
+export const nextCycleFirstBlock = (network: Simnet) =>
   Number(cvToValue(
     network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",

@@ -1,6 +1,4 @@
 import {
-  hasLockedStackers,
-  isATCAboveThreshold,
   logCommand,
   PoxCommand,
   Real,
@@ -13,60 +11,44 @@ import { Cl } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
 import { tx } from "@hirosystems/clarinet-sdk";
 
-/**
- * The `StackAggregationCommitAuthCommand` allows an operator to commit
- * partially stacked STX & to allocate a new PoX reward address slot.
- * This allows a stacker to lock fewer STX than the minimal threshold
- * in multiple transactions, so long as:
- *  1. The pox-addr is the same.
- *  2. The "commit" transaction is called _before_ the PoX anchor block.
- *
- * This command calls stack-aggregation-commit using an `authorization`.
- *
- * Constraints for running this command include:
- * - The Operator must have locked STX on behalf of at least one stacker.
- * - The total amount previously locked by the Operator on behalf of the
- *   stackers has to be greater than the uSTX threshold.
- */
-export class StackAggregationCommitAuthCommand implements PoxCommand {
+type CheckFunc = (
+  this: StackAggregationCommitAuthCommand_Err,
+  model: Readonly<Stub>,
+) => boolean;
+
+export class StackAggregationCommitAuthCommand_Err implements PoxCommand {
   readonly operator: Wallet;
   readonly authId: number;
+  readonly checkFunc: CheckFunc;
+  readonly errorCode: number;
 
   /**
-   * Constructs a `StackAggregationCommitAuthCommand` to commit partially
+   * Constructs a `StackAggregationCommitAuthCommand_Err` to commit partially 
    * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.
+   * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
   constructor(
     operator: Wallet,
     authId: number,
+    checkFunc: CheckFunc,
+    errorCode: number,
   ) {
     this.operator = operator;
     this.authId = authId;
+    this.checkFunc = checkFunc;
+    this.errorCode = errorCode;
   }
 
-  check(model: Readonly<Stub>): boolean {
-    // Constraints for running this command include:
-    // - The Operator must have locked STX on behalf of at least one stacker.
-    // - The total amount previously locked by the Operator on behalf of the
-    //   stackers has to be greater than the uSTX threshold.
-
-    const operator = model.stackers.get(this.operator.stxAddress)!;
-    return (
-      hasLockedStackers(operator) &&
-      isATCAboveThreshold(operator, model)
-    );
-  }
+  check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
     const currentRewCycle = currentCycle(real.network);
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const committedAmount = operatorWallet.amountToCommit;
-
-    // Act
 
     // Include the authorization and the `stack-aggregation-commit` transactions
     // in a single block. This way we ensure both the authorization and the
@@ -120,17 +102,13 @@ export class StackAggregationCommitAuthCommand implements PoxCommand {
 
     // Assert
     expect(block[0].result).toBeOk(Cl.bool(true));
-    expect(block[1].result).toBeOk(Cl.bool(true));
-
-    operatorWallet.amountToCommit -= committedAmount;
-    operatorWallet.committedRewCycleIndexes.push(model.nextRewardSetIndex);
-    model.nextRewardSetIndex++;
+    expect(block[1].result).toBeErr(Cl.int(this.errorCode));
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.operator.label}`,
+      `✗ ${this.operator.label}`,
       "stack-agg-commit",
       "amount committed",
       committedAmount.toString(),

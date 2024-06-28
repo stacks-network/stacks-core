@@ -1,7 +1,4 @@
 import {
-  hasLockedStackers,
-  isATCPositive,
-  isPositive,
   logCommand,
   PoxCommand,
   Real,
@@ -14,59 +11,45 @@ import { Cl, cvToJSON } from "@stacks/transactions";
 import { bufferFromHex } from "@stacks/transactions/dist/cl";
 import { currentCycle } from "./pox_Commands.ts";
 
-/**
- * The `StackAggregationIncreaseCommand` allows an operator to commit
- * partially stacked STX to a PoX address which has already received
- * some STX (more than the `stacking minimum`).
- * This allows a delegator to lock up marginally more STX from new
- * delegates, even if they collectively do not exceed the Stacking
- * minimum, so long as the target PoX address already represents at
- * least as many STX as the `stacking minimum`.
- * This command calls stack-aggregation-increase.
- *
- * Constraints for running this command include:
- * - The Operator must have locked STX on behalf of at least one stacker.
- * - The PoX address must have partial committed STX.
- * - The Reward Cycle Index must be positive.
- */
-export class StackAggregationIncreaseCommand implements PoxCommand {
+type CheckFunc = (
+  this: StackAggregationIncreaseCommand_Err,
+  model: Readonly<Stub>,
+) => boolean;
+
+export class StackAggregationIncreaseCommand_Err implements PoxCommand {
   readonly operator: Wallet;
   readonly rewardCycleIndex: number;
   readonly authId: number;
+  readonly checkFunc: CheckFunc;
+  readonly errorCode: number;
 
   /**
-   * Constructs a `StackAggregationIncreaseCommand` to commit partially
+   * Constructs a `StackAggregationIncreaseCommand_Err` to commit partially
    * stacked STX to a PoX address which has already received some STX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param rewardCycleIndex - The cycle index to increase the commit for.
    * @param authId - Unique `auth-id` for the authorization.
+   * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
   constructor(
     operator: Wallet,
     rewardCycleIndex: number,
     authId: number,
+    checkFunc: CheckFunc,
+    errorCode: number,
   ) {
     this.operator = operator;
     this.rewardCycleIndex = rewardCycleIndex;
     this.authId = authId;
+    this.checkFunc = checkFunc;
+    this.errorCode = errorCode;
   }
 
-  check(model: Readonly<Stub>): boolean {
-    // Constraints for running this command include:
-    // - The Operator must have locked STX on behalf of at least one stacker.
-    // - The PoX address must have partial committed STX.
-    // - The Reward Cycle Index must be positive.
-    const operator = model.stackers.get(this.operator.stxAddress)!;
-    return (
-      hasLockedStackers(operator) &&
-      isPositive(this.rewardCycleIndex) &&
-      isATCPositive(operator)
-    );
-  }
+  check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
     const currentRewCycle = currentCycle(real.network);
 
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
@@ -76,7 +59,7 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
       "ST000000000000000000002AMW42H.pox-4",
       "reward-cycle-pox-address-list",
       Cl.tuple({
-        "index": Cl.uint(this.rewardCycleIndex),
+        index: Cl.uint(this.rewardCycleIndex),
         "reward-cycle": Cl.uint(currentRewCycle + 1),
       }),
     );
@@ -133,15 +116,13 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     );
 
     // Assert
-    expect(stackAggregationIncrease.result).toBeOk(Cl.bool(true));
-
-    operatorWallet.amountToCommit -= committedAmount;
+    expect(stackAggregationIncrease.result).toBeErr(Cl.int(this.errorCode));
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.operator.label}`,
+      `✗ ${this.operator.label}`,
       "stack-agg-increase",
       "amount committed",
       committedAmount.toString(),

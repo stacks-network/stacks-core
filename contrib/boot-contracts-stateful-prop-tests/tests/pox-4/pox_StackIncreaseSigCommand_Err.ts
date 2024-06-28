@@ -1,18 +1,5 @@
 import { Pox4SignatureTopic } from "@stacks/stacking";
-import {
-  isAmountLockedPositive,
-  isIncreaseAmountGTZero,
-  isIncreaseByWithinUnlockedBalance,
-  isDelegating,
-  isStacking,
-  isStackingSolo,
-  isStackingMinimumCalculated,
-  logCommand,
-  PoxCommand,
-  Real,
-  Stub,
-  Wallet,
-} from "./pox_CommandModel";
+import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
 import {
   Cl,
   ClarityType,
@@ -23,62 +10,44 @@ import {
 } from "@stacks/transactions";
 import { assert, expect } from "vitest";
 
-/**
- * The `StackIncreaseSigCommand` locks up an additional amount
- * of STX from `tx-sender`'s, indicated by `increase-by`.
- *
- * This command calls `stack-increase` using a `signature`.
- *
- * Constraints for running this command include:
- * - The Stacker must have locked uSTX.
- * - The Stacker must be stacking solo.
- * - The Stacker must not have delegated to a pool.
- * - The increase amount must be less than or equal to the
- *   Stacker's unlocked uSTX amount.
- * - The increase amount must be equal or greater than 1.
- */
-export class StackIncreaseSigCommand implements PoxCommand {
+type CheckFunc = (
+  this: StackIncreaseSigCommand_Err,
+  model: Readonly<Stub>,
+) => boolean;
+
+export class StackIncreaseSigCommand_Err implements PoxCommand {
   readonly wallet: Wallet;
   readonly increaseBy: number;
   readonly authId: number;
+  readonly checkFunc: CheckFunc;
+  readonly errorCode: number;
 
   /**
-   * Constructs a `StackIncreaseSigCommand` to increase the locked uSTX amount.
+   * Constructs a `StackIncreaseSigCommand_Err` to increase the locked uSTX amount.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param increaseBy - Represents the locked amount to be increased by.
    * @param authId - Unique auth-id for the authorization.
+   * @param checkFunc - A function to check constraints for running this command.
+   * @param errorCode - The expected error code when running this command.
    */
-  constructor(wallet: Wallet, increaseBy: number, authId: number) {
+  constructor(
+    wallet: Wallet,
+    increaseBy: number,
+    authId: number,
+    checkFunc: CheckFunc,
+    errorCode: number,
+  ) {
     this.wallet = wallet;
     this.increaseBy = increaseBy;
     this.authId = authId;
+    this.checkFunc = checkFunc;
+    this.errorCode = errorCode;
   }
 
-  check(model: Readonly<Stub>): boolean {
-    // Constraints for running this command include:
-    // - The Stacker must have locked uSTX.
-    // - The Stacker must be stacking solo.
-    // - The Stacker must not have delegated to a pool.
-    // - The increse amount must be less than or equal to the
-    //   Stacker's unlocked uSTX amount.
-    // - The increase amount must be equal or greater than 1.
-    const stacker = model.stackers.get(this.wallet.stxAddress)!;
-
-    return (
-      isStackingMinimumCalculated(model) &&
-      isStacking(stacker) &&
-      isStackingSolo(stacker) &&
-      !isDelegating(stacker) &&
-      isAmountLockedPositive(stacker) &&
-      isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) &&
-      isIncreaseAmountGTZero(this.increaseBy)
-    );
-  }
+  check = (model: Readonly<Stub>): boolean => this.checkFunc.call(this, model);
 
   run(model: Stub, real: Real): void {
-    model.trackCommandRun(this.constructor.name);
-
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
     const maxAmount = stacker.amountLocked + this.increaseBy;
@@ -149,24 +118,13 @@ export class StackIncreaseSigCommand implements PoxCommand {
       this.wallet.stxAddress,
     );
 
-    expect(stackIncrease.result).toBeOk(
-      Cl.tuple({
-        stacker: Cl.principal(this.wallet.stxAddress),
-        "total-locked": Cl.uint(stacker.amountLocked + this.increaseBy),
-      }),
-    );
-
-    // Get the wallet from the model and update it with the new state.
-    const wallet = model.stackers.get(this.wallet.stxAddress)!;
-    // Update model so that we know this wallet's locked amount and unlocked amount was extended.
-    wallet.amountLocked += this.increaseBy;
-    wallet.amountUnlocked -= this.increaseBy;
+    expect(stackIncrease.result).toBeErr(Cl.int(this.errorCode));
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.
     logCommand(
       `₿ ${model.burnBlockHeight}`,
-      `✓ ${this.wallet.label}`,
+      `✗ ${this.wallet.label}`,
       "stack-increase-sig",
       "increase-by",
       this.increaseBy.toString(),

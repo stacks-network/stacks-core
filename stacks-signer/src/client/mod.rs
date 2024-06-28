@@ -382,6 +382,7 @@ pub(crate) mod tests {
             unanchored_tip: None,
             unanchored_seq: Some(0),
             exit_at_block_height: None,
+            is_fully_synced: false,
             genesis_chainstate_hash: Sha256Sum::zero(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),

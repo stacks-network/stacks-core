@@ -1,4 +1,7 @@
 import {
+  isDelegating,
+  isStackingMinimumCalculated,
+  isUBHWithinDelegationLimit,
   logCommand,
   PoxCommand,
   Real,
@@ -21,7 +24,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
 
   /**
-   * Constructs a RevokeDelegateStxCommand to revoke delegate uSTX for stacking.
+   * Constructs a `RevokeDelegateStxCommand` to revoke a stacking delegation.
    *
    * @param wallet - Represents the Stacker's wallet.
    */
@@ -34,11 +37,11 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     // - The Stacker has to currently be delegating.
     // - The Stacker's delegation must not be expired.
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
+
     return (
-      model.stackingMinimum > 0 &&
-      stacker.hasDelegated === true &&
-      (stacker.delegatedUntilBurnHt === undefined ||
-        stacker.delegatedUntilBurnHt > model.burnBlockHeight)
+      isStackingMinimumCalculated(model) &&
+      isDelegating(stacker) &&
+      isUBHWithinDelegationLimit(stacker, model.burnBlockHeight)
     );
   }
 
@@ -80,7 +83,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     // Update model so that we know this wallet is not delegating anymore.
     // This is important in order to prevent the test from revoking the
     // delegation multiple times with the same address.
-    // We update delegatedUntilBurnHt to 0, and not undefined. Undefined 
+    // We update delegatedUntilBurnHt to 0, and not undefined. Undefined
     // stands for indefinite delegation.
     wallet.hasDelegated = false;
     wallet.delegatedTo = "";
