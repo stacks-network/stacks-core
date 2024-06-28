@@ -7,7 +7,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
-use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
@@ -257,7 +257,7 @@ impl BurnStateDB for UnitTestBurnStateDB {
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
+            network_epoch: 0,
         })
     }
 
