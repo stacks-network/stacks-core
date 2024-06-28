@@ -3429,6 +3429,14 @@ pub mod test {
             self.next_burnchain_block(vec![])
         }
 
+        pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+            let result = self.next_burnchain_block(burn_ops);
+            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            self.miner.block_commits.pop();
+            result
+        }
+
         pub fn mempool(&mut self) -> &mut MemPoolDB {
             self.mempool.as_mut().unwrap()
         }
