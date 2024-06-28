@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
-use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, ValidateRejectCode};
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
@@ -280,8 +280,8 @@ impl Signer {
                 .ok();
         }
 
-        // If we have sortition state, run some additional checks
-        if let Some(sortition_state) = sortition_state {
+        // Check if proposal can be rejected now if not valid agains sortition view
+        let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
                 stacks_client,
                 &self.signer_db,
@@ -289,11 +289,17 @@ impl Signer {
                 miner_pubkey,
             ) {
                 // Error validating block
-                Err(e) => warn!(
-                    "{self}: Error checking block proposal: {e:?}";
-                    "signer_sighash" => %signer_signature_hash,
-                    "block_id" => %block_proposal.block.block_id(),
-                ),
+                Err(e) => {
+                    warn!(
+                        "{self}: Error checking block proposal: {e:?}";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %block_proposal.block.block_id(),
+                    );
+                    Some(BlockResponse::rejected(
+                        block_proposal.block.header.signer_signature_hash(),
+                        RejectCode::ConnectivityIssues,
+                    ))
+                }
                 // Block proposal is bad
                 Ok(false) => {
                     warn!(
@@ -301,25 +307,48 @@ impl Signer {
                         "signer_sighash" => %signer_signature_hash,
                         "block_id" => %block_proposal.block.block_id(),
                     );
-                    block_info.valid = Some(false);
+                    Some(BlockResponse::rejected(
+                        block_proposal.block.header.signer_signature_hash(),
+                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                    ))
                 }
                 // Block proposal passed check, still don't know if valid
-                Ok(true) => {}
+                Ok(true) => None,
             }
         } else {
             warn!(
                 "{self}: Cannot validate block, no sortition view";
                 "signer_sighash" => %signer_signature_hash,
                 "block_id" => %block_proposal.block.block_id(),
-            )
+            );
+            Some(BlockResponse::rejected(
+                block_proposal.block.header.signer_signature_hash(),
+                RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            ))
         };
 
-        // This is an expensive call, skip if we already know if block is valid
-        if block_info.valid.is_none() {
+        if let Some(block_response) = block_response {
+            // We know proposal is invalid. Send rejection message, do not do further validation
+            block_info.valid = Some(false);
+            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
+            let res = self
+                .stackerdb
+                .send_message_with_retry::<SignerMessage>(block_response.into());
+
+            match res {
+                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
+                Ok(ack) if !ack.accepted => warn!(
+                    "{self}: Block rejection not accepted by stacker-db: {:?}",
+                    ack.reason
+                ),
+                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
+            }
+        } else {
+            // We don't know if proposal is valid, submit to stacks-node for further checks
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to submit block for validation: {e:?}",);
+                    warn!("{self}: Failed to submit block for validation: {e:?}");
                 });
         }
 
