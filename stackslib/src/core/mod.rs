@@ -63,7 +63,7 @@ pub const PEER_VERSION_EPOCH_3_0: u8 = 0x0b;
 
 // this should be updated to the latest network epoch version supported by
 //  this node. this will be checked by the `validate_epochs()` method.
-pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_5 as u32;
+pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_0 as u32;
 
 // set the fourth byte of the peer version
 pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
@@ -193,7 +193,8 @@ pub const POX_V3_MAINNET_EARLY_UNLOCK_HEIGHT: u32 =
 pub const POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
     (BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT as u32) + 1;
 
-// The threshold % of weighted votes on a block to approve it in Nakamoto
+// The threshold of weighted votes on a block to approve it in Nakamoto.
+// This is out of 10, so 7 means "70%".
 pub const NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD: u64 = 7;
 
 /// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
