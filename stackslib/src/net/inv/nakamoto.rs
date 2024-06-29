@@ -17,11 +17,12 @@
 use std::collections::{BTreeMap, HashMap};
 
 use stacks_common::bitvec::BitVec;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -76,18 +77,18 @@ impl InvTenureInfo {
     /// (i.e. it was a BlockFound tenure, not an Extension tenure)
     pub fn load(
         chainstate: &StacksChainState,
-        consensus_hash: &ConsensusHash,
+        tip_block_id: &StacksBlockId,
+        tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        Ok(
-            NakamotoChainState::get_highest_nakamoto_tenure_change_by_tenure_id(
-                chainstate.db(),
-                consensus_hash,
-            )?
-            .map(|tenure| Self {
-                tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
-                parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
-            }),
-        )
+        Ok(NakamotoChainState::get_block_found_tenure(
+            &mut chainstate.index_conn(),
+            tip_block_id,
+            tenure_id_consensus_hash,
+        )?
+        .map(|tenure| Self {
+            tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
+            parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
+        }))
     }
 }
 
@@ -114,13 +115,15 @@ impl InvGenerator {
     fn get_processed_tenure(
         &mut self,
         chainstate: &StacksChainState,
+        tip_block_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
         if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
             return Ok((*info_opt).clone());
         };
         // not cached so go load it
-        let loaded_info_opt = InvTenureInfo::load(chainstate, &tenure_id_consensus_hash)?;
+        let loaded_info_opt =
+            InvTenureInfo::load(chainstate, tip_block_id, &tenure_id_consensus_hash)?;
         self.processed_tenures
             .insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
         Ok(loaded_info_opt)
@@ -148,6 +151,11 @@ impl InvGenerator {
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
         let ih = sortdb.index_handle(&tip.sortition_id);
+        let Some(nakamoto_tip) = ih.get_nakamoto_tip_block_id()? else {
+            // no Nakamoto tip? no inventory
+            return Ok(vec![]);
+        };
+
         let reward_cycle_end_height = sortdb
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle + 1)
@@ -163,7 +171,8 @@ impl InvGenerator {
         let mut cur_height = reward_cycle_end_tip.block_height;
         let mut cur_consensus_hash = reward_cycle_end_tip.consensus_hash;
 
-        let mut cur_tenure_opt = self.get_processed_tenure(chainstate, &cur_consensus_hash)?;
+        let mut cur_tenure_opt =
+            self.get_processed_tenure(chainstate, &nakamoto_tip, &cur_consensus_hash)?;
 
         // loop variables and invariants:
         //
@@ -219,6 +228,7 @@ impl InvGenerator {
                     tenure_status.push(true);
                     cur_tenure_opt = self.get_processed_tenure(
                         chainstate,
+                        &nakamoto_tip,
                         &cur_tenure_info.parent_tenure_id_consensus_hash,
                     )?;
                 } else {
@@ -229,8 +239,11 @@ impl InvGenerator {
                 // no active tenure during this sortition. Check the parent sortition to see if a
                 // tenure begain there.
                 tenure_status.push(false);
-                cur_tenure_opt =
-                    self.get_processed_tenure(chainstate, &parent_sortition_consensus_hash)?;
+                cur_tenure_opt = self.get_processed_tenure(
+                    chainstate,
+                    &nakamoto_tip,
+                    &parent_sortition_consensus_hash,
+                )?;
             }
 
             // next sortition
