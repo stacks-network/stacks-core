@@ -2389,6 +2389,7 @@ pub struct ConnectionOptionsFile {
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
     pub block_proposal_token: Option<String>,
+    pub antientropy_retry: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -2420,6 +2421,7 @@ impl ConnectionOptionsFile {
         self.read_only_call_limit_runtime.map(|x| {
             read_only_call_limit.runtime = x;
         });
+        let default = ConnectionOptions::default();
         Ok(ConnectionOptions {
             read_only_call_limit,
             inbox_maxlen: self
@@ -2513,7 +2515,8 @@ impl ConnectionOptionsFile {
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
             block_proposal_token: self.block_proposal_token,
-            ..ConnectionOptions::default()
+            antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
+            ..default
         })
     }
 }
