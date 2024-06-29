@@ -34,6 +34,7 @@ use crate::chainstate::nakamoto::coordinator::tests::{
     simple_nakamoto_coordinator_10_tenures_10_sortitions,
     simple_nakamoto_coordinator_2_tenures_3_sortitions,
 };
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
@@ -406,11 +407,18 @@ pub fn make_nakamoto_peers_from_invs<'a>(
         }
     }
 
+    // make malleablized blocks
+    let (test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
+
     let plan = NakamotoBootPlan::new(test_name)
         .with_private_key(private_key)
         .with_pox_constants(rc_len, prepare_len)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])
-        .with_extra_peers(num_peers);
+        .with_extra_peers(num_peers)
+        .with_test_signers(test_signers)
+        .with_test_stackers(test_stackers);
 
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
     (peer, other_peers)
