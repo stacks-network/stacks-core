@@ -412,16 +412,21 @@ impl RelayerThread {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
-        let parent_vrf_proof =
-            NakamotoChainState::get_block_vrf_proof(self.chainstate.db(), &target_ch)
-                .map_err(|_e| NakamotoNodeError::ParentNotFound)?
-                .unwrap_or_else(|| VRFProof::empty());
+        let block_id = StacksBlockId::new(target_ch, target_bh);
+        let parent_vrf_proof = NakamotoChainState::get_block_vrf_proof(
+            &mut self.chainstate.index_conn(),
+            &block_id,
+            &target_ch,
+        )
+        .map_err(|_e| NakamotoNodeError::ParentNotFound)?
+        .unwrap_or_else(|| VRFProof::empty());
 
         // let's figure out the recipient set!
         let recipients = get_nakamoto_next_recipients(
             &sort_tip,
             &mut self.sortdb,
             &mut self.chainstate,
+            &block_id,
             &self.burnchain,
         )
         .map_err(|e| {
@@ -429,16 +434,19 @@ impl RelayerThread {
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
-        let block_header =
-            NakamotoChainState::get_block_header_by_consensus_hash(self.chainstate.db(), target_ch)
-                .map_err(|e| {
-                    error!("Relayer: Failed to get block header for parent tenure: {e:?}");
-                    NakamotoNodeError::ParentNotFound
-                })?
-                .ok_or_else(|| {
-                    error!("Relayer: Failed to find block header for parent tenure");
-                    NakamotoNodeError::ParentNotFound
-                })?;
+        let block_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut self.chainstate.index_conn(),
+            &block_id,
+            &target_ch,
+        )
+        .map_err(|e| {
+            error!("Relayer: Failed to get block header for parent tenure: {e:?}");
+            NakamotoNodeError::ParentNotFound
+        })?
+        .ok_or_else(|| {
+            error!("Relayer: Failed to find block header for parent tenure");
+            NakamotoNodeError::ParentNotFound
+        })?;
 
         let parent_block_id = block_header.index_block_hash();
         if parent_block_id != StacksBlockId::new(target_ch, target_bh) {
@@ -797,11 +805,8 @@ impl RelayerThread {
         #[cfg(test)]
         {
             if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-                //if let Some((last_committed, ..)) = self.last_committed.as_ref() {
-                //    if last_committed.consensus_hash == last_committed_at.consensus_hash {
                 warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
                 return Ok(());
-                //}
             }
         }
         let mut op_signer = self.keychain.generate_op_signer();
@@ -883,18 +888,31 @@ impl RelayerThread {
             ));
         };
 
+        debug!(
+            "Relayer: canonical block header is {}/{} ({})",
+            &chain_tip_header.consensus_hash,
+            &chain_tip_header.anchored_header.block_hash(),
+            &chain_tip_header.index_block_hash()
+        );
+
         // get the starting block of the chain tip's tenure
-        let Ok(Some(chain_tip_tenure_start)) =
-            NakamotoChainState::get_block_header_by_consensus_hash(
-                self.chainstate.db(),
-                &chain_tip_header.consensus_hash,
-            )
-        else {
+        let Ok(Some(chain_tip_tenure_start)) = NakamotoChainState::get_tenure_start_block_header(
+            &mut self.chainstate.index_conn(),
+            &chain_tip_header.index_block_hash(),
+            &chain_tip_header.consensus_hash,
+        ) else {
             warn!("Failure getting the first block of tenure in order to assemble block commit";
                   "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
                   "tip_block_hash" => %chain_tip_header.anchored_header.block_hash());
             return None;
         };
+
+        debug!(
+            "Relayer: tenure-start block header is {}/{} ({})",
+            &chain_tip_tenure_start.consensus_hash,
+            &chain_tip_tenure_start.anchored_header.block_hash(),
+            &chain_tip_tenure_start.index_block_hash()
+        );
 
         let chain_tip_tenure_id = chain_tip_tenure_start.index_block_hash();
         let should_commit = burnchain_changed
