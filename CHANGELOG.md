@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
 ## [2.5.0.0.4]
+### Added
+- Added configuration option `connections.antientropy_retry` (#4932)
+### Changed
+- Set default antientropy_rety to run once per hour
+
+
+## [2.5.0.0.4]
 
 ### Added
 
