@@ -517,6 +517,10 @@ impl Relayer {
         Relayer::new(handle, network.connection_opts.clone(), stacker_dbs)
     }
 
+    pub fn get_p2p_handle(&self) -> NetworkHandle {
+        self.p2p.clone()
+    }
+
     /// Given Stacks 2.x blocks pushed to us, verify that they correspond to expected block data.
     pub fn validate_blocks_push(
         conn: &SortitionDBConn,
