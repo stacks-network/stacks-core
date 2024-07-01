@@ -560,12 +560,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         // we can request the highest-complete tenure
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
-        let ntd = utd
-            .make_highest_complete_tenure_downloader(
-                &highest_confirmed_wanted_tenure,
-                &unconfirmed_wanted_tenure,
-            )
-            .unwrap();
+        let ntd = utd.make_highest_complete_tenure_downloader().unwrap();
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
@@ -663,12 +658,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         // we can request the highest-complete tenure
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
-        let ntd = utd
-            .make_highest_complete_tenure_downloader(
-                &highest_confirmed_wanted_tenure,
-                &unconfirmed_wanted_tenure,
-            )
-            .unwrap();
+        let ntd = utd.make_highest_complete_tenure_downloader().unwrap();
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
@@ -768,12 +758,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         // we can request the highest-complete tenure
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
-        let ntd = utd
-            .make_highest_complete_tenure_downloader(
-                &highest_confirmed_wanted_tenure,
-                &unconfirmed_wanted_tenure,
-            )
-            .unwrap();
+        let ntd = utd.make_highest_complete_tenure_downloader().unwrap();
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
@@ -850,12 +835,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         // we can request the highest-complete tenure
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
-        let ntd = utd
-            .make_highest_complete_tenure_downloader(
-                &highest_confirmed_wanted_tenure,
-                &unconfirmed_wanted_tenure,
-            )
-            .unwrap();
+        let ntd = utd.make_highest_complete_tenure_downloader().unwrap();
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
@@ -995,12 +975,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         // we can request the highest-complete tenure
         assert!(!utd.need_highest_complete_tenure(peer.chainstate()).unwrap());
 
-        let ntd = utd
-            .make_highest_complete_tenure_downloader(
-                &highest_confirmed_wanted_tenure,
-                &unconfirmed_wanted_tenure,
-            )
-            .unwrap();
+        let ntd = utd.make_highest_complete_tenure_downloader().unwrap();
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
