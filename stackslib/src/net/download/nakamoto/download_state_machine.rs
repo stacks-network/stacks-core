@@ -1382,13 +1382,11 @@ impl NakamotoDownloadStateMachine {
         sortdb: &SortitionDB,
         sort_tip: &BlockSnapshot,
         chainstate: &StacksChainState,
-        highest_complete_tenure: &WantedTenure,
-        unconfirmed_tenure: &WantedTenure,
     ) -> (
         HashMap<NeighborAddress, Vec<NakamotoBlock>>,
         HashMap<NeighborAddress, NakamotoTenureDownloader>,
     ) {
-        test_debug!("Run unconfirmed tenure downloaders from highest-complete tenure {:?} to unconfirmed tenure {:?}", highest_complete_tenure, unconfirmed_tenure);
+        test_debug!("Run unconfirmed tenure downloaders");
 
         let addrs: Vec<_> = downloaders.keys().map(|addr| addr.clone()).collect();
         let mut finished = vec![];
@@ -1485,10 +1483,7 @@ impl NakamotoDownloadStateMachine {
                 .unwrap_or(false)
             {
                 if let Some(highest_complete_tenure_downloader) = downloader
-                    .make_highest_complete_tenure_downloader(
-                        highest_complete_tenure,
-                        unconfirmed_tenure,
-                    )
+                    .make_highest_complete_tenure_downloader()
                     .map_err(|e| {
                         warn!(
                             "Failed to make highest complete tenure downloader for {:?}: {:?}",
@@ -1590,71 +1585,6 @@ impl NakamotoDownloadStateMachine {
         // run all unconfirmed downloaders, and start confirmed downloaders for the
         // highest complete tenure
         let burnchain_tip = network.burnchain_tip.clone();
-        let Some(unconfirmed_tenure) = self
-            .wanted_tenures
-            .last()
-            .map(|wt| Some(wt.clone()))
-            .unwrap_or_else(|| {
-                // unconfirmed tenure is the last tenure in prev_wanted_tenures if
-                // wanted_tenures.len() is 0
-                let prev_wanted_tenures = self.prev_wanted_tenures.as_ref()?;
-                let wt = prev_wanted_tenures.last()?;
-                Some(wt.clone())
-            })
-        else {
-            // not initialized yet (technically unrachable)
-            return HashMap::new();
-        };
-
-        // Get the highest WantedTenure.  This will be the WantedTenure whose winning block hash is
-        // the start block hash of the highest complete tenure, and whose consensus hash is the
-        // tenure ID of the ongoing tenure.  It corresponds to the highest sortition for which
-        // there exists a tenure.
-        //
-        // There are three possibilities for obtaining this, based on what we know about tenures
-        // from the sortition DB and the peers' inventories:
-        //
-        // Case 1: There are no sortitions yet in the current reward cycle, so this is the
-        // second-to-last WantedTenure in the last reward cycle's WantedTenure list.
-        //
-        // Case 2: There is one sortition in the current reward cycle, so this is the last
-        // WantedTenure in the last reward cycle's WantedTenure list
-        //
-        // Case 3: There are two or more sortitions in the current reward cycle, so this is the
-        // second-to-last WantedTenure in the current reward cycle's WantedTenure list.
-        let highest_wanted_tenure = if self.wanted_tenures.is_empty() {
-            // highest complete wanted tenure is the second-to-last tenure in prev_wanted_tenures
-            let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() else {
-                // not initialized yet (technically unrachable)
-                return HashMap::new();
-            };
-            if prev_wanted_tenures.len() < 2 {
-                return HashMap::new();
-            };
-            let Some(wt) = prev_wanted_tenures.get(prev_wanted_tenures.len().saturating_sub(2))
-            else {
-                return HashMap::new();
-            };
-            wt.clone()
-        } else if self.wanted_tenures.len() == 1 {
-            // highest complete tenure is the last tenure in prev_wanted_tenures
-            let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() else {
-                return HashMap::new();
-            };
-            let Some(wt) = prev_wanted_tenures.last() else {
-                return HashMap::new();
-            };
-            wt.clone()
-        } else {
-            // highest complete tenure is the second-to-last tenure in wanted_tenures
-            let Some(wt) = self
-                .wanted_tenures
-                .get(self.wanted_tenures.len().saturating_sub(2))
-            else {
-                return HashMap::new();
-            };
-            wt.clone()
-        };
 
         // Run the confirmed downloader state machine set, since we could already be processing the
         // highest complete tenure download.  NOTE: due to the way that we call this method, we're
@@ -1682,8 +1612,6 @@ impl NakamotoDownloadStateMachine {
                     sortdb,
                     &burnchain_tip,
                     chainstate,
-                    &highest_wanted_tenure,
-                    &unconfirmed_tenure,
                 )
             };
 
