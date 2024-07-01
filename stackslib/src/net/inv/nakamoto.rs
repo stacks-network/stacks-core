@@ -85,9 +85,16 @@ impl InvTenureInfo {
             tip_block_id,
             tenure_id_consensus_hash,
         )?
-        .map(|tenure| Self {
-            tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
-            parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
+        .map(|tenure| {
+            test_debug!("BlockFound tenure for {}", &tenure_id_consensus_hash);
+            Self {
+                tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
+                parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
+            }
+        })
+        .or_else(|| {
+            test_debug!("No BlockFound tenure for {}", &tenure_id_consensus_hash);
+            None
         }))
     }
 }
@@ -148,14 +155,12 @@ impl InvGenerator {
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        nakamoto_tip: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
         let ih = sortdb.index_handle(&tip.sortition_id);
-        let Some(nakamoto_tip) = ih.get_nakamoto_tip_block_id()? else {
-            // no Nakamoto tip? no inventory
-            return Ok(vec![]);
-        };
 
+        // N.B. reward_cycle_to_block_height starts at reward index 1
         let reward_cycle_end_height = sortdb
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle + 1)
