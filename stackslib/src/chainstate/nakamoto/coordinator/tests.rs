@@ -127,6 +127,7 @@ fn advance_to_nakamoto(
                     );
                     let signing_key =
                         StacksPublicKey::from_private(&test_stacker.signer_private_key);
+
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
