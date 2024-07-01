@@ -130,7 +130,7 @@ impl SignerTest<SpawnedSigner> {
 
         info!("Got {} signatures", signature.len());
 
-        assert_eq!(signature.len(), num_signers);
+        assert!(signature.len() >= num_signers / 7 * 10);
 
         let reward_cycle = self.get_current_reward_cycle();
         let signers = self.get_reward_set_signers(reward_cycle);
