@@ -2773,6 +2773,9 @@ pub mod test {
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
 
+            let old_parent_tip = self.network.parent_stacks_tip.clone();
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2784,6 +2787,10 @@ pub mod test {
                 100,
                 &RPCHandlerArgs::default(),
             );
+
+            if self.network.stacks_tip != old_tip {
+                assert_eq!(self.network.parent_stacks_tip, old_tip);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -2851,6 +2858,9 @@ pub mod test {
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
+            let old_parent_tip = self.network.parent_stacks_tip.clone();
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2863,6 +2873,10 @@ pub mod test {
                 &RPCHandlerArgs::default(),
             );
 
+            if self.network.stacks_tip != old_tip {
+                assert_eq!(self.network.parent_stacks_tip, old_tip);
+            }
+
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
@@ -2874,9 +2888,17 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+
+            let old_parent_tip = self.network.parent_stacks_tip.clone();
+            let old_tip = self.network.stacks_tip.clone();
+
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
+
+            if self.network.stacks_tip != old_tip {
+                assert_eq!(self.network.parent_stacks_tip, old_tip);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -3563,6 +3585,7 @@ pub mod test {
                 SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let burnchain = self.config.burnchain.clone();
+
             let (burn_ops, stacks_block, microblocks) = self.make_tenure(
                 |ref mut miner,
                  ref mut sortdb,
@@ -3613,6 +3636,14 @@ pub mod test {
             }
 
             self.refresh_burnchain_view();
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            assert_eq!(
+                self.network.stacks_tip.block_id(),
+                StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh)
+            );
+
             tip_id
         }
 
