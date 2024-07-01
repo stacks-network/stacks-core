@@ -63,6 +63,9 @@ use crate::net::{
 };
 use crate::util_lib::db::Error as DBError;
 
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_VALIDATE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
 //  type (in jsonschema terminology).
@@ -358,6 +361,24 @@ impl NakamotoBlockProposal {
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
             });
+        }
+
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block validation is stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+                while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Block validation is no longer stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+            }
         }
 
         info!(
