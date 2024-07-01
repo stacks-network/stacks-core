@@ -1611,6 +1611,7 @@ impl<'a> TestPeer<'a> {
     /// * get_coinbase_height
     /// * get_tenure_start_block_header
     /// * get_nakamoto_tenure_start_block_header
+    /// * get_highest_block_header_in_tenure
     /// * get_block_vrf_proof
     /// * get_nakamoto_tenure_vrf_proof
     /// * get_parent_vrf_proof
@@ -1712,6 +1713,35 @@ impl<'a> TestPeer<'a> {
                     .as_stacks_nakamoto()
                     .unwrap()
             );
+        }
+
+        // get highest block header in tenure
+        if tenure_start_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                &block.header,
+                NakamotoChainState::get_highest_block_header_in_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id(),
+                    &block.header.consensus_hash
+                )
+                .unwrap()
+                .unwrap()
+                .anchored_header
+                .as_stacks_nakamoto()
+                .unwrap()
+            )
+        } else {
+            assert!(NakamotoChainState::get_highest_block_header_in_tenure(
+                &mut chainstate.index_conn(),
+                &block.block_id(),
+                &block.header.consensus_hash
+            )
+            .unwrap()
+            .is_none())
         }
 
         // get_block_vrf_proof
